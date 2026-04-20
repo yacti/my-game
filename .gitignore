@@ -1,0 +1,15 @@
+# Project place file
+/my-game.rbxlx
+
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+# Rojo generated
+sourcemap.json
+
+# macOS
+.DS_Store
+
+# Claude Code per-user settings (tool permissions etc.)
+.claude/settings.local.json
