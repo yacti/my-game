@@ -1,10 +1,10 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Balance = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 
-local PetTemplates  = ReplicatedStorage:WaitForChild("Pets")
-local FeedTemplates = ReplicatedStorage:WaitForChild("FeedMachines")
+local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
 
 local FLOOR_MARGIN = 8
 
@@ -78,6 +78,8 @@ function PlotService.GetSortedPets(plot)
 	return pets
 end
 
+-- Returns all FeedMachine parts on the plot, sorted by FeedIndex (which is
+-- assigned per-plot and matches the placement array index in profile data).
 function PlotService.GetSortedFeeds(plot)
 	local feeds = {}
 	for _, obj in pairs(plot:GetDescendants()) do
@@ -86,8 +88,6 @@ function PlotService.GetSortedFeeds(plot)
 		end
 	end
 	table.sort(feeds, function(a, b)
-		local ta, tb = a:GetAttribute("FeedType"), b:GetAttribute("FeedType")
-		if ta ~= tb then return ta < tb end
 		return (a:GetAttribute("FeedIndex") or 0) < (b:GetAttribute("FeedIndex") or 0)
 	end)
 	return feeds
@@ -185,8 +185,8 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 	local baseY = floor.Position.Y + floor.Size.Y / 2
 
 	for i, rec in ipairs(placements) do
-		local feedType = rec.type or "Feed1"
-		local template = FeedTemplates:FindFirstChild(feedType)
+		local feedType = rec.type or "Timed1"
+		local template = FeedMachines.GetTemplate(feedType)
 		if not template then
 			warn("[PlotService] No feed template: " .. feedType)
 			continue
@@ -201,6 +201,32 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		clone.CFrame = CFrame.new(px, py, pz) * CFrame.Angles(0, rec.rotY or 0, 0)
 		clone.Parent = plot
 	end
+end
+
+-- Spawns a single FeedMachine part on the plot at the given CFrame. Used by
+-- the PlaceFeedMachine remote. Returns the new part with FeedType and
+-- FeedIndex set, parented to the plot.
+function PlotService.PlaceFeed(plot, feedType, cframe)
+	local template = FeedMachines.GetTemplate(feedType)
+	if not template then
+		warn("[PlotService] No feed template: " .. tostring(feedType))
+		return nil
+	end
+
+	local clone = template:Clone()
+	clone:SetAttribute("FeedType", feedType)
+
+	local maxIndex = 0
+	for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
+		local idx = f:GetAttribute("FeedIndex") or 0
+		if idx > maxIndex then maxIndex = idx end
+	end
+	clone:SetAttribute("FeedIndex", maxIndex + 1)
+
+	clone.Anchored = true
+	clone.CFrame   = cframe
+	clone.Parent   = plot
+	return clone
 end
 
 function PlotService.DestroyPets(plot)

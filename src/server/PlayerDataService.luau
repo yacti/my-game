@@ -9,14 +9,14 @@ local function defaultData()
 			{ type = "Pet1", xp = 0, money = 0 },
 		},
 		FeedPlacements = {},
-		FeedInventory  = { Feed1 = 1 },
+		FeedInventory  = { Clicker1 = 1, Timed1 = 1, Processor1 = 1 },
+		FoodInventory  = {},          -- { [FoodType] = count }
 		Currency       = 0,
 		LastSeen       = 0,
-		Apples         = 0,
 	}
 end
 
-local PROFILE_STORE = ProfileService.GetProfileStore("PlayerData_v5", defaultData())
+local PROFILE_STORE = ProfileService.GetProfileStore("PlayerData_v7", defaultData())
 
 local profiles = {}
 
@@ -50,7 +50,7 @@ function PlayerDataService.LoadPlayerAsync(player)
 	local totalFeeds = #profile.Data.FeedPlacements
 	for _, n in pairs(profile.Data.FeedInventory) do totalFeeds += n end
 	if totalFeeds == 0 then
-		profile.Data.FeedInventory = { Feed1 = 1 }
+		profile.Data.FeedInventory = { Clicker1 = 1, Timed1 = 1, Processor1 = 1 }
 	end
 
 	profiles[player] = profile

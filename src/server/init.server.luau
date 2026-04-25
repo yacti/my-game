@@ -1,86 +1,36 @@
-print("[Server] v7 loaded — pet XP + evolution system")
+print("[Server] v8 loaded — pet XP + classed feed machines")
 
 local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Workspace           = game:GetService("Workspace")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 
 local Server            = ServerScriptService:WaitForChild("Server")
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
-local Balance           = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 
-local Remotes          = ReplicatedStorage:WaitForChild("Remotes")
-local CurrencyUpdated  = Remotes:WaitForChild("CurrencyUpdated")
-local PlaceFeedMachine = Remotes:WaitForChild("PlaceFeedMachine")
+local Shared   = ReplicatedStorage:WaitForChild("Shared")
+local Balance  = require(Shared:WaitForChild("Balance"))
+local Remotes  = require(Shared:WaitForChild("Remotes"))
+local State    = require(Shared:WaitForChild("State"))
+local Food     = require(Shared:WaitForChild("Food"))
 
-local FoodFolder = ReplicatedStorage:WaitForChild("Food")
-local AppleTemplate = FoodFolder:WaitForChild("Apple")
-
-local UIFolder             = ReplicatedStorage:WaitForChild("UI")
-local MoneyBillboardTemplate = UIFolder:WaitForChild("PetMoneyBillboard")
-local XPBillboardTemplate    = UIFolder:WaitForChild("PetXPBillboard")
-
-local MAX_APPLES_PER_FEED = 5
+local CurrencyUpdated  = Remotes.get("CurrencyUpdated")
+local PlaceFeedMachine = Remotes.get("PlaceFeedMachine")
 
 local petConnections = {}
 
 -- ── Tool factories ────────────────────────────────────────────────────────────
 
-local function makeAppleTool()
-	local tool              = Instance.new("Tool")
-	tool.Name               = "Apple"
-	tool.RequiresHandle     = true
-
-	local handle            = AppleTemplate:Clone()
-	handle.Name             = "Handle"
-	handle.Anchored         = false
-	handle.CanCollide       = true
-	handle.Massless         = true
-	handle.Parent           = tool
-
-	local xp = AppleTemplate:GetAttribute("XP") or 1
-	tool:SetAttribute("XP", xp)
-	return tool
-end
-
 local function makeFeedTool(feedType)
 	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
-	tool.Name = "FeedMachine"
-	if feedType then tool:SetAttribute("FeedType", feedType) end
+	tool.Name = feedType
+	tool:SetAttribute(State.Feed.Type, feedType)
 	return tool
 end
 
--- ── Apple helpers ─────────────────────────────────────────────────────────────
-
-local function countPlayerApples(player)
-	local count = 0
-	for _, item in pairs(player.Backpack:GetChildren()) do
-		if item.Name == "Apple" then count += 1 end
-	end
-	if player.Character then
-		local equipped = player.Character:FindFirstChildWhichIsA("Tool")
-		if equipped and equipped.Name == "Apple" then count += 1 end
-	end
-	return count
-end
-
-local function countPlotApples(plotName)
-	local count = 0
-	for _, obj in pairs(Workspace:GetChildren()) do
-		if obj:IsA("Tool") and obj.Name == "Apple" and obj:GetAttribute("Plot") == plotName then
-			count += 1
-		end
-	end
-	return count
-end
-
-local function clearPlotApples(plotName)
-	for _, obj in pairs(Workspace:GetChildren()) do
-		if obj:IsA("Tool") and obj.Name == "Apple" and obj:GetAttribute("Plot") == plotName then
-			obj:Destroy()
-		end
-	end
+local function isFeedTool(item)
+	return item and item:IsA("Tool") and item:GetAttribute(State.Feed.Type) ~= nil
 end
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
@@ -91,11 +41,11 @@ end
 local function savePetsFromPlot(plot, profile)
 	local saved = {}
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-		local idx = pet:GetAttribute("PetIndex")
+		local idx = pet:GetAttribute(State.Pet.Index)
 		if idx then
 			local existing = profile.Data.Pets and profile.Data.Pets[idx] or nil
 			saved[idx] = {
-				type  = pet:GetAttribute("PetType") or (existing and existing.type) or "Pet1",
+				type  = pet:GetAttribute(State.Pet.Type) or (existing and existing.type) or "Pet1",
 				xp    = existing and existing.xp or 0,
 				money = existing and existing.money or 0,
 			}
@@ -112,81 +62,49 @@ local function saveFeedState(plot, player, profile)
 	if floor then
 		for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
 			local _, ry, _ = f.CFrame:ToEulerAnglesXYZ()
-			table.insert(placements, {
-				type = f:GetAttribute("FeedType") or "Feed1",
+			local rec = {
+				type = f:GetAttribute(State.Feed.Type) or "Timed1",
 				offX = f.Position.X - floor.Position.X,
 				offZ = f.Position.Z - floor.Position.Z,
 				rotY = ry,
-			})
+			}
+			-- Per-class extras (e.g. Processor queue). Merged shallow.
+			local extras = FeedMachines.Serialize(f)
+			if type(extras) == "table" then
+				for k, v in pairs(extras) do rec[k] = v end
+			end
+			table.insert(placements, rec)
 		end
 	end
 	profile.Data.FeedPlacements = placements
 
-	local inventory = {}
+	local feedInventory = {}
 	for _, item in pairs(player.Backpack:GetChildren()) do
-		if item.Name == "FeedMachine" then
-			local ft = item:GetAttribute("FeedType") or "Feed1"
-			inventory[ft] = (inventory[ft] or 0) + 1
+		if isFeedTool(item) then
+			local ft = item:GetAttribute(State.Feed.Type)
+			feedInventory[ft] = (feedInventory[ft] or 0) + 1
 		end
 	end
 	if player.Character then
 		local eq = player.Character:FindFirstChildWhichIsA("Tool")
-		if eq and eq.Name == "FeedMachine" then
-			local ft = eq:GetAttribute("FeedType") or "Feed1"
-			inventory[ft] = (inventory[ft] or 0) + 1
+		if isFeedTool(eq) then
+			local ft = eq:GetAttribute(State.Feed.Type)
+			feedInventory[ft] = (feedInventory[ft] or 0) + 1
 		end
 	end
-	profile.Data.FeedInventory = inventory
+	profile.Data.FeedInventory = feedInventory
+
+	profile.Data.FoodInventory = Food.CountByType(player)
 end
 
--- ── Billboards: money (above) + XP (below) ───────────────────────────────────
+-- ── Pet state replication ────────────────────────────────────────────────────
+-- Per-pet state is published as attributes on the pet Model. Clients subscribe
+-- via GetAttributeChangedSignal and render billboards locally (see
+-- src/client/ui/PetBillboards.luau). No UI is created server-side.
 
-local function formatMoney(amount)
-	return "$" .. math.floor(amount)
-end
-
-local function setupPetBillboards(pet, money, xp)
-	local primary = pet.PrimaryPart
-	if not primary then return end
-
-	local existingMoney = primary:FindFirstChild("PetMoneyBillboard")
-	if existingMoney then existingMoney:Destroy() end
-	local existingXP = primary:FindFirstChild("PetXPBillboard")
-	if existingXP then existingXP:Destroy() end
-
-	local moneyBB = MoneyBillboardTemplate:Clone()
-	moneyBB.Parent = primary
-	local moneyLbl = moneyBB:FindFirstChild("MoneyLabel")
-	if moneyLbl then moneyLbl.Text = formatMoney(money) end
-
-	local xpBB = XPBillboardTemplate:Clone()
-	xpBB.Parent = primary
-	local fill = xpBB:FindFirstChild("Background") and xpBB.Background:FindFirstChild("Fill")
-	local level = Balance.PetLevelFromType(pet:GetAttribute("PetType"))
-	if fill then
-		fill.Size = UDim2.new(Balance.XPProgress(xp or 0, level), 0, 1, 0)
-	end
-	xpBB.Enabled = level < Balance.MAX_PET_LEVEL
-end
-
-local function updateMoneyBillboard(pet, amount)
-	local primary = pet.PrimaryPart
-	if not primary then return end
-	local bb = primary:FindFirstChild("PetMoneyBillboard")
-	local lbl = bb and bb:FindFirstChild("MoneyLabel")
-	if lbl then lbl.Text = formatMoney(amount) end
-end
-
-local function updateXPBillboard(pet, xp)
-	local primary = pet.PrimaryPart
-	if not primary then return end
-	local bb = primary:FindFirstChild("PetXPBillboard")
-	if not bb then return end
-	local fill = bb:FindFirstChild("Background") and bb.Background:FindFirstChild("Fill")
-	if not fill then return end
-	local level = Balance.PetLevelFromType(pet:GetAttribute("PetType"))
-	fill.Size = UDim2.new(Balance.XPProgress(xp or 0, level), 0, 1, 0)
-	bb.Enabled = level < Balance.MAX_PET_LEVEL
+local function publishPetState(pet, money, xp)
+	pet:SetAttribute(State.Pet.Money, money or 0)
+	pet:SetAttribute(State.Pet.XP,    xp or 0)
 end
 
 -- ── Feed prompts + evolution ─────────────────────────────────────────────────
@@ -198,8 +116,8 @@ local function onPetEvolved(plot, player, profile, newPet)
 end
 
 local function tryEvolvePet(plot, pet, player, profile)
-	local idx = pet:GetAttribute("PetIndex")
-	local petType = pet:GetAttribute("PetType")
+	local idx = pet:GetAttribute(State.Pet.Index)
+	local petType = pet:GetAttribute(State.Pet.Type)
 	local petData = profile.Data.Pets[idx]
 	if not petData then return end
 
@@ -221,7 +139,7 @@ local function tryEvolvePet(plot, pet, player, profile)
 
 	local newPet = PlotService.ReplacePetAt(plot, pet, nextType, idx, 0)
 	if newPet then
-		setupPetBillboards(newPet, petData.money, 0)
+		publishPetState(newPet, petData.money, 0)
 		onPetEvolved(plot, player, profile, newPet)
 	end
 end
@@ -242,28 +160,24 @@ local function setupPetPrompt(plot, player, profile, pet)
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= player then return end
 
-		local apple = player.Backpack:FindFirstChild("Apple")
-		if not apple and player.Character then
-			local equipped = player.Character:FindFirstChildWhichIsA("Tool")
-			if equipped and equipped.Name == "Apple" then apple = equipped end
-		end
-		if not apple then return end
+		local food = Food.FindFirstInBackpack(player)
+		if not food then return end
 
-		local appleXP = apple:GetAttribute("XP") or 1
-		apple:Destroy()
+		local foodXP = food:GetAttribute(State.Food.XP) or 1
+		food:Destroy()
 
-		local idx = pet:GetAttribute("PetIndex")
+		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		if not petData then return end
 
-		local level = Balance.PetLevelFromType(pet:GetAttribute("PetType"))
+		local level = Balance.PetLevelFromType(pet:GetAttribute(State.Pet.Type))
 		if level >= Balance.MAX_PET_LEVEL then
 			return -- pet is maxed; ignore feed
 		end
 
-		petData.xp += appleXP
+		petData.xp += foodXP
 		PlotService.RescalePet(pet, petData.xp)
-		updateXPBillboard(pet, petData.xp)
+		pet:SetAttribute(State.Pet.XP, petData.xp)
 
 		if petData.xp >= Balance.XPToEvolve(level) then
 			tryEvolvePet(plot, pet, player, profile)
@@ -279,14 +193,14 @@ local function setupPetCollection(plot, player, profile, pet)
 	local conn = primary.Touched:Connect(function(hit)
 		local character = player.Character
 		if not character or not hit:IsDescendantOf(character) then return end
-		local idx = pet:GetAttribute("PetIndex")
+		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		if not petData then return end
 		local money = petData.money or 0
 		if money < 1 then return end
 		profile.Data.Currency += money
 		petData.money = 0
-		updateMoneyBillboard(pet, 0)
+		pet:SetAttribute(State.Pet.Money, 0)
 		CurrencyUpdated:FireClient(player, profile.Data.Currency)
 	end)
 	table.insert(petConnections[player], conn)
@@ -313,10 +227,10 @@ local function applyOfflineEarnings(plot, profile)
 	if elapsed <= 0 then return end
 
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-		local idx = pet:GetAttribute("PetIndex")
+		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		if petData then
-			local rate = pet:GetAttribute("MoneyRate") or 1
+			local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
 			petData.money = (petData.money or 0) + rate * elapsed
 		end
 	end
@@ -327,12 +241,12 @@ local function startPetMoneyLoop(player, plot, profile)
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(1)
 			for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-				local idx = pet:GetAttribute("PetIndex")
+				local idx = pet:GetAttribute(State.Pet.Index)
 				local petData = profile.Data.Pets[idx]
 				if petData then
-					local rate = pet:GetAttribute("MoneyRate") or 1
+					local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
 					petData.money = (petData.money or 0) + rate
-					updateMoneyBillboard(pet, petData.money)
+					pet:SetAttribute(State.Pet.Money, petData.money)
 				end
 			end
 		end
@@ -340,6 +254,9 @@ local function startPetMoneyLoop(player, plot, profile)
 end
 
 -- ── Feed machine pickup ───────────────────────────────────────────────────────
+-- F-hold to retrieve a placed FeedMachine back into the inventory. Refuses
+-- pickup while a Processor still has items queued so they aren't silently
+-- destroyed (player must drain the queue first).
 
 local function setupFeedPickup(feedPart, plot, owner)
 	local prompt           = Instance.new("ProximityPrompt")
@@ -350,31 +267,13 @@ local function setupFeedPickup(feedPart, plot, owner)
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= owner then return end
-		local feedType = feedPart:GetAttribute("FeedType") or "Feed1"
+		local queueCount = feedPart:GetAttribute(State.Feed.QueueCount) or 0
+		if queueCount > 0 then return end
+		local feedType = feedPart:GetAttribute(State.Feed.Type) or "Timed1"
 		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
 		feedPart:Destroy()
 	end)
 end
-
--- ── Apple spawning loop ───────────────────────────────────────────────────────
-
-task.spawn(function()
-	while true do
-		task.wait(2)
-		for _, plot in pairs(PlotService.GetPlots()) do
-			local feeds = PlotService.GetSortedFeeds(plot)
-			if #feeds == 0 then continue end
-			local cap = #feeds * MAX_APPLES_PER_FEED
-			if countPlotApples(plot.Name) >= cap then continue end
-
-			local feed = feeds[math.random(1, #feeds)]
-			local tool = makeAppleTool()
-			tool:SetAttribute("Plot", plot.Name)
-			tool.Parent = Workspace
-			tool.Handle.CFrame = CFrame.new(feed.Position + Vector3.new(0, feed.Size.Y / 2 + 1, 0))
-		end
-	end
-end)
 
 -- ── Player lifecycle ──────────────────────────────────────────────────────────
 
@@ -399,16 +298,20 @@ Players.PlayerAdded:Connect(function(player)
 
 	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
 		setupFeedPickup(feed, plot, player)
+		FeedMachines.Setup(feed, plot, player)
+		local idx   = feed:GetAttribute(State.Feed.Index)
+		local saved = idx and profile.Data.FeedPlacements[idx] or nil
+		if saved then FeedMachines.Apply(feed, saved) end
 	end
 
 	applyOfflineEarnings(plot, profile)
 
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-		local idx = pet:GetAttribute("PetIndex")
+		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		local money = petData and petData.money or 0
 		local xp = petData and petData.xp or 0
-		setupPetBillboards(pet, money, xp)
+		publishPetState(pet, money, xp)
 		setupPetInteractions(plot, player, profile, pet)
 	end
 
@@ -420,8 +323,11 @@ Players.PlayerAdded:Connect(function(player)
 		if not toolsRestored then
 			toolsRestored = true
 			task.wait(0.5)
-			for _ = 1, profile.Data.Apples do
-				makeAppleTool().Parent = player.Backpack
+			for foodType, count in pairs(profile.Data.FoodInventory or {}) do
+				for _ = 1, count do
+					local tool = Food.MakeTool(foodType)
+					if tool then tool.Parent = player.Backpack end
+				end
 			end
 			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 				for _ = 1, count do
@@ -440,7 +346,6 @@ Players.PlayerRemoving:Connect(function(player)
 	if plot then
 		local profile = PlayerDataService.GetProfile(player)
 		if profile then
-			profile.Data.Apples   = countPlayerApples(player)
 			savePetsFromPlot(plot, profile)
 			saveFeedState(plot, player, profile)
 			profile.Data.LastSeen = os.time()
@@ -448,8 +353,10 @@ Players.PlayerRemoving:Connect(function(player)
 
 		clearPetConnections(player)
 		PlotService.DestroyPets(plot)
+		-- Destroying the feed parts fires Destroying on each, which the
+		-- FeedMachines registry relies on to tear down per-class state
+		-- (and to despawn any food the machine spawned on the floor).
 		PlotService.DestroyFeeds(plot)
-		clearPlotApples(plot.Name)
 		PlotService.FreePlot(player)
 	end
 
@@ -461,7 +368,6 @@ game:BindToClose(function()
 		local plot    = PlotService.GetPlayerPlot(player)
 		local profile = PlayerDataService.GetProfile(player)
 		if plot and profile then
-			profile.Data.Apples   = countPlayerApples(player)
 			savePetsFromPlot(plot, profile)
 			saveFeedState(plot, player, profile)
 			profile.Data.LastSeen = os.time()
@@ -486,10 +392,10 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 
 	local character = player.Character
 	if not character then return end
-	local tool = character:FindFirstChild("FeedMachine")
-	if not tool then return end
+	local tool = character:FindFirstChildWhichIsA("Tool")
+	if not isFeedTool(tool) then return end
 
-	local feedType = tool:GetAttribute("FeedType") or "Feed1"
+	local feedType = tool:GetAttribute(State.Feed.Type)
 
 	local floor = plot:FindFirstChild("Floor")
 	if not floor then return end
@@ -500,7 +406,9 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 		return
 	end
 
-	local template = ReplicatedStorage:WaitForChild("FeedMachines"):WaitForChild(feedType)
+	local template = FeedMachines.GetTemplate(feedType)
+	if not template then return end
+
 	local snappedX = math.round(pos.X)
 	local snappedZ = math.round(pos.Z)
 	local placedY  = floor.Position.Y + floor.Size.Y / 2 + template.Size.Y / 2
@@ -512,19 +420,9 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 
 	tool:Destroy()
 
-	local feedPart    = template:Clone()
-	feedPart.Name     = feedType
-	feedPart.Anchored = true
-	feedPart.CFrame   = placeCFrame
-	feedPart:SetAttribute("FeedType", feedType)
-
-	local maxIndex = 0
-	for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
-		local idx = f:GetAttribute("FeedIndex") or 0
-		if idx > maxIndex then maxIndex = idx end
-	end
-	feedPart:SetAttribute("FeedIndex", maxIndex + 1)
-	feedPart.Parent = plot
+	local feedPart = PlotService.PlaceFeed(plot, feedType, placeCFrame)
+	if not feedPart then return end
 
 	setupFeedPickup(feedPart, plot, player)
+	FeedMachines.Setup(feedPart, plot, player)
 end)
