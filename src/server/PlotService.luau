@@ -78,12 +78,15 @@ function PlotService.GetSortedPets(plot)
 	return pets
 end
 
--- Returns all FeedMachine parts on the plot, sorted by FeedIndex (which is
--- assigned per-plot and matches the placement array index in profile data).
+-- Returns all FeedMachine instances on the plot (BaseParts and Models),
+-- sorted by FeedIndex (which is assigned per-plot and matches the
+-- placement array index in profile data).
 function PlotService.GetSortedFeeds(plot)
 	local feeds = {}
 	for _, obj in pairs(plot:GetDescendants()) do
-		if obj:IsA("BasePart") and obj:GetAttribute("FeedType") and obj:GetAttribute("FeedIndex") then
+		if (obj:IsA("BasePart") or obj:IsA("Model"))
+			and obj:GetAttribute("FeedType")
+			and obj:GetAttribute("FeedIndex") then
 			table.insert(feeds, obj)
 		end
 	end
@@ -91,6 +94,31 @@ function PlotService.GetSortedFeeds(plot)
 		return (a:GetAttribute("FeedIndex") or 0) < (b:GetAttribute("FeedIndex") or 0)
 	end)
 	return feeds
+end
+
+-- Templates can be either BasePart or Model. Returns the Y-extent used
+-- for stacking the machine on the floor surface.
+local function templateHeight(template)
+	if template:IsA("BasePart") then return template.Size.Y end
+	if template:IsA("Model") then
+		local pp = template.PrimaryPart
+		if pp then return pp.Size.Y end
+		return template:GetExtentsSize().Y
+	end
+	return 0
+end
+
+-- Anchors and positions a placed feed (Part or Model) at the given CFrame.
+local function anchorAndPlace(clone, cframe)
+	if clone:IsA("BasePart") then
+		clone.Anchored = true
+		clone.CFrame   = cframe
+	elseif clone:IsA("Model") then
+		for _, p in ipairs(clone:GetDescendants()) do
+			if p:IsA("BasePart") then p.Anchored = true end
+		end
+		clone:PivotTo(cframe)
+	end
 end
 
 -- Pivots a pet Model to (x, baseY + half-height, z) given its current scale.
@@ -194,18 +222,18 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		local clone = template:Clone()
 		clone:SetAttribute("FeedType",  feedType)
 		clone:SetAttribute("FeedIndex", i)
-		clone.Anchored = true
+
 		local px = floor.Position.X + (rec.offX or 0)
 		local pz = floor.Position.Z + (rec.offZ or 0)
-		local py = baseY + clone.Size.Y / 2
-		clone.CFrame = CFrame.new(px, py, pz) * CFrame.Angles(0, rec.rotY or 0, 0)
+		local py = baseY + templateHeight(clone) / 2
+		anchorAndPlace(clone, CFrame.new(px, py, pz) * CFrame.Angles(0, rec.rotY or 0, 0))
 		clone.Parent = plot
 	end
 end
 
--- Spawns a single FeedMachine part on the plot at the given CFrame. Used by
--- the PlaceFeedMachine remote. Returns the new part with FeedType and
--- FeedIndex set, parented to the plot.
+-- Spawns a single FeedMachine on the plot at the given CFrame. Returns the
+-- new instance (BasePart or Model) with FeedType and FeedIndex set,
+-- parented to the plot.
 function PlotService.PlaceFeed(plot, feedType, cframe)
 	local template = FeedMachines.GetTemplate(feedType)
 	if not template then
@@ -223,10 +251,15 @@ function PlotService.PlaceFeed(plot, feedType, cframe)
 	end
 	clone:SetAttribute("FeedIndex", maxIndex + 1)
 
-	clone.Anchored = true
-	clone.CFrame   = cframe
-	clone.Parent   = plot
+	anchorAndPlace(clone, cframe)
+	clone.Parent = plot
 	return clone
+end
+
+-- Exposed so PlaceFeedMachine remote can compute the placement Y from
+-- the template alone.
+function PlotService.TemplateHeight(template)
+	return templateHeight(template)
 end
 
 function PlotService.DestroyPets(plot)

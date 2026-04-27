@@ -1,4 +1,4 @@
-print("[Server] v8 loaded — pet XP + classed feed machines")
+print("[Server] v9 loaded — TimedNew growth chain + classed feed machines")
 
 local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -61,11 +61,14 @@ local function saveFeedState(plot, player, profile)
 	local placements = {}
 	if floor then
 		for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
-			local _, ry, _ = f.CFrame:ToEulerAnglesXYZ()
+			-- GetPivot works uniformly for BasePart (= CFrame) and Model
+			-- (= pivot), so the same record shape covers both template kinds.
+			local pivot   = f:GetPivot()
+			local _, ry, _ = pivot:ToEulerAnglesXYZ()
 			local rec = {
 				type = f:GetAttribute(State.Feed.Type) or "Timed1",
-				offX = f.Position.X - floor.Position.X,
-				offZ = f.Position.Z - floor.Position.Z,
+				offX = pivot.Position.X - floor.Position.X,
+				offZ = pivot.Position.Z - floor.Position.Z,
 				rotY = ry,
 			}
 			-- Per-class extras (e.g. Processor queue). Merged shallow.
@@ -258,20 +261,24 @@ end
 -- pickup while a Processor still has items queued so they aren't silently
 -- destroyed (player must drain the queue first).
 
-local function setupFeedPickup(feedPart, plot, owner)
+local function setupFeedPickup(feed, plot, owner)
+	-- For Models we anchor the prompt to the PrimaryPart; for Parts the
+	-- prompt parents directly.
+	local promptParent = feed:IsA("Model") and feed.PrimaryPart or feed
+	if not promptParent then return end
+
 	local prompt           = Instance.new("ProximityPrompt")
 	prompt.ActionText      = "Pick Up"
 	prompt.KeyboardKeyCode = Enum.KeyCode.F
 	prompt.HoldDuration    = 0.5
-	prompt.Parent          = feedPart
+	prompt.Parent          = promptParent
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= owner then return end
-		local queueCount = feedPart:GetAttribute(State.Feed.QueueCount) or 0
-		if queueCount > 0 then return end
-		local feedType = feedPart:GetAttribute(State.Feed.Type) or "Timed1"
+		if not FeedMachines.PrePickup(feed, triggeringPlayer) then return end
+		local feedType = feed:GetAttribute(State.Feed.Type) or "Timed1"
 		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
-		feedPart:Destroy()
+		feed:Destroy()
 	end)
 end
 
@@ -411,7 +418,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 
 	local snappedX = math.round(pos.X)
 	local snappedZ = math.round(pos.Z)
-	local placedY  = floor.Position.Y + floor.Size.Y / 2 + template.Size.Y / 2
+	local placedY  = floor.Position.Y + floor.Size.Y / 2 + PlotService.TemplateHeight(template) / 2
 
 	local _, ry, _  = cframe:ToEulerAnglesXYZ()
 	local snappedRY = math.round(ry / (math.pi / 2)) * (math.pi / 2)

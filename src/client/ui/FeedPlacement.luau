@@ -13,16 +13,34 @@ local State   = require(Shared:WaitForChild("State"))
 
 -- Templates live at ReplicatedStorage.FeedMachines.<Class>.<FeedType>. The
 -- equipped FeedMachine tool carries a FeedType attribute; we search the
--- FeedMachines tree for a part with matching name.
+-- FeedMachines tree for a template (BasePart or Model) with matching name.
 local function findTemplate(feedType)
 	local root = ReplicatedStorage:WaitForChild("FeedMachines")
 	for _, classFolder in ipairs(root:GetChildren()) do
 		if classFolder:IsA("Folder") then
 			local t = classFolder:FindFirstChild(feedType)
-			if t and t:IsA("BasePart") then return t end
+			if t and (t:IsA("BasePart") or t:IsA("Model")) then return t end
 		end
 	end
 	return nil
+end
+
+local function previewSizeY(preview)
+	if preview:IsA("BasePart") then return preview.Size.Y end
+	if preview:IsA("Model") then
+		local pp = preview.PrimaryPart
+		if pp then return pp.Size.Y end
+		return preview:GetExtentsSize().Y
+	end
+	return 2
+end
+
+local function setPreviewProps(part)
+	part.Anchored     = true
+	part.CanCollide   = false
+	part.CanQuery     = false
+	part.Transparency = 0.5
+	part.CastShadow   = false
 end
 
 local FeedPlacement = {}
@@ -102,12 +120,17 @@ function FeedPlacement.start()
 		local template = activeFeedType and findTemplate(activeFeedType)
 		if not template then return end
 		local clone = template:Clone()
-		clone.Anchored     = true
-		clone.CanCollide   = false
-		clone.Transparency = 0.5
-		clone.CastShadow   = false
-		clone.Name         = "__FeedPreview"
-		for _, c in ipairs(clone:GetChildren()) do c:Destroy() end
+		clone.Name = "__FeedPreview"
+		if clone:IsA("BasePart") then
+			setPreviewProps(clone)
+			-- strip ClickDetectors / ProximityPrompts so the preview is purely visual
+			for _, c in ipairs(clone:GetChildren()) do c:Destroy() end
+		elseif clone:IsA("Model") then
+			for _, d in ipairs(clone:GetDescendants()) do
+				if d:IsA("BasePart") then setPreviewProps(d) end
+				if d:IsA("ClickDetector") or d:IsA("ProximityPrompt") then d:Destroy() end
+			end
+		end
 		clone.Parent = workspace
 		preview = clone
 	end
@@ -145,7 +168,7 @@ function FeedPlacement.start()
 
 		local sx = snapToGrid(target.X)
 		local sz = snapToGrid(target.Z)
-		local sy = floorY + (preview and preview.Size.Y / 2 or 2)
+		local sy = floorY + (preview and previewSizeY(preview) / 2 or 2)
 
 		return CFrame.new(sx, sy, sz) * CFrame.Angles(0, math.rad(currentRotation), 0)
 	end
@@ -153,7 +176,12 @@ function FeedPlacement.start()
 	RunService.RenderStepped:Connect(function()
 		if not placing or not preview then return end
 		local cf = getPreviewCFrame()
-		if cf then preview.CFrame = cf end
+		if not cf then return end
+		if preview:IsA("BasePart") then
+			preview.CFrame = cf
+		elseif preview:IsA("Model") then
+			preview:PivotTo(cf)
+		end
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gpe)

@@ -12,7 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local State   = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local Spawner = require(script.Parent:WaitForChild("Spawner"))
 
-local Timed = {}
+local Timed1 = {}
 
 local state = {} -- [machine] = { owner, plot, spawned (set) }
 
@@ -33,7 +33,7 @@ local function trackSpawned(s, tool)
 	end)
 end
 
-function Timed.Setup(machine, plot, owner)
+function Timed1.Setup(machine, plot, owner)
 	local s = { owner = owner, plot = plot, spawned = {} }
 	state[machine] = s
 
@@ -53,7 +53,7 @@ function Timed.Setup(machine, plot, owner)
 	end)
 end
 
-function Timed.Teardown(machine)
+function Timed1.Teardown(machine)
 	local s = state[machine]
 	if not s then return end
 	state[machine] = nil
@@ -62,4 +62,4 @@ function Timed.Teardown(machine)
 	end
 end
 
-return Timed
+return Timed1

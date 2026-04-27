@@ -46,7 +46,12 @@ local function refreshAttrs(machine, s)
 
 	if s.prompt then
 		local hasEquipped = Food.GetEquipped(s.owner, accepted) ~= nil
-		if hasEquipped then
+		local maxQueue    = machine:GetAttribute(State.Feed.MaxQueue) or 5
+		local canDeposit  = hasEquipped and #s.queue < maxQueue
+		-- Deposit takes priority over Take when both are possible. Falls
+		-- through to Take when the queue is full so the player has a way
+		-- to clear a slot instead of being stuck with a non-firing prompt.
+		if canDeposit then
 			s.prompt.ActionText = "Deposit Food"
 			s.prompt.Enabled    = true
 		elseif ready > 0 then
@@ -105,8 +110,20 @@ local function depositOne(machine, s, player)
 end
 
 function Processor.Setup(machine, plot, owner)
-	local s = { owner = owner, plot = plot, queue = {} }
+	local s = { owner = owner, plot = plot, queue = {}, conns = {} }
 	state[machine] = s
+
+	-- Refresh the prompt the moment the owner equips/unequips a tool, so
+	-- "Deposit Food" / "Take Food" doesn't lag behind the heartbeat tick.
+	local function refresh() if state[machine] then refreshAttrs(machine, s) end end
+	local function onToolChange(c) if c:IsA("Tool") then refresh() end end
+	local function watchCharacter(char)
+		if not char then return end
+		table.insert(s.conns, char.ChildAdded:Connect(onToolChange))
+		table.insert(s.conns, char.ChildRemoved:Connect(onToolChange))
+	end
+	watchCharacter(owner.Character)
+	table.insert(s.conns, owner.CharacterAdded:Connect(watchCharacter))
 
 	-- Single context-switching prompt: Deposit when food equipped, Take
 	-- when ready food is waiting.
@@ -121,8 +138,10 @@ function Processor.Setup(machine, plot, owner)
 
 	prompt.Triggered:Connect(function(player)
 		if player ~= owner then return end
-		local accepted = machine:GetAttribute(State.Feed.FoodType) or "Apple"
-		if Food.GetEquipped(player, accepted) then
+		local accepted   = machine:GetAttribute(State.Feed.FoodType) or "Apple"
+		local maxQueue   = machine:GetAttribute(State.Feed.MaxQueue) or 5
+		local canDeposit = Food.GetEquipped(player, accepted) ~= nil and #s.queue < maxQueue
+		if canDeposit then
 			depositOne(machine, s, player)
 		else
 			dispenseAllReady(machine, s, player)
@@ -131,7 +150,19 @@ function Processor.Setup(machine, plot, owner)
 end
 
 function Processor.Teardown(machine)
+	local s = state[machine]
+	if s and s.conns then
+		for _, c in ipairs(s.conns) do c:Disconnect() end
+	end
 	state[machine] = nil
+end
+
+-- Block pickup while items are still in the queue so the player isn't
+-- silently robbed of food they deposited.
+function Processor.PrePickup(machine, player)
+	local s = state[machine]
+	if not s or s.owner ~= player then return false end
+	return #s.queue == 0
 end
 
 function Processor.Serialize(machine)
