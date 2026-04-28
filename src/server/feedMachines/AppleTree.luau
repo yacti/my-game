@@ -1,24 +1,24 @@
 -- AppleTree FeedMachine.
 --
--- Click the trunk to drop a fresh CHAIN[1] from one of the on-tree
--- BaseFood slots. The fruit physics-falls and resolves into one of the
--- tree's BaseFoodGround pools — either by overlapping a BaseFoodGround
--- mid-flight (Touched) or, as a fallback, by snapping to the nearest
--- BaseFoodGround once it stops moving (or after FALL_TIMEOUT). Each
--- BaseFoodGround maintains its own independent XP pool and morphs
--- through CHAIN at its own pace; pickup is a per-pool E-prompt that
--- gives the player a Tool with that pool's foodType + accumulated XP.
+-- Click the trunk to drop a fresh CHAIN[1] from one of the BaseFood
+-- slots. The fruit physics-falls and settles. The first drop becomes
+-- the tree's "ground fruit"; every subsequent drop despawns on settle
+-- and adds its template's XP to the ground fruit. The ground fruit
+-- accumulates XP and morphs to the next link in the chain whenever it
+-- crosses a foodType's MaxXP milestone (cumulative thresholds, like
+-- TimedNew). After the terminal stage the XP keeps accumulating without
+-- further morphs; pickup gives the terminal foodType with the full XP.
 --
--- BaseFoodGround markers are server-only anchors: invisible to the
--- player; the pool's visual fruit (which sits on top) is the only
--- thing that's seen, so a BaseFoodGround "appearing" only happens
--- once a fruit has actually landed there.
+-- Pickup is via E-prompt on the ground fruit only — airborne fruits
+-- are non-collectible. Picking up gives the player a Tool with the
+-- ground fruit's current foodType + accumulated XP. The ground fruit
+-- clears and the next drop starts a fresh CHAIN[1].
 --
 -- Tunable attribute on the template:
 --   ClickCooldown (number, default 0.5)
--- Per-foodType MaxXP read from each food template's MaxXP attribute.
--- The chain is owned by this module — adding a clicker food is one
--- append in CHAIN.
+-- Per-foodType MaxXP is read from each food template's MaxXP attribute.
+-- The chain order is owned by this module — adding new clicker foods is
+-- one append in CHAIN.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
@@ -26,6 +26,21 @@ local RunService        = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
 local State  = require(Shared:WaitForChild("State"))
+
+-- Floor-local helpers are inlined here rather than requiring PlotService
+-- to avoid a circular dependency: PlotService requires the FeedMachines
+-- registry, which requires this module.
+local function worldPivotToFloorLocal(floor, world)
+	local localCF = floor.CFrame:ToObjectSpace(world)
+	local _, lry  = localCF:ToEulerAnglesXYZ()
+	return localCF.X, localCF.Z, lry
+end
+
+local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
+		* CFrame.Angles(0, lry or 0, 0)
+	return floor.CFrame * localCF
+end
 
 local AppleTree = {}
 
@@ -44,17 +59,13 @@ local CHAIN = {
 
 local DEFAULT_COOLDOWN = 0.5  -- seconds; click rate when ClickCooldown attr is unset
 local SLOT_RESPAWN     = 1    -- seconds; on-tree slot regrows after a drop
-local SETTLE_VELOCITY  = 0.5  -- studs/s; primary is "still" below this
-local SETTLE_DURATION  = 0.3  -- seconds it must stay still to count as settled
-local FALL_TIMEOUT     = 5    -- safety: stuck fruits force-resolve at nearest ground
-
--- One-shot per missing chain food, so the same warning doesn't spam.
-local warnedMissingTemplate = {}
+local SETTLE_VELOCITY  = 0.5  -- studs/s; fruit is "still" below this
+local SETTLE_DURATION  = 0.3  -- seconds it must stay still before merging
 
 -- state[machine] = {
 --   owner, plot, lastClick, conns,
---   slots    = { [i] = { anchor, foodPart, respawnAt } },        -- on-tree
---   grounds  = { [i] = { marker, pool = nil | { foodType, xp, model, primary, prompt, conn } } },
+--   slots = { [i] = { anchor, foodPart, respawnAt } },
+--   ground = { foodType, xp, model, primary, prompt, conn } | nil,
 --   airborne = { [Model|BasePart] = true },
 -- }
 local state = {}
@@ -74,7 +85,7 @@ local function chainStageOf(foodType)
 	return 1
 end
 
--- ── On-tree slot visuals (cosmetic) ───────────────────────────────────────────
+-- ── Slot visuals (cosmetic on-tree fruits) ────────────────────────────────────
 
 local function configureSlotPart(part)
 	part.Anchored   = true
@@ -113,9 +124,7 @@ end
 
 local function makeSlotAnchor(machine, baseFoodPart)
 	local anchor = Instance.new("Part")
-	-- Deliberately not "SlotAnchor" — that name is what the food XP
-	-- billboard picks up. AppleTree's on-tree fruits are cosmetic.
-	anchor.Name         = "AppleSlot"
+	anchor.Name         = "SlotAnchor"
 	anchor.Anchored     = true
 	anchor.CanCollide   = false
 	anchor.CanQuery     = false
@@ -131,13 +140,11 @@ end
 
 local function configureFallingPart(part, isPrimary)
 	part.Anchored   = false
-	-- Primary collides so it can settle on the floor; sub-parts pass
-	-- through. Primary CanTouch=true so it fires Touched against the
-	-- BaseFoodGround marker mid-flight.
+	-- Only the primary collides (so the fruit lands on a real surface);
+	-- sub-parts pass through so they don't push the player around.
 	part.CanCollide = isPrimary
 	part.CanQuery   = false
-	part.CanTouch   = isPrimary
-	part.Massless   = false
+	part.CanTouch   = false
 end
 
 local function spawnFallingFruit(slot, foodType)
@@ -164,39 +171,35 @@ local function spawnFallingFruit(slot, foodType)
 	end
 	clone:SetAttribute("FoodType", foodType)
 	clone.Parent = workspace
-	-- Pure gravity fall: no initial linear or angular velocity. Anything
-	-- the fruit does is from physics interactions with the trunk and
-	-- floor as it bounces.
 	return clone, primary
 end
 
--- ── Pool visuals (the fruit sitting on a BaseFoodGround) ──────────────────────
+-- ── Ground fruit ──────────────────────────────────────────────────────────────
 
-local function configurePoolPart(part, isPrimary)
+local function configureGroundPart(part, isPrimary)
 	part.Anchored   = true
-	-- CanCollide=false so a falling fruit can pass through the pool and
-	-- reach the marker below to fire Touched. CanTouch=false so the
-	-- falling fruit doesn't fire Touched against the pool itself.
-	part.CanCollide = false
-	part.CanQuery   = isPrimary  -- prompt LOS raycast hits the primary
+	-- Primary collides + queryable so the ProximityPrompt's LOS raycast
+	-- has something to hit; sub-parts pass through.
+	part.CanCollide = isPrimary
+	part.CanQuery   = isPrimary
 	part.CanTouch   = false
 end
 
-local function makePoolVisual(foodType, worldCF)
+local function makeGroundFruitVisual(foodType, worldCF)
 	local template = Food.GetTemplate(foodType)
 	if not template then return nil, nil end
 	local visual, primary
 	if template:IsA("BasePart") then
 		visual  = template:Clone()
 		primary = visual
-		configurePoolPart(visual, true)
+		configureGroundPart(visual, true)
 		visual.CFrame = worldCF
 	elseif template:IsA("Model") then
 		if not template.PrimaryPart then return nil, nil end
 		visual  = template:Clone()
 		primary = visual.PrimaryPart
 		for _, d in ipairs(visual:GetDescendants()) do
-			if d:IsA("BasePart") then configurePoolPart(d, d == primary) end
+			if d:IsA("BasePart") then configureGroundPart(d, d == primary) end
 		end
 		visual:PivotTo(worldCF)
 	end
@@ -205,33 +208,21 @@ local function makePoolVisual(foodType, worldCF)
 		return nil, nil
 	end
 	visual:SetAttribute("FoodType", foodType)
-	-- Opt the pool fruit into the food XP billboard.
-	visual:SetAttribute("TrackedFood", true)
 	visual.Parent = workspace
 	return visual, primary
 end
 
--- World CFrame for a pool fruit. Centered on the marker (not on top of
--- it) so the BaseFoodGround positions you authored are exactly where
--- the fruit appears.
-local function poolCFrame(marker)
-	return marker.CFrame
+local function destroyGroundFruit(s)
+	if not s.ground then return end
+	if s.ground.conn then s.ground.conn:Disconnect() end
+	if s.ground.model and s.ground.model.Parent then s.ground.model:Destroy() end
+	s.ground = nil
 end
 
-local function destroyPool(groundSlot)
-	local pool = groundSlot.pool
-	if not pool then return end
-	if pool.conn then pool.conn:Disconnect() end
-	if pool.model and pool.model.Parent then pool.model:Destroy() end
-	groundSlot.pool = nil
-end
-
--- forward decl so the prompt closure can reference pickup
-local pickupPool
-
-local function spawnPool(machine, s, groundSlot, foodType, xp)
-	if not groundSlot.marker.Parent then return end
-	local visual, primary = makePoolVisual(foodType, poolCFrame(groundSlot.marker))
+-- forward decl so handlers can call each other
+local pickupGroundFruit
+local function spawnGroundFruit(machine, s, foodType, xp, worldCF)
+	local visual, primary = makeGroundFruitVisual(foodType, worldCF)
 	if not visual then return end
 
 	visual:SetAttribute("XP", xp)
@@ -245,7 +236,7 @@ local function spawnPool(machine, s, groundSlot, foodType, xp)
 	prompt.Enabled               = s.owner:GetAttribute("EditMode") ~= true
 	prompt.Parent                = primary
 
-	groundSlot.pool = {
+	s.ground = {
 		foodType = foodType,
 		xp       = xp,
 		model    = visual,
@@ -253,105 +244,78 @@ local function spawnPool(machine, s, groundSlot, foodType, xp)
 		prompt   = prompt,
 		conn     = nil,
 	}
-	groundSlot.pool.conn = prompt.Triggered:Connect(function(player)
+	s.ground.conn = prompt.Triggered:Connect(function(player)
 		if player ~= s.owner then return end
 		if s.owner:GetAttribute("EditMode") == true then return end
-		pickupPool(machine, s, groundSlot, player)
+		pickupGroundFruit(machine, s, player)
 	end)
 end
 
-local function addXPToPool(machine, s, groundSlot, deltaXP)
-	local pool = groundSlot.pool
-	if not pool then return end
-	pool.xp = pool.xp + deltaXP
-	if pool.model and pool.model.Parent then
-		pool.model:SetAttribute("XP", pool.xp)
-	end
+-- Add XP to the ground fruit; advance through the chain whenever
+-- cumulative xp crosses a stage's MaxXP. Past the terminal stage, xp
+-- keeps accumulating without further morphs.
+local function addXPToGround(machine, s, deltaXP)
+	if not s.ground then return end
+	s.ground.xp = s.ground.xp + deltaXP
+	s.ground.model:SetAttribute("XP", s.ground.xp)
 
-	local startStage = chainStageOf(pool.foodType)
-	local stage      = startStage
-	while stage < #CHAIN do
-		if pool.xp < maxXPFor(CHAIN[stage]) then break end
-		local nextType = CHAIN[stage + 1]
-		-- Halt the morph if the next chain entry has no food template.
-		-- The pool stays at its current stage and keeps accumulating XP.
-		if not Food.GetTemplate(nextType) then
-			if not warnedMissingTemplate[nextType] then
-				warnedMissingTemplate[nextType] = true
-				warn(string.format(
-					"[AppleTree] no food template for %q — morph halts at %s. Add a template to ReplicatedStorage.Food to enable further morphs.",
-					nextType, CHAIN[stage]
-				))
-			end
-			break
-		end
-		stage = stage + 1
+	local stage    = chainStageOf(s.ground.foodType)
+	local advanced = false
+	while stage < #CHAIN and s.ground.xp >= maxXPFor(CHAIN[stage]) do
+		stage    = stage + 1
+		advanced = true
 	end
-	if stage > startStage then
+	if advanced then
 		local newType = CHAIN[stage]
-		local xp      = pool.xp
-		destroyPool(groundSlot)
-		spawnPool(machine, s, groundSlot, newType, xp)
+		local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
+		local xp = s.ground.xp
+		destroyGroundFruit(s)
+		spawnGroundFruit(machine, s, newType, xp, cf)
 	end
 end
 
-pickupPool = function(machine, s, groundSlot, player)
-	local pool = groundSlot.pool
-	if not pool then return end
-	local tool = Food.MakeTool(pool.foodType, pool.xp)
+pickupGroundFruit = function(machine, s, player)
+	if not s.ground then return end
+	local tool = Food.MakeTool(s.ground.foodType, s.ground.xp)
 	if not tool then return end
 	tool.Parent = player.Backpack
-	destroyPool(groundSlot)
+	destroyGroundFruit(s)
 end
 
--- Watch the first drop into a pool: physics-falls and bounces, then we
--- destroy the fruit and create the pool at the paired groundSlot once
--- the primary stops moving (or after FALL_TIMEOUT as a stuck-in-trunk
--- safety). Subsequent drops into the same pool don't go through here —
--- they merge XP directly without a falling fruit.
-local function trackFirstDrop(machine, s, falling, primary, groundSlot)
+-- Watch a falling fruit's primary and merge it into the ground fruit
+-- once it settles. If there's no ground fruit yet, the falling fruit
+-- becomes the ground fruit at its settled CFrame.
+local function trackFallingFruit(machine, s, falling, primary)
 	s.airborne[falling] = true
-	local foodType  = falling:GetAttribute("FoodType")
-	local dropXP    = dropXPFor(foodType)
-	local startTime = os.clock()
-
-	local resolved = false
-	local function resolve()
-		if resolved then return end
-		resolved = true
-		s.airborne[falling] = nil
-		if falling.Parent then falling:Destroy() end
-		if not state[machine] then return end
-		-- Race: another drop might have populated the pool while this
-		-- one was still bouncing. If so, just add XP instead of spawning
-		-- a duplicate visual.
-		if groundSlot.pool then
-			addXPToPool(machine, s, groundSlot, dropXP)
-		else
-			spawnPool(machine, s, groundSlot, foodType, dropXP)
-		end
-	end
+	local foodType = falling:GetAttribute("FoodType")
+	local dropXP   = dropXPFor(foodType)
 
 	task.spawn(function()
 		local stillSince = nil
-		while not resolved and falling.Parent == workspace and primary.Parent do
-			local now = os.clock()
-			if now - startTime > FALL_TIMEOUT then resolve() return end
+		while falling.Parent == workspace and primary.Parent do
 			if primary.AssemblyLinearVelocity.Magnitude < SETTLE_VELOCITY then
-				stillSince = stillSince or now
-				if now - stillSince >= SETTLE_DURATION then resolve() return end
+				stillSince = stillSince or os.clock()
+				if os.clock() - stillSince >= SETTLE_DURATION then
+					if not state[machine] then return end
+					s.airborne[falling] = nil
+					if s.ground then
+						falling:Destroy()
+						addXPToGround(machine, s, dropXP)
+					else
+						local cf = falling:IsA("Model") and falling:GetPivot() or falling.CFrame
+						falling:Destroy()
+						spawnGroundFruit(machine, s, foodType, dropXP, cf)
+					end
+					return
+				end
 			else
 				stillSince = nil
 			end
 			RunService.Heartbeat:Wait()
 		end
-		-- Loop exited because falling was destroyed externally (e.g. tree
-		-- picked up) without resolving. Drop airborne tracking.
-		if not resolved then s.airborne[falling] = nil end
+		s.airborne[falling] = nil
 	end)
 end
-
--- ── Click → drop ──────────────────────────────────────────────────────────────
 
 local function findReadySlot(s)
 	for _, slot in ipairs(s.slots) do
@@ -390,78 +354,26 @@ local function onTreeClicked(machine, s, player)
 
 	local slot = findReadySlot(s)
 	if not slot then return end
-	local groundSlot = slot.groundSlot
-	if not groundSlot then return end
 
 	clearSlotVisual(slot)
 	slot.respawnAt = now + SLOT_RESPAWN
-	s.lastClick    = now
 
-	if groundSlot.pool then
-		-- Pool already exists at this BaseFoodGround: subsequent drops
-		-- morph straight in — no falling visual, just XP added.
-		addXPToPool(machine, s, groundSlot, dropXPFor(CHAIN[1]))
-		return
-	end
-
-	-- First drop into this pool: physics-falls, bounces, then on settle
-	-- the pool is created at the paired groundSlot regardless of where
-	-- the fruit happens to land.
 	local falling, primary = spawnFallingFruit(slot, CHAIN[1])
 	if not falling then return end
-	trackFirstDrop(machine, s, falling, primary, groundSlot)
+	s.lastClick = now
+	trackFallingFruit(machine, s, falling, primary)
 end
 
--- ── Setup / teardown ─────────────────────────────────────────────────────────
+-- ── Setup / teardown ──────────────────────────────────────────────────────────
 
 local function setupSlots(machine, s)
 	for _, child in ipairs(machine:GetChildren()) do
 		if child:IsA("BasePart") and child.Name == "BaseFood" then
 			local anchor = makeSlotAnchor(machine, child)
 			child:Destroy()
-			local slot = { anchor = anchor, foodPart = nil, respawnAt = nil, groundSlot = nil }
+			local slot = { anchor = anchor, foodPart = nil, respawnAt = nil }
 			slot.foodPart = spawnSlotVisual(slot)
 			table.insert(s.slots, slot)
-		end
-	end
-end
-
--- Pair each on-tree BaseFood slot with the BaseFoodGround directly below
--- it (matched by X/Z). The authored layout places them in vertical
--- alignment so this is exact in practice; closest-XZ keeps it robust if
--- positions drift slightly. Each slot drops into the same paired pool
--- forever — that's what makes "the rest morphs into the BaseFoodGround"
--- deterministic per slot.
-local function pairSlotsToGrounds(s)
-	for _, slot in ipairs(s.slots) do
-		local sp = slot.anchor.Position
-		local bestGS, bestDist
-		for _, gs in ipairs(s.grounds) do
-			local gp = gs.marker.Position
-			local dx = sp.X - gp.X
-			local dz = sp.Z - gp.Z
-			local d  = dx * dx + dz * dz
-			if not bestDist or d < bestDist then
-				bestDist = d
-				bestGS   = gs
-			end
-		end
-		slot.groundSlot = bestGS
-	end
-end
-
-local function setupGroundSlots(machine, s)
-	for _, child in ipairs(machine:GetChildren()) do
-		if child:IsA("BasePart") and child.Name == "BaseFoodGround" then
-			-- Server-only anchor: invisible and intangible. Falling fruits
-			-- pass through; the snap-to-nearest on settle is what binds
-			-- a drop to a marker, so we don't need Touched here.
-			child.Transparency = 1
-			child.CanCollide   = false
-			child.CanQuery     = false
-			child.CanTouch     = false
-			child.Anchored     = true
-			table.insert(s.grounds, { marker = child, pool = nil })
 		end
 	end
 end
@@ -488,24 +400,19 @@ function AppleTree.Setup(machine, plot, owner)
 		plot      = plot,
 		lastClick = 0,
 		slots     = {},
-		grounds   = {},
+		ground    = nil,
 		airborne  = {},
 		conns     = {},
 	}
 	state[machine] = s
 
-	setupGroundSlots(machine, s)
 	setupSlots(machine, s)
-	pairSlotsToGrounds(s)
 	setupClickDetector(machine, s)
 
-	-- Toggle every pool's E prompt with edit mode.
+	-- Toggle the ground fruit's E prompt with edit mode.
 	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(function()
-		local enabled = owner:GetAttribute("EditMode") ~= true
-		for _, gs in ipairs(s.grounds) do
-			if gs.pool and gs.pool.prompt then
-				gs.pool.prompt.Enabled = enabled
-			end
+		if s.ground and s.ground.prompt then
+			s.ground.prompt.Enabled = owner:GetAttribute("EditMode") ~= true
 		end
 	end))
 end
@@ -514,54 +421,64 @@ function AppleTree.Teardown(machine)
 	local s = state[machine]
 	if not s then return end
 	for _, c in ipairs(s.conns) do c:Disconnect() end
-	for _, gs in ipairs(s.grounds) do destroyPool(gs) end
+	destroyGroundFruit(s)
+	-- Picking the tree up wipes any in-flight or settled fruits tied to
+	-- it; players who care should pick the ground fruit up first.
 	for falling in pairs(s.airborne) do
 		if falling.Parent then falling:Destroy() end
 	end
 	state[machine] = nil
 end
 
--- Persist every non-empty pool. groundIndex is the position in s.grounds,
--- which is built deterministically by iterating the tree's children, so
--- it stays stable across save/load as long as the template's BaseFoodGround
--- count doesn't change.
+-- Persist the ground fruit at floor-local coordinates so it survives
+-- session boundaries and Floor rotations.
 function AppleTree.Serialize(machine)
 	local s = state[machine]
-	if not s then return nil end
-	local saved = {}
-	for i, gs in ipairs(s.grounds) do
-		if gs.pool then
-			table.insert(saved, {
-				groundIndex = i,
-				foodType    = gs.pool.foodType,
-				xp          = gs.pool.xp,
-			})
-		end
-	end
-	if #saved == 0 then return nil end
-	return { groundFruits = saved }
+	if not s or not s.ground then return nil end
+	local floor = s.plot:FindFirstChild("Floor")
+	if not floor then return nil end
+	local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
+	local lx, lz, lry = worldPivotToFloorLocal(floor, cf)
+	return {
+		groundFruit = {
+			foodType = s.ground.foodType,
+			xp       = s.ground.xp,
+			lx       = lx,
+			lz       = lz,
+			lry      = lry,
+		},
+	}
 end
 
 function AppleTree.Apply(machine, placement)
 	local s = state[machine]
 	if not s or type(placement) ~= "table" then return end
-	local list = placement.groundFruits
-	if type(list) ~= "table" then return end
-	for _, rec in ipairs(list) do
-		local idx = tonumber(rec.groundIndex)
-		local gs  = idx and s.grounds[idx]
-		if gs and not gs.pool then
-			local foodType = tostring(rec.foodType or CHAIN[1])
-			-- Walk the foodType back if its template was removed since last save.
-			while not Food.GetTemplate(foodType) and chainStageOf(foodType) > 1 do
-				foodType = CHAIN[chainStageOf(foodType) - 1]
-			end
-			if Food.GetTemplate(foodType) then
-				local xp = math.max(tonumber(rec.xp) or 0, 0)
-				spawnPool(machine, s, gs, foodType, xp)
-			end
+	local g = placement.groundFruit
+	if type(g) ~= "table" then return end
+
+	local foodType = tostring(g.foodType or CHAIN[1])
+	if chainStageOf(foodType) > #CHAIN then foodType = CHAIN[#CHAIN] end
+	local xp = math.max(tonumber(g.xp) or 0, 0)
+
+	local floor = s.plot:FindFirstChild("Floor")
+	if not floor then return end
+
+	-- Restore at floor's top + half of fruit's extent so it sits on the
+	-- surface rather than clipping into it. We don't persist the saved Y
+	-- because the ground fruit always rests on the floor.
+	local template = Food.GetTemplate(foodType)
+	local halfH    = 0
+	if template then
+		if template:IsA("BasePart") then
+			halfH = template.Size.Y / 2
+		elseif template:IsA("Model") and template.PrimaryPart then
+			halfH = template.PrimaryPart.Size.Y / 2
 		end
 	end
+	local worldCF = localToWorldOnFloorTop(floor, g.lx or 0, g.lz or 0, halfH, g.lry or 0)
+
+	destroyGroundFruit(s)
+	spawnGroundFruit(machine, s, foodType, xp, worldCF)
 end
 
 return AppleTree
