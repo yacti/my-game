@@ -29,6 +29,38 @@ local function defaultData()
 	}
 end
 
+-- One-shot migration: old saves stored placements with offX/offZ/rotY in
+-- world space, which doesn't survive a Floor rotation / move. Records that
+-- lack the new floor-local fields (lx/lz) are wiped from FeedPlacements
+-- and credited back to FeedInventory at their stored level so players
+-- keep their machines.
+local function migrateFeedPlacementsAndCredit(profile)
+	local placements = profile.Data.FeedPlacements
+	if type(placements) ~= "table" then
+		profile.Data.FeedPlacements = {}
+		return
+	end
+	local hasOld = false
+	for _, rec in ipairs(placements) do
+		if type(rec) == "table" and rec.lx == nil
+			and (rec.offX ~= nil or rec.offZ ~= nil or rec.rotY ~= nil) then
+			hasOld = true
+			break
+		end
+	end
+	if not hasOld then return end
+
+	for _, rec in ipairs(placements) do
+		if type(rec) == "table" then
+			local ft  = rec.type or "Timed1"
+			local lvl = tonumber(rec.level) or 1
+			profile.Data.FeedInventory[ft] = profile.Data.FeedInventory[ft] or { levels = {} }
+			table.insert(profile.Data.FeedInventory[ft].levels, lvl)
+		end
+	end
+	profile.Data.FeedPlacements = {}
+end
+
 -- Old saves stored FeedInventory[feedType] as a number; new shape is
 -- { levels = {…} } so each tool's Level persists. Idempotent — already-
 -- migrated entries pass through unchanged. Garbage entries are dropped.
@@ -83,6 +115,7 @@ function PlayerDataService.LoadPlayerAsync(player)
 	end
 
 	profile.Data.FeedInventory = migrateFeedInventory(profile.Data.FeedInventory)
+	migrateFeedPlacementsAndCredit(profile)
 
 	-- Seed FeedInventory if player has zero total feeds (placed + in inventory).
 	local totalFeeds = #profile.Data.FeedPlacements

@@ -121,15 +121,34 @@ local function anchorAndPlace(clone, cframe)
 	end
 end
 
--- Pivots a pet Model to (x, baseY + half-height, z) given its current scale.
-local function pivotPetTo(model, x, baseY, z)
-	local extents = model:GetExtentsSize()
-	model:PivotTo(CFrame.new(x, baseY + extents.Y / 2, z))
+-- ── Floor-local placement helpers ─────────────────────────────────────────────
+-- All persisted feed/pet positions are stored in the floor's *local* frame
+-- (lx, lz on the floor surface, lry as Y rotation in floor space) so they
+-- survive Floor rotations and translations. World coordinates are always
+-- derived at runtime via floor.CFrame.
+
+-- World CFrame for an object whose feet sit on the floor's top surface,
+-- offset by halfHeight along the floor's local up axis, and rotated lry
+-- around the floor's local up.
+local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
+		* CFrame.Angles(0, lry or 0, 0)
+	return floor.CFrame * localCF
 end
 
--- Clones a pet Model template, applies scale, positions it on the floor, sets attributes.
--- Returns the clone (not yet parented to the plot).
-function PlotService.CreatePet(petType, petIndex, xp, floor, x, z)
+-- Inverse: given a world pivot, return its (lx, lz, lry) in the floor's
+-- local frame. Y is dropped — we only persist the planar offset because
+-- machines and pets always rest on the floor surface.
+local function worldPivotToFloorLocal(floor, world)
+	local localCF = floor.CFrame:ToObjectSpace(world)
+	local _, lry  = localCF:ToEulerAnglesXYZ()
+	return localCF.X, localCF.Z, lry
+end
+
+-- Clones a pet Model template, applies scale, positions it on the floor at
+-- floor-local (lx, lz) with floor-local Y rotation lry. Returns the clone
+-- (not yet parented to the plot).
+function PlotService.CreatePet(petType, petIndex, xp, floor, lx, lz, lry)
 	local template = PetTemplates:FindFirstChild(petType)
 	if not template then
 		warn("[PlotService] No pet template: " .. tostring(petType))
@@ -152,12 +171,14 @@ function PlotService.CreatePet(petType, petIndex, xp, floor, x, z)
 	local scale = Balance.ScaleForXP(xp or 0, level)
 	clone:ScaleTo(scale)
 
-	local baseY = floor.Position.Y + floor.Size.Y / 2
-	pivotPetTo(clone, x, baseY, z)
+	local extents = clone:GetExtentsSize()
+	clone:PivotTo(localToWorldOnFloorTop(floor, lx, lz, extents.Y / 2, lry))
 	return clone
 end
 
--- pets: array of { type, xp, money } (1-indexed)
+-- pets: array of { type, xp, money, lx?, lz?, lry? } (1-indexed). Pets without
+-- saved positions (legacy saves) get a random floor-local position once;
+-- savePetsFromPlot will persist their new lx/lz/lry on the next snapshot.
 function PlotService.SpawnPetsForPlot(plot, pets)
 	pets = pets or {}
 	local floor = plot:FindFirstChild("Floor")
@@ -170,9 +191,15 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 	local halfZ = floor.Size.Z / 2 - FLOOR_MARGIN
 
 	for i, petData in ipairs(pets) do
-		local rx = floor.Position.X + (math.random() * 2 - 1) * halfX
-		local rz = floor.Position.Z + (math.random() * 2 - 1) * halfZ
-		local clone = PlotService.CreatePet(petData.type, i, petData.xp or 0, floor, rx, rz)
+		local lx, lz, lry
+		if petData.lx ~= nil and petData.lz ~= nil then
+			lx, lz, lry = petData.lx, petData.lz, petData.lry or 0
+		else
+			lx  = (math.random() * 2 - 1) * halfX
+			lz  = (math.random() * 2 - 1) * halfZ
+			lry = 0
+		end
+		local clone = PlotService.CreatePet(petData.type, i, petData.xp or 0, floor, lx, lz, lry)
 		if clone then
 			clone.Parent = plot
 		end
@@ -184,10 +211,9 @@ end
 function PlotService.ReplacePetAt(plot, oldPet, newType, petIndex, xp)
 	local floor = plot:FindFirstChild("Floor")
 	if not floor then return nil end
-	local pivot = oldPet:GetPivot()
-	local x, z = pivot.X, pivot.Z
+	local lx, lz, lry = worldPivotToFloorLocal(floor, oldPet:GetPivot())
 	oldPet:Destroy()
-	local clone = PlotService.CreatePet(newType, petIndex, xp or 0, floor, x, z)
+	local clone = PlotService.CreatePet(newType, petIndex, xp or 0, floor, lx, lz, lry)
 	if clone then
 		clone.Parent = plot
 	end
@@ -210,8 +236,6 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		return
 	end
 
-	local baseY = floor.Position.Y + floor.Size.Y / 2
-
 	for i, rec in ipairs(placements) do
 		local feedType = rec.type or "Timed1"
 		local template = FeedMachines.GetTemplate(feedType)
@@ -223,18 +247,19 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		clone:SetAttribute("FeedType",  feedType)
 		clone:SetAttribute("FeedIndex", i)
 
-		local px = floor.Position.X + (rec.offX or 0)
-		local pz = floor.Position.Z + (rec.offZ or 0)
-		local py = baseY + templateHeight(clone) / 2
-		anchorAndPlace(clone, CFrame.new(px, py, pz) * CFrame.Angles(0, rec.rotY or 0, 0))
+		local height = templateHeight(clone)
+		anchorAndPlace(clone, localToWorldOnFloorTop(floor, rec.lx or 0, rec.lz or 0, height / 2, rec.lry or 0))
 		clone.Parent = plot
 	end
 end
 
--- Spawns a single FeedMachine on the plot at the given CFrame. Returns the
+-- Spawns a single FeedMachine at floor-local (lx, lz, lry). Returns the
 -- new instance (BasePart or Model) with FeedType and FeedIndex set,
 -- parented to the plot.
-function PlotService.PlaceFeed(plot, feedType, cframe)
+function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
+	local floor = plot:FindFirstChild("Floor")
+	if not floor then return nil end
+
 	local template = FeedMachines.GetTemplate(feedType)
 	if not template then
 		warn("[PlotService] No feed template: " .. tostring(feedType))
@@ -251,13 +276,24 @@ function PlotService.PlaceFeed(plot, feedType, cframe)
 	end
 	clone:SetAttribute("FeedIndex", maxIndex + 1)
 
-	anchorAndPlace(clone, cframe)
+	local height = templateHeight(clone)
+	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
 	return clone
 end
 
--- Exposed so PlaceFeedMachine remote can compute the placement Y from
--- the template alone.
+-- Exposed for callers (init.server.luau saveFeedState / savePetsFromPlot,
+-- the PlaceFeedMachine remote) to convert between world pivot and the
+-- floor-local frame we persist in.
+function PlotService.WorldPivotToFloorLocal(floor, world)
+	return worldPivotToFloorLocal(floor, world)
+end
+
+function PlotService.LocalToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+	return localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+end
+
+-- Exposed so PlaceFeedMachine can compute placement Y from the template alone.
 function PlotService.TemplateHeight(template)
 	return templateHeight(template)
 end

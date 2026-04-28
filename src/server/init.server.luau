@@ -40,16 +40,24 @@ end
 -- spawned Models and their attributes). Preserves xp/money from the existing
 -- profile entry when possible; falls back to 0.
 local function savePetsFromPlot(plot, profile)
+	local floor = plot:FindFirstChild("Floor")
 	local saved = {}
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
 		if idx then
 			local existing = profile.Data.Pets and profile.Data.Pets[idx] or nil
-			saved[idx] = {
+			local entry = {
 				type  = pet:GetAttribute(State.Pet.Type) or (existing and existing.type) or "Pet1",
 				xp    = existing and existing.xp or 0,
 				money = existing and existing.money or 0,
 			}
+			-- Position + rotation are stored in floor-local space so they
+			-- survive Floor rotations / translations between sessions.
+			if floor then
+				local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
+				entry.lx, entry.lz, entry.lry = lx, lz, lry
+			end
+			saved[idx] = entry
 		end
 	end
 	profile.Data.Pets = saved
@@ -62,15 +70,15 @@ local function saveFeedState(plot, player, profile)
 	local placements = {}
 	if floor then
 		for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
-			-- GetPivot works uniformly for BasePart (= CFrame) and Model
-			-- (= pivot), so the same record shape covers both template kinds.
-			local pivot   = f:GetPivot()
-			local _, ry, _ = pivot:ToEulerAnglesXYZ()
+			-- GetPivot works uniformly for BasePart and Model. We store the
+			-- pivot in the floor's local frame (lx/lz/lry) so placements
+			-- survive Floor rotations / translations.
+			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, f:GetPivot())
 			local rec = {
 				type = f:GetAttribute(State.Feed.Type) or "Timed1",
-				offX = pivot.Position.X - floor.Position.X,
-				offZ = pivot.Position.Z - floor.Position.Z,
-				rotY = ry,
+				lx   = lx,
+				lz   = lz,
+				lry  = lry,
 			}
 			-- Per-class extras (e.g. Processor queue). Merged shallow.
 			local extras = FeedMachines.Serialize(f)
@@ -486,28 +494,26 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 
 	local floor = plot:FindFirstChild("Floor")
 	if not floor then return end
-	local pos = cframe.Position
-	local fp  = floor.Position
-	if math.abs(pos.X - fp.X) > floor.Size.X / 2 or
-	   math.abs(pos.Z - fp.Z) > floor.Size.Z / 2 then
-		return
-	end
 
 	local template = FeedMachines.GetTemplate(feedType)
 	if not template then return end
 
-	local snappedX = math.round(pos.X)
-	local snappedZ = math.round(pos.Z)
-	local placedY  = floor.Position.Y + floor.Size.Y / 2 + PlotService.TemplateHeight(template) / 2
-
-	local _, ry, _  = cframe:ToEulerAnglesXYZ()
-	local snappedRY = math.round(ry / (math.pi / 2)) * (math.pi / 2)
-
-	local placeCFrame = CFrame.new(snappedX, placedY, snappedZ) * CFrame.Angles(0, snappedRY, 0)
+	-- Bounds check + grid snap + rotation snap all in the floor's local
+	-- frame, so machines align to the (possibly rotated) plot's axes
+	-- rather than world axes.
+	local localCF = floor.CFrame:ToObjectSpace(cframe)
+	if math.abs(localCF.X) > floor.Size.X / 2 or
+	   math.abs(localCF.Z) > floor.Size.Z / 2 then
+		return
+	end
+	local snappedLX  = math.round(localCF.X)
+	local snappedLZ  = math.round(localCF.Z)
+	local _, lry, _  = localCF:ToEulerAnglesXYZ()
+	local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 
 	tool:Destroy()
 
-	local feedPart = PlotService.PlaceFeed(plot, feedType, placeCFrame)
+	local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
 	if not feedPart then return end
 
 	setupFeedPickup(feedPart, plot, player)

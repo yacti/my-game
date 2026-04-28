@@ -142,6 +142,15 @@ function FeedPlacement.start()
 		currentRotation = 0
 	end
 
+	-- The player's plot Floor — used to snap the preview in floor-local
+	-- axes so the grid + rotation align with a rotated plot rather than
+	-- world axes. RespawnLocation is set server-side to the plot's
+	-- SpawnLocation, so its parent is the plot.
+	local function getPlayerFloor()
+		local plot = player.RespawnLocation and player.RespawnLocation.Parent
+		return plot and plot:FindFirstChild("Floor") or nil
+	end
+
 	local function getPreviewCFrame()
 		local char = player.Character
 		if not char then return nil end
@@ -154,22 +163,34 @@ function FeedPlacement.start()
 		flat = flat.Unit
 
 		local target = hrp.Position + flat * PREVIEW_DIST
+		local floor  = getPlayerFloor()
+		local halfH  = preview and previewSizeY(preview) / 2 or 2
 
+		if floor then
+			-- Snap in floor-local: convert the aim point into the floor's
+			-- frame, round to the integer grid there, then transform back.
+			-- The placement Y rides on the floor's local top surface.
+			local localTarget = floor.CFrame:PointToObjectSpace(target)
+			local snappedLX   = snapToGrid(localTarget.X)
+			local snappedLZ   = snapToGrid(localTarget.Z)
+			local localCF     = CFrame.new(snappedLX, floor.Size.Y / 2 + halfH, snappedLZ)
+				* CFrame.Angles(0, math.rad(currentRotation), 0)
+			return floor.CFrame * localCF
+		end
+
+		-- Fallback: world-axis snap when no plot is found.
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { char, preview }
-
 		local hit = workspace:Raycast(
 			Vector3.new(target.X, hrp.Position.Y + 5, target.Z),
 			Vector3.new(0, -30, 0),
 			params
 		)
 		local floorY = hit and hit.Position.Y or (hrp.Position.Y - 3)
-
 		local sx = snapToGrid(target.X)
 		local sz = snapToGrid(target.Z)
-		local sy = floorY + (preview and previewSizeY(preview) / 2 or 2)
-
+		local sy = floorY + halfH
 		return CFrame.new(sx, sy, sz) * CFrame.Angles(0, math.rad(currentRotation), 0)
 	end
 
