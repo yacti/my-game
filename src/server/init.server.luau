@@ -158,10 +158,18 @@ local function setupPetPrompt(plot, player, profile, pet)
 	prompt.ActionText      = "Feed"
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration    = 0
+	prompt.Enabled         = player:GetAttribute("EditMode") ~= true
 	prompt.Parent          = primary
+
+	-- Hide all non-pickup prompts while the player is in edit mode.
+	local conn = player:GetAttributeChangedSignal("EditMode"):Connect(function()
+		prompt.Enabled = player:GetAttribute("EditMode") ~= true
+	end)
+	pet.Destroying:Connect(function() conn:Disconnect() end)
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= player then return end
+		if player:GetAttribute("EditMode") == true then return end
 
 		local food = Food.FindFirstInBackpack(player)
 		if not food then return end
@@ -260,6 +268,37 @@ end
 -- F-hold to retrieve a placed FeedMachine back into the inventory. Refuses
 -- pickup while a Processor still has items queued so they aren't silently
 -- destroyed (player must drain the queue first).
+--
+-- Pickup prompts are gated on the owner currently holding an EditTool —
+-- they're invisible during normal play and only appear in "edit mode"
+-- when the player explicitly equips the tool from their inventory.
+
+local EDIT_TOOL_NAME = "EditTool"
+
+local function isEditTool(tool)
+	return tool ~= nil and tool:IsA("Tool") and tool.Name == EDIT_TOOL_NAME
+end
+
+-- Single source of truth for "is this player in edit mode": a boolean
+-- attribute on the Player instance. Every prompt that wants to react to
+-- edit mode reads this attribute (and listens for changes via
+-- GetAttributeChangedSignal) — no per-prompt character watchers needed.
+local function watchPlayerEditMode(player)
+	local function refresh()
+		local char = player.Character
+		local equipped = char and char:FindFirstChildWhichIsA("Tool") or nil
+		player:SetAttribute("EditMode", isEditTool(equipped))
+	end
+	local function watchCharacter(char)
+		if not char then return end
+		char.ChildAdded:Connect(function(c) if c:IsA("Tool") then refresh() end end)
+		char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then refresh() end end)
+		refresh()
+	end
+	watchCharacter(player.Character)
+	player.CharacterAdded:Connect(watchCharacter)
+	refresh()
+end
 
 local function setupFeedPickup(feed, plot, owner)
 	-- For Models we anchor the prompt to the PrimaryPart; for Parts the
@@ -271,10 +310,17 @@ local function setupFeedPickup(feed, plot, owner)
 	prompt.ActionText      = "Pick Up"
 	prompt.KeyboardKeyCode = Enum.KeyCode.F
 	prompt.HoldDuration    = 0.5
+	prompt.Enabled         = owner:GetAttribute("EditMode") == true
 	prompt.Parent          = promptParent
+
+	local conn = owner:GetAttributeChangedSignal("EditMode"):Connect(function()
+		prompt.Enabled = owner:GetAttribute("EditMode") == true
+	end)
+	feed.Destroying:Connect(function() conn:Disconnect() end)
 
 	prompt.Triggered:Connect(function(triggeringPlayer)
 		if triggeringPlayer ~= owner then return end
+		if owner:GetAttribute("EditMode") ~= true then return end
 		if not FeedMachines.PrePickup(feed, triggeringPlayer) then return end
 		local feedType = feed:GetAttribute(State.Feed.Type) or "Timed1"
 		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
@@ -282,9 +328,29 @@ local function setupFeedPickup(feed, plot, owner)
 	end)
 end
 
+-- Always-present inventory tool that players use to enter "edit mode".
+-- Re-checked every CharacterAdded so a lost or destroyed tool comes back.
+local function ensureEditTool(player)
+	local template = ReplicatedStorage:FindFirstChild(EDIT_TOOL_NAME)
+	if not template or not template:IsA("Tool") then return end
+	-- Already in inventory or equipped?
+	for _, container in ipairs({ player.Backpack, player.Character }) do
+		if container then
+			for _, c in ipairs(container:GetChildren()) do
+				if c:IsA("Tool") and c.Name == EDIT_TOOL_NAME then return end
+			end
+		end
+	end
+	template:Clone().Parent = player.Backpack
+end
+
 -- ── Player lifecycle ──────────────────────────────────────────────────────────
 
 Players.PlayerAdded:Connect(function(player)
+	-- Wire up edit-mode tracking before any prompts get created so the
+	-- "EditMode" attribute is already there when prompts read it.
+	watchPlayerEditMode(player)
+
 	local plot, _ = PlotService.AssignPlot(player)
 	if not plot then
 		player:Kick("The server is full (all plots are taken).")
@@ -342,6 +408,7 @@ Players.PlayerAdded:Connect(function(player)
 				end
 			end
 		end
+		ensureEditTool(player)
 	end
 
 	if player.Character then onCharacterAdded(player.Character) end

@@ -108,6 +108,18 @@ local function applySlotScale(slot)
 	slot.foodPart:ScaleTo(scale)
 end
 
+-- The slot's harvest prompt is enabled when the slot has a food (not in
+-- respawn delay) AND the owner is NOT in edit mode. Centralized here so
+-- materializeRespawn / harvest / EditMode change all share one rule.
+local function refreshSlotPrompt(slot, owner)
+	if not slot.prompt then return end
+	if owner:GetAttribute("EditMode") == true then
+		slot.prompt.Enabled = false
+	else
+		slot.prompt.Enabled = not slot.respawnAt
+	end
+end
+
 local function setSlotStage(slot, stageIndex, xp)
 	if slot.foodPart then slot.foodPart:Destroy() end
 	slot.stage    = stageIndex
@@ -123,13 +135,13 @@ local function refreshSlotXP(slot)
 	end
 end
 
-local function materializeRespawn(slot)
+local function materializeRespawn(slot, owner)
 	slot.respawnAt = nil
 	slot.stage     = 1
 	slot.xp        = 0
 	slot.foodPart  = spawnFoodAtSlot(slot, 1)
 	applySlotScale(slot)
-	if slot.prompt then slot.prompt.Enabled = true end
+	refreshSlotPrompt(slot, owner)
 end
 
 local function applyGrowth(machine, s, seconds)
@@ -140,7 +152,7 @@ local function applyGrowth(machine, s, seconds)
 		if slot.respawnAt then
 			-- Slot is empty post-harvest. Materialize chain[1] once the
 			-- delay has elapsed; growth starts on the next tick.
-			if now >= slot.respawnAt then materializeRespawn(slot) end
+			if now >= slot.respawnAt then materializeRespawn(slot, s.owner) end
 		else
 			-- Terminal stage still ticks xp toward its own cap (e.g. Food10
 			-- climbs from 45 to 50), so keep growing regardless of stage.
@@ -197,7 +209,7 @@ local function harvest(machine, s, slotIndex, player)
 	slot.stage     = 1
 	slot.xp        = 0
 	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
-	if slot.prompt then slot.prompt.Enabled = false end
+	refreshSlotPrompt(slot, s.owner)
 end
 
 -- Anchor the slot at the BaseFood's CFrame so the food clone has a stable
@@ -245,6 +257,7 @@ function TimedNew.Setup(machine, plot, owner)
 			local slot = { stage = 1, xp = 0, anchor = anchor, foodPart = nil, prompt = prompt, respawnAt = nil }
 			slot.foodPart = spawnFoodAtSlot(slot, 1)
 			applySlotScale(slot)
+			refreshSlotPrompt(slot, owner)
 			table.insert(s.slots, slot)
 
 			local idx = #s.slots
@@ -253,6 +266,11 @@ function TimedNew.Setup(machine, plot, owner)
 			end))
 		end
 	end
+
+	-- React to edit-mode toggles by refreshing every slot prompt.
+	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(function()
+		for _, slot in ipairs(s.slots) do refreshSlotPrompt(slot, owner) end
+	end))
 end
 
 function TimedNew.Teardown(machine)
@@ -289,14 +307,13 @@ function TimedNew.Apply(machine, placement)
 				slot.stage     = 1
 				slot.xp        = 0
 				slot.respawnAt = respawnAt
-				if slot.prompt then slot.prompt.Enabled = false end
 			else
 				local stage = math.clamp(savedSlot.stage or 1, 1, #CHAIN)
 				local xp    = math.max(savedSlot.xp or 0, 0)
 				setSlotStage(slot, stage, xp)
 				refreshSlotXP(slot)
-				if slot.prompt then slot.prompt.Enabled = true end
 			end
+			refreshSlotPrompt(slot, s.owner)
 		end
 	end
 

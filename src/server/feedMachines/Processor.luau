@@ -45,20 +45,26 @@ local function refreshAttrs(machine, s)
 	machine:SetAttribute(State.Feed.ReadyCount, ready)
 
 	if s.prompt then
-		local hasEquipped = Food.GetEquipped(s.owner, accepted) ~= nil
-		local maxQueue    = machine:GetAttribute(State.Feed.MaxQueue) or 5
-		local canDeposit  = hasEquipped and #s.queue < maxQueue
-		-- Deposit takes priority over Take when both are possible. Falls
-		-- through to Take when the queue is full so the player has a way
-		-- to clear a slot instead of being stuck with a non-firing prompt.
-		if canDeposit then
-			s.prompt.ActionText = "Deposit Food"
-			s.prompt.Enabled    = true
-		elseif ready > 0 then
-			s.prompt.ActionText = "Take Food"
-			s.prompt.Enabled    = true
+		-- Edit mode hides every gameplay prompt; only Pick Up survives.
+		if s.owner:GetAttribute("EditMode") == true then
+			s.prompt.Enabled = false
 		else
-			s.prompt.Enabled    = false
+			local hasEquipped = Food.GetEquipped(s.owner, accepted) ~= nil
+			local maxQueue    = machine:GetAttribute(State.Feed.MaxQueue) or 5
+			local canDeposit  = hasEquipped and #s.queue < maxQueue
+			-- Deposit takes priority over Take when both are possible. Falls
+			-- through to Take when the queue is full so the player has a
+			-- way to clear a slot instead of being stuck with a non-firing
+			-- prompt.
+			if canDeposit then
+				s.prompt.ActionText = "Deposit Food"
+				s.prompt.Enabled    = true
+			elseif ready > 0 then
+				s.prompt.ActionText = "Take Food"
+				s.prompt.Enabled    = true
+			else
+				s.prompt.Enabled    = false
+			end
 		end
 	end
 end
@@ -124,6 +130,8 @@ function Processor.Setup(machine, plot, owner)
 	end
 	watchCharacter(owner.Character)
 	table.insert(s.conns, owner.CharacterAdded:Connect(watchCharacter))
+	-- Edit mode also flips the prompt; refresh on its attribute change.
+	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(refresh))
 
 	-- Single context-switching prompt: Deposit when food equipped, Take
 	-- when ready food is waiting.
