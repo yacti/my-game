@@ -27,6 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
+local AppleTree = require(script:WaitForChild("AppleTree"))
 local Clicker   = require(script:WaitForChild("Clicker"))
 local Processor = require(script:WaitForChild("Processor"))
 local Timed1    = require(script:WaitForChild("Timed1"))
@@ -40,8 +41,9 @@ local CLASSES = {
 
 -- Per-FeedType overrides (preferred). Keys are exact FeedType names.
 local TYPES = {
-	Timed1   = Timed1,
-	TimedNew = TimedNew,
+	AppleTree = AppleTree,
+	Timed1    = Timed1,
+	TimedNew  = TimedNew,
 }
 
 local FeedMachines = {}
@@ -67,9 +69,14 @@ local function buildIndex()
 							feedType, classFolder.Name
 						))
 					end
-					-- Ensure class attribute reflects parent folder.
+					-- Ensure class + type attributes reflect parent folder /
+					-- template name so cloned instances always carry them
+					-- (saveFeedState reads FeedType off the attribute).
 					if template:GetAttribute(State.Feed.Class) == nil then
 						template:SetAttribute(State.Feed.Class, classFolder.Name)
+					end
+					if template:GetAttribute(State.Feed.Type) == nil then
+						template:SetAttribute(State.Feed.Type, feedType)
 					end
 					result[feedType] = {
 						template = template,

@@ -22,10 +22,11 @@ local petConnections = {}
 
 -- ── Tool factories ────────────────────────────────────────────────────────────
 
-local function makeFeedTool(feedType)
+local function makeFeedTool(feedType, level)
 	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
 	tool.Name = feedType
 	tool:SetAttribute(State.Feed.Type, feedType)
+	if level then tool:SetAttribute("Level", level) end
 	return tool
 end
 
@@ -81,19 +82,23 @@ local function saveFeedState(plot, player, profile)
 	end
 	profile.Data.FeedPlacements = placements
 
+	-- Per-tool Level is preserved so picked-up upgraded machines come back
+	-- at their current level on next session.
 	local feedInventory = {}
-	for _, item in pairs(player.Backpack:GetChildren()) do
-		if isFeedTool(item) then
-			local ft = item:GetAttribute(State.Feed.Type)
-			feedInventory[ft] = (feedInventory[ft] or 0) + 1
+	local function captureTool(item)
+		if not isFeedTool(item) then return end
+		local ft = item:GetAttribute(State.Feed.Type)
+		local lv = tonumber(item:GetAttribute("Level")) or 1
+		local entry = feedInventory[ft]
+		if not entry then
+			entry = { levels = {} }
+			feedInventory[ft] = entry
 		end
+		table.insert(entry.levels, lv)
 	end
+	for _, item in pairs(player.Backpack:GetChildren()) do captureTool(item) end
 	if player.Character then
-		local eq = player.Character:FindFirstChildWhichIsA("Tool")
-		if isFeedTool(eq) then
-			local ft = eq:GetAttribute(State.Feed.Type)
-			feedInventory[ft] = (feedInventory[ft] or 0) + 1
-		end
+		captureTool(player.Character:FindFirstChildWhichIsA("Tool"))
 	end
 	profile.Data.FeedInventory = feedInventory
 
@@ -323,7 +328,12 @@ local function setupFeedPickup(feed, plot, owner)
 		if owner:GetAttribute("EditMode") ~= true then return end
 		if not FeedMachines.PrePickup(feed, triggeringPlayer) then return end
 		local feedType = feed:GetAttribute(State.Feed.Type) or "Timed1"
-		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
+		-- Carry per-machine state (e.g. AppleTree level) onto the tool so
+		-- re-placement restores it. Generic — non-leveled types just have
+		-- a nil `level` extra and the attribute won't be set.
+		local extras = FeedMachines.Serialize(feed)
+		local level  = extras and extras.level or nil
+		makeFeedTool(feedType, level).Parent = triggeringPlayer.Backpack
 		feed:Destroy()
 	end)
 end
@@ -402,9 +412,11 @@ Players.PlayerAdded:Connect(function(player)
 					if tool then tool.Parent = player.Backpack end
 				end
 			end
-			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
-				for _ = 1, count do
-					makeFeedTool(feedType).Parent = player.Backpack
+			for feedType, entry in pairs(profile.Data.FeedInventory or {}) do
+				if type(entry) == "table" and type(entry.levels) == "table" then
+					for _, level in ipairs(entry.levels) do
+						makeFeedTool(feedType, level).Parent = player.Backpack
+					end
 				end
 			end
 		end
@@ -470,6 +482,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 	if not isFeedTool(tool) then return end
 
 	local feedType = tool:GetAttribute(State.Feed.Type)
+	local toolLevel = tonumber(tool:GetAttribute("Level"))
 
 	local floor = plot:FindFirstChild("Floor")
 	if not floor then return end
@@ -499,4 +512,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 
 	setupFeedPickup(feedPart, plot, player)
 	FeedMachines.Setup(feedPart, plot, player)
+	if toolLevel and toolLevel > 1 then
+		FeedMachines.Apply(feedPart, { level = toolLevel })
+	end
 end)

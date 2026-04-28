@@ -2,6 +2,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ProfileService = require(ReplicatedStorage.Shared:WaitForChild("ProfileService"))
 
+-- FeedInventory shape: per-FeedType list of *individual tools*, each with
+-- a Level. We can't collapse to a count anymore because some FeedMachines
+-- (AppleTree) carry persistent state — picking up a Lv5 tree must yield a
+-- Lv5 tool. Old saves stored counts; they migrate to all-Lv1 tools.
+local function defaultFeedInventory()
+	return {
+		Clicker1   = { levels = { 1 } },
+		TimedNew   = { levels = { 1 } },
+		Processor1 = { levels = { 1 } },
+		AppleTree  = { levels = { 1 } },
+	}
+end
+
 local function defaultData()
 	return {
 		Pets = {
@@ -9,11 +22,34 @@ local function defaultData()
 			{ type = "Pet1", xp = 0, money = 0 },
 		},
 		FeedPlacements = {},
-		FeedInventory  = { Clicker1 = 1, TimedNew = 1, Processor1 = 1 },
+		FeedInventory  = defaultFeedInventory(),
 		FoodInventory  = {},          -- { [FoodType] = count }
 		Currency       = 0,
 		LastSeen       = 0,
 	}
+end
+
+-- Old saves stored FeedInventory[feedType] as a number; new shape is
+-- { levels = {…} } so each tool's Level persists. Idempotent — already-
+-- migrated entries pass through unchanged. Garbage entries are dropped.
+local function migrateFeedInventory(inv)
+	if type(inv) ~= "table" then return {} end
+	local out = {}
+	for ft, v in pairs(inv) do
+		if type(v) == "number" and v > 0 then
+			out[ft] = { levels = table.create(v, 1) }
+		elseif type(v) == "table" and type(v.levels) == "table" then
+			-- Sanity-clean: drop non-numeric/non-positive level entries.
+			local clean = {}
+			for _, lv in ipairs(v.levels) do
+				if type(lv) == "number" and lv >= 1 then
+					table.insert(clean, math.floor(lv))
+				end
+			end
+			if #clean > 0 then out[ft] = { levels = clean } end
+		end
+	end
+	return out
 end
 
 local PROFILE_STORE = ProfileService.GetProfileStore("PlayerData_v13", defaultData())
@@ -46,11 +82,15 @@ function PlayerDataService.LoadPlayerAsync(player)
 		profile.Data.Pets = defaults.Pets
 	end
 
-	-- Seed FeedInventory if player has zero total feeds (placed + in inventory)
+	profile.Data.FeedInventory = migrateFeedInventory(profile.Data.FeedInventory)
+
+	-- Seed FeedInventory if player has zero total feeds (placed + in inventory).
 	local totalFeeds = #profile.Data.FeedPlacements
-	for _, n in pairs(profile.Data.FeedInventory) do totalFeeds += n end
+	for _, entry in pairs(profile.Data.FeedInventory) do
+		totalFeeds += #entry.levels
+	end
 	if totalFeeds == 0 then
-		profile.Data.FeedInventory = { Clicker1 = 1, TimedNew = 1, Processor1 = 1 }
+		profile.Data.FeedInventory = defaultFeedInventory()
 	end
 
 	profiles[player] = profile
