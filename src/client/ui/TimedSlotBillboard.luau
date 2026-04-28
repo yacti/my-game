@@ -4,10 +4,12 @@
 -- Heartbeat — BillboardGui.MaxDistance is camera-based and would hide
 -- legitimate slots when the camera is pulled back.
 --
--- Identification: a "slot food" is any BasePart with a FoodType attribute
--- whose parent is named "SlotAnchor". Server keeps the part's XP attribute
--- in sync each heartbeat tick (see TimedNew.refreshSlotXP), so the
--- billboard just listens to attribute changes.
+-- Identification: a "slot food" is any BasePart/Model with a FoodType
+-- attribute that either (a) lives under a parent named "SlotAnchor" — the
+-- TimedNew growth slots — or (b) carries a TrackedFood=true attribute,
+-- which other systems (e.g. AppleTree's ground fruit) opt into. Server
+-- keeps the XP attribute in sync, so the billboard just listens to
+-- attribute changes.
 --
 -- Per-viewer rendered locally; no replication of GUI instances.
 
@@ -26,10 +28,10 @@ local tracked   = {}  -- [food] = gui
 local TimedSlotBillboard = {}
 
 local function isSlotFood(obj)
-	return (obj:IsA("BasePart") or obj:IsA("Model"))
-		and obj:GetAttribute("FoodType") ~= nil
-		and obj.Parent
-		and obj.Parent.Name == "SlotAnchor"
+	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
+	if obj:GetAttribute("FoodType") == nil then return false end
+	if obj:GetAttribute("TrackedFood") == true then return true end
+	return obj.Parent ~= nil and obj.Parent.Name == "SlotAnchor"
 end
 
 local function adorneeFor(food)

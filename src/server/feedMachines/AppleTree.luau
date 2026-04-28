@@ -62,6 +62,9 @@ local SLOT_RESPAWN     = 1    -- seconds; on-tree slot regrows after a drop
 local SETTLE_VELOCITY  = 0.5  -- studs/s; fruit is "still" below this
 local SETTLE_DURATION  = 0.3  -- seconds it must stay still before merging
 
+-- One-shot per missing chain food, so the same warning doesn't spam.
+local warnedMissingTemplate = {}
+
 -- state[machine] = {
 --   owner, plot, lastClick, conns,
 --   slots = { [i] = { anchor, foodPart, respawnAt } },
@@ -124,7 +127,11 @@ end
 
 local function makeSlotAnchor(machine, baseFoodPart)
 	local anchor = Instance.new("Part")
-	anchor.Name         = "SlotAnchor"
+	-- Deliberately not "SlotAnchor" — that name is what the
+	-- TimedSlotBillboard / FoodXPBillboard client picks up to render an
+	-- XP badge. AppleTree's on-tree fruits are cosmetic placeholders that
+	-- don't carry meaningful XP, so we use a different name to opt out.
+	anchor.Name         = "AppleSlot"
 	anchor.Anchored     = true
 	anchor.CanCollide   = false
 	anchor.CanQuery     = false
@@ -208,6 +215,10 @@ local function makeGroundFruitVisual(foodType, worldCF)
 		return nil, nil
 	end
 	visual:SetAttribute("FoodType", foodType)
+	-- Opt the ground fruit into the food XP billboard (see
+	-- TimedSlotBillboard.isSlotFood). The billboard is range-gated client-
+	-- side so this only renders when the player walks up to the fruit.
+	visual:SetAttribute("TrackedFood", true)
 	visual.Parent = workspace
 	return visual, primary
 end
@@ -252,20 +263,36 @@ local function spawnGroundFruit(machine, s, foodType, xp, worldCF)
 end
 
 -- Add XP to the ground fruit; advance through the chain whenever
--- cumulative xp crosses a stage's MaxXP. Past the terminal stage, xp
--- keeps accumulating without further morphs.
+-- cumulative xp crosses a stage's MaxXP. Past the terminal stage — or
+-- past the last stage that has a registered food template — xp keeps
+-- accumulating without further morphs.
 local function addXPToGround(machine, s, deltaXP)
 	if not s.ground then return end
 	s.ground.xp = s.ground.xp + deltaXP
-	s.ground.model:SetAttribute("XP", s.ground.xp)
-
-	local stage    = chainStageOf(s.ground.foodType)
-	local advanced = false
-	while stage < #CHAIN and s.ground.xp >= maxXPFor(CHAIN[stage]) do
-		stage    = stage + 1
-		advanced = true
+	if s.ground.model and s.ground.model.Parent then
+		s.ground.model:SetAttribute("XP", s.ground.xp)
 	end
-	if advanced then
+
+	local startStage = chainStageOf(s.ground.foodType)
+	local stage      = startStage
+	while stage < #CHAIN do
+		if s.ground.xp < maxXPFor(CHAIN[stage]) then break end
+		local nextType = CHAIN[stage + 1]
+		-- Halt the morph if the next chain entry has no food template.
+		-- The fruit stays at its current stage and keeps accumulating XP.
+		if not Food.GetTemplate(nextType) then
+			if not warnedMissingTemplate[nextType] then
+				warnedMissingTemplate[nextType] = true
+				warn(string.format(
+					"[AppleTree] no food template for %q — morph halts at %s. Add a Food%d_Clicker template to ReplicatedStorage.Food to enable further morphs.",
+					nextType, CHAIN[stage], stage + 1
+				))
+			end
+			break
+		end
+		stage = stage + 1
+	end
+	if stage > startStage then
 		local newType = CHAIN[stage]
 		local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
 		local xp = s.ground.xp
