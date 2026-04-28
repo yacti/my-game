@@ -74,14 +74,6 @@ local function chainStageOf(foodType)
 	return 1
 end
 
-local function fruitHalfHeight(foodType)
-	local t = Food.GetTemplate(foodType)
-	if not t then return 0 end
-	if t:IsA("BasePart") then return t.Size.Y / 2 end
-	if t:IsA("Model") and t.PrimaryPart then return t.PrimaryPart.Size.Y / 2 end
-	return 0
-end
-
 -- ── On-tree slot visuals (cosmetic) ───────────────────────────────────────────
 
 local function configureSlotPart(part)
@@ -172,6 +164,21 @@ local function spawnFallingFruit(slot, foodType)
 	end
 	clone:SetAttribute("FoodType", foodType)
 	clone.Parent = workspace
+
+	-- Inject some character: random spin and a small horizontal toss so
+	-- the drop reads as alive rather than a straight vertical fall. The
+	-- physical bounce-then-settle that follows is what we resolve on.
+	primary.AssemblyAngularVelocity = Vector3.new(
+		(math.random() * 2 - 1) * 8,
+		(math.random() * 2 - 1) * 8,
+		(math.random() * 2 - 1) * 8
+	)
+	primary.AssemblyLinearVelocity = Vector3.new(
+		(math.random() * 2 - 1) * 3,
+		0,
+		(math.random() * 2 - 1) * 3
+	)
+
 	return clone, primary
 end
 
@@ -216,10 +223,11 @@ local function makePoolVisual(foodType, worldCF)
 	return visual, primary
 end
 
--- World CFrame for a pool fruit sitting on top of its BaseFoodGround.
-local function poolCFrame(marker, foodType)
-	local halfH = fruitHalfHeight(foodType)
-	return marker.CFrame * CFrame.new(0, marker.Size.Y / 2 + halfH, 0)
+-- World CFrame for a pool fruit. Centered on the marker (not on top of
+-- it) so the BaseFoodGround positions you authored are exactly where
+-- the fruit appears.
+local function poolCFrame(marker)
+	return marker.CFrame
 end
 
 local function destroyPool(groundSlot)
@@ -235,7 +243,7 @@ local pickupPool
 
 local function spawnPool(machine, s, groundSlot, foodType, xp)
 	if not groundSlot.marker.Parent then return end
-	local visual, primary = makePoolVisual(foodType, poolCFrame(groundSlot.marker, foodType))
+	local visual, primary = makePoolVisual(foodType, poolCFrame(groundSlot.marker))
 	if not visual then return end
 
 	visual:SetAttribute("XP", xp)
@@ -316,13 +324,6 @@ local function mergeIntoGround(machine, s, groundSlot, foodType, dropXP)
 	end
 end
 
-local function findGroundSlotByMarker(s, marker)
-	for _, gs in ipairs(s.grounds) do
-		if gs.marker == marker then return gs end
-	end
-	return nil
-end
-
 local function nearestGroundSlot(s, worldPos)
 	local best, bestDist
 	for _, gs in ipairs(s.grounds) do
@@ -337,13 +338,13 @@ local function nearestGroundSlot(s, worldPos)
 	return best
 end
 
--- Watch a falling fruit. Two resolution paths:
---   • Touch — the primary overlaps a BaseFoodGround mid-flight, fires
---             Touched, and we merge into that pool immediately.
---   • Settle/timeout — primary's velocity drops below SETTLE_VELOCITY
---             for SETTLE_DURATION (or FALL_TIMEOUT seconds elapse).
---             We snap to the nearest BaseFoodGround on this tree.
--- Whichever fires first wins; resolve() guards against double-firing.
+-- Watch a falling fruit. Resolution is settle-based: the fruit physics-
+-- falls, hits the floor, bounces, and we resolve once its primary stops
+-- moving (velocity < SETTLE_VELOCITY for SETTLE_DURATION). FALL_TIMEOUT
+-- is a safety for fruits that get stuck inside the trunk's collision
+-- union. On resolve we snap to the nearest BaseFoodGround on this tree
+-- and merge dropXP into that pool. Touched-on-marker isn't used —
+-- always letting the bounce play out before snapping reads better.
 local function trackFallingFruit(machine, s, falling, primary)
 	s.airborne[falling] = true
 	local foodType  = falling:GetAttribute("FoodType")
@@ -351,24 +352,14 @@ local function trackFallingFruit(machine, s, falling, primary)
 	local startTime = os.clock()
 
 	local resolved = false
-	local touchConn
-
 	local function resolve(groundSlot)
 		if resolved then return end
 		resolved = true
-		if touchConn then touchConn:Disconnect() touchConn = nil end
 		s.airborne[falling] = nil
 		if falling.Parent then falling:Destroy() end
 		if not state[machine] or not groundSlot then return end
 		mergeIntoGround(machine, s, groundSlot, foodType, dropXP)
 	end
-
-	touchConn = primary.Touched:Connect(function(other)
-		if resolved then return end
-		if other.Name ~= "BaseFoodGround" then return end
-		local groundSlot = findGroundSlotByMarker(s, other)
-		if groundSlot then resolve(groundSlot) end
-	end)
 
 	task.spawn(function()
 		local stillSince = nil
@@ -461,12 +452,13 @@ end
 local function setupGroundSlots(machine, s)
 	for _, child in ipairs(machine:GetChildren()) do
 		if child:IsA("BasePart") and child.Name == "BaseFoodGround" then
-			-- Server-only anchor: invisible, intangible, but still
-			-- queryable for Touched events from falling fruit primaries.
+			-- Server-only anchor: invisible and intangible. Falling fruits
+			-- pass through; the snap-to-nearest on settle is what binds
+			-- a drop to a marker, so we don't need Touched here.
 			child.Transparency = 1
 			child.CanCollide   = false
 			child.CanQuery     = false
-			child.CanTouch     = true
+			child.CanTouch     = false
 			child.Anchored     = true
 			table.insert(s.grounds, { marker = child, pool = nil })
 		end
