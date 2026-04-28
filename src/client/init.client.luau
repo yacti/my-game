@@ -1,5 +1,9 @@
 print("[Client] UI bootstrap")
 
+-- Hide Roblox's default backpack so Satchel is the only inventory UI.
+local StarterGui = game:GetService("StarterGui")
+StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+
 local ui = script:WaitForChild("ui")
 
 require(ui:WaitForChild("HudController")).start()
