@@ -20,15 +20,27 @@
 -- The chain order is owned by this module — adding new clicker foods is
 -- one append in CHAIN.
 
-local ReplicatedStorage   = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
-local RunService          = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
 local State  = require(Shared:WaitForChild("State"))
 
-local PlotService = require(ServerScriptService:WaitForChild("Server"):WaitForChild("PlotService"))
+-- Floor-local helpers are inlined here rather than requiring PlotService
+-- to avoid a circular dependency: PlotService requires the FeedMachines
+-- registry, which requires this module.
+local function worldPivotToFloorLocal(floor, world)
+	local localCF = floor.CFrame:ToObjectSpace(world)
+	local _, lry  = localCF:ToEulerAnglesXYZ()
+	return localCF.X, localCF.Z, lry
+end
+
+local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
+		* CFrame.Angles(0, lry or 0, 0)
+	return floor.CFrame * localCF
+end
 
 local AppleTree = {}
 
@@ -426,7 +438,7 @@ function AppleTree.Serialize(machine)
 	local floor = s.plot:FindFirstChild("Floor")
 	if not floor then return nil end
 	local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
-	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, cf)
+	local lx, lz, lry = worldPivotToFloorLocal(floor, cf)
 	return {
 		groundFruit = {
 			foodType = s.ground.foodType,
@@ -463,7 +475,7 @@ function AppleTree.Apply(machine, placement)
 			halfH = template.PrimaryPart.Size.Y / 2
 		end
 	end
-	local worldCF = PlotService.LocalToWorldOnFloorTop(floor, g.lx or 0, g.lz or 0, halfH, g.lry or 0)
+	local worldCF = localToWorldOnFloorTop(floor, g.lx or 0, g.lz or 0, halfH, g.lry or 0)
 
 	destroyGroundFruit(s)
 	spawnGroundFruit(machine, s, foodType, xp, worldCF)
