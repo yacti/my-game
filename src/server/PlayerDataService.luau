@@ -2,16 +2,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ProfileService = require(ReplicatedStorage.Shared:WaitForChild("ProfileService"))
 
--- FeedInventory shape: per-FeedType list of *individual tools*, each with
--- a Level. We can't collapse to a count anymore because some FeedMachines
--- (AppleTree) carry persistent state — picking up a Lv5 tree must yield a
--- Lv5 tool. Old saves stored counts; they migrate to all-Lv1 tools.
 local function defaultFeedInventory()
 	return {
-		Clicker1   = { levels = { 1 } },
-		TimedNew   = { levels = { 1 } },
-		Processor1 = { levels = { 1 } },
-		AppleTree  = { levels = { 1 } },
+		Clicker1   = 1,
+		TimedNew   = 1,
+		Processor1 = 1,
+		AppleTree  = 1,
 	}
 end
 
@@ -30,10 +26,9 @@ local function defaultData()
 end
 
 -- One-shot migration: old saves stored placements with offX/offZ/rotY in
--- world space, which doesn't survive a Floor rotation / move. Records that
--- lack the new floor-local fields (lx/lz) are wiped from FeedPlacements
--- and credited back to FeedInventory at their stored level so players
--- keep their machines.
+-- world space, which doesn't survive a Floor rotation / move. Records
+-- without the floor-local fields (lx/lz) are wiped from FeedPlacements
+-- and credited back to FeedInventory so players don't lose machines.
 local function migrateFeedPlacementsAndCredit(profile)
 	local placements = profile.Data.FeedPlacements
 	if type(placements) ~= "table" then
@@ -52,33 +47,27 @@ local function migrateFeedPlacementsAndCredit(profile)
 
 	for _, rec in ipairs(placements) do
 		if type(rec) == "table" then
-			local ft  = rec.type or "Timed1"
-			local lvl = tonumber(rec.level) or 1
-			profile.Data.FeedInventory[ft] = profile.Data.FeedInventory[ft] or { levels = {} }
-			table.insert(profile.Data.FeedInventory[ft].levels, lvl)
+			local ft = rec.type or "Timed1"
+			profile.Data.FeedInventory[ft] = (profile.Data.FeedInventory[ft] or 0) + 1
 		end
 	end
 	profile.Data.FeedPlacements = {}
 end
 
--- Old saves stored FeedInventory[feedType] as a number; new shape is
--- { levels = {…} } so each tool's Level persists. Idempotent — already-
--- migrated entries pass through unchanged. Garbage entries are dropped.
+-- Sanity-clean FeedInventory. Earlier dev builds briefly used a
+-- { levels = {…} } shape; collapse those back to a count, drop garbage.
 local function migrateFeedInventory(inv)
 	if type(inv) ~= "table" then return {} end
 	local out = {}
 	for ft, v in pairs(inv) do
 		if type(v) == "number" and v > 0 then
-			out[ft] = { levels = table.create(v, 1) }
+			out[ft] = math.floor(v)
 		elseif type(v) == "table" and type(v.levels) == "table" then
-			-- Sanity-clean: drop non-numeric/non-positive level entries.
-			local clean = {}
+			local n = 0
 			for _, lv in ipairs(v.levels) do
-				if type(lv) == "number" and lv >= 1 then
-					table.insert(clean, math.floor(lv))
-				end
+				if type(lv) == "number" and lv >= 1 then n = n + 1 end
 			end
-			if #clean > 0 then out[ft] = { levels = clean } end
+			if n > 0 then out[ft] = n end
 		end
 	end
 	return out
@@ -119,8 +108,8 @@ function PlayerDataService.LoadPlayerAsync(player)
 
 	-- Seed FeedInventory if player has zero total feeds (placed + in inventory).
 	local totalFeeds = #profile.Data.FeedPlacements
-	for _, entry in pairs(profile.Data.FeedInventory) do
-		totalFeeds += #entry.levels
+	for _, count in pairs(profile.Data.FeedInventory) do
+		totalFeeds += count
 	end
 	if totalFeeds == 0 then
 		profile.Data.FeedInventory = defaultFeedInventory()
