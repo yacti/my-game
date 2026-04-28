@@ -27,21 +27,6 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
 local State  = require(Shared:WaitForChild("State"))
 
--- Floor-local helpers are inlined here rather than requiring PlotService
--- to avoid a circular dependency: PlotService requires the FeedMachines
--- registry, which requires this module.
-local function worldPivotToFloorLocal(floor, world)
-	local localCF = floor.CFrame:ToObjectSpace(world)
-	local _, lry  = localCF:ToEulerAnglesXYZ()
-	return localCF.X, localCF.Z, lry
-end
-
-local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
-	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
-		* CFrame.Angles(0, lry or 0, 0)
-	return floor.CFrame * localCF
-end
-
 local AppleTree = {}
 
 local CHAIN = {
@@ -86,6 +71,29 @@ end
 local function chainStageOf(foodType)
 	for i, ft in ipairs(CHAIN) do if ft == foodType then return i end end
 	return 1
+end
+
+local function fruitHalfHeight(foodType)
+	local t = Food.GetTemplate(foodType)
+	if not t then return 0 end
+	if t:IsA("BasePart") then return t.Size.Y / 2 end
+	if t:IsA("Model") and t.PrimaryPart then return t.PrimaryPart.Size.Y / 2 end
+	return 0
+end
+
+-- Deterministic resting spot for the ground fruit: just past the trunk's
+-- local +Z edge, on the floor surface. Computed from the trunk's pose so
+-- the fruit lands in the same world spot regardless of how a falling
+-- fruit's physics happen to settle (slot anchors live inside the trunk
+-- volume; relying on physics put fruits at random stuck positions).
+-- The ground fruit follows the tree's rotation, so re-rotating the tree
+-- rotates the fruit's location with it.
+local function computeGroundCFrame(machine, foodType)
+	local trunk = machine.PrimaryPart
+	if not trunk then return nil end
+	local halfH = fruitHalfHeight(foodType)
+	local localOffset = CFrame.new(0, -trunk.Size.Y / 2 + halfH, trunk.Size.Z / 2 + 1.5)
+	return trunk.CFrame * localOffset
 end
 
 -- ── Slot visuals (cosmetic on-tree fruits) ────────────────────────────────────
@@ -265,7 +273,9 @@ end
 -- Add XP to the ground fruit; advance through the chain whenever
 -- cumulative xp crosses a stage's MaxXP. Past the terminal stage — or
 -- past the last stage that has a registered food template — xp keeps
--- accumulating without further morphs.
+-- accumulating without further morphs. The ground fruit always lives
+-- at the tree's deterministic ground spot; morphing recomputes the
+-- spot for the new foodType's height and respawns the visual there.
 local function addXPToGround(machine, s, deltaXP)
 	if not s.ground then return end
 	s.ground.xp = s.ground.xp + deltaXP
@@ -294,10 +304,10 @@ local function addXPToGround(machine, s, deltaXP)
 	end
 	if stage > startStage then
 		local newType = CHAIN[stage]
-		local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
-		local xp = s.ground.xp
+		local xp      = s.ground.xp
+		local cf      = computeGroundCFrame(machine, newType)
 		destroyGroundFruit(s)
-		spawnGroundFruit(machine, s, newType, xp, cf)
+		if cf then spawnGroundFruit(machine, s, newType, xp, cf) end
 	end
 end
 
@@ -309,9 +319,11 @@ pickupGroundFruit = function(machine, s, player)
 	destroyGroundFruit(s)
 end
 
--- Watch a falling fruit's primary and merge it into the ground fruit
--- once it settles. If there's no ground fruit yet, the falling fruit
--- becomes the ground fruit at its settled CFrame.
+-- Watch a falling fruit's primary; once it stops moving, despawn the
+-- visual and resolve the merge. The falling fruit's settled position is
+-- not used for the ground fruit — the ground fruit's spot is always
+-- the deterministic computeGroundCFrame so it doesn't end up wedged
+-- inside the trunk.
 local function trackFallingFruit(machine, s, falling, primary)
 	s.airborne[falling] = true
 	local foodType = falling:GetAttribute("FoodType")
@@ -325,13 +337,12 @@ local function trackFallingFruit(machine, s, falling, primary)
 				if os.clock() - stillSince >= SETTLE_DURATION then
 					if not state[machine] then return end
 					s.airborne[falling] = nil
+					falling:Destroy()
 					if s.ground then
-						falling:Destroy()
 						addXPToGround(machine, s, dropXP)
 					else
-						local cf = falling:IsA("Model") and falling:GetPivot() or falling.CFrame
-						falling:Destroy()
-						spawnGroundFruit(machine, s, foodType, dropXP, cf)
+						local cf = computeGroundCFrame(machine, foodType)
+						if cf then spawnGroundFruit(machine, s, foodType, dropXP, cf) end
 					end
 					return
 				end
@@ -457,22 +468,16 @@ function AppleTree.Teardown(machine)
 	state[machine] = nil
 end
 
--- Persist the ground fruit at floor-local coordinates so it survives
--- session boundaries and Floor rotations.
+-- Persist just the ground fruit's foodType + xp. Position is recomputed
+-- from the tree's pose on Apply, so a tree picked up + re-placed (or
+-- whose floor was rotated) lands the fruit at the correct new spot.
 function AppleTree.Serialize(machine)
 	local s = state[machine]
 	if not s or not s.ground then return nil end
-	local floor = s.plot:FindFirstChild("Floor")
-	if not floor then return nil end
-	local cf = s.ground.model:IsA("Model") and s.ground.model:GetPivot() or s.ground.model.CFrame
-	local lx, lz, lry = worldPivotToFloorLocal(floor, cf)
 	return {
 		groundFruit = {
 			foodType = s.ground.foodType,
 			xp       = s.ground.xp,
-			lx       = lx,
-			lz       = lz,
-			lry      = lry,
 		},
 	}
 end
@@ -485,27 +490,19 @@ function AppleTree.Apply(machine, placement)
 
 	local foodType = tostring(g.foodType or CHAIN[1])
 	if chainStageOf(foodType) > #CHAIN then foodType = CHAIN[#CHAIN] end
-	local xp = math.max(tonumber(g.xp) or 0, 0)
-
-	local floor = s.plot:FindFirstChild("Floor")
-	if not floor then return end
-
-	-- Restore at floor's top + half of fruit's extent so it sits on the
-	-- surface rather than clipping into it. We don't persist the saved Y
-	-- because the ground fruit always rests on the floor.
-	local template = Food.GetTemplate(foodType)
-	local halfH    = 0
-	if template then
-		if template:IsA("BasePart") then
-			halfH = template.Size.Y / 2
-		elseif template:IsA("Model") and template.PrimaryPart then
-			halfH = template.PrimaryPart.Size.Y / 2
-		end
+	-- Saved foodType might point at a stage whose template no longer exists
+	-- (e.g. someone removed a food). Walk back to the nearest available stage.
+	while not Food.GetTemplate(foodType) and chainStageOf(foodType) > 1 do
+		foodType = CHAIN[chainStageOf(foodType) - 1]
 	end
-	local worldCF = localToWorldOnFloorTop(floor, g.lx or 0, g.lz or 0, halfH, g.lry or 0)
+	if not Food.GetTemplate(foodType) then return end
+
+	local xp = math.max(tonumber(g.xp) or 0, 0)
+	local cf = computeGroundCFrame(machine, foodType)
+	if not cf then return end
 
 	destroyGroundFruit(s)
-	spawnGroundFruit(machine, s, foodType, xp, worldCF)
+	spawnGroundFruit(machine, s, foodType, xp, cf)
 end
 
 return AppleTree
