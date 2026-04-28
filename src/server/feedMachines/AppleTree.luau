@@ -164,21 +164,9 @@ local function spawnFallingFruit(slot, foodType)
 	end
 	clone:SetAttribute("FoodType", foodType)
 	clone.Parent = workspace
-
-	-- Inject some character: random spin and a small horizontal toss so
-	-- the drop reads as alive rather than a straight vertical fall. The
-	-- physical bounce-then-settle that follows is what we resolve on.
-	primary.AssemblyAngularVelocity = Vector3.new(
-		(math.random() * 2 - 1) * 8,
-		(math.random() * 2 - 1) * 8,
-		(math.random() * 2 - 1) * 8
-	)
-	primary.AssemblyLinearVelocity = Vector3.new(
-		(math.random() * 2 - 1) * 3,
-		0,
-		(math.random() * 2 - 1) * 3
-	)
-
+	-- Pure gravity fall: no initial linear or angular velocity. Anything
+	-- the fruit does is from physics interactions with the trunk and
+	-- floor as it bounces.
 	return clone, primary
 end
 
@@ -316,65 +304,42 @@ pickupPool = function(machine, s, groundSlot, player)
 	destroyPool(groundSlot)
 end
 
-local function mergeIntoGround(machine, s, groundSlot, foodType, dropXP)
-	if not groundSlot.pool then
-		spawnPool(machine, s, groundSlot, foodType, dropXP)
-	else
-		addXPToPool(machine, s, groundSlot, dropXP)
-	end
-end
-
-local function nearestGroundSlot(s, worldPos)
-	local best, bestDist
-	for _, gs in ipairs(s.grounds) do
-		if gs.marker.Parent then
-			local d = (gs.marker.Position - worldPos).Magnitude
-			if not bestDist or d < bestDist then
-				best     = gs
-				bestDist = d
-			end
-		end
-	end
-	return best
-end
-
--- Watch a falling fruit. Resolution is settle-based: the fruit physics-
--- falls, hits the floor, bounces, and we resolve once its primary stops
--- moving (velocity < SETTLE_VELOCITY for SETTLE_DURATION). FALL_TIMEOUT
--- is a safety for fruits that get stuck inside the trunk's collision
--- union. On resolve we snap to the nearest BaseFoodGround on this tree
--- and merge dropXP into that pool. Touched-on-marker isn't used —
--- always letting the bounce play out before snapping reads better.
-local function trackFallingFruit(machine, s, falling, primary)
+-- Watch the first drop into a pool: physics-falls and bounces, then we
+-- destroy the fruit and create the pool at the paired groundSlot once
+-- the primary stops moving (or after FALL_TIMEOUT as a stuck-in-trunk
+-- safety). Subsequent drops into the same pool don't go through here —
+-- they merge XP directly without a falling fruit.
+local function trackFirstDrop(machine, s, falling, primary, groundSlot)
 	s.airborne[falling] = true
 	local foodType  = falling:GetAttribute("FoodType")
 	local dropXP    = dropXPFor(foodType)
 	local startTime = os.clock()
 
 	local resolved = false
-	local function resolve(groundSlot)
+	local function resolve()
 		if resolved then return end
 		resolved = true
 		s.airborne[falling] = nil
 		if falling.Parent then falling:Destroy() end
-		if not state[machine] or not groundSlot then return end
-		mergeIntoGround(machine, s, groundSlot, foodType, dropXP)
+		if not state[machine] then return end
+		-- Race: another drop might have populated the pool while this
+		-- one was still bouncing. If so, just add XP instead of spawning
+		-- a duplicate visual.
+		if groundSlot.pool then
+			addXPToPool(machine, s, groundSlot, dropXP)
+		else
+			spawnPool(machine, s, groundSlot, foodType, dropXP)
+		end
 	end
 
 	task.spawn(function()
 		local stillSince = nil
 		while not resolved and falling.Parent == workspace and primary.Parent do
 			local now = os.clock()
-			if now - startTime > FALL_TIMEOUT then
-				resolve(nearestGroundSlot(s, primary.Position))
-				return
-			end
+			if now - startTime > FALL_TIMEOUT then resolve() return end
 			if primary.AssemblyLinearVelocity.Magnitude < SETTLE_VELOCITY then
 				stillSince = stillSince or now
-				if now - stillSince >= SETTLE_DURATION then
-					resolve(nearestGroundSlot(s, primary.Position))
-					return
-				end
+				if now - stillSince >= SETTLE_DURATION then resolve() return end
 			else
 				stillSince = nil
 			end
@@ -425,14 +390,26 @@ local function onTreeClicked(machine, s, player)
 
 	local slot = findReadySlot(s)
 	if not slot then return end
+	local groundSlot = slot.groundSlot
+	if not groundSlot then return end
 
 	clearSlotVisual(slot)
 	slot.respawnAt = now + SLOT_RESPAWN
+	s.lastClick    = now
 
+	if groundSlot.pool then
+		-- Pool already exists at this BaseFoodGround: subsequent drops
+		-- morph straight in — no falling visual, just XP added.
+		addXPToPool(machine, s, groundSlot, dropXPFor(CHAIN[1]))
+		return
+	end
+
+	-- First drop into this pool: physics-falls, bounces, then on settle
+	-- the pool is created at the paired groundSlot regardless of where
+	-- the fruit happens to land.
 	local falling, primary = spawnFallingFruit(slot, CHAIN[1])
 	if not falling then return end
-	s.lastClick = now
-	trackFallingFruit(machine, s, falling, primary)
+	trackFirstDrop(machine, s, falling, primary, groundSlot)
 end
 
 -- ── Setup / teardown ─────────────────────────────────────────────────────────
@@ -442,10 +419,34 @@ local function setupSlots(machine, s)
 		if child:IsA("BasePart") and child.Name == "BaseFood" then
 			local anchor = makeSlotAnchor(machine, child)
 			child:Destroy()
-			local slot = { anchor = anchor, foodPart = nil, respawnAt = nil }
+			local slot = { anchor = anchor, foodPart = nil, respawnAt = nil, groundSlot = nil }
 			slot.foodPart = spawnSlotVisual(slot)
 			table.insert(s.slots, slot)
 		end
+	end
+end
+
+-- Pair each on-tree BaseFood slot with the BaseFoodGround directly below
+-- it (matched by X/Z). The authored layout places them in vertical
+-- alignment so this is exact in practice; closest-XZ keeps it robust if
+-- positions drift slightly. Each slot drops into the same paired pool
+-- forever — that's what makes "the rest morphs into the BaseFoodGround"
+-- deterministic per slot.
+local function pairSlotsToGrounds(s)
+	for _, slot in ipairs(s.slots) do
+		local sp = slot.anchor.Position
+		local bestGS, bestDist
+		for _, gs in ipairs(s.grounds) do
+			local gp = gs.marker.Position
+			local dx = sp.X - gp.X
+			local dz = sp.Z - gp.Z
+			local d  = dx * dx + dz * dz
+			if not bestDist or d < bestDist then
+				bestDist = d
+				bestGS   = gs
+			end
+		end
+		slot.groundSlot = bestGS
 	end
 end
 
@@ -495,6 +496,7 @@ function AppleTree.Setup(machine, plot, owner)
 
 	setupGroundSlots(machine, s)
 	setupSlots(machine, s)
+	pairSlotsToGrounds(s)
 	setupClickDetector(machine, s)
 
 	-- Toggle every pool's E prompt with edit mode.
