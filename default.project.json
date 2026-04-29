@@ -29,40 +29,42 @@
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true
-      },
-      "Baseplate": {
-        "$className": "Part",
-        "$properties": {
-          "Anchored": true,
-          "Color": [
-            0.38823,
-            0.37254,
-            0.38823
-          ],
-          "Locked": true,
-          "Position": [
-            0,
-            -10,
-            0
-          ],
-          "Size": [
-            512,
-            20,
-            512
-          ]
-        }
       }
     },
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0,
-          0,
-          0
+          0.72549,
+          0.62745,
+          0.51765
         ],
-        "Brightness": 2,
+        "Brightness": 5.5,
+        "ClockTime": 14.5,
+        "ColorShift_Bottom": [
+          0.17647,
+          0.12941,
+          0.10588
+        ],
+        "ColorShift_Top": [
+          0.17647,
+          0.12941,
+          0.10588
+        ],
+        "EnvironmentDiffuseScale": 0.3,
+        "EnvironmentSpecularScale": 0.3,
+        "FogColor": [
+          0.75294,
+          0.75294,
+          0.75294
+        ],
         "GlobalShadows": true,
+        "OutdoorAmbient": [
+          0.37255,
+          0.29804,
+          0.25490
+        ],
         "Outlines": false,
+        "ShadowSoftness": 0.2,
         "Technology": "Voxel"
       }
     },
