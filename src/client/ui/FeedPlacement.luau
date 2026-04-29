@@ -104,7 +104,7 @@ end
 function FeedPlacement.start()
 	local player           = Players.LocalPlayer
 	local PlayerGui        = player:WaitForChild("PlayerGui")
-	local PlaceFeedMachine = Remotes.get("PlaceFeedMachine")
+	local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 
 	local gui = cloneTemplate() or buildFallbackGui()
 	gui.Parent = PlayerGui

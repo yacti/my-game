@@ -70,7 +70,7 @@ function HudController.start()
 		if label then label.Text = "$" .. math.floor(n or 0) end
 	end
 
-	Remotes.get("CurrencyUpdated").OnClientEvent:Connect(setAmount)
+	Remotes.get(Remotes.Names.CurrencyUpdated).OnClientEvent:Connect(setAmount)
 end
 
 return HudController

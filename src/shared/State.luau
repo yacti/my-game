@@ -22,6 +22,7 @@ State.Feed = {
 	FoodType        = "FoodType",        -- all classes: which food to produce/accept
 	MaxFood         = "MaxFood",         -- Clicker, Timed: cap of unpicked food on the floor
 	ClickCooldown   = "ClickCooldown",   -- Clicker: seconds between clicks
+	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap
 	SpawnInterval   = "SpawnInterval",   -- Timed: seconds between spawns
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
 	XPMultiplier    = "XPMultiplier",    -- Processor: multiplier on dispensed food XP

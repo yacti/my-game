@@ -4,6 +4,18 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
+      "Remotes": {
+        "$className": "Folder",
+        "AppleTreeEffect": {
+          "$className": "RemoteEvent"
+        },
+        "CurrencyUpdated": {
+          "$className": "RemoteEvent"
+        },
+        "PlaceFeedMachine": {
+          "$className": "RemoteEvent"
+        }
+      },
       "Shared": {
         "$path": "src/shared"
       },

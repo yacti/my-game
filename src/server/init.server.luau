@@ -5,18 +5,20 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 
 local Server            = ServerScriptService:WaitForChild("Server")
+local Shared            = ReplicatedStorage:WaitForChild("Shared")
+local Remotes           = require(Shared:WaitForChild("Remotes"))
+Remotes.ensureAll()
+
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 
-local Shared   = ReplicatedStorage:WaitForChild("Shared")
 local Balance  = require(Shared:WaitForChild("Balance"))
-local Remotes  = require(Shared:WaitForChild("Remotes"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 
-local CurrencyUpdated  = Remotes.get("CurrencyUpdated")
-local PlaceFeedMachine = Remotes.get("PlaceFeedMachine")
+local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
+local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 
 local petConnections = {}
 
