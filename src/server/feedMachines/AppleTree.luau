@@ -18,6 +18,7 @@
 --
 -- Tunable attribute on the template:
 --   MaxClicksPerSecond (number, default 5; capped at 5 to limit autoclickers)
+--   XPMultiplier       (number, default 1; multiplies XP added per drop)
 -- Per-foodType MaxXP is read from each food template's MaxXP attribute.
 -- The chain order is owned by this module — adding new clicker foods is
 -- one append in CHAIN.
@@ -89,6 +90,14 @@ end
 local function dropXPFor(foodType)
 	local t = Food.GetTemplate(foodType)
 	return t and (t:GetAttribute("XP") or 1) or 1
+end
+
+local function xpMultiplierFor(machine)
+	local multiplier = machine:GetAttribute(State.Feed.XPMultiplier)
+	if type(multiplier) ~= "number" or multiplier <= 0 then
+		return 1
+	end
+	return multiplier
 end
 
 local function clickIntervalFor(machine)
@@ -294,7 +303,7 @@ end
 
 local function applyDrop(machine, s, slot, foodType)
 	if not state[machine] then return end
-	local dropXP = dropXPFor(foodType)
+	local dropXP = dropXPFor(foodType) * xpMultiplierFor(machine)
 	if slot.ground then
 		addXPToSlotGround(machine, s, slot, dropXP)
 	else

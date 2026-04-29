@@ -25,7 +25,7 @@ State.Feed = {
 	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap
 	SpawnInterval   = "SpawnInterval",   -- Timed: seconds between spawns
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
-	XPMultiplier    = "XPMultiplier",    -- Processor: multiplier on dispensed food XP
+	XPMultiplier    = "XPMultiplier",    -- Processor/AppleTree: multiplier on produced XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
 
 	-- Server-published runtime state (clients can read for UI).

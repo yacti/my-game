@@ -16,14 +16,19 @@ local AppleTreeSlotVisuals = {}
 
 local RESPAWN_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local DROP_TWEEN_INFO    = TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local XP_COUNT_TWEEN_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local START_SCALE        = 0.35
 local SHAKE_DURATION     = 0.25
 local SHAKE_ANGLE        = math.rad(5)
 local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
+local GROUND_FOOD_RESCAN_DELAYS = { 0.25, 1, 3 }
+local XP_TEXT_COLOR      = Color3.fromRGB(255, 255, 255)
+local XP_GAIN_TEXT_COLOR = Color3.fromRGB(255, 236, 120)
 
 local animated = {}
 local billboards = {}
+local pendingGroundFood = {}
 local shakeIds = {}
 
 local function isAppleTreeSlotFood(obj)
@@ -134,7 +139,9 @@ end
 
 local function adorneeFor(food)
 	if food:IsA("BasePart") then return food end
-	if food:IsA("Model") then return food.PrimaryPart end
+	if food:IsA("Model") then
+		return food.PrimaryPart or food:FindFirstChildWhichIsA("BasePart", true)
+	end
 	return nil
 end
 
@@ -143,18 +150,84 @@ local function maxXPFor(foodType)
 	return template and (template:GetAttribute("MaxXP") or 5) or 5
 end
 
-local function renderXPText(food, label)
-	local xp = tonumber(food:GetAttribute("XP")) or 0
+local function roundedXP(value)
+	return math.floor((tonumber(value) or 0) + 0.5)
+end
+
+local function currentXPFor(food)
+	return tonumber(food:GetAttribute("XP")) or 0
+end
+
+local function renderXPText(food, label, xpOverride)
+	local xp = roundedXP(xpOverride or currentXPFor(food))
 	local foodType = food:GetAttribute("FoodType")
 	local maxXP = type(foodType) == "string" and maxXPFor(foodType) or 0
 	label.Text = string.format("%d/%d xp", xp, maxXP)
 end
 
+local function stopXPCounter(record)
+	if record.counterTween then
+		record.counterTween:Cancel()
+		record.counterTween = nil
+	end
+	if record.counterValue then
+		record.counterValue:Destroy()
+		record.counterValue = nil
+	end
+end
+
+local function animateXPText(food, record)
+	local targetXP = currentXPFor(food)
+	local startXP = record.counterValue and record.counterValue.Value or record.displayedXP or targetXP
+	stopXPCounter(record)
+
+	if targetXP <= startXP then
+		record.displayedXP = targetXP
+		record.label.TextColor3 = XP_TEXT_COLOR
+		renderXPText(food, record.label, targetXP)
+		return
+	end
+
+	local value = Instance.new("NumberValue")
+	value.Value = startXP
+	record.counterValue = value
+	record.label.TextColor3 = XP_GAIN_TEXT_COLOR
+
+	value.Changed:Connect(function(nextValue)
+		record.displayedXP = nextValue
+		renderXPText(food, record.label, nextValue)
+	end)
+
+	local tween = TweenService:Create(value, XP_COUNT_TWEEN_INFO, { Value = targetXP })
+	record.counterTween = tween
+	tween.Completed:Connect(function()
+		if record.counterValue ~= value then return end
+		record.displayedXP = targetXP
+		record.counterTween = nil
+		record.counterValue = nil
+		renderXPText(food, record.label, targetXP)
+		value:Destroy()
+		TweenService:Create(record.label, TweenInfo.new(0.15), {
+			TextColor3 = XP_TEXT_COLOR,
+		}):Play()
+	end)
+	tween:Play()
+end
+
+local function clearPendingGroundFood(food)
+	local conns = pendingGroundFood[food]
+	if not conns then return end
+	for _, conn in ipairs(conns) do
+		conn:Disconnect()
+	end
+	pendingGroundFood[food] = nil
+end
+
 local function attachXPBillboard(food)
-	if billboards[food] then return end
+	if billboards[food] then return true end
 
 	local adornee = adorneeFor(food)
-	if not adornee then return end
+	if not adornee then return false end
 
 	local gui = Instance.new("BillboardGui")
 	gui.Name        = "XPBillboard"
@@ -168,35 +241,90 @@ local function attachXPBillboard(food)
 	label.Size                   = UDim2.fromScale(1, 1)
 	label.BackgroundColor3       = Color3.fromRGB(30, 30, 30)
 	label.BackgroundTransparency = 0.2
-	label.TextColor3             = Color3.fromRGB(255, 255, 255)
+	label.TextColor3             = XP_TEXT_COLOR
 	label.Font                   = Enum.Font.GothamBold
 	label.TextScaled             = true
 	label.Parent                 = gui
 	Instance.new("UICorner", label).CornerRadius = UDim.new(0, 6)
 
-	renderXPText(food, label)
+	local record = {
+		gui = gui,
+		conns = {},
+		label = label,
+		displayedXP = currentXPFor(food),
+		counterTween = nil,
+		counterValue = nil,
+	}
+	renderXPText(food, label, record.displayedXP)
 	local conns = {}
 	table.insert(conns, food:GetAttributeChangedSignal("XP"):Connect(function()
-		renderXPText(food, label)
+		animateXPText(food, record)
 	end))
 	table.insert(conns, food:GetAttributeChangedSignal("FoodType"):Connect(function()
-		renderXPText(food, label)
+		renderXPText(food, label, record.displayedXP)
 	end))
+	record.conns = conns
 
 	gui.Parent = adornee
-	billboards[food] = {
-		gui = gui,
-		conns = conns,
-	}
+	billboards[food] = record
 
 	table.insert(conns, food.AncestryChanged:Connect(function()
 		if not food:IsDescendantOf(Workspace) then
 			for _, conn in ipairs(conns) do
 				conn:Disconnect()
 			end
+			stopXPCounter(record)
+			clearPendingGroundFood(food)
 			billboards[food] = nil
 		end
 	end))
+
+	clearPendingGroundFood(food)
+	return true
+end
+
+local function trackGroundFoodCandidate(obj)
+	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return end
+	if isAppleTreeGroundFood(obj) and attachXPBillboard(obj) then return end
+	if pendingGroundFood[obj] then return end
+
+	local conns = {}
+	local function tryAttach()
+		if isAppleTreeGroundFood(obj) and attachXPBillboard(obj) then
+			clearPendingGroundFood(obj)
+		end
+	end
+
+	table.insert(conns, obj:GetAttributeChangedSignal("SlotIndex"):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal("FoodType"):Connect(tryAttach))
+	if obj:IsA("Model") then
+		table.insert(conns, obj.DescendantAdded:Connect(function()
+			tryAttach()
+		end))
+	end
+	table.insert(conns, obj.AncestryChanged:Connect(function()
+		if not obj:IsDescendantOf(Workspace) then
+			clearPendingGroundFood(obj)
+		end
+	end))
+	pendingGroundFood[obj] = conns
+
+	task.defer(tryAttach)
+	for _, delaySeconds in ipairs(GROUND_FOOD_RESCAN_DELAYS) do
+		task.delay(delaySeconds, function()
+			if pendingGroundFood[obj] and obj:IsDescendantOf(Workspace) then
+				tryAttach()
+			end
+		end)
+	end
+end
+
+local function scanGroundFoods()
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if isAppleTreeGroundFood(obj) then
+			trackGroundFoodCandidate(obj)
+		end
+	end
 end
 
 local function renderDrop(anchor, marker, foodType, duration)
@@ -328,18 +456,16 @@ local function animate(food)
 end
 
 function AppleTreeSlotVisuals.start()
-	for _, obj in ipairs(Workspace:GetDescendants()) do
-		if isAppleTreeGroundFood(obj) then
-			attachXPBillboard(obj)
-		end
+	scanGroundFoods()
+	for _, delaySeconds in ipairs(GROUND_FOOD_RESCAN_DELAYS) do
+		task.delay(delaySeconds, scanGroundFoods)
 	end
 
 	Workspace.DescendantAdded:Connect(function(obj)
 		if isAppleTreeSlotFood(obj) then
 			animate(obj)
-		elseif isAppleTreeGroundFood(obj) then
-			attachXPBillboard(obj)
 		end
+		trackGroundFoodCandidate(obj)
 	end)
 
 	Remotes.get(Remotes.Names.AppleTreeEffect).OnClientEvent:Connect(function(tree, anchor, marker, foodType, duration)
