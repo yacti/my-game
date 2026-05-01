@@ -1,4 +1,4 @@
-print("[Server] v9 loaded — TimedNew growth chain + classed feed machines")
+print("[Server] v10 loaded — classed feed machines")
 
 local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")

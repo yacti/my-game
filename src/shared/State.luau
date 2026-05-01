@@ -13,7 +13,7 @@ State.Pet = {
 State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
-	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Processor, Tree
+	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Patch, Processor, Tree
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under

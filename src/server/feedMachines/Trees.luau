@@ -33,8 +33,9 @@ local Food   = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State  = require(Shared:WaitForChild("State"))
 
-local AppleTreeBalance = require(script.Parent:WaitForChild("AppleTreeBalance"))
-local CherryTreeBalance = require(script.Parent:WaitForChild("CherryTreeBalance"))
+local ClickerBalance = script.Parent:WaitForChild("Clicker")
+local AppleTreeBalance = require(ClickerBalance:WaitForChild("AppleTreeBalance"))
+local CherryTreeBalance = require(ClickerBalance:WaitForChild("CherryTreeBalance"))
 
 local TreeClickerEffect = Remotes.get(Remotes.Names.TreeClickerEffect)
 

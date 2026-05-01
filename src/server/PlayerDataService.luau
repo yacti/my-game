@@ -9,6 +9,7 @@ local function defaultFeedInventory()
 		Processor1 = 1,
 		AppleTree  = 1,
 		CherryTree = 1,
+		PumpkinPatch = 1,
 	}
 end
 

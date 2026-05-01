@@ -1,66 +1,72 @@
--- TimedNew FeedMachine (Model template).
+-- Shared timed-growth FeedMachine implementation.
 --
 -- Each BaseFood slot in the model grows independently along a chain of
--- food types, accumulating XP at GrowRate per second. MaxXP attributes on
+-- food ids, accumulating XP at GrowRate per second. MaxXP attributes on
 -- the food templates are *cumulative* milestones — Food1=5, Food2=10,
 -- Food3=15, … — so the slot's XP just keeps counting up and the stage
 -- advances each time it crosses the next threshold. XP is never reset on
 -- evolution; harvest gives a Tool whose XP equals the slot's accumulated
--- value. The slot caps at the terminal stage's threshold (CHAIN[#CHAIN]).
+-- value. The slot caps at the terminal stage's final threshold.
 --
 -- A per-slot ProximityPrompt (E) lets the player harvest at any growth
 -- stage; the dispensed Tool's XP equals the slot's accumulated XP for
 -- the current stage. Harvesting empties the slot for HARVEST_RESPAWN_DELAY
--- seconds, then it materializes a fresh CHAIN[1] and starts growing again.
+-- seconds, then it materializes fresh first-stage food and starts growing again.
 --
 -- Picking the *machine* up via the F prompt (handled in init.server.luau)
 -- collects every slot's current food into the player's backpack via
--- TimedNew.PrePickup, then destroys the machine.
+-- Patches.PrePickup, then destroys the machine.
 --
 -- Tunable attribute on the model:
 --   GrowRate (number, default 1)  xp per second per slot
 --
 -- Per-stage MaxXP is read from each food template's MaxXP attribute.
--- The chain order is owned by this module (not Balance) so adding new
--- timed variants is a single-file change.
+-- Chain/timing/scale tuning comes from per-feed balance modules.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
-local TimedNew = {}
+local PatchBalance = script.Parent:WaitForChild("Patch")
+local TimedNewBalance = require(PatchBalance:WaitForChild("TimedNewBalance"))
+local PumpkinPatchBalance = require(PatchBalance:WaitForChild("PumpkinPatchBalance"))
 
-local CHAIN = {
-	"Food1_Timed", "Food2_Timed", "Food3_Timed", "Food4_Timed", "Food5_Timed",
-	"Food6_Timed", "Food7_Timed", "Food8_Timed", "Food9_Timed", "Food10_Timed",
+local Patches = {}
+
+local BALANCES = {
+	[TimedNewBalance.FeedType] = TimedNewBalance,
+	[PumpkinPatchBalance.FeedType] = PumpkinPatchBalance,
 }
-
-local HARVEST_RESPAWN_DELAY = 3  -- seconds; slot is empty before chain[1] reappears
 
 -- Offline progress runs at this fraction of the online rate. With the
 -- default GrowRate=1 xp/sec, 0.001 means a slot earns ~1 xp per 1000s
 -- (~17 min) while the player is away — roughly 14 hours offline to fully
 -- evolve a slot. Tunable in one place; not on the machine attribute since
--- it's an economy-wide knob, not per-instance.
-local OFFLINE_GROW_FRACTION = 0.001
+-- it's an economy-wide knob per feed type, not per-instance.
 
 -- Per-stage scale: every freshly-spawned slot food starts at SCALE_MIN
 -- and grows linearly to SCALE_MAX as its xp climbs from the previous
 -- stage's threshold to the current stage's threshold. Resets each
 -- evolution. Only applies to Model templates (Model:ScaleTo).
-local SCALE_MIN = 0.3
-local SCALE_MAX = 1.5
 
 -- [machine] = {
---   owner, plot, lastTick,
+--   owner, plot, balance, lastTick,
 --   slots = { [i] = { stage, xp, anchor, foodPart } },
 --   conns = {},
 -- }
 local state = {}
 
-local function maxXPFor(stageIndex)
-	local foodId = CHAIN[stageIndex]
+local function feedTypeOf(machine)
+	return machine:GetAttribute(State.Feed.Type) or machine.Name
+end
+
+local function balanceFor(machine)
+	return BALANCES[feedTypeOf(machine)] or TimedNewBalance
+end
+
+local function maxXPFor(balance, stageIndex)
+	local foodId = balance.Chain[stageIndex]
 	if not foodId then return math.huge end
 	local t = Food.GetTemplate(foodId)
 	return t and (t:GetAttribute("MaxXP") or 5) or 5
@@ -72,8 +78,24 @@ local function configureSlotPart(part)
 	part.CanQuery   = false
 end
 
+local function slotAlignedCFrame(slot, visual)
+	local target = slot.anchor.CFrame
+	if visual:IsA("BasePart") then
+		return target * CFrame.new(0, visual.Size.Y / 2 - slot.anchor.Size.Y / 2, 0)
+	elseif visual:IsA("Model") then
+		local pivot = visual:GetPivot()
+		local boxCFrame, boxSize = visual:GetBoundingBox()
+		local boxCenterLocal = pivot:PointToObjectSpace(boxCFrame.Position)
+		local bottomLocalY = boxCenterLocal.Y - boxSize.Y / 2
+		local targetBottomLocalY = -slot.anchor.Size.Y / 2
+		return target * CFrame.new(0, targetBottomLocalY - bottomLocalY, 0)
+	else
+		return target
+	end
+end
+
 local function spawnFoodAtSlot(slot, stageIndex)
-	local foodId = CHAIN[stageIndex]
+	local foodId = slot.balance.Chain[stageIndex]
 	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 	local clone = template:Clone()
@@ -82,12 +104,12 @@ local function spawnFoodAtSlot(slot, stageIndex)
 	clone:SetAttribute("XP", slot.xp or 0)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
-		clone.CFrame = slot.anchor.CFrame
+		clone.CFrame = slotAlignedCFrame(slot, clone)
 	elseif clone:IsA("Model") then
 		for _, d in ipairs(clone:GetDescendants()) do
 			if d:IsA("BasePart") then configureSlotPart(d) end
 		end
-		clone:PivotTo(slot.anchor.CFrame)
+		clone:PivotTo(slotAlignedCFrame(slot, clone))
 	end
 	clone.Parent = slot.anchor
 	return clone
@@ -97,8 +119,8 @@ end
 -- xp is cumulative, so we lerp between the previous stage's threshold and
 -- the current stage's threshold.
 local function stageProgress(slot)
-	local prev = slot.stage > 1 and maxXPFor(slot.stage - 1) or 0
-	local curr = maxXPFor(slot.stage)
+	local prev = slot.stage > 1 and maxXPFor(slot.balance, slot.stage - 1) or 0
+	local curr = maxXPFor(slot.balance, slot.stage)
 	local range = curr - prev
 	if range <= 0 then return 1 end
 	return math.clamp((slot.xp - prev) / range, 0, 1)
@@ -106,7 +128,7 @@ end
 
 local function applySlotScale(slot)
 	if not slot.foodPart or not slot.foodPart:IsA("Model") then return end
-	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * stageProgress(slot)
+	local scale = slot.balance.ScaleMin + (slot.balance.ScaleMax - slot.balance.ScaleMin) * stageProgress(slot)
 	slot.foodPart:ScaleTo(scale)
 end
 
@@ -148,7 +170,7 @@ end
 
 local function applyGrowth(machine, s, seconds)
 	if seconds <= 0 then return end
-	local growRate = machine:GetAttribute("GrowRate") or 1
+	local growRate = machine:GetAttribute("GrowRate") or s.balance.DefaultGrowRate
 	local now      = os.time()
 	for _, slot in ipairs(s.slots) do
 		if slot.respawnAt then
@@ -162,11 +184,11 @@ local function applyGrowth(machine, s, seconds)
 			-- Cumulative thresholds: advance while xp has crossed the
 			-- current stage's MaxXP. Don't subtract — xp is the running
 			-- total across stages.
-			while slot.stage < #CHAIN and slot.xp >= maxXPFor(slot.stage) do
+			while slot.stage < #s.balance.Chain and slot.xp >= maxXPFor(s.balance, slot.stage) do
 				setSlotStage(slot, slot.stage + 1, slot.xp)
 			end
-			if slot.stage == #CHAIN then
-				local cap = maxXPFor(slot.stage)
+			if slot.stage == #s.balance.Chain then
+				local cap = maxXPFor(s.balance, slot.stage)
 				if slot.xp > cap then slot.xp = cap end
 			end
 			refreshSlotXP(slot)
@@ -174,7 +196,7 @@ local function applyGrowth(machine, s, seconds)
 	end
 end
 
--- Single shared heartbeat across all TimedNew machines (1Hz tick).
+-- Single shared heartbeat across all patch-style machines (1Hz tick).
 task.spawn(function()
 	while true do
 		task.wait(1)
@@ -190,7 +212,7 @@ end)
 local function scaleToolToSlot(tool, slot)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
 	-- handle + welded sub-parts scale together.
-	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * stageProgress(slot)
+	local scale = slot.balance.ScaleMin + (slot.balance.ScaleMax - slot.balance.ScaleMin) * stageProgress(slot)
 	tool:ScaleTo(scale)
 end
 
@@ -198,7 +220,7 @@ local function harvest(machine, s, slotIndex, player)
 	if player ~= s.owner then return end
 	local slot = s.slots[slotIndex]
 	if not slot or slot.respawnAt then return end  -- empty during respawn delay
-	local foodId = CHAIN[slot.stage]
+	local foodId = slot.balance.Chain[slot.stage]
 	if not foodId then return end
 	local tool = Food.MakeTool(foodId, slot.xp)
 	if not tool then return end
@@ -210,7 +232,7 @@ local function harvest(machine, s, slotIndex, player)
 	slot.foodPart  = nil
 	slot.stage     = 1
 	slot.xp        = 0
-	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
+	slot.respawnAt = os.time() + s.balance.HarvestRespawnDelay
 	refreshSlotPrompt(slot, s.owner)
 end
 
@@ -231,13 +253,13 @@ local function makeSlotAnchor(machine, baseFoodPart)
 	return anchor
 end
 
-function TimedNew.Setup(machine, plot, owner)
+function Patches.Setup(machine, plot, owner)
 	if not machine:IsA("Model") then
-		warn("[TimedNew] expected Model, got " .. machine.ClassName)
+		warn(string.format("[%s] expected Model, got %s", balanceFor(machine).WarnPrefix, machine.ClassName))
 		return
 	end
 
-	local s = { owner = owner, plot = plot, slots = {}, lastTick = os.time(), conns = {} }
+	local s = { owner = owner, plot = plot, balance = balanceFor(machine), slots = {}, lastTick = os.time(), conns = {} }
 	state[machine] = s
 
 	for _, child in ipairs(machine:GetChildren()) do
@@ -256,7 +278,7 @@ function TimedNew.Setup(machine, plot, owner)
 			prompt.RequiresLineOfSight   = false
 			prompt.Parent                = anchor
 
-			local slot = { stage = 1, xp = 0, anchor = anchor, foodPart = nil, prompt = prompt, respawnAt = nil }
+			local slot = { balance = s.balance, stage = 1, xp = 0, anchor = anchor, foodPart = nil, prompt = prompt, respawnAt = nil }
 			slot.foodPart = spawnFoodAtSlot(slot, 1)
 			applySlotScale(slot)
 			refreshSlotPrompt(slot, owner)
@@ -275,14 +297,14 @@ function TimedNew.Setup(machine, plot, owner)
 	end))
 end
 
-function TimedNew.Teardown(machine)
+function Patches.Teardown(machine)
 	local s = state[machine]
 	if not s then return end
 	for _, c in ipairs(s.conns) do c:Disconnect() end
 	state[machine] = nil
 end
 
-function TimedNew.Serialize(machine)
+function Patches.Serialize(machine)
 	local s = state[machine]
 	if not s then return nil end
 	local slots = table.create(#s.slots)
@@ -292,7 +314,7 @@ function TimedNew.Serialize(machine)
 	return { slots = slots, lastTick = s.lastTick }
 end
 
-function TimedNew.Apply(machine, placement)
+function Patches.Apply(machine, placement)
 	local s = state[machine]
 	if not s then return end
 	if type(placement.slots) ~= "table" then return end
@@ -310,7 +332,7 @@ function TimedNew.Apply(machine, placement)
 				slot.xp        = 0
 				slot.respawnAt = respawnAt
 			else
-				local stage = math.clamp(savedSlot.stage or 1, 1, #CHAIN)
+				local stage = math.clamp(savedSlot.stage or 1, 1, #s.balance.Chain)
 				local xp    = math.max(savedSlot.xp or 0, 0)
 				setSlotStage(slot, stage, xp)
 				refreshSlotXP(slot)
@@ -324,20 +346,20 @@ function TimedNew.Apply(machine, placement)
 	-- Offline credit runs at OFFLINE_GROW_FRACTION of the online rate.
 	-- applyGrowth treats `seconds` as multiplier on growRate, so scaling
 	-- here is equivalent to scaling growRate for this single call.
-	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
+	applyGrowth(machine, s, elapsed * s.balance.OfflineGrowFraction)
 	s.lastTick = os.time()
 end
 
 -- Hook called by setupFeedPickup before the machine is destroyed. We hand
 -- every slot's current food (foodId + accumulated XP) to the player as
 -- a Tool, then return true to permit the pickup.
-function TimedNew.PrePickup(machine, player)
+function Patches.PrePickup(machine, player)
 	local s = state[machine]
 	if not s or s.owner ~= player then return false end
 	for _, slot in ipairs(s.slots) do
 		-- Slots in the respawn delay are empty; nothing to give back.
 		if not slot.respawnAt then
-			local foodId = CHAIN[slot.stage]
+			local foodId = slot.balance.Chain[slot.stage]
 			if foodId then
 				local tool = Food.MakeTool(foodId, slot.xp)
 				if tool then
@@ -350,4 +372,4 @@ function TimedNew.PrePickup(machine, player)
 	return true
 end
 
-return TimedNew
+return Patches

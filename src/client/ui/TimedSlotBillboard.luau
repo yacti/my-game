@@ -5,8 +5,8 @@
 -- legitimate slots when the camera is pulled back.
 --
 -- Identification: a "slot food" is any BasePart/Model with a FoodType
--- attribute that either (a) lives under a parent named "SlotAnchor" — the
--- TimedNew growth slots — or (b) carries a TrackedFood=true attribute,
+-- attribute that either (a) lives under a parent named "SlotAnchor" — patch
+-- growth slots — or (b) carries a TrackedFood=true attribute,
 -- which other systems (e.g. AppleTree's ground fruit) opt into. Server
 -- keeps the XP attribute in sync, so the billboard just listens to
 -- attribute changes.
