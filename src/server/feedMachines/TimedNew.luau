@@ -27,6 +27,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local TimedNew = {}
 
@@ -59,9 +60,9 @@ local SCALE_MAX = 1.5
 local state = {}
 
 local function maxXPFor(stageIndex)
-	local foodType = CHAIN[stageIndex]
-	if not foodType then return math.huge end
-	local t = Food.GetTemplate(foodType)
+	local foodId = CHAIN[stageIndex]
+	if not foodId then return math.huge end
+	local t = Food.GetTemplate(foodId)
 	return t and (t:GetAttribute("MaxXP") or 5) or 5
 end
 
@@ -72,11 +73,12 @@ local function configureSlotPart(part)
 end
 
 local function spawnFoodAtSlot(slot, stageIndex)
-	local foodType = CHAIN[stageIndex]
-	local template = Food.GetTemplate(foodType)
+	local foodId = CHAIN[stageIndex]
+	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 	local clone = template:Clone()
-	clone:SetAttribute("FoodType", foodType)
+	clone:SetAttribute(State.Food.Id, foodId)
+	clone:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	clone:SetAttribute("XP", slot.xp or 0)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
@@ -130,7 +132,7 @@ end
 
 local function refreshSlotXP(slot)
 	if slot.foodPart then
-		slot.foodPart:SetAttribute("XP", slot.xp)
+		slot.foodPart:SetAttribute(State.Food.XP, slot.xp)
 		applySlotScale(slot)
 	end
 end
@@ -196,9 +198,9 @@ local function harvest(machine, s, slotIndex, player)
 	if player ~= s.owner then return end
 	local slot = s.slots[slotIndex]
 	if not slot or slot.respawnAt then return end  -- empty during respawn delay
-	local foodType = CHAIN[slot.stage]
-	if not foodType then return end
-	local tool = Food.MakeTool(foodType, slot.xp)
+	local foodId = CHAIN[slot.stage]
+	if not foodId then return end
+	local tool = Food.MakeTool(foodId, slot.xp)
 	if not tool then return end
 	scaleToolToSlot(tool, slot)
 	tool.Parent = player.Backpack
@@ -327,7 +329,7 @@ function TimedNew.Apply(machine, placement)
 end
 
 -- Hook called by setupFeedPickup before the machine is destroyed. We hand
--- every slot's current food (foodType + accumulated XP) to the player as
+-- every slot's current food (foodId + accumulated XP) to the player as
 -- a Tool, then return true to permit the pickup.
 function TimedNew.PrePickup(machine, player)
 	local s = state[machine]
@@ -335,9 +337,9 @@ function TimedNew.PrePickup(machine, player)
 	for _, slot in ipairs(s.slots) do
 		-- Slots in the respawn delay are empty; nothing to give back.
 		if not slot.respawnAt then
-			local foodType = CHAIN[slot.stage]
-			if foodType then
-				local tool = Food.MakeTool(foodType, slot.xp)
+			local foodId = CHAIN[slot.stage]
+			if foodId then
+				local tool = Food.MakeTool(foodId, slot.xp)
 				if tool then
 					scaleToolToSlot(tool, slot)
 					tool.Parent = player.Backpack

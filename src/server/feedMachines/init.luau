@@ -3,7 +3,7 @@
 -- Templates live at ReplicatedStorage.FeedMachines.<Class>.<TemplateName>.
 -- A template can be a BasePart (e.g. Clicker1, Timed1) or a Model (e.g.
 -- TimedNew). The template carries:
---   FeedClass  (string, matches parent folder, e.g. "Timed")
+--   FeedClass  (string, broad behavior class, e.g. "Timed" or "Tree")
 --   FeedType   (string, equals template name; what the rest of the codebase keys on)
 --   FoodType   (string, foodType produced/accepted, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
@@ -27,7 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
-local AppleTree = require(script:WaitForChild("AppleTree"))
+local TreeClicker = require(script:WaitForChild("AppleTree"))
 local Clicker   = require(script:WaitForChild("Clicker"))
 local Processor = require(script:WaitForChild("Processor"))
 local Timed1    = require(script:WaitForChild("Timed1"))
@@ -37,11 +37,11 @@ local TimedNew  = require(script:WaitForChild("TimedNew"))
 local CLASSES = {
 	Clicker   = Clicker,
 	Processor = Processor,
+	Tree      = TreeClicker,
 }
 
 -- Per-FeedType overrides (preferred). Keys are exact FeedType names.
 local TYPES = {
-	AppleTree = AppleTree,
 	Timed1    = Timed1,
 	TimedNew  = TimedNew,
 }

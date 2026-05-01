@@ -13,13 +13,13 @@ State.Pet = {
 State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
-	Class = "FeedClass",
+	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Processor, Tree
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under
 	-- ReplicatedStorage.FeedMachines.<Class>.<Name> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
-	FoodType        = "FoodType",        -- all classes: which food to produce/accept
+	FoodType        = "FoodType",        -- class-specific: produced food id or accepted food group
 	MaxFood         = "MaxFood",         -- Clicker, Timed: cap of unpicked food on the floor
 	ClickCooldown   = "ClickCooldown",   -- Clicker: seconds between clicks
 	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap
@@ -34,8 +34,15 @@ State.Feed = {
 }
 
 State.Food = {
-	Type = "FoodType",
+	Id   = "FoodId",   -- exact template key, e.g. Food1_Clicker
+	Type = "FoodType", -- broad group/category, e.g. Fruit
 	XP   = "XP",
+}
+
+State.TreeClicker = {
+	GroundFolder = "TreeClickerGroundPiles",
+	GroundPile = "TreeClickerGroundPile",
+	SlotIndex  = "TreeClickerSlotIndex",
 }
 
 return State

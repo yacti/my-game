@@ -18,7 +18,9 @@ local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Food = require(Shared:WaitForChild("Food"))
+local State = require(Shared:WaitForChild("State"))
 
 local RANGE = 10
 
@@ -29,7 +31,7 @@ local TimedSlotBillboard = {}
 
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
-	if obj:GetAttribute("FoodType") == nil then return false end
+	if obj:GetAttribute(State.Food.Id) == nil and obj:GetAttribute(State.Food.Type) == nil then return false end
 	if obj:GetAttribute("TrackedFood") == true then return true end
 	return obj.Parent ~= nil and obj.Parent.Name == "SlotAnchor"
 end
@@ -52,8 +54,16 @@ local function foodHeight(food)
 	return 1
 end
 
-local function maxXPFor(foodType)
-	local t = Food.GetTemplate(foodType)
+local function foodIdFor(food)
+	local foodId = food:GetAttribute(State.Food.Id)
+	if type(foodId) == "string" and foodId ~= "" then return foodId end
+	local oldFoodType = food:GetAttribute(State.Food.Type)
+	if type(oldFoodType) == "string" and Food.GetTemplate(oldFoodType) then return oldFoodType end
+	return nil
+end
+
+local function maxXPFor(foodId)
+	local t = foodId and Food.GetTemplate(foodId)
 	return t and (t:GetAttribute("MaxXP") or 5) or 5
 end
 
@@ -84,13 +94,13 @@ local function build(food)
 
 	local function render()
 		local xp       = food:GetAttribute("XP") or 0
-		local foodType = food:GetAttribute("FoodType")
-		local maxXP    = foodType and maxXPFor(foodType) or 0
+		local maxXP    = maxXPFor(foodIdFor(food))
 		label.Text = string.format("%d/%d xp", xp, maxXP)
 	end
 	render()
 	food:GetAttributeChangedSignal("XP"):Connect(render)
 	food:GetAttributeChangedSignal("FoodType"):Connect(render)
+	food:GetAttributeChangedSignal(State.Food.Id):Connect(render)
 
 	gui.Parent = food
 	tracked[food] = gui

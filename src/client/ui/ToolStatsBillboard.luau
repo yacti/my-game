@@ -12,11 +12,15 @@
 -- should be visible.
 
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local ToolStatsBillboard = {}
 
 local function isFoodTool(obj)
-	return obj:IsA("Tool") and obj:GetAttribute("FoodType") ~= nil
+	return obj:IsA("Tool")
+		and (obj:GetAttribute(State.Food.Id) ~= nil or obj:GetAttribute(State.Food.Type) ~= nil)
 end
 
 local function build(tool)

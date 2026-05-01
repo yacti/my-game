@@ -6,7 +6,10 @@
     "ReplicatedStorage": {
       "Remotes": {
         "$className": "Folder",
-        "AppleTreeEffect": {
+        "ProcessorDepositEffect": {
+          "$className": "RemoteEvent"
+        },
+        "TreeClickerEffect": {
           "$className": "RemoteEvent"
         },
         "CurrencyUpdated": {

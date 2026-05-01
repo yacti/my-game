@@ -1,4 +1,4 @@
--- Client-only polish for AppleTree visuals.
+-- Client-only polish for tree-clicker visuals (AppleTree/CherryTree).
 -- Server owns gameplay state; this module renders transient shake, drop,
 -- slot respawn effects, and AppleTree ground XP billboards locally from
 -- replicated attributes.
@@ -11,6 +11,7 @@ local Workspace         = game:GetService("Workspace")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local State   = require(Shared:WaitForChild("State"))
 
 local AppleTreeSlotVisuals = {}
 
@@ -27,9 +28,16 @@ local XP_TEXT_COLOR      = Color3.fromRGB(255, 255, 255)
 local XP_GAIN_TEXT_COLOR = Color3.fromRGB(255, 236, 120)
 
 local animated = {}
+local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
 local shakeIds = {}
+
+local function isTreeClicker(tree)
+	if not tree or not tree:IsA("Model") then return false end
+	local feedType = tree:GetAttribute(State.Feed.Type) or tree.Name
+	return feedType == "AppleTree" or feedType == "CherryTree"
+end
 
 local function isAppleTreeSlotFood(obj)
 	local parent = obj.Parent
@@ -37,13 +45,20 @@ local function isAppleTreeSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
 
 	local tree = parent.Parent
-	return tree ~= nil and tree:IsA("Model") and tree.Name == "AppleTree"
+	return isTreeClicker(tree)
 end
 
 local function isAppleTreeGroundFood(obj)
 	return (obj:IsA("BasePart") or obj:IsA("Model"))
-		and obj:GetAttribute("SlotIndex") ~= nil
-		and obj:GetAttribute("FoodType") ~= nil
+		and obj:GetAttribute(State.TreeClicker.GroundPile) == true
+		and obj:GetAttribute(State.TreeClicker.SlotIndex) ~= nil
+		and obj:GetAttribute(State.Food.Id) ~= nil
+end
+
+local function isAppleTreeGroundCandidate(obj)
+	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
+	if obj:GetAttribute(State.TreeClicker.GroundPile) == true then return true end
+	return obj.Parent ~= nil and obj.Parent.Name == State.TreeClicker.GroundFolder
 end
 
 local function partsOf(obj)
@@ -108,8 +123,8 @@ local function configureEffectPart(part)
 	part.CanTouch = false
 end
 
-local function cloneFoodEffect(foodType)
-	local template = Food.GetTemplate(foodType)
+local function cloneFoodEffect(foodId)
+	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 
 	local clone = template:Clone()
@@ -145,8 +160,21 @@ local function adorneeFor(food)
 	return nil
 end
 
-local function maxXPFor(foodType)
-	local template = Food.GetTemplate(foodType)
+local function foodIdFor(food)
+	local foodId = food:GetAttribute(State.Food.Id)
+	if type(foodId) == "string" and foodId ~= "" then return foodId end
+
+	-- Backward compatibility for old replicated piles where FoodType was the
+	-- exact template key.
+	local oldFoodType = food:GetAttribute(State.Food.Type)
+	if type(oldFoodType) == "string" and Food.GetTemplate(oldFoodType) then
+		return oldFoodType
+	end
+	return nil
+end
+
+local function maxXPFor(foodId)
+	local template = foodId and Food.GetTemplate(foodId)
 	return template and (template:GetAttribute("MaxXP") or 5) or 5
 end
 
@@ -155,13 +183,12 @@ local function roundedXP(value)
 end
 
 local function currentXPFor(food)
-	return tonumber(food:GetAttribute("XP")) or 0
+	return tonumber(food:GetAttribute(State.Food.XP)) or 0
 end
 
 local function renderXPText(food, label, xpOverride)
 	local xp = roundedXP(xpOverride or currentXPFor(food))
-	local foodType = food:GetAttribute("FoodType")
-	local maxXP = type(foodType) == "string" and maxXPFor(foodType) or 0
+	local maxXP = maxXPFor(foodIdFor(food))
 	label.Text = string.format("%d/%d xp", xp, maxXP)
 end
 
@@ -257,10 +284,13 @@ local function attachXPBillboard(food)
 	}
 	renderXPText(food, label, record.displayedXP)
 	local conns = {}
-	table.insert(conns, food:GetAttributeChangedSignal("XP"):Connect(function()
+	table.insert(conns, food:GetAttributeChangedSignal(State.Food.XP):Connect(function()
 		animateXPText(food, record)
 	end))
-	table.insert(conns, food:GetAttributeChangedSignal("FoodType"):Connect(function()
+	table.insert(conns, food:GetAttributeChangedSignal(State.Food.Type):Connect(function()
+		renderXPText(food, label, record.displayedXP)
+	end))
+	table.insert(conns, food:GetAttributeChangedSignal(State.Food.Id):Connect(function()
 		renderXPText(food, label, record.displayedXP)
 	end))
 	record.conns = conns
@@ -284,7 +314,7 @@ local function attachXPBillboard(food)
 end
 
 local function trackGroundFoodCandidate(obj)
-	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return end
+	if not isAppleTreeGroundCandidate(obj) then return end
 	if isAppleTreeGroundFood(obj) and attachXPBillboard(obj) then return end
 	if pendingGroundFood[obj] then return end
 
@@ -295,8 +325,10 @@ local function trackGroundFoodCandidate(obj)
 		end
 	end
 
-	table.insert(conns, obj:GetAttributeChangedSignal("SlotIndex"):Connect(tryAttach))
-	table.insert(conns, obj:GetAttributeChangedSignal("FoodType"):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal(State.TreeClicker.GroundPile):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal(State.TreeClicker.SlotIndex):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal(State.Food.Type):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal(State.Food.Id):Connect(tryAttach))
 	if obj:IsA("Model") then
 		table.insert(conns, obj.DescendantAdded:Connect(function()
 			tryAttach()
@@ -327,10 +359,10 @@ local function scanGroundFoods()
 	end
 end
 
-local function renderDrop(anchor, marker, foodType, duration)
+local function renderDrop(anchor, marker, foodId, duration)
 	if not anchor or not anchor.Parent or not marker or not marker.Parent then return end
 
-	local effect = cloneFoodEffect(foodType)
+	local effect = cloneFoodEffect(foodId)
 	if not effect then return end
 
 	local startCFrame = anchor.CFrame
@@ -369,6 +401,14 @@ local function applyTargetCFrame(target, cframe)
 	end
 end
 
+local function restoreTargets(targets)
+	for _, target in ipairs(targets) do
+		if target.instance.Parent then
+			applyTargetCFrame(target.instance, target.baseCFrame)
+		end
+	end
+end
+
 local function collectShakeTargets(tree)
 	local targets = {}
 	for _, d in ipairs(tree:GetDescendants()) do
@@ -398,12 +438,19 @@ end
 
 local function shakeTree(tree)
 	if not tree or not tree.Parent then return end
+
+	local previousTargets = activeShakeTargets[tree]
+	if previousTargets then
+		restoreTargets(previousTargets)
+	end
+
 	local targets = collectShakeTargets(tree)
 	if #targets == 0 then return end
 
 	shakeIds[tree] = (shakeIds[tree] or 0) + 1
 	local shakeId = shakeIds[tree]
 	local startedAt = os.clock()
+	activeShakeTargets[tree] = targets
 
 	task.spawn(function()
 		while shakeIds[tree] == shakeId do
@@ -426,12 +473,11 @@ local function shakeTree(tree)
 			RunService.RenderStepped:Wait()
 		end
 
-		if shakeIds[tree] ~= shakeId then return end
-		for _, target in ipairs(targets) do
-			if target.instance.Parent then
-				applyTargetCFrame(target.instance, target.baseCFrame)
-			end
+		if shakeIds[tree] ~= shakeId or activeShakeTargets[tree] ~= targets then
+			return
 		end
+		restoreTargets(targets)
+		activeShakeTargets[tree] = nil
 	end)
 end
 
@@ -468,9 +514,19 @@ function AppleTreeSlotVisuals.start()
 		trackGroundFoodCandidate(obj)
 	end)
 
-	Remotes.get(Remotes.Names.AppleTreeEffect).OnClientEvent:Connect(function(tree, anchor, marker, foodType, duration)
+	Remotes.get(Remotes.Names.TreeClickerEffect).OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" then return end
+		local tree = payload.machine
+		local anchor = payload.anchor
+		local marker = payload.marker
+		local foodId = payload.foodId
+		local duration = tonumber(payload.duration) or DROP_TWEEN_INFO.Time
+		if typeof(tree) ~= "Instance" or not tree:IsA("Model") then return end
+		if typeof(anchor) ~= "Instance" or not anchor:IsA("BasePart") then return end
+		if typeof(marker) ~= "Instance" or not marker:IsA("BasePart") then return end
+		if type(foodId) ~= "string" then return end
 		shakeTree(tree)
-		renderDrop(anchor, marker, foodType, duration)
+		renderDrop(anchor, marker, foodId, duration)
 	end)
 end
 

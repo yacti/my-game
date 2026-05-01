@@ -8,6 +8,7 @@ local function defaultFeedInventory()
 		TimedNew   = 1,
 		Processor1 = 1,
 		AppleTree  = 1,
+		CherryTree = 1,
 	}
 end
 
@@ -19,7 +20,7 @@ local function defaultData()
 		},
 		FeedPlacements = {},
 		FeedInventory  = defaultFeedInventory(),
-		FoodInventory  = {},          -- { [FoodType] = count }
+		FoodInventory  = {},          -- { [FoodId] = count }
 		Currency       = 0,
 		LastSeen       = 0,
 	}

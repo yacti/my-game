@@ -2,11 +2,13 @@
 -- per-machine subfolders are supported, e.g. Food/Timed/Food3_Timed) and
 -- must carry an XP attribute. A template may be either a BasePart (legacy)
 -- or a Model (preferred — supports multi-part visuals and Model:ScaleTo).
--- Food tools always carry a FoodType attribute and use the food type as
--- Tool.Name. Every system that consumes food (pet feeding, processor
--- input, inventory save) identifies food by attribute, never by name.
+-- Food tools carry both FoodId (exact template key, e.g. Food1_Clicker) and
+-- FoodType (broad group/category, e.g. Fruit). Every system that consumes
+-- food identifies food by attributes, never by name.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Food = {}
 
@@ -16,15 +18,62 @@ local function getFolder()
 	return folder
 end
 
--- Foods are organized into per-machine subfolders (Food/Clicker, Food/Timed,
--- Food/Processor, etc.) so the lookup recurses.
-function Food.GetTemplate(foodType)
-	return getFolder():FindFirstChild(foodType, true)
+local function isFoodTemplate(obj)
+	return obj and (obj:IsA("BasePart") or obj:IsA("Model"))
 end
 
-function Food.BaseXP(foodType)
-	local t = Food.GetTemplate(foodType)
+-- Foods are organized into per-machine subfolders (Food/Clicker, Food/Timed,
+-- Food/Processor, etc.) so the lookup recurses. FoodId is the stable key;
+-- template.Name is allowed to be a player-facing alias.
+function Food.GetTemplate(foodId)
+	local direct = getFolder():FindFirstChild(foodId, true)
+	if isFoodTemplate(direct) then return direct end
+
+	for _, obj in ipairs(getFolder():GetDescendants()) do
+		if isFoodTemplate(obj) and obj:GetAttribute(State.Food.Id) == foodId then
+			return obj
+		end
+	end
+	return nil
+end
+
+function Food.BaseXP(foodId)
+	local t = Food.GetTemplate(foodId)
 	return t and (t:GetAttribute("XP") or 1) or 1
+end
+
+function Food.TypeFor(foodId)
+	local t = Food.GetTemplate(foodId)
+	local foodType = t and t:GetAttribute(State.Food.Type)
+	return type(foodType) == "string" and foodType ~= "" and foodType or "Fruit"
+end
+
+function Food.IdOf(food)
+	if not food then return nil end
+	local foodId = food:GetAttribute(State.Food.Id)
+	if type(foodId) == "string" and foodId ~= "" then return foodId end
+
+	-- Backward compatibility for tools created before FoodId existed.
+	local oldFoodType = food:GetAttribute(State.Food.Type)
+	if type(oldFoodType) == "string" and Food.GetTemplate(oldFoodType) then
+		return oldFoodType
+	end
+	return nil
+end
+
+function Food.TypeOf(food)
+	if not food then return nil end
+	local foodId = Food.IdOf(food)
+	local foodType = food:GetAttribute(State.Food.Type)
+
+	if foodId and foodType == foodId then
+		-- Backward compatibility for old tools where FoodType stored the
+		-- exact template key instead of the broad category.
+		return Food.TypeFor(foodId)
+	end
+
+	if type(foodType) == "string" and foodType ~= "" then return foodType end
+	return foodId and Food.TypeFor(foodId) or nil
 end
 
 local function configureBodyPart(part, isHandle)
@@ -38,15 +87,15 @@ end
 -- Templates can be BaseParts or Models. Model templates use their
 -- PrimaryPart as the Tool's Handle; sibling parts get welded to it so the
 -- Tool keeps RequiresHandle semantics while still showing the full visual.
-function Food.MakeTool(foodType, xpOverride)
-	local template = Food.GetTemplate(foodType)
+function Food.MakeTool(foodId, xpOverride)
+	local template = Food.GetTemplate(foodId)
 	if not template then
-		warn(string.format("[Food] No template for %q", tostring(foodType)))
+		warn(string.format("[Food] No template for %q", tostring(foodId)))
 		return nil
 	end
 
 	local tool          = Instance.new("Tool")
-	tool.Name           = foodType
+	tool.Name           = template.Name
 	tool.RequiresHandle = true
 
 	if template:IsA("BasePart") then
@@ -56,7 +105,7 @@ function Food.MakeTool(foodType, xpOverride)
 		handle.Parent = tool
 	elseif template:IsA("Model") then
 		if not template.PrimaryPart then
-			warn(string.format("[Food] Model template %q has no PrimaryPart", foodType))
+			warn(string.format("[Food] Model template %q has no PrimaryPart", foodId))
 			return nil
 		end
 		local clone  = template:Clone()
@@ -79,11 +128,12 @@ function Food.MakeTool(foodType, xpOverride)
 		end
 		clone:Destroy()
 	else
-		warn(string.format("[Food] Unsupported template class %q for %s", template.ClassName, foodType))
+		warn(string.format("[Food] Unsupported template class %q for %s", template.ClassName, foodId))
 		return nil
 	end
 
-	tool:SetAttribute("FoodType", foodType)
+	tool:SetAttribute(State.Food.Id, foodId)
+	tool:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	tool:SetAttribute("XP", xpOverride or (template:GetAttribute("XP") or 1))
 	return tool
 end
@@ -91,7 +141,7 @@ end
 function Food.IsFood(tool)
 	return tool ~= nil
 		and tool:IsA("Tool")
-		and tool:GetAttribute("FoodType") ~= nil
+		and Food.IdOf(tool) ~= nil
 end
 
 local function equippedTool(player)
@@ -101,12 +151,12 @@ end
 
 function Food.FindFirstInBackpack(player, foodType)
 	for _, item in pairs(player.Backpack:GetChildren()) do
-		if Food.IsFood(item) and (foodType == nil or item:GetAttribute("FoodType") == foodType) then
+		if Food.IsFood(item) and (foodType == nil or Food.IdOf(item) == foodType) then
 			return item
 		end
 	end
 	local eq = equippedTool(player)
-	if eq and Food.IsFood(eq) and (foodType == nil or eq:GetAttribute("FoodType") == foodType) then
+	if eq and Food.IsFood(eq) and (foodType == nil or Food.IdOf(eq) == foodType) then
 		return eq
 	end
 	return nil
@@ -117,7 +167,7 @@ end
 -- requires the player to be holding the food.
 function Food.GetEquipped(player, foodType)
 	local eq = equippedTool(player)
-	if Food.IsFood(eq) and (foodType == nil or eq:GetAttribute("FoodType") == foodType) then
+	if Food.IsFood(eq) and (foodType == nil or Food.TypeOf(eq) == foodType) then
 		return eq
 	end
 	return nil
@@ -127,7 +177,7 @@ function Food.CountByType(player)
 	local counts = {}
 	local function add(item)
 		if Food.IsFood(item) then
-			local t = item:GetAttribute("FoodType")
+			local t = Food.IdOf(item)
 			counts[t] = (counts[t] or 0) + 1
 		end
 	end

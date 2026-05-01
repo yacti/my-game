@@ -8,13 +8,15 @@ local cache = {}
 local folder
 
 Remotes.Names = {
-	AppleTreeEffect = "AppleTreeEffect",
+	ProcessorDepositEffect = "ProcessorDepositEffect",
+	TreeClickerEffect = "TreeClickerEffect",
 	CurrencyUpdated = "CurrencyUpdated",
 	PlaceFeedMachine = "PlaceFeedMachine",
 }
 
 local Definitions = {
-	[Remotes.Names.AppleTreeEffect] = "RemoteEvent",
+	[Remotes.Names.ProcessorDepositEffect] = "RemoteEvent",
+	[Remotes.Names.TreeClickerEffect] = "RemoteEvent",
 	[Remotes.Names.CurrencyUpdated] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachine] = "RemoteEvent",
 }

@@ -26,7 +26,8 @@ local petConnections = {}
 
 local function makeFeedTool(feedType)
 	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
-	tool.Name = feedType
+	local template = FeedMachines.GetTemplate(feedType)
+	tool.Name = template and template.Name or feedType
 	tool:SetAttribute(State.Feed.Type, feedType)
 	return tool
 end
