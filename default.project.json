@@ -17,6 +17,9 @@
         },
         "PlaceFeedMachine": {
           "$className": "RemoteEvent"
+        },
+        "PromptInteract": {
+          "$className": "RemoteEvent"
         }
       },
       "Shared": {

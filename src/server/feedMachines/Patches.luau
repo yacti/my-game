@@ -8,8 +8,8 @@
 -- evolution; harvest gives a Tool whose XP equals the slot's accumulated
 -- value. The slot caps at the terminal stage's final threshold.
 --
--- A per-slot ProximityPrompt (E) lets the player harvest at any growth
--- stage; the dispensed Tool's XP equals the slot's accumulated XP for
+-- A client-local per-slot prompt lets the player harvest at any growth
+-- stage; the server dispenses a Tool whose XP equals the slot's accumulated XP for
 -- the current stage. Harvesting empties the slot for HARVEST_RESPAWN_DELAY
 -- seconds, then it materializes fresh first-stage food and starts growing again.
 --
@@ -130,18 +130,6 @@ local function applySlotScale(slot)
 	slot.foodPart:ScaleTo(scale)
 end
 
--- The slot's harvest prompt is enabled when the slot has a food (not in
--- respawn delay) AND the owner is NOT in edit mode. Centralized here so
--- materializeRespawn / harvest / EditMode change all share one rule.
-local function refreshSlotPrompt(slot, owner)
-	if not slot.prompt then return end
-	if owner:GetAttribute("EditMode") == true then
-		slot.prompt.Enabled = false
-	else
-		slot.prompt.Enabled = not slot.respawnAt
-	end
-end
-
 local function setSlotStage(slot, stageIndex, xp)
 	if slot.foodPart then slot.foodPart:Destroy() end
 	slot.stage    = stageIndex
@@ -157,13 +145,12 @@ local function refreshSlotXP(slot)
 	end
 end
 
-local function materializeRespawn(slot, owner)
+local function materializeRespawn(slot)
 	slot.respawnAt = nil
 	slot.stage     = 1
 	slot.xp        = 0
 	slot.foodPart  = spawnFoodAtSlot(slot, 1)
 	applySlotScale(slot)
-	refreshSlotPrompt(slot, owner)
 end
 
 local function applyGrowth(machine, s, seconds)
@@ -174,7 +161,7 @@ local function applyGrowth(machine, s, seconds)
 		if slot.respawnAt then
 			-- Slot is empty post-harvest. Materialize chain[1] once the
 			-- delay has elapsed; growth starts on the next tick.
-			if now >= slot.respawnAt then materializeRespawn(slot, s.owner) end
+			if now >= slot.respawnAt then materializeRespawn(slot) end
 		else
 			-- Terminal stage still ticks xp toward its own cap (e.g. Food10
 			-- climbs from 45 to 50), so keep growing regardless of stage.
@@ -216,6 +203,7 @@ end
 
 local function harvest(machine, s, slotIndex, player)
 	if player ~= s.owner then return end
+	if player:GetAttribute("EditMode") == true then return end
 	local slot = s.slots[slotIndex]
 	if not slot or slot.respawnAt then return end  -- empty during respawn delay
 	local foodId = slot.balance.Chain[slot.stage]
@@ -231,7 +219,6 @@ local function harvest(machine, s, slotIndex, player)
 	slot.stage     = 1
 	slot.xp        = 0
 	slot.respawnAt = os.time() + s.balance.HarvestRespawnDelay
-	refreshSlotPrompt(slot, s.owner)
 end
 
 -- Anchor the slot at the BaseFood's bottom face so the food clone grows from
@@ -264,34 +251,12 @@ function Patches.Setup(machine, plot, owner)
 			local anchor = makeSlotAnchor(machine, child)
 			child:Destroy()
 
-			local prompt = Instance.new("ProximityPrompt")
-			prompt.ActionText            = "Harvest"
-			prompt.KeyboardKeyCode       = Enum.KeyCode.E
-			prompt.HoldDuration          = 0
-			prompt.MaxActivationDistance = 10
-			-- The anchor is invisible/tiny with CanQuery=false; the food
-			-- clone in front of it is also CanQuery=false. Disable the LOS
-			-- raycast so the prompt shows reliably regardless of either.
-			prompt.RequiresLineOfSight   = false
-			prompt.Parent                = anchor
-
-			local slot = { balance = s.balance, stage = 1, xp = 0, anchor = anchor, foodPart = nil, prompt = prompt, respawnAt = nil }
+			local slot = { balance = s.balance, stage = 1, xp = 0, anchor = anchor, foodPart = nil, respawnAt = nil }
 			slot.foodPart = spawnFoodAtSlot(slot, 1)
 			applySlotScale(slot)
-			refreshSlotPrompt(slot, owner)
 			table.insert(s.slots, slot)
-
-			local idx = #s.slots
-			table.insert(s.conns, prompt.Triggered:Connect(function(player)
-				harvest(machine, s, idx, player)
-			end))
 		end
 	end
-
-	-- React to edit-mode toggles by refreshing every slot prompt.
-	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(function()
-		for _, slot in ipairs(s.slots) do refreshSlotPrompt(slot, owner) end
-	end))
 end
 
 function Patches.Teardown(machine)
@@ -334,7 +299,6 @@ function Patches.Apply(machine, placement)
 				setSlotStage(slot, stage, xp)
 				refreshSlotXP(slot)
 			end
-			refreshSlotPrompt(slot, s.owner)
 		end
 	end
 
@@ -347,7 +311,7 @@ function Patches.Apply(machine, placement)
 	s.lastTick = os.time()
 end
 
--- Hook called by setupFeedPickup before the machine is destroyed. We hand
+-- Hook called before the machine is picked up. We hand
 -- every slot's current food (foodId + accumulated XP) to the player as
 -- a Tool, then return true to permit the pickup.
 function Patches.PrePickup(machine, player)
@@ -367,6 +331,21 @@ function Patches.PrePickup(machine, player)
 		end
 	end
 	return true
+end
+
+function Patches.HarvestAnchor(anchor, player)
+	if not anchor or not anchor:IsA("BasePart") then return false end
+	for machine, s in pairs(state) do
+		if machine.Parent then
+			for i, slot in ipairs(s.slots) do
+				if slot.anchor == anchor then
+					harvest(machine, s, i, player)
+					return true
+				end
+			end
+		end
+	end
+	return false
 end
 
 return Patches

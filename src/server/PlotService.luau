@@ -121,6 +121,14 @@ local function anchorAndPlace(clone, cframe)
 	end
 end
 
+local function stripPromptTemplates(clone)
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") then
+			descendant:Destroy()
+		end
+	end
+end
+
 -- ── Floor-local placement helpers ─────────────────────────────────────────────
 -- All persisted feed/pet positions are stored in the floor's *local* frame
 -- (lx, lz on the floor surface, lry as Y rotation in floor space) so they
@@ -160,6 +168,7 @@ function PlotService.CreatePet(petType, petIndex, xp, floor, lx, lz, lry)
 	end
 
 	local clone = template:Clone()
+	stripPromptTemplates(clone)
 	clone:SetAttribute("PetType",  petType)
 	clone:SetAttribute("PetIndex", petIndex)
 	-- MoneyRate is on the template; Clone carries it. Ensure present:
@@ -248,6 +257,7 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 			continue
 		end
 		local clone = template:Clone()
+		stripPromptTemplates(clone)
 		clone:SetAttribute("FeedType",  feedType)
 		clone:SetAttribute("FeedIndex", i)
 
@@ -271,6 +281,7 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 	end
 
 	local clone = template:Clone()
+	stripPromptTemplates(clone)
 	clone:SetAttribute("FeedType", feedType)
 
 	local maxIndex = 0

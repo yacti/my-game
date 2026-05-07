@@ -191,9 +191,9 @@ end
 
 local function configureGroundPart(part, isPrimary)
 	part.Anchored       = true
-	-- Primary queryable so the ProximityPrompt's LOS raycast has something to
-	-- hit. CanCollide stays true on the primary, but FRUIT_GROUP rules mean it
-	-- only physical-collides with the Floor it sits on.
+	-- Primary remains queryable for client-local prompts and click targeting.
+	-- CanCollide stays true on the primary, but FRUIT_GROUP rules mean it only
+	-- physical-collides with the Floor it sits on.
 	part.CanCollide     = isPrimary
 	part.CanQuery       = isPrimary
 	part.CanTouch       = isPrimary
@@ -243,7 +243,6 @@ end
 
 local function destroySlotGround(slot)
 	if not slot.ground then return end
-	if slot.ground.conn then slot.ground.conn:Disconnect() end
 	if slot.ground.model and slot.ground.model.Parent then slot.ground.model:Destroy() end
 	slot.ground = nil
 end
@@ -261,28 +260,12 @@ local function spawnSlotGround(machine, s, slot, foodId, xp)
 	visual:SetAttribute(State.Food.XP, xp)
 	visual.Parent = groundFolder(machine)
 
-	local prompt                 = Instance.new("ProximityPrompt")
-	prompt.ActionText            = "Pick Up"
-	prompt.KeyboardKeyCode       = Enum.KeyCode.E
-	prompt.HoldDuration          = 0
-	prompt.MaxActivationDistance = 10
-	prompt.RequiresLineOfSight   = false
-	prompt.Enabled               = s.owner:GetAttribute("EditMode") ~= true
-	prompt.Parent                = primary
-
 	slot.ground = {
 		foodId   = foodId,
 		xp       = xp,
 		model    = visual,
 		primary  = primary,
-		prompt   = prompt,
-		conn     = nil,
 	}
-	slot.ground.conn = prompt.Triggered:Connect(function(player)
-		if player ~= s.owner then return end
-		if s.owner:GetAttribute("EditMode") == true then return end
-		pickupSlotGround(machine, s, slot, player)
-	end)
 end
 
 -- Add XP to the slot's ground fruit; advance through the chain whenever
@@ -308,6 +291,8 @@ local function addXPToSlotGround(machine, s, slot, deltaXP)
 end
 
 pickupSlotGround = function(machine, s, slot, player)
+	if player ~= s.owner then return end
+	if s.owner:GetAttribute("EditMode") == true then return end
 	if not slot.ground then return end
 	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
 	if not tool then return end
@@ -491,15 +476,6 @@ function TreeClicker.Setup(machine, plot, owner)
 	setupSlots(machine, s)
 	setupClickDetector(machine, s)
 
-	-- Toggle every slot's pickup prompt with edit mode.
-	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(function()
-		local enabled = owner:GetAttribute("EditMode") ~= true
-		for _, slot in ipairs(s.slots) do
-			if slot.ground and slot.ground.prompt then
-				slot.ground.prompt.Enabled = enabled
-			end
-		end
-	end))
 end
 
 function TreeClicker.Teardown(machine)
@@ -548,6 +524,22 @@ function TreeClicker.Apply(machine, placement)
 			spawnSlotGround(machine, s, slot, foodId, xp)
 		end
 	end
+end
+
+function TreeClicker.PickupGround(ground, player)
+	if not ground then return false end
+	for machine, s in pairs(state) do
+		if machine.Parent then
+			for _, slot in ipairs(s.slots) do
+				local model = slot.ground and slot.ground.model
+				if model and (ground == model or ground:IsDescendantOf(model)) then
+					pickupSlotGround(machine, s, slot, player)
+					return true
+				end
+			end
+		end
+	end
+	return false
 end
 
 return TreeClicker

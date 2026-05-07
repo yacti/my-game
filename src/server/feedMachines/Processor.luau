@@ -1,5 +1,6 @@
--- Processor FeedMachine: a single ProximityPrompt context-switches between
--- Deposit and Take based on what the owner has equipped.
+-- Processor FeedMachine: client-local prompts context-switch between Deposit
+-- and Take based on what the owner has equipped. The server only validates
+-- and performs the requested action.
 --
 --   owner has accepted food group equipped → "Deposit Food", queues one
 --   owner empty-handed and ReadyCount > 0  → "Take Food", dispenses all ready
@@ -33,7 +34,7 @@ local State   = require(Shared:WaitForChild("State"))
 local Processor = {}
 local ProcessorDepositEffect = Remotes.get(Remotes.Names.ProcessorDepositEffect)
 
--- [machine] = { owner, plot, queue: { { foodId, depositedAt }, ... }, prompt }
+-- [machine] = { owner, plot, queue: { { foodId, depositedAt }, ... } }
 local state = {}
 
 local function acceptedFoodType(machine)
@@ -50,41 +51,16 @@ end
 local function refreshAttrs(machine, s)
 	local now      = os.time()
 	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
-	local accepted = acceptedFoodType(machine)
 	local ready    = 0
 	for _, item in ipairs(s.queue) do
 		if now - item.depositedAt >= duration then ready += 1 end
 	end
 	machine:SetAttribute(State.Feed.QueueCount, #s.queue)
 	machine:SetAttribute(State.Feed.ReadyCount, ready)
-
-	if s.prompt then
-		-- Edit mode hides every gameplay prompt; only Pick Up survives.
-		if s.owner:GetAttribute("EditMode") == true then
-			s.prompt.Enabled = false
-		else
-			local hasEquipped = Food.GetEquipped(s.owner, accepted) ~= nil
-			local maxQueue    = machine:GetAttribute(State.Feed.MaxQueue) or 5
-			local canDeposit  = hasEquipped and #s.queue < maxQueue
-			-- Deposit takes priority over Take when both are possible. Falls
-			-- through to Take when the queue is full so the player has a
-			-- way to clear a slot instead of being stuck with a non-firing
-			-- prompt.
-			if canDeposit then
-				s.prompt.ActionText = "Deposit Food"
-				s.prompt.Enabled    = true
-			elseif ready > 0 then
-				s.prompt.ActionText = "Take Food"
-				s.prompt.Enabled    = true
-			else
-				s.prompt.Enabled    = false
-			end
-		end
-	end
 end
 
--- Single shared heartbeat: keeps ready count + prompt context fresh
--- across all processors.
+-- Single shared heartbeat keeps replicated queue/ready counts fresh for
+-- client-local prompt context.
 task.spawn(function()
 	while true do
 		task.wait(1)
@@ -145,53 +121,28 @@ function Processor.Setup(machine, plot, owner)
 		return
 	end
 
-	local s = { owner = owner, plot = plot, queue = {}, conns = {} }
+	local s = { owner = owner, plot = plot, queue = {} }
 	state[machine] = s
-
-	-- Refresh the prompt the moment the owner equips/unequips a tool, so
-	-- "Deposit Food" / "Take Food" doesn't lag behind the heartbeat tick.
-	local function refresh() if state[machine] then refreshAttrs(machine, s) end end
-	local function onToolChange(c) if c:IsA("Tool") then refresh() end end
-	local function watchCharacter(char)
-		if not char then return end
-		table.insert(s.conns, char.ChildAdded:Connect(onToolChange))
-		table.insert(s.conns, char.ChildRemoved:Connect(onToolChange))
-	end
-	watchCharacter(owner.Character)
-	table.insert(s.conns, owner.CharacterAdded:Connect(watchCharacter))
-	-- Edit mode also flips the prompt; refresh on its attribute change.
-	table.insert(s.conns, owner:GetAttributeChangedSignal("EditMode"):Connect(refresh))
-
-	-- Single context-switching prompt: Deposit when food equipped, Take
-	-- when ready food is waiting.
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText      = "Take Food"
-	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.HoldDuration    = 0
-	prompt.UIOffset        = Vector2.new(0, -60)
-	prompt.Enabled         = false
-	prompt.Parent          = promptParent
-	s.prompt = prompt
-
-	prompt.Triggered:Connect(function(player)
-		if player ~= owner then return end
-		local accepted   = acceptedFoodType(machine)
-		local maxQueue   = machine:GetAttribute(State.Feed.MaxQueue) or 5
-		local canDeposit = Food.GetEquipped(player, accepted) ~= nil and #s.queue < maxQueue
-		if canDeposit then
-			depositOne(machine, s, player)
-		else
-			dispenseAllReady(machine, s, player)
-		end
-	end)
+	refreshAttrs(machine, s)
 end
 
 function Processor.Teardown(machine)
-	local s = state[machine]
-	if s and s.conns then
-		for _, c in ipairs(s.conns) do c:Disconnect() end
-	end
 	state[machine] = nil
+end
+
+function Processor.Interact(machine, player)
+	local s = state[machine]
+	if not s or player ~= s.owner then return end
+	if s.owner:GetAttribute("EditMode") == true then return end
+
+	local accepted   = acceptedFoodType(machine)
+	local maxQueue   = machine:GetAttribute(State.Feed.MaxQueue) or 5
+	local canDeposit = Food.GetEquipped(player, accepted) ~= nil and #s.queue < maxQueue
+	if canDeposit then
+		depositOne(machine, s, player)
+	else
+		dispenseAllReady(machine, s, player)
+	end
 end
 
 -- Block pickup while items are still in the queue so the player isn't

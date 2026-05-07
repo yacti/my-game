@@ -166,4 +166,18 @@ function FeedMachines.PrePickup(machine, player)
 	return true
 end
 
+function FeedMachines.Interact(machine, player)
+	local mod = impl(machine)
+	if mod and mod.Interact then return mod.Interact(machine, player) end
+	return nil
+end
+
+function FeedMachines.HarvestPatchAnchor(anchor, player)
+	return Patches.HarvestAnchor(anchor, player)
+end
+
+function FeedMachines.PickupTreeGround(ground, player)
+	return Trees.PickupGround(ground, player)
+end
+
 return FeedMachines

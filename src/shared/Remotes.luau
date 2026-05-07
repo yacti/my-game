@@ -1,7 +1,8 @@
 -- Single entry point for resolving RemoteEvents/RemoteFunctions so code never
--- types remote names as raw strings in more than one place.
+-- types remote names as raw strings in more than one place. Remote instances
+-- are declared in default.project.json and synced by Rojo; this module only
+-- validates and resolves them so Studio-only duplicates fail loudly.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 
 local Remotes = {}
 local cache = {}
@@ -12,6 +13,7 @@ Remotes.Names = {
 	TreeClickerEffect = "TreeClickerEffect",
 	CurrencyUpdated = "CurrencyUpdated",
 	PlaceFeedMachine = "PlaceFeedMachine",
+	PromptInteract = "PromptInteract",
 }
 
 local Definitions = {
@@ -19,26 +21,22 @@ local Definitions = {
 	[Remotes.Names.TreeClickerEffect] = "RemoteEvent",
 	[Remotes.Names.CurrencyUpdated] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachine] = "RemoteEvent",
+	[Remotes.Names.PromptInteract] = "RemoteEvent",
 }
 
 local function getFolder()
 	if folder then return folder end
 
-	local existing = ReplicatedStorage:FindFirstChild("Remotes")
-	if existing then
-		assert(existing:IsA("Folder"), string.format("ReplicatedStorage.Remotes is a %s", existing.ClassName))
-		folder = existing
-		return folder
+	local matches = {}
+	for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+		if child.Name == "Remotes" then
+			table.insert(matches, child)
+		end
 	end
 
-	if RunService:IsServer() then
-		local created = Instance.new("Folder")
-		created.Name = "Remotes"
-		created.Parent = ReplicatedStorage
-		folder = created
-	else
-		folder = ReplicatedStorage:WaitForChild("Remotes")
-	end
+	assert(#matches == 1, string.format("Expected exactly one ReplicatedStorage.Remotes folder, found %d", #matches))
+	assert(matches[1]:IsA("Folder"), string.format("ReplicatedStorage.Remotes is a %s", matches[1].ClassName))
+	folder = matches[1]
 	return folder
 end
 
@@ -60,8 +58,6 @@ function Remotes.get(name)
 end
 
 local function ensure(name)
-	assert(RunService:IsServer(), "Remotes can only be ensured on the server")
-
 	local remote = cache[name]
 	if remote then return remote end
 
@@ -77,11 +73,7 @@ local function ensure(name)
 		return existing
 	end
 
-	local created = Instance.new(Definitions[name])
-	created.Name = name
-	created.Parent = getFolder()
-	cache[name] = created
-	return created
+	error(string.format("Missing remote %q in ReplicatedStorage.Remotes; declare it in default.project.json", name))
 end
 
 function Remotes.ensureAll()

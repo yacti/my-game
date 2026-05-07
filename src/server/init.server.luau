@@ -19,6 +19,7 @@ local Food     = require(Shared:WaitForChild("Food"))
 
 local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
 local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
+local PromptInteract   = Remotes.get(Remotes.Names.PromptInteract)
 
 local petConnections = {}
 
@@ -154,53 +155,50 @@ local function tryEvolvePet(plot, pet, player, profile)
 	end
 end
 
-local function setupPetPrompt(plot, player, profile, pet)
+local function primaryPartOf(instance)
+	if not instance then return nil end
+	if instance:IsA("BasePart") then return instance end
+	if instance:IsA("Model") then return instance.PrimaryPart end
+	return nil
+end
+
+local function isPlayerNearInstance(player, instance, maxDistance)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local primary = primaryPartOf(instance)
+	return root ~= nil
+		and root:IsA("BasePart")
+		and primary ~= nil
+		and (root.Position - primary.Position).Magnitude <= maxDistance
+end
+
+local function feedPet(plot, player, profile, pet)
+	if not pet or not pet:IsA("Model") or not pet:IsDescendantOf(plot) then return end
 	local primary = pet.PrimaryPart
 	if not primary then return end
+	if player:GetAttribute("EditMode") == true then return end
+	if not isPlayerNearInstance(player, pet, 12) then return end
 
-	local existing = primary:FindFirstChildOfClass("ProximityPrompt")
-	if existing then existing:Destroy() end
+	local idx = pet:GetAttribute(State.Pet.Index)
+	local petData = profile.Data.Pets[idx]
+	if not petData then return end
 
-	local prompt           = Instance.new("ProximityPrompt")
-	prompt.ActionText      = "Feed"
-	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.HoldDuration    = 0
-	prompt.Enabled         = player:GetAttribute("EditMode") ~= true
-	prompt.Parent          = primary
+	local level = Balance.PetLevelFromType(pet:GetAttribute(State.Pet.Type))
+	if level >= Balance.MAX_PET_LEVEL then return end
 
-	-- Hide all non-pickup prompts while the player is in edit mode.
-	local conn = player:GetAttributeChangedSignal("EditMode"):Connect(function()
-		prompt.Enabled = player:GetAttribute("EditMode") ~= true
-	end)
-	pet.Destroying:Connect(function() conn:Disconnect() end)
+	local food = Food.FindFirstInBackpack(player)
+	if not food then return end
 
-	prompt.Triggered:Connect(function(triggeringPlayer)
-		if triggeringPlayer ~= player then return end
-		if player:GetAttribute("EditMode") == true then return end
+	local foodXP = food:GetAttribute(State.Food.XP) or 1
+	food:Destroy()
 
-		local food = Food.FindFirstInBackpack(player)
-		if not food then return end
+	petData.xp += foodXP
+	PlotService.RescalePet(pet, petData.xp)
+	pet:SetAttribute(State.Pet.XP, petData.xp)
 
-		local foodXP = food:GetAttribute(State.Food.XP) or 1
-		food:Destroy()
-
-		local idx = pet:GetAttribute(State.Pet.Index)
-		local petData = profile.Data.Pets[idx]
-		if not petData then return end
-
-		local level = Balance.PetLevelFromType(pet:GetAttribute(State.Pet.Type))
-		if level >= Balance.MAX_PET_LEVEL then
-			return -- pet is maxed; ignore feed
-		end
-
-		petData.xp += foodXP
-		PlotService.RescalePet(pet, petData.xp)
-		pet:SetAttribute(State.Pet.XP, petData.xp)
-
-		if petData.xp >= Balance.XPToEvolve(level) then
-			tryEvolvePet(plot, pet, player, profile)
-		end
-	end)
+	if petData.xp >= Balance.XPToEvolve(level) then
+		tryEvolvePet(plot, pet, player, profile)
+	end
 end
 
 local function setupPetCollection(plot, player, profile, pet)
@@ -225,7 +223,6 @@ local function setupPetCollection(plot, player, profile, pet)
 end
 
 setupPetInteractions = function(plot, player, profile, pet)
-	setupPetPrompt(plot, player, profile, pet)
 	setupPetCollection(plot, player, profile, pet)
 end
 
@@ -307,32 +304,16 @@ local function watchPlayerEditMode(player)
 	refresh()
 end
 
-local function setupFeedPickup(feed, plot, owner)
-	-- For Models we anchor the prompt to the PrimaryPart; for Parts the
-	-- prompt parents directly.
-	local promptParent = feed:IsA("Model") and feed.PrimaryPart or feed
-	if not promptParent then return end
+local function pickupFeed(feed, plot, player)
+	if not feed or not feed:IsDescendantOf(plot) then return end
+	if not ((feed:IsA("BasePart") or feed:IsA("Model")) and feed:GetAttribute(State.Feed.Type)) then return end
+	if player:GetAttribute("EditMode") ~= true then return end
+	if not isPlayerNearInstance(player, feed, 14) then return end
+	if not FeedMachines.PrePickup(feed, player) then return end
 
-	local prompt           = Instance.new("ProximityPrompt")
-	prompt.ActionText      = "Pick Up"
-	prompt.KeyboardKeyCode = Enum.KeyCode.F
-	prompt.HoldDuration    = 0.5
-	prompt.Enabled         = owner:GetAttribute("EditMode") == true
-	prompt.Parent          = promptParent
-
-	local conn = owner:GetAttributeChangedSignal("EditMode"):Connect(function()
-		prompt.Enabled = owner:GetAttribute("EditMode") == true
-	end)
-	feed.Destroying:Connect(function() conn:Disconnect() end)
-
-	prompt.Triggered:Connect(function(triggeringPlayer)
-		if triggeringPlayer ~= owner then return end
-		if owner:GetAttribute("EditMode") ~= true then return end
-		if not FeedMachines.PrePickup(feed, triggeringPlayer) then return end
-		local feedType = feed:GetAttribute(State.Feed.Type) or feed.Name
-		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
-		feed:Destroy()
-	end)
+	local feedType = feed:GetAttribute(State.Feed.Type) or feed.Name
+	makeFeedTool(feedType).Parent = player.Backpack
+	feed:Destroy()
 end
 
 -- Always-present inventory tool that players use to enter "edit mode".
@@ -377,7 +358,6 @@ Players.PlayerAdded:Connect(function(player)
 	PlotService.SpawnFeedsForPlot(plot, profile.Data.FeedPlacements)
 
 	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
-		setupFeedPickup(feed, plot, player)
 		FeedMachines.Setup(feed, plot, player)
 		local idx   = feed:GetAttribute(State.Feed.Index)
 		local saved = idx and profile.Data.FeedPlacements[idx] or nil
@@ -458,12 +438,35 @@ game:BindToClose(function()
 		PlayerDataService.UnloadPlayer(player)
 	end
 
-	-- Wait for any PlayerRemoving Release() calls that are still yielding on
-	-- SetAsync. Without this, Studio may shut down before the write completes
-	-- and we lose the save.
+	-- Wait for ProfileStore sessions to finish their final save.
 	local deadline = os.clock() + 25
 	while PlayerDataService.ActiveProfileCount() > 0 and os.clock() < deadline do
 		task.wait(0.1)
+	end
+end)
+
+PromptInteract.OnServerEvent:Connect(function(player, action, target)
+	if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
+	local plot = PlotService.GetPlayerPlot(player)
+	local profile = PlayerDataService.GetProfile(player)
+	if not plot or not profile then return end
+
+	if action == "PetFeed" then
+		feedPet(plot, player, profile, target)
+	elseif action == "FeedPickup" then
+		pickupFeed(target, plot, player)
+	elseif action == "FeedMachine" then
+		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+			FeedMachines.Interact(target, player)
+		end
+	elseif action == "PatchHarvest" then
+		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+			FeedMachines.HarvestPatchAnchor(target, player)
+		end
+	elseif action == "TreeGroundPickup" then
+		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+			FeedMachines.PickupTreeGround(target, player)
+		end
 	end
 end)
 
@@ -504,6 +507,5 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 	local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
 	if not feedPart then return end
 
-	setupFeedPickup(feedPart, plot, player)
 	FeedMachines.Setup(feedPart, plot, player)
 end)
