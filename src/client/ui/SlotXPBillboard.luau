@@ -1,8 +1,8 @@
--- Renders an XP billboard above each growing food in a Timed machine
--- slot. Visible while the player's HumanoidRootPart is within RANGE studs
--- of the food. Range is gated against the player (not the camera) per
--- Heartbeat — BillboardGui.MaxDistance is camera-based and would hide
--- legitimate slots when the camera is pulled back.
+-- Renders an XP billboard above each growing slot food. Visible while the
+-- player's HumanoidRootPart is within RANGE studs of the food. Range is gated
+-- against the player (not the camera) per Heartbeat — BillboardGui.MaxDistance
+-- is camera-based and would hide legitimate slots when the camera is pulled
+-- back.
 --
 -- Identification: a "slot food" is any BasePart/Model with a FoodType
 -- attribute that either (a) lives under a parent named "SlotAnchor" — patch
@@ -27,7 +27,7 @@ local RANGE = 10
 local player    = Players.LocalPlayer
 local tracked   = {}  -- [food] = gui
 
-local TimedSlotBillboard = {}
+local SlotXPBillboard = {}
 
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -76,7 +76,7 @@ local function build(food)
 	gui.Name        = "XPBillboard"
 	gui.Adornee     = adornee
 	gui.Size        = UDim2.new(0, 80, 0, 24)
-	-- Fixed offset that clears the food at max scale (1.5×) without
+	-- Fixed offset that clears the food at max scale (1.5x) without
 	-- needing to update each frame as the model grows.
 	gui.StudsOffset = Vector3.new(0, 4, 0)
 	gui.AlwaysOnTop = true
@@ -110,7 +110,7 @@ local function build(food)
 	end)
 end
 
-function TimedSlotBillboard.start()
+function SlotXPBillboard.start()
 	for _, d in ipairs(Workspace:GetDescendants()) do
 		if isSlotFood(d) then build(d) end
 	end
@@ -131,4 +131,4 @@ function TimedSlotBillboard.start()
 	end)
 end
 
-return TimedSlotBillboard
+return SlotXPBillboard

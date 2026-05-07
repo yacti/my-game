@@ -29,13 +29,11 @@ local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local PatchBalance = script.Parent:WaitForChild("Patch")
-local TimedNewBalance = require(PatchBalance:WaitForChild("TimedNewBalance"))
 local PumpkinPatchBalance = require(PatchBalance:WaitForChild("PumpkinPatchBalance"))
 
 local Patches = {}
 
 local BALANCES = {
-	[TimedNewBalance.FeedType] = TimedNewBalance,
 	[PumpkinPatchBalance.FeedType] = PumpkinPatchBalance,
 }
 
@@ -62,7 +60,7 @@ local function feedTypeOf(machine)
 end
 
 local function balanceFor(machine)
-	return BALANCES[feedTypeOf(machine)] or TimedNewBalance
+	return BALANCES[feedTypeOf(machine)] or PumpkinPatchBalance
 end
 
 local function maxXPFor(balance, stageIndex)
@@ -236,9 +234,8 @@ local function harvest(machine, s, slotIndex, player)
 	refreshSlotPrompt(slot, s.owner)
 end
 
--- Anchor the slot at the BaseFood's CFrame so the food clone has a stable
--- parent that survives evolutions and harvests. The anchor is invisible,
--- non-colliding, and untouchable so it doesn't interfere with anything.
+-- Anchor the slot at the BaseFood's bottom face so the food clone grows from
+-- the same vertical base point regardless of the marker's thickness.
 local function makeSlotAnchor(machine, baseFoodPart)
 	local anchor = Instance.new("Part")
 	anchor.Name         = "SlotAnchor"
@@ -248,7 +245,7 @@ local function makeSlotAnchor(machine, baseFoodPart)
 	anchor.CanTouch     = false
 	anchor.Transparency = 1
 	anchor.Size         = Vector3.new(0.1, 0.1, 0.1)
-	anchor.CFrame       = baseFoodPart.CFrame
+	anchor.CFrame       = baseFoodPart.CFrame * CFrame.new(0, -baseFoodPart.Size.Y / 2 + anchor.Size.Y / 2, 0)
 	anchor.Parent       = machine
 	return anchor
 end

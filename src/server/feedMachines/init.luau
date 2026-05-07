@@ -1,16 +1,16 @@
 -- Registry + dispatcher for FeedMachine templates.
 --
 -- Templates live at ReplicatedStorage.FeedMachines.<Class>.<TemplateName>.
--- A template can be a BasePart (e.g. Clicker1, Timed1) or a Model (e.g.
--- TimedNew/PumpkinPatch). The template carries:
---   FeedClass  (string, broad behavior class, e.g. "Timed", "Patch", or "Tree")
+-- A template can be a BasePart (e.g. Clicker1) or a Model (e.g.
+-- PumpkinPatch). The template carries:
+--   FeedClass  (string, broad behavior class, e.g. "Clicker", "Patch", or "Tree")
 --   FeedType   (string, equals template name; what the rest of the codebase keys on)
 --   FoodType   (string, foodType produced/accepted, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --
 -- Two layers of dispatch:
 --   TYPES   — keyed by FeedType. Wins when present. Use for variant-specific
---             behavior (e.g. Timed1 spawn loop vs. patch growth).
+--             behavior.
 --   CLASSES — keyed by FeedClass. Default for a class when no per-type
 --             override is registered. Use when every variant in a class
 --             behaves the same.
@@ -31,7 +31,6 @@ local Trees = require(script:WaitForChild("Trees"))
 local Clicker   = require(script:WaitForChild("Clicker"))
 local Patches   = require(script:WaitForChild("Patches"))
 local Processor = require(script:WaitForChild("Processor"))
-local Timed1    = require(script:WaitForChild("Timed1"))
 
 -- Class-level fallbacks (used when no TYPES override).
 local CLASSES = {
@@ -43,8 +42,6 @@ local CLASSES = {
 
 -- Per-FeedType overrides (preferred). Keys are exact FeedType names.
 local TYPES = {
-	Timed1    = Timed1,
-	TimedNew  = Patches,
 }
 
 local FeedMachines = {}

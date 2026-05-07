@@ -20,10 +20,9 @@ State.Feed = {
 	-- ReplicatedStorage.FeedMachines.<Class>.<Name> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
 	FoodType        = "FoodType",        -- class-specific: produced food id or accepted food group
-	MaxFood         = "MaxFood",         -- Clicker, Timed: cap of unpicked food on the floor
+	MaxFood         = "MaxFood",         -- Clicker: cap of unpicked food on the floor
 	ClickCooldown   = "ClickCooldown",   -- Clicker: seconds between clicks
 	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap
-	SpawnInterval   = "SpawnInterval",   -- Timed: seconds between spawns
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
 	XPMultiplier    = "XPMultiplier",    -- Processor/AppleTree: multiplier on produced XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity

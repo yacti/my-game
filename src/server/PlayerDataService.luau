@@ -2,10 +2,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ProfileService = require(ReplicatedStorage.Shared:WaitForChild("ProfileService"))
 
+local RETIRED_FEED_TYPES = {
+	Timed1 = true,
+	TimedNew = true,
+}
+
 local function defaultFeedInventory()
 	return {
 		Clicker1   = 1,
-		TimedNew   = 1,
 		Processor1 = 1,
 		AppleTree  = 1,
 		CherryTree = 1,
@@ -49,20 +53,42 @@ local function migrateFeedPlacementsAndCredit(profile)
 
 	for _, rec in ipairs(placements) do
 		if type(rec) == "table" then
-			local ft = rec.type or "Timed1"
-			profile.Data.FeedInventory[ft] = (profile.Data.FeedInventory[ft] or 0) + 1
+			local ft = rec.type
+			if type(ft) == "string" and not RETIRED_FEED_TYPES[ft] then
+				profile.Data.FeedInventory[ft] = (profile.Data.FeedInventory[ft] or 0) + 1
+			end
 		end
 	end
 	profile.Data.FeedPlacements = {}
 end
 
+local function migrateRetiredFeedPlacements(profile)
+	local placements = profile.Data.FeedPlacements
+	if type(placements) ~= "table" then
+		profile.Data.FeedPlacements = {}
+		return
+	end
+
+	local out = {}
+	for _, rec in ipairs(placements) do
+		local feedType = type(rec) == "table" and rec.type or nil
+		if type(feedType) == "string" and not RETIRED_FEED_TYPES[feedType] then
+			out[#out+1] = rec
+		end
+	end
+	profile.Data.FeedPlacements = out
+end
+
 -- Sanity-clean FeedInventory. Earlier dev builds briefly used a
--- { levels = {…} } shape; collapse those back to a count, drop garbage.
+-- { levels = {…} } shape; collapse those back to a count, drop garbage,
+-- and remove retired feed machines.
 local function migrateFeedInventory(inv)
 	if type(inv) ~= "table" then return {} end
 	local out = {}
 	for ft, v in pairs(inv) do
-		if type(v) == "number" and v > 0 then
+		if RETIRED_FEED_TYPES[ft] then
+			continue
+		elseif type(v) == "number" and v > 0 then
 			out[ft] = math.floor(v)
 		elseif type(v) == "table" and type(v.levels) == "table" then
 			local n = 0
@@ -105,8 +131,9 @@ function PlayerDataService.LoadPlayerAsync(player)
 		profile.Data.Pets = defaults.Pets
 	end
 
-	profile.Data.FeedInventory = migrateFeedInventory(profile.Data.FeedInventory)
 	migrateFeedPlacementsAndCredit(profile)
+	migrateRetiredFeedPlacements(profile)
+	profile.Data.FeedInventory = migrateFeedInventory(profile.Data.FeedInventory)
 
 	-- Seed FeedInventory if player has zero total feeds (placed + in inventory).
 	local totalFeeds = #profile.Data.FeedPlacements

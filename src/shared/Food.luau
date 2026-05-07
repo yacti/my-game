@@ -1,5 +1,5 @@
 -- Food registry. Templates live at ReplicatedStorage.Food (recursively;
--- per-machine subfolders are supported, e.g. Food/Timed/Food3_Timed) and
+-- per-machine subfolders are supported, e.g. Food/Patch/Pumpkin1) and
 -- must carry an XP attribute. A template may be either a BasePart (legacy)
 -- or a Model (preferred — supports multi-part visuals and Model:ScaleTo).
 -- Food tools carry both FoodId (exact template key, e.g. Food1_Clicker) and
@@ -22,7 +22,7 @@ local function isFoodTemplate(obj)
 	return obj and (obj:IsA("BasePart") or obj:IsA("Model"))
 end
 
--- Foods are organized into per-machine subfolders (Food/Clicker, Food/Timed,
+-- Foods are organized into per-machine subfolders (Food/Clicker, Food/Patch,
 -- Food/Processor, etc.) so the lookup recurses. FoodId is the stable key;
 -- template.Name is allowed to be a player-facing alias.
 function Food.GetTemplate(foodId)

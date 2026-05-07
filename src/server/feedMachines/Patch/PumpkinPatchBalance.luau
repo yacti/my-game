@@ -4,15 +4,17 @@ return {
 
 	Chain = {
 		"Pumpkin1",
-		"Pumpkin2",
-		"Pumpkin3",
-		"Pumpkin4",
-		"Pumpkin5",
-		"Pumpkin6",
-		"Pumpkin7",
-		"Pumpkin8",
-		"Pumpkin9",
-		"Pumpkin10",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		"Pumpkin1",
+		
+
 	},
 
 	DefaultGrowRate = 1,

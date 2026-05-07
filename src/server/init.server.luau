@@ -77,7 +77,7 @@ local function saveFeedState(plot, player, profile)
 			-- survive Floor rotations / translations.
 			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, f:GetPivot())
 			local rec = {
-				type = f:GetAttribute(State.Feed.Type) or "Timed1",
+				type = f:GetAttribute(State.Feed.Type) or f.Name,
 				lx   = lx,
 				lz   = lz,
 				lry  = lry,
@@ -329,7 +329,7 @@ local function setupFeedPickup(feed, plot, owner)
 		if triggeringPlayer ~= owner then return end
 		if owner:GetAttribute("EditMode") ~= true then return end
 		if not FeedMachines.PrePickup(feed, triggeringPlayer) then return end
-		local feedType = feed:GetAttribute(State.Feed.Type) or "Timed1"
+		local feedType = feed:GetAttribute(State.Feed.Type) or feed.Name
 		makeFeedTool(feedType).Parent = triggeringPlayer.Backpack
 		feed:Destroy()
 	end)

@@ -237,7 +237,11 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 	end
 
 	for i, rec in ipairs(placements) do
-		local feedType = rec.type or "Timed1"
+		local feedType = type(rec) == "table" and rec.type or nil
+		if type(feedType) ~= "string" then
+			warn("[PlotService] Skipping feed placement with no feed type")
+			continue
+		end
 		local template = FeedMachines.GetTemplate(feedType)
 		if not template then
 			warn("[PlotService] No feed template: " .. feedType)
