@@ -76,6 +76,20 @@ function Food.TypeOf(food)
 	return foodId and Food.TypeFor(foodId) or nil
 end
 
+function Food.XPOf(food)
+	local foodId = Food.IdOf(food)
+	local template = foodId and Food.GetTemplate(foodId)
+	if not template then return nil end
+
+	local baseXP = tonumber(template:GetAttribute(State.Food.XP)) or 1
+	local maxXP = tonumber(template:GetAttribute("MaxXP")) or baseXP
+	local multiplier = tonumber(food:GetAttribute("XPMultiplier")) or 1
+	if multiplier < 1 then multiplier = 1 end
+
+	local xp = tonumber(food:GetAttribute(State.Food.XP)) or baseXP
+	return math.clamp(xp, 0, math.max(baseXP, maxXP * multiplier))
+end
+
 local function configureBodyPart(part, isHandle)
 	part.Anchored   = false
 	part.CanCollide = isHandle  -- only the handle collides; sub-parts shouldn't push the player around

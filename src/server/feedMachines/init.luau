@@ -8,12 +8,8 @@
 --   FoodType   (string, foodType produced/accepted, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --
--- Two layers of dispatch:
---   TYPES   — keyed by FeedType. Wins when present. Use for variant-specific
---             behavior.
---   CLASSES — keyed by FeedClass. Default for a class when no per-type
---             override is registered. Use when every variant in a class
---             behaves the same.
+-- Dispatch is by FeedClass. Add a small per-type override table only when a
+-- feed type needs behavior that differs from its class.
 --
 -- Each module conforms to:
 --   class.Setup(machine, plot, owner)         -- wire interactions; init state
@@ -32,16 +28,12 @@ local Clicker   = require(script:WaitForChild("Clicker"))
 local Patches   = require(script:WaitForChild("Patches"))
 local Processor = require(script:WaitForChild("Processor"))
 
--- Class-level fallbacks (used when no TYPES override).
+-- Class-level implementations.
 local CLASSES = {
 	Clicker   = Clicker,
 	Patch     = Patches,
 	Processor = Processor,
 	Tree      = Trees,
-}
-
--- Per-FeedType overrides (preferred). Keys are exact FeedType names.
-local TYPES = {
 }
 
 local FeedMachines = {}
@@ -122,9 +114,6 @@ local function classOf(machine)
 end
 
 local function impl(machine)
-	local ft  = feedTypeOf(machine)
-	local typ = TYPES[ft]
-	if typ then return typ, ft end
 	local cls = classOf(machine)
 	return CLASSES[cls], cls
 end

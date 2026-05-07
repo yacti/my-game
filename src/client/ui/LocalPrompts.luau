@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local Food    = require(Shared:WaitForChild("Food"))
+local Interactions = require(Shared:WaitForChild("Interactions"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
 
@@ -139,21 +140,21 @@ local function tryBind(instance)
 	if not isInOwnPlot(instance) then return end
 
 	if instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
-		addPrompt(instance, "PetFeed", "PetFeed", promptParentFor(instance))
+		addPrompt(instance, "PetFeed", Interactions.Actions.PetFeed, promptParentFor(instance))
 	end
 
 	if isFeedMachine(instance) then
 		local parent = promptParentFor(instance)
-		addPrompt(instance, "FeedPickup", "FeedPickup", parent)
+		addPrompt(instance, "FeedPickup", Interactions.Actions.FeedPickup, parent)
 		if isProcessor(instance) then
-			addPrompt(instance, "FeedMachine", "FeedMachine", parent)
+			addPrompt(instance, "FeedMachine", Interactions.Actions.FeedMachine, parent)
 		end
 	end
 
 	if instance:IsA("BasePart") and instance.Name == "SlotAnchor" then
 		local machine = instance.Parent
 		if machine and machine:GetAttribute(State.Feed.Class) == "Patch" then
-			addPrompt(instance, "PatchHarvest", "PatchHarvest", instance)
+			addPrompt(instance, "PatchHarvest", Interactions.Actions.PatchHarvest, instance)
 		end
 	end
 
@@ -161,7 +162,7 @@ local function tryBind(instance)
 		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
 		and instance.Parent ~= nil
 		and instance.Parent.Name == State.TreeClicker.GroundFolder then
-		addPrompt(instance, "TreeGroundPickup", "TreeGroundPickup", promptParentFor(instance))
+		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup, promptParentFor(instance))
 	end
 end
 
@@ -198,8 +199,8 @@ local function refreshPrompt(target, kind, prompt)
 	end
 end
 
-local function refreshAll()
-	scanPlot()
+local function refreshAll(shouldScan)
+	if shouldScan then scanPlot() end
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
 			refreshPrompt(target, kind, prompt)
@@ -212,30 +213,30 @@ function LocalPrompts.start()
 		task.defer(tryBind, instance)
 	end)
 
-	player:GetAttributeChangedSignal("EditMode"):Connect(refreshAll)
+	player:GetAttributeChangedSignal("EditMode"):Connect(function() refreshAll(false) end)
 	local function watchCharacter(character)
 		if not character then return end
 		character.ChildAdded:Connect(function(child)
-			if child:IsA("Tool") then refreshAll() end
+			if child:IsA("Tool") then refreshAll(false) end
 		end)
 		character.ChildRemoved:Connect(function(child)
-			if child:IsA("Tool") then refreshAll() end
+			if child:IsA("Tool") then refreshAll(false) end
 		end)
-		refreshAll()
+		refreshAll(true)
 	end
 	player.CharacterAdded:Connect(watchCharacter)
 	watchCharacter(player.Character)
-	backpack.ChildAdded:Connect(refreshAll)
-	backpack.ChildRemoved:Connect(refreshAll)
+	backpack.ChildAdded:Connect(function() refreshAll(false) end)
+	backpack.ChildRemoved:Connect(function() refreshAll(false) end)
 
-	task.defer(refreshAll)
+	task.defer(function() refreshAll(true) end)
 
 	local accumulator = 0
 	RunService.Heartbeat:Connect(function(dt)
 		accumulator += dt
 		if accumulator >= 0.1 then
 			accumulator = 0
-			refreshAll()
+			refreshAll(false)
 		end
 	end)
 end

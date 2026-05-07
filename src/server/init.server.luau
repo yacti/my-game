@@ -1,5 +1,3 @@
-print("[Server] v10 loaded — classed feed machines")
-
 local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
@@ -7,13 +5,16 @@ local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local Server            = ServerScriptService:WaitForChild("Server")
 local Shared            = ReplicatedStorage:WaitForChild("Shared")
 local Remotes           = require(Shared:WaitForChild("Remotes"))
-Remotes.ensureAll()
+Remotes.validateAll()
+
+require(Server:WaitForChild("AssetValidator")).validate()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
+local Interactions = require(Shared:WaitForChild("Interactions"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 
@@ -22,6 +23,13 @@ local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 local PromptInteract   = Remotes.get(Remotes.Names.PromptInteract)
 
 local petConnections = {}
+local promptLastFire = {}
+local promptLocks = {}
+local placeLastFire = {}
+local placeLocks = {}
+
+local PROMPT_RATE_SECONDS = 0.12
+local PLACE_RATE_SECONDS = 0.25
 
 -- ── Tool factories ────────────────────────────────────────────────────────────
 
@@ -35,6 +43,37 @@ end
 
 local function isFeedTool(item)
 	return item and item:IsA("Tool") and item:GetAttribute(State.Feed.Type) ~= nil
+end
+
+local function consumeRateLimit(map, player, interval)
+	local now = os.clock()
+	local previous = map[player] or 0
+	if now - previous < interval then return false end
+	map[player] = now
+	return true
+end
+
+local function withPlayerLock(map, player, callback)
+	if map[player] then return end
+	map[player] = true
+	local ok, err = pcall(callback)
+	map[player] = nil
+	if not ok then
+		warn(err)
+	end
+end
+
+local function isFinite(n)
+	return type(n) == "number" and n == n and math.abs(n) < math.huge
+end
+
+local function isValidCFrame(value)
+	if typeof(value) ~= "CFrame" then return false end
+	local components = { value:GetComponents() }
+	for _, component in ipairs(components) do
+		if not isFinite(component) then return false end
+	end
+	return true
 end
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
@@ -106,6 +145,13 @@ local function saveFeedState(plot, player, profile)
 	profile.Data.FeedInventory = feedInventory
 
 	profile.Data.FoodInventory = Food.CountByType(player)
+end
+
+local function snapshotProfileState(player, plot, profile)
+	if not plot or not profile then return end
+	savePetsFromPlot(plot, profile)
+	saveFeedState(plot, player, profile)
+	profile.Data.LastSeen = os.time()
 end
 
 -- ── Pet state replication ────────────────────────────────────────────────────
@@ -189,7 +235,8 @@ local function feedPet(plot, player, profile, pet)
 	local food = Food.FindFirstInBackpack(player)
 	if not food then return end
 
-	local foodXP = food:GetAttribute(State.Food.XP) or 1
+	local foodXP = Food.XPOf(food)
+	if not foodXP then return end
 	food:Destroy()
 
 	petData.xp += foodXP
@@ -263,6 +310,17 @@ local function startPetMoneyLoop(player, plot, profile)
 					petData.money = (petData.money or 0) + rate
 					pet:SetAttribute(State.Pet.Money, petData.money)
 				end
+			end
+		end
+	end)
+end
+
+local function startProfileSnapshotLoop(player, plot, profile)
+	task.spawn(function()
+		while PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile do
+			task.wait(60)
+			if PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile then
+				snapshotProfileState(player, plot, profile)
 			end
 		end
 	end)
@@ -376,6 +434,7 @@ Players.PlayerAdded:Connect(function(player)
 	end
 
 	startPetMoneyLoop(player, plot, profile)
+	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
 
 	local toolsRestored = false
@@ -409,9 +468,7 @@ Players.PlayerRemoving:Connect(function(player)
 	if plot then
 		local profile = PlayerDataService.GetProfile(player)
 		if profile then
-			savePetsFromPlot(plot, profile)
-			saveFeedState(plot, player, profile)
-			profile.Data.LastSeen = os.time()
+			snapshotProfileState(player, plot, profile)
 		end
 
 		clearPetConnections(player)
@@ -431,9 +488,7 @@ game:BindToClose(function()
 		local plot    = PlotService.GetPlayerPlot(player)
 		local profile = PlayerDataService.GetProfile(player)
 		if plot and profile then
-			savePetsFromPlot(plot, profile)
-			saveFeedState(plot, player, profile)
-			profile.Data.LastSeen = os.time()
+			snapshotProfileState(player, plot, profile)
 		end
 		PlayerDataService.UnloadPlayer(player)
 	end
@@ -447,65 +502,76 @@ end)
 
 PromptInteract.OnServerEvent:Connect(function(player, action, target)
 	if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
+	if not Interactions.IsAction(action) then return end
+	if not consumeRateLimit(promptLastFire, player, PROMPT_RATE_SECONDS) then return end
 	local plot = PlotService.GetPlayerPlot(player)
 	local profile = PlayerDataService.GetProfile(player)
 	if not plot or not profile then return end
 
-	if action == "PetFeed" then
-		feedPet(plot, player, profile, target)
-	elseif action == "FeedPickup" then
-		pickupFeed(target, plot, player)
-	elseif action == "FeedMachine" then
-		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-			FeedMachines.Interact(target, player)
+	withPlayerLock(promptLocks, player, function()
+		if action == Interactions.Actions.PetFeed then
+			feedPet(plot, player, profile, target)
+		elseif action == Interactions.Actions.FeedPickup then
+			pickupFeed(target, plot, player)
+		elseif action == Interactions.Actions.FeedMachine then
+			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+				FeedMachines.Interact(target, player)
+			end
+		elseif action == Interactions.Actions.PatchHarvest then
+			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+				FeedMachines.HarvestPatchAnchor(target, player)
+			end
+		elseif action == Interactions.Actions.TreeGroundPickup then
+			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+				FeedMachines.PickupTreeGround(target, player)
+			end
 		end
-	elseif action == "PatchHarvest" then
-		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-			FeedMachines.HarvestPatchAnchor(target, player)
-		end
-	elseif action == "TreeGroundPickup" then
-		if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-			FeedMachines.PickupTreeGround(target, player)
-		end
-	end
+	end)
+	snapshotProfileState(player, plot, profile)
 end)
 
 -- ── Feed placement remote ─────────────────────────────────────────────────────
 
 PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
+	if not isValidCFrame(cframe) then return end
+	if not consumeRateLimit(placeLastFire, player, PLACE_RATE_SECONDS) then return end
 	local plot = PlotService.GetPlayerPlot(player)
 	if not plot then return end
 
-	local character = player.Character
-	if not character then return end
-	local tool = character:FindFirstChildWhichIsA("Tool")
-	if not isFeedTool(tool) then return end
+	withPlayerLock(placeLocks, player, function()
+		local character = player.Character
+		if not character then return end
+		local tool = character:FindFirstChildWhichIsA("Tool")
+		if not isFeedTool(tool) then return end
 
-	local feedType = tool:GetAttribute(State.Feed.Type)
+		local feedType = tool:GetAttribute(State.Feed.Type)
 
-	local floor = plot:FindFirstChild("Floor")
-	if not floor then return end
+		local floor = plot:FindFirstChild("Floor")
+		if not floor then return end
 
-	local template = FeedMachines.GetTemplate(feedType)
-	if not template then return end
+		local template = FeedMachines.GetTemplate(feedType)
+		if not template then return end
 
-	-- Bounds check + grid snap + rotation snap all in the floor's local
-	-- frame, so machines align to the (possibly rotated) plot's axes
-	-- rather than world axes.
-	local localCF = floor.CFrame:ToObjectSpace(cframe)
-	if math.abs(localCF.X) > floor.Size.X / 2 or
-	   math.abs(localCF.Z) > floor.Size.Z / 2 then
-		return
-	end
-	local snappedLX  = math.round(localCF.X)
-	local snappedLZ  = math.round(localCF.Z)
-	local _, lry, _  = localCF:ToEulerAnglesXYZ()
-	local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
+		-- Bounds check + grid snap + rotation snap all in the floor's local
+		-- frame, so machines align to the (possibly rotated) plot's axes
+		-- rather than world axes.
+		local localCF = floor.CFrame:ToObjectSpace(cframe)
+		if math.abs(localCF.X) > floor.Size.X / 2 or
+		   math.abs(localCF.Z) > floor.Size.Z / 2 then
+			return
+		end
+		local snappedLX  = math.round(localCF.X)
+		local snappedLZ  = math.round(localCF.Z)
+		local _, lry, _  = localCF:ToEulerAnglesXYZ()
+		local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 
-	tool:Destroy()
+		tool:Destroy()
 
-	local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
-	if not feedPart then return end
+		local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+		if not feedPart then return end
 
-	FeedMachines.Setup(feedPart, plot, player)
+		FeedMachines.Setup(feedPart, plot, player)
+		local profile = PlayerDataService.GetProfile(player)
+		if profile then snapshotProfileState(player, plot, profile) end
+	end)
 end)

@@ -5,7 +5,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local Food  = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 
 local Spawner = {}
@@ -13,7 +12,6 @@ local Spawner = {}
 function Spawner.SpawnFoodAbove(machine, foodType, xpOverride)
 	local tool = Food.MakeTool(foodType, xpOverride)
 	if not tool then return nil end
-	tool:SetAttribute("SourceFeedIndex", machine:GetAttribute(State.Feed.Index))
 	tool.Parent = workspace
 	tool.Handle.CFrame = CFrame.new(machine.Position + Vector3.new(0, machine.Size.Y / 2 + 1, 0))
 	return tool

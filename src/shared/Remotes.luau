@@ -76,7 +76,7 @@ local function ensure(name)
 	error(string.format("Missing remote %q in ReplicatedStorage.Remotes; declare it in default.project.json", name))
 end
 
-function Remotes.ensureAll()
+function Remotes.validateAll()
 	for name in pairs(Definitions) do
 		ensure(name)
 	end

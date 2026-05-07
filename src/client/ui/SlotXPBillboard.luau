@@ -5,10 +5,8 @@
 -- back.
 --
 -- Identification: a "slot food" is any BasePart/Model with a FoodType
--- attribute that either (a) lives under a parent named "SlotAnchor" — patch
--- growth slots — or (b) carries a TrackedFood=true attribute,
--- which other systems (e.g. AppleTree's ground fruit) opt into. Server
--- keeps the XP attribute in sync, so the billboard just listens to
+-- attribute that lives under a parent named "SlotAnchor" (patch growth slots).
+-- Server keeps the XP attribute in sync, so the billboard just listens to
 -- attribute changes.
 --
 -- Per-viewer rendered locally; no replication of GUI instances.
@@ -32,7 +30,6 @@ local SlotXPBillboard = {}
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
 	if obj:GetAttribute(State.Food.Id) == nil and obj:GetAttribute(State.Food.Type) == nil then return false end
-	if obj:GetAttribute("TrackedFood") == true then return true end
 	return obj.Parent ~= nil and obj.Parent.Name == "SlotAnchor"
 end
 

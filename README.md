@@ -15,3 +15,8 @@ rojo serve
 ```
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
+
+## Project Checks
+
+- Asset workflow and backup guidance: `docs/asset-workflow.md`
+- Pre-publish checklist: `docs/publish-checklist.md`
