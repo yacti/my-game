@@ -402,12 +402,14 @@ Players.PlayerAdded:Connect(function(player)
 		player:Kick("The server is full (all plots are taken).")
 		return
 	end
+	player:SetAttribute(State.Player.AssignedPlotName, plot.Name)
 
 	local spawnLocation = plot:FindFirstChild("SpawnLocation")
 	if spawnLocation then player.RespawnLocation = spawnLocation end
 
 	local profile = PlayerDataService.LoadPlayerAsync(player)
 	if not profile then
+		player:SetAttribute(State.Player.AssignedPlotName, nil)
 		PlotService.FreePlot(player)
 		return
 	end
@@ -479,6 +481,7 @@ Players.PlayerRemoving:Connect(function(player)
 		PlotService.DestroyFeeds(plot)
 		PlotService.FreePlot(player)
 	end
+	player:SetAttribute(State.Player.AssignedPlotName, nil)
 
 	PlayerDataService.UnloadPlayer(player)
 end)

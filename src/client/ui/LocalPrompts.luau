@@ -23,14 +23,26 @@ local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 
+local function findPlotByName(plotName)
+	if type(plotName) ~= "string" or plotName == "" then return nil end
+	local plotsFolder = Workspace:FindFirstChild("Plots")
+	local plot = plotsFolder and plotsFolder:FindFirstChild(plotName) or nil
+	return plot or Workspace:FindFirstChild(plotName)
+end
+
 local function getPlot()
+	local assignedPlotName = player:GetAttribute(State.Player.AssignedPlotName)
+	local assignedPlot = findPlotByName(assignedPlotName)
+	if assignedPlot then return assignedPlot end
+
 	local spawnLocation = player.RespawnLocation
 	return spawnLocation and spawnLocation.Parent or nil
 end
 
 local function isInOwnPlot(instance)
 	local plot = getPlot()
-	return plot ~= nil and instance ~= nil and instance:IsDescendantOf(plot)
+	if plot == nil then return nil end
+	return instance ~= nil and instance:IsDescendantOf(plot)
 end
 
 local function equippedTool()
@@ -137,7 +149,7 @@ local function addPrompt(target, kind, action, parent)
 end
 
 local function tryBind(instance)
-	if not isInOwnPlot(instance) then return end
+	if isInOwnPlot(instance) ~= true then return end
 
 	if instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
 		addPrompt(instance, "PetFeed", Interactions.Actions.PetFeed, promptParentFor(instance))
@@ -175,7 +187,16 @@ local function scanPlot()
 end
 
 local function refreshPrompt(target, kind, prompt)
-	if prompt.Parent == nil or target.Parent == nil or not isInOwnPlot(target) then
+	if prompt.Parent == nil or target.Parent == nil then
+		removePrompt(target, kind)
+		return
+	end
+	local inOwnPlot = isInOwnPlot(target)
+	if inOwnPlot == nil then
+		prompt.Enabled = false
+		return
+	end
+	if inOwnPlot == false then
 		removePrompt(target, kind)
 		return
 	end
@@ -213,6 +234,8 @@ function LocalPrompts.start()
 		task.defer(tryBind, instance)
 	end)
 
+	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function() refreshAll(true) end)
+	player:GetPropertyChangedSignal("RespawnLocation"):Connect(function() refreshAll(true) end)
 	player:GetAttributeChangedSignal("EditMode"):Connect(function() refreshAll(false) end)
 	local function watchCharacter(character)
 		if not character then return end

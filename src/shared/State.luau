@@ -10,6 +10,10 @@ State.Pet = {
 	MoneyRate = "MoneyRate",
 }
 
+State.Player = {
+	AssignedPlotName = "AssignedPlotName",
+}
+
 State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
