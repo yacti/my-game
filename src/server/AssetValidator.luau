@@ -100,26 +100,116 @@ local function validateFeedTemplates(errors)
 	end
 end
 
+local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
+	if type(foodId) ~= "string" or foodId == "" then
+		add(errors, string.format("%s has invalid food id %q", source, tostring(foodId)))
+		return
+	end
+
+	if not sourcesByFoodId[foodId] then
+		sourcesByFoodId[foodId] = {}
+		requiredFoodIds[#requiredFoodIds + 1] = foodId
+	end
+	table.insert(sourcesByFoodId[foodId], source)
+end
+
+local function collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+	local feedMachinesFolder = Server:FindFirstChild("feedMachines")
+	if not feedMachinesFolder then return end
+
+	for _, module in ipairs(feedMachinesFolder:GetDescendants()) do
+		if module:IsA("ModuleScript") and module.Name:match("Balance$") then
+			local ok, balance = pcall(require, module)
+			if not ok then
+				add(errors, string.format("Failed to load balance module %s: %s", module:GetFullName(), tostring(balance)))
+				continue
+			end
+
+			if type(balance) == "table" and balance.Chain ~= nil then
+				local feedType = type(balance.FeedType) == "string" and balance.FeedType or module.Name
+				if type(balance.Chain) ~= "table" or #balance.Chain == 0 then
+					add(errors, string.format("%s has empty or invalid Chain", module:GetFullName()))
+					continue
+				end
+
+				for index, foodId in ipairs(balance.Chain) do
+					addRequiredFoodId(
+						requiredFoodIds,
+						sourcesByFoodId,
+						foodId,
+						string.format("%s Chain[%d]", feedType, index),
+						errors
+					)
+				end
+			end
+		end
+	end
+end
+
+local function collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+	for _, feedType in ipairs(FeedMachines.AllFeedTypes()) do
+		if FeedMachines.GetClass(feedType) == "Clicker" then
+			local template = FeedMachines.GetTemplate(feedType)
+			if not template then continue end
+
+			local foodId = template:GetAttribute(State.Feed.FoodType)
+			if type(foodId) ~= "string" or foodId == "" then
+				foodId = "Apple"
+			end
+			addRequiredFoodId(
+				requiredFoodIds,
+				sourcesByFoodId,
+				foodId,
+				string.format("%s clicker output", feedType),
+				errors
+			)
+		end
+	end
+end
+
+local function collectRequiredFoodIds(errors)
+	local requiredFoodIds = {}
+	local sourcesByFoodId = {}
+
+	collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+	collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+
+	table.sort(requiredFoodIds)
+	return requiredFoodIds, sourcesByFoodId
+end
+
+local function sourceList(sources)
+	return sources and table.concat(sources, ", ") or "unknown source"
+end
+
 local function validateFoodTemplates(errors)
 	child(ReplicatedStorage, "Food", "Folder", errors)
 
-	local requiredFoodIds = {
-		"Food1_Processor",
-		"Pumpkin1",
-	}
-	for i = 1, 10 do
-		requiredFoodIds[#requiredFoodIds + 1] = "Food" .. i .. "_Clicker"
-	end
+	local requiredFoodIds, sourcesByFoodId = collectRequiredFoodIds(errors)
 
 	for _, foodId in ipairs(requiredFoodIds) do
 		local template = Food.GetTemplate(foodId)
 		if not template then
-			add(errors, "Missing food template " .. foodId)
+			add(errors, string.format("Missing food template %s (required by %s)", foodId, sourceList(sourcesByFoodId[foodId])))
 		elseif template:IsA("Model") and not template.PrimaryPart then
 			add(errors, template:GetFullName() .. " missing PrimaryPart")
 		end
-		if template and type(template:GetAttribute(State.Food.Id)) ~= "string" then
-			add(errors, template:GetFullName() .. " missing " .. State.Food.Id .. " attribute")
+		if template and not (template:IsA("BasePart") or template:IsA("Model")) then
+			add(errors, template:GetFullName() .. " is " .. template.ClassName .. ", expected BasePart or Model")
+		end
+		if template then
+			local templateFoodId = template:GetAttribute(State.Food.Id)
+			if type(templateFoodId) ~= "string" then
+				add(errors, template:GetFullName() .. " missing " .. State.Food.Id .. " attribute")
+			elseif templateFoodId ~= foodId then
+				add(errors, string.format(
+					"%s has %s=%q, expected %q",
+					template:GetFullName(),
+					State.Food.Id,
+					templateFoodId,
+					foodId
+				))
+			end
 		end
 		if template and type(template:GetAttribute(State.Food.Type)) ~= "string" then
 			add(errors, template:GetFullName() .. " missing " .. State.Food.Type .. " attribute")

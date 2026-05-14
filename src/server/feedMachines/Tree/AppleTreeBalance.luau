@@ -3,16 +3,10 @@ return {
 	WarnPrefix = "AppleTree",
 
 	Chain = {
-		"Food1_Clicker",
-		"Food2_Clicker",
-		"Food3_Clicker",
-		"Food4_Clicker",
-		"Food5_Clicker",
-		"Food6_Clicker",
-		"Food7_Clicker",
-		"Food8_Clicker",
-		"Food9_Clicker",
-		"Food10_Clicker",
+		"Apple1",
+		"Apple2",
+		"Apple3",
+		"Apple4",
 	},
 
 	DefaultMaxClicksPerSecond = 5,
