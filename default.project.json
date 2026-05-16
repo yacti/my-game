@@ -28,9 +28,6 @@
       "Shared": {
         "$path": "src/shared"
       },
-      "UI": {
-        "$path": "src/ui"
-      },
       "Satchel": {
         "$path": "src/satchel.rbxm"
       }
