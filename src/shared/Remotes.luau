@@ -11,6 +11,7 @@ local folder
 Remotes.Names = {
 	ProcessorDepositEffect = "ProcessorDepositEffect",
 	TreeClickerEffect = "TreeClickerEffect",
+	PlayerNotification = "PlayerNotification",
 	CurrencyUpdated = "CurrencyUpdated",
 	PlaceFeedMachine = "PlaceFeedMachine",
 	PlaceFeedMachineResult = "PlaceFeedMachineResult",
@@ -20,6 +21,7 @@ Remotes.Names = {
 local Definitions = {
 	[Remotes.Names.ProcessorDepositEffect] = "RemoteEvent",
 	[Remotes.Names.TreeClickerEffect] = "RemoteEvent",
+	[Remotes.Names.PlayerNotification] = "RemoteEvent",
 	[Remotes.Names.CurrencyUpdated] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachine] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachineResult] = "RemoteEvent",

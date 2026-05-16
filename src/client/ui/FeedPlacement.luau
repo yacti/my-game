@@ -9,7 +9,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State   = require(Shared:WaitForChild("State"))
+local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 
 local PREVIEW_TRANSPARENCY = 0.5
 local PREVIEW_START_TRANSPARENCY = 1
@@ -58,6 +60,18 @@ local function setPreviewProps(part)
 end
 
 local FeedPlacement = {}
+
+local PLACEMENT_FAILURE_MESSAGES = {
+	["busy"] = "Please wait before placing another feed machine.",
+	["no-feed-tool"] = "Equip a feed machine before placing.",
+	["out-of-bounds"] = "Place feed machines inside your plot.",
+	["overlap"] = "That spot is already occupied.",
+	["rate-limited"] = "Please wait before placing again.",
+}
+
+local function placementFailureMessage(reason)
+	return PLACEMENT_FAILURE_MESSAGES[reason] or "Could not place feed machine."
+end
 
 local function forEachPreviewPart(preview, callback)
 	if preview:IsA("BasePart") then
@@ -467,7 +481,7 @@ function FeedPlacement.start()
 		end)
 	end
 
-	PlaceFeedMachineResult.OnClientEvent:Connect(function(requestId, success)
+	PlaceFeedMachineResult.OnClientEvent:Connect(function(requestId, success, reason)
 		if requestId ~= pendingPlacementRequestId then return end
 		pendingPlacementRequestId = nil
 		local placedCFrame = pendingPlacementCFrame
@@ -487,6 +501,10 @@ function FeedPlacement.start()
 				currentPlacementBlocked = true
 				setConfirmEnabled(false)
 			end
+			NotificationUi.show({
+				kind = NotificationConfig.Kinds.Error,
+				text = placementFailureMessage(reason),
+			})
 			return
 		end
 

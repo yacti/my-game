@@ -223,6 +223,15 @@ local function validateUi(errors)
 	for _, name in ipairs(REQUIRED_UI) do
 		child(ui, name, nil, errors)
 	end
+
+	local hud = child(ui, "HUD", "ScreenGui", errors)
+	if hud then
+		local notifications = child(hud, "Notifications", "GuiObject", errors)
+		if notifications then
+			child(notifications, "NotificationTemplate", "TextLabel", errors)
+			child(notifications, "UIListLayout", "UIListLayout", errors)
+		end
+	end
 end
 
 local function validateRemotes(errors)
