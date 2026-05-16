@@ -20,6 +20,7 @@ local Food     = require(Shared:WaitForChild("Food"))
 
 local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
 local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
+local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
 local PromptInteract   = Remotes.get(Remotes.Names.PromptInteract)
 
 local petConnections = {}
@@ -535,25 +536,55 @@ end)
 
 -- ── Feed placement remote ─────────────────────────────────────────────────────
 
-PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
-	if not isValidCFrame(cframe) then return end
-	if not consumeRateLimit(placeLastFire, player, PLACE_RATE_SECONDS) then return end
+local function sendPlaceResult(player, requestId, success, reason)
+	if type(requestId) ~= "number" then return end
+	PlaceFeedMachineResult:FireClient(player, requestId, success, reason)
+end
+
+PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
+	if not isValidCFrame(cframe) then
+		sendPlaceResult(player, requestId, false, "invalid-cframe")
+		return
+	end
+	if not consumeRateLimit(placeLastFire, player, PLACE_RATE_SECONDS) then
+		sendPlaceResult(player, requestId, false, "rate-limited")
+		return
+	end
 	local plot = PlotService.GetPlayerPlot(player)
-	if not plot then return end
+	if not plot then
+		sendPlaceResult(player, requestId, false, "no-plot")
+		return
+	end
+	if placeLocks[player] then
+		sendPlaceResult(player, requestId, false, "busy")
+		return
+	end
 
 	withPlayerLock(placeLocks, player, function()
 		local character = player.Character
-		if not character then return end
+		if not character then
+			sendPlaceResult(player, requestId, false, "no-character")
+			return
+		end
 		local tool = character:FindFirstChildWhichIsA("Tool")
-		if not isFeedTool(tool) then return end
+		if not isFeedTool(tool) then
+			sendPlaceResult(player, requestId, false, "no-feed-tool")
+			return
+		end
 
 		local feedType = tool:GetAttribute(State.Feed.Type)
 
 		local floor = plot:FindFirstChild("Floor")
-		if not floor then return end
+		if not floor then
+			sendPlaceResult(player, requestId, false, "no-floor")
+			return
+		end
 
 		local template = FeedMachines.GetTemplate(feedType)
-		if not template then return end
+		if not template then
+			sendPlaceResult(player, requestId, false, "no-template")
+			return
+		end
 
 		-- Bounds check + grid snap + rotation snap all in the floor's local
 		-- frame, so machines align to the (possibly rotated) plot's axes
@@ -561,20 +592,28 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 		local localCF = floor.CFrame:ToObjectSpace(cframe)
 		if math.abs(localCF.X) > floor.Size.X / 2 or
 		   math.abs(localCF.Z) > floor.Size.Z / 2 then
+			sendPlaceResult(player, requestId, false, "out-of-bounds")
 			return
 		end
 		local snappedLX  = math.round(localCF.X)
 		local snappedLZ  = math.round(localCF.Z)
 		local _, lry, _  = localCF:ToEulerAnglesXYZ()
 		local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
-
-		tool:Destroy()
+		if PlotService.FeedPlacementOverlaps(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
+			sendPlaceResult(player, requestId, false, "overlap")
+			return
+		end
 
 		local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
-		if not feedPart then return end
+		if not feedPart then
+			sendPlaceResult(player, requestId, false, "place-failed")
+			return
+		end
 
+		tool:Destroy()
 		FeedMachines.Setup(feedPart, plot, player)
 		local profile = PlayerDataService.GetProfile(player)
 		if profile then snapshotProfileState(player, plot, profile) end
+		sendPlaceResult(player, requestId, true)
 	end)
 end)

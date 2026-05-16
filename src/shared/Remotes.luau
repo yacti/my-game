@@ -13,6 +13,7 @@ Remotes.Names = {
 	TreeClickerEffect = "TreeClickerEffect",
 	CurrencyUpdated = "CurrencyUpdated",
 	PlaceFeedMachine = "PlaceFeedMachine",
+	PlaceFeedMachineResult = "PlaceFeedMachineResult",
 	PromptInteract = "PromptInteract",
 }
 
@@ -21,6 +22,7 @@ local Definitions = {
 	[Remotes.Names.TreeClickerEffect] = "RemoteEvent",
 	[Remotes.Names.CurrencyUpdated] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachine] = "RemoteEvent",
+	[Remotes.Names.PlaceFeedMachineResult] = "RemoteEvent",
 	[Remotes.Names.PromptInteract] = "RemoteEvent",
 }
 

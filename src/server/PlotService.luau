@@ -8,6 +8,19 @@ local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
 
 local FLOOR_MARGIN = 8
 
+local function feedHitboxRootFromPart(plot, part)
+	local current = part
+	while current and current ~= plot do
+		if current:GetAttribute("FeedType") and current:GetAttribute("FeedIndex") then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") and current.PrimaryPart == part then return current end
+			return nil
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
 local function collectPlots()
 	local list = {}
 	local folder = Workspace:FindFirstChild("Plots")
@@ -142,6 +155,24 @@ local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
 	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
 		* CFrame.Angles(0, lry or 0, 0)
 	return floor.CFrame * localCF
+end
+
+local function feedPlacementBounds(floor, feedType, lx, lz, lry)
+	local template = FeedMachines.GetTemplate(feedType)
+	if not template then return nil, nil end
+
+	local height = templateHeight(template)
+	local placementCF = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
+	if template:IsA("BasePart") then
+		return placementCF, template.Size
+	end
+	if template:IsA("Model") then
+		local primary = template.PrimaryPart
+		if not primary then return nil, nil end
+		local primaryOffset = template:GetPivot():ToObjectSpace(primary.CFrame)
+		return placementCF * primaryOffset, primary.Size
+	end
+	return nil, nil
 end
 
 -- Inverse: given a world pivot, return its (lx, lz, lry) in the floor's
@@ -295,6 +326,25 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
 	return clone
+end
+
+function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
+	local floor = plot:FindFirstChild("Floor")
+	if not floor then return true end
+
+	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
+	if not boundsCF or not boundsSize then return true end
+
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { plot }
+
+	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, boundsSize, params)) do
+		if feedHitboxRootFromPart(plot, part) then
+			return true
+		end
+	end
+	return false
 end
 
 -- Exposed for callers (init.server.luau saveFeedState / savePetsFromPlot,

@@ -18,12 +18,18 @@
         "PlaceFeedMachine": {
           "$className": "RemoteEvent"
         },
+        "PlaceFeedMachineResult": {
+          "$className": "RemoteEvent"
+        },
         "PromptInteract": {
           "$className": "RemoteEvent"
         }
       },
       "Shared": {
         "$path": "src/shared"
+      },
+      "UI": {
+        "$path": "src/ui"
       },
       "Satchel": {
         "$path": "src/satchel.rbxm"
