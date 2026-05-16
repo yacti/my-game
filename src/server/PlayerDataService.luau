@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore"))
 
@@ -21,13 +22,22 @@ local DATA_TEMPLATE = {
 		PumpkinPatch = 1,
 	},
 	FoodInventory = {}, -- { [FoodId] = count }
+	MarketPurchases = {
+		cycleId = 0,
+		counts = {},
+	},
+	MarketReceipts = {},
 	Currency = 0,
 	LastSeen = 0,
 }
 
-local PLAYER_STORE = ProfileStore.New(STORE_NAME, DATA_TEMPLATE)
-if USE_MOCK_STORE_IN_STUDIO and game:GetService("RunService"):IsStudio() then
-	PLAYER_STORE = PLAYER_STORE.Mock
+local IS_STUDIO = RunService:IsStudio()
+
+local BASE_PLAYER_STORE = ProfileStore.New(STORE_NAME, DATA_TEMPLATE)
+local MOCK_PLAYER_STORE = BASE_PLAYER_STORE.Mock
+local PLAYER_STORE = BASE_PLAYER_STORE
+if USE_MOCK_STORE_IN_STUDIO and IS_STUDIO then
+	PLAYER_STORE = MOCK_PLAYER_STORE
 end
 local profiles = {}
 
@@ -140,6 +150,32 @@ local function ensureValidData(profile)
 	end
 	profile.Data.FoodInventory = foodInventory
 
+	local marketPurchases = {
+		cycleId = 0,
+		counts = {},
+	}
+	if type(profile.Data.MarketPurchases) == "table" then
+		marketPurchases.cycleId = math.max(math.floor(tonumber(profile.Data.MarketPurchases.cycleId) or 0), 0)
+		if type(profile.Data.MarketPurchases.counts) == "table" then
+			for feedType, count in pairs(profile.Data.MarketPurchases.counts) do
+				if type(feedType) == "string" and type(count) == "number" and count > 0 then
+					marketPurchases.counts[feedType] = math.floor(count)
+				end
+			end
+		end
+	end
+	profile.Data.MarketPurchases = marketPurchases
+
+	local marketReceipts = {}
+	if type(profile.Data.MarketReceipts) == "table" then
+		for purchaseId, processed in pairs(profile.Data.MarketReceipts) do
+			if type(purchaseId) == "string" and processed == true then
+				marketReceipts[purchaseId] = true
+			end
+		end
+	end
+	profile.Data.MarketReceipts = marketReceipts
+
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = 0
 	end
@@ -167,6 +203,15 @@ function PlayerDataService.LoadPlayerAsync(player)
 			return player:IsDescendantOf(Players) == false
 		end,
 	})
+
+	if not profile and IS_STUDIO and PLAYER_STORE ~= MOCK_PLAYER_STORE then
+		warn("[PlayerDataService] Live profile load failed in Studio; retrying with mock store")
+		profile = MOCK_PLAYER_STORE:StartSessionAsync(tostring(player.UserId), {
+			Cancel = function()
+				return player:IsDescendantOf(Players) == false
+			end,
+		})
+	end
 
 	if not profile then
 		player:Kick("Could not load your save data. Please rejoin.")

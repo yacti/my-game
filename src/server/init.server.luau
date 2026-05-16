@@ -12,6 +12,8 @@ require(Server:WaitForChild("AssetValidator")).validate()
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
+local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
+local MarketService     = require(Server:WaitForChild("MarketService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
@@ -33,25 +35,7 @@ local placeLocks = {}
 local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
 
--- ── Tool factories ────────────────────────────────────────────────────────────
-
-local function makeFeedTool(feedType)
-	local template = FeedMachines.GetTemplate(feedType)
-	if not template then
-		warn("[FeedMachines] No feed template for tool: " .. tostring(feedType))
-		return nil
-	end
-	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
-	tool.Name = template.Name
-	tool:SetAttribute(State.Feed.Type, feedType)
-	return tool
-end
-
-local function isFeedTool(item)
-	if not (item and item:IsA("Tool")) then return false end
-	local feedType = item:GetAttribute(State.Feed.Type)
-	return type(feedType) == "string" and feedType ~= ""
-end
+MarketService.Start()
 
 local function consumeRateLimit(map, player, interval)
 	local now = os.clock()
@@ -146,7 +130,7 @@ local function saveFeedState(plot, player, profile)
 
 	local feedInventory = {}
 	local function captureTool(item)
-		if not isFeedTool(item) then return end
+		if not FeedMachineTools.IsFeedTool(item) then return end
 		local ft = item:GetAttribute(State.Feed.Type)
 		feedInventory[ft] = (feedInventory[ft] or 0) + 1
 	end
@@ -383,7 +367,7 @@ local function pickupFeed(feed, plot, player)
 	if not isPlayerNearInstance(player, feed, 14) then return end
 	if not FeedMachines.PrePickup(feed, player) then return end
 
-	local tool = makeFeedTool(feedType)
+	local tool = FeedMachineTools.MakeFeedTool(feedType)
 	if not tool then return end
 	tool.Parent = player.Backpack
 	feed:Destroy()
@@ -453,6 +437,7 @@ Players.PlayerAdded:Connect(function(player)
 	startPetMoneyLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
+	MarketService.SendState(player)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
@@ -468,7 +453,7 @@ Players.PlayerAdded:Connect(function(player)
 			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 				if type(count) == "number" then
 					for _ = 1, count do
-						local tool = makeFeedTool(feedType)
+						local tool = FeedMachineTools.MakeFeedTool(feedType)
 						if tool then tool.Parent = player.Backpack end
 					end
 				end
@@ -582,7 +567,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 			return
 		end
 		local tool = character:FindFirstChildWhichIsA("Tool")
-		if not isFeedTool(tool) then
+		if not FeedMachineTools.IsFeedTool(tool) then
 			sendPlaceResult(player, requestId, false, "no-feed-tool")
 			return
 		end
