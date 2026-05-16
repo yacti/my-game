@@ -8,6 +8,8 @@ local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
 
 local FLOOR_MARGIN = 8
+local FOOTPRINT_BOUNDS_EPSILON = 0.001
+local BOX_CORNER_SIGNS = { -1, 1 }
 
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
@@ -188,6 +190,30 @@ local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 	return nil, nil
 end
 
+local function boundsFitOnFloor(floor, boundsCF, boundsSize)
+	local halfFloorX = floor.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfFloorZ = floor.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				if math.abs(floorCorner.X) > halfFloorX or math.abs(floorCorner.Z) > halfFloorZ then
+					return false
+				end
+			end
+		end
+	end
+
+	return true
+end
+
 -- Inverse: given a world pivot, return its (lx, lz, lry) in the floor's
 -- local frame. Y is dropped — we only persist the planar offset because
 -- machines and pets always rest on the floor surface.
@@ -337,6 +363,16 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
 	return clone
+end
+
+function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
+	local floor = plot:FindFirstChild("Floor")
+	if not floor then return false end
+
+	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
+	if not boundsCF or not boundsSize then return false end
+
+	return boundsFitOnFloor(floor, boundsCF, boundsSize)
 end
 
 function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)

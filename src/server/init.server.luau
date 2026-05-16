@@ -618,6 +618,10 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 		local snappedLZ  = math.round(localCF.Z)
 		local _, lry, _  = localCF:ToEulerAnglesXYZ()
 		local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
+		if not PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
+			sendPlaceResult(player, requestId, false, "out-of-bounds")
+			return
+		end
 		if PlotService.FeedPlacementOverlaps(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
 			sendPlaceResult(player, requestId, false, "overlap")
 			return

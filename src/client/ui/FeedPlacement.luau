@@ -22,6 +22,8 @@ local PREVIEW_SELECT_BOUNCE_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Bounce,
 local PREVIEW_BOUNCE_HEIGHT = 0.45
 local PREVIEW_BOUNCE_UP_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PREVIEW_BOUNCE_DOWN_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out)
+local FOOTPRINT_BOUNDS_EPSILON = 0.001
+local BOX_CORNER_SIGNS = { -1, 1 }
 
 local function isHiddenPreviewPart(part)
 	return part.Name:match("^BaseFood") ~= nil
@@ -85,6 +87,30 @@ local function forEachPreviewPart(preview, callback)
 			if d:IsA("BasePart") and not isHiddenPreviewPart(d) then callback(d) end
 		end
 	end
+end
+
+local function boundsFitOnFloor(floor, boundsCF, boundsSize)
+	local halfFloorX = floor.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfFloorZ = floor.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				if math.abs(floorCorner.X) > halfFloorX or math.abs(floorCorner.Z) > halfFloorZ then
+					return false
+				end
+			end
+		end
+	end
+
+	return true
 end
 
 local function feedHitboxRootFromPart(plot, part)
@@ -363,6 +389,14 @@ function FeedPlacement.start()
 		return nil, nil
 	end
 
+	local function previewFitsOnGrid()
+		local floor = getPlayerFloor()
+		if not floor or not floor:IsA("BasePart") then return false end
+		local boundsCF, boundsSize = getPreviewBounds()
+		if not boundsCF or not boundsSize then return false end
+		return boundsFitOnFloor(floor, boundsCF, boundsSize)
+	end
+
 	local function previewOverlapsFeed()
 		local plot = getPlayerPlot()
 		if not plot then return true end
@@ -379,6 +413,10 @@ function FeedPlacement.start()
 			end
 		end
 		return false
+	end
+
+	local function previewPlacementBlocked()
+		return not previewFitsOnGrid() or previewOverlapsFeed()
 	end
 
 	local function setPreviewBlocked(blocked)
@@ -448,7 +486,7 @@ function FeedPlacement.start()
 		selectedLZ = snappedLZ
 		applyPreviewCFrame()
 		playPreviewShowTween(preview)
-		setPreviewBlocked(previewOverlapsFeed())
+		setPreviewBlocked(previewPlacementBlocked())
 		local cf = getSelectedCFrame()
 		if cf then playPreviewSelectBounce(cf) end
 		return true
@@ -461,7 +499,7 @@ function FeedPlacement.start()
 			previewMotionToken += 1
 			applyPreviewCFrame()
 			if selectedLX ~= nil and selectedLZ ~= nil then
-				setPreviewBlocked(previewOverlapsFeed())
+				setPreviewBlocked(previewPlacementBlocked())
 			end
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
@@ -501,7 +539,7 @@ function FeedPlacement.start()
 			placing = true
 			setPlacementVisible(true)
 			if preview and selectedLX ~= nil and selectedLZ ~= nil then
-				setPreviewBlocked(previewOverlapsFeed())
+				setPreviewBlocked(previewPlacementBlocked())
 			else
 				currentPlacementBlocked = true
 				setConfirmEnabled(false)
