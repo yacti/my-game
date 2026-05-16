@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local Food = require(Shared:WaitForChild("Food"))
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
+local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -346,6 +347,15 @@ local function validatePlots(errors)
 		foundPlot = true
 		child(plot, "Floor", "BasePart", errors)
 		child(plot, "SpawnLocation", "SpawnLocation", errors)
+		child(plot, "UpgradeSize", "BasePart", errors)
+
+		local references = child(plot, "FloorReferences", "Folder", errors)
+		for size = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
+			if references then
+				child(references, PlotSizes.ReferenceName(size), "BasePart", errors)
+			end
+			child(plot, PlotSizes.AssetModelName(size), "Model", errors)
+		end
 	end
 
 	if plotsFolder then

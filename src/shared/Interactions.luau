@@ -6,6 +6,7 @@ Interactions.Actions = {
 	FeedMachine = "FeedMachine",
 	PatchHarvest = "PatchHarvest",
 	TreeGroundPickup = "TreeGroundPickup",
+	PlotSizeUpgrade = "PlotSizeUpgrade",
 }
 
 local validActions = {}

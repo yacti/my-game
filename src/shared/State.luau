@@ -12,6 +12,7 @@ State.Pet = {
 
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
+	PlotSize = "PlotSize",
 }
 
 State.Feed = {

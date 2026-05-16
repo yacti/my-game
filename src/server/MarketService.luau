@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
+local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
 local MarketOfferStore = require(Server:WaitForChild("MarketOfferStore"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
@@ -30,7 +31,6 @@ local nextPurchaseId = 0
 
 local MarketStateUpdated = Remotes.get(Remotes.Names.MarketStateUpdated)
 local MarketPurchaseResult = Remotes.get(Remotes.Names.MarketPurchaseResult)
-local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
 local MarketRestockResult = Remotes.get(Remotes.Names.MarketRestockResult)
 
 local function consumeRateLimit(map, player, interval)
@@ -243,24 +243,24 @@ local function purchase(player, requestId, feedType)
 			return
 		end
 
-		if (profile.Data.Currency or 0) < item.price then
-			sendPurchaseResult(player, requestId, false, "insufficient-currency", feedType, {
+		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, item.price)
+		if not spent then
+			sendPurchaseResult(player, requestId, false, spendCode or "insufficient-currency", feedType, {
 				remaining = remaining,
-				currency = profile.Data.Currency or 0,
+				currency = currency,
 			})
 			return
 		end
 
 		if not grantFeedMachine(player, feedType, profile) then
+			CurrencyService.Add(player, profile, item.price)
 			sendPurchaseResult(player, requestId, false, "grant-failed", feedType)
 			return
 		end
 
 		addConsumedCount(player, profile, offer, offerScope, feedType, 1)
-		profile.Data.Currency -= item.price
 
 		local newRemaining = remaining - 1
-		CurrencyUpdated:FireClient(player, profile.Data.Currency)
 		sendPurchaseResult(player, requestId, true, "ok", feedType, {
 			purchaseId = purchaseId,
 			remaining = newRemaining,

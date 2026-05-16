@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore"))
+local PlotSizes = require(ReplicatedStorage.Shared:WaitForChild("PlotSizes"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
@@ -28,6 +29,7 @@ local DATA_TEMPLATE = {
 	},
 	MarketReceipts = {},
 	Currency = 0,
+	PlotSize = PlotSizes.MIN_SIZE,
 	LastSeen = 0,
 }
 
@@ -179,6 +181,7 @@ local function ensureValidData(profile)
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = 0
 	end
+	profile.Data.PlotSize = PlotSizes.Clamp(profile.Data.PlotSize)
 
 	if type(profile.Data.LastSeen) ~= "number" then
 		profile.Data.LastSeen = 0

@@ -12,6 +12,7 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
 
@@ -99,6 +100,23 @@ local function petCanGainXP(pet)
 	return level < Balance.MAX_PET_LEVEL
 end
 
+local function plotSize()
+	return PlotSizes.Clamp(player:GetAttribute(State.Player.PlotSize))
+end
+
+local function plotUpgradeText()
+	local nextSize = PlotSizes.NextSize(plotSize())
+	if not nextSize then
+		return false, "Max Size"
+	end
+
+	local price = PlotSizes.UpgradePrice(nextSize)
+	if type(price) ~= "number" then
+		return false, "Upgrade"
+	end
+	return true, "Upgrade: $" .. tostring(price)
+end
+
 local function processorContext(machine)
 	if isEditMode() then return false, "Take Food" end
 	local accepted = acceptedFoodType(machine)
@@ -177,6 +195,10 @@ local function tryBind(instance)
 		and instance.Parent.Name == State.TreeClicker.GroundFolder then
 		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup, promptParentFor(instance))
 	end
+
+	if instance:IsA("BasePart") and instance.Name == "UpgradeSize" then
+		addPrompt(instance, "PlotSizeUpgrade", Interactions.Actions.PlotSizeUpgrade, instance)
+	end
 end
 
 local function scanPlot()
@@ -218,6 +240,11 @@ local function refreshPrompt(target, kind, prompt)
 	elseif kind == "TreeGroundPickup" then
 		prompt.ActionText = "Pick Up"
 		prompt.Enabled = not isEditMode()
+	elseif kind == "PlotSizeUpgrade" then
+		local canUpgrade, actionText = plotUpgradeText()
+		prompt.ObjectText = "Plot Size"
+		prompt.ActionText = actionText
+		prompt.Enabled = not isEditMode() and canUpgrade
 	end
 end
 
@@ -236,6 +263,7 @@ function LocalPrompts.start()
 	end)
 
 	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function() refreshAll(true) end)
+	player:GetAttributeChangedSignal(State.Player.PlotSize):Connect(function() refreshAll(false) end)
 	player:GetPropertyChangedSignal("RespawnLocation"):Connect(function() refreshAll(true) end)
 	player:GetAttributeChangedSignal("EditMode"):Connect(function() refreshAll(false) end)
 	local function watchCharacter(character)
