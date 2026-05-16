@@ -48,16 +48,17 @@ local function attach(pet)
 	local function render()
 		local xp    = pet:GetAttribute(State.Pet.XP)    or 0
 		local money = pet:GetAttribute(State.Pet.Money) or 0
-		local level = Balance.PetLevelFromType(pet:GetAttribute(State.Pet.Type))
+		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
 		if moneyLbl then moneyLbl.Text = formatMoney(money) end
-		if fill then fill.Size = UDim2.new(Balance.XPProgress(xp, level), 0, 1, 0) end
-		xpBB.Enabled = level < Balance.MAX_PET_LEVEL
+		if fill then fill.Size = UDim2.new(Balance.XPProgress(xp, maxXP), 0, 1, 0) end
+		xpBB.Enabled = type(maxXP) == "number" and maxXP > 0
 	end
 
 	render()
 	pet:GetAttributeChangedSignal(State.Pet.XP):Connect(render)
+	pet:GetAttributeChangedSignal(State.Pet.MaxXP):Connect(render)
 	pet:GetAttributeChangedSignal(State.Pet.Money):Connect(render)
-	pet:GetAttributeChangedSignal(State.Pet.Type):Connect(render)
+	pet:GetAttributeChangedSignal(State.Pet.Id):Connect(render)
 
 	pet.Destroying:Connect(function()
 		attached[pet] = nil

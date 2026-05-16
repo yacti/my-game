@@ -11,8 +11,8 @@ local USE_MOCK_STORE_IN_STUDIO = true
 -- Fresh ProfileStore-backed schema for the active PlayerData store.
 local DATA_TEMPLATE = {
 	Pets = {
-		{ type = "Pet1", xp = 0, money = 0 },
-		{ type = "Pet1", xp = 0, money = 0 },
+		{ petId = "Pet1", xp = 0, money = 0 },
+		{ petId = "Pet1", xp = 0, money = 0 },
 	},
 	FeedPlacements = {},
 	FeedInventory = {
@@ -63,7 +63,9 @@ local function ensureValidData(profile)
 		for i, pet in ipairs(profile.Data.Pets) do
 			if type(pet) == "table" then
 				pets[i] = {
-					type = type(pet.type) == "string" and pet.type or "Pet1",
+					petId = type(pet.petId) == "string" and pet.petId
+						or type(pet.type) == "string" and pet.type
+						or "Pet1",
 					xp = math.max(tonumber(pet.xp) or 0, 0),
 					money = math.max(tonumber(pet.money) or 0, 0),
 					lx = tonumber(pet.lx),
@@ -75,8 +77,8 @@ local function ensureValidData(profile)
 	end
 	if #pets == 0 then
 		pets = {
-			{ type = "Pet1", xp = 0, money = 0 },
-			{ type = "Pet1", xp = 0, money = 0 },
+			{ petId = "Pet1", xp = 0, money = 0 },
+			{ petId = "Pet1", xp = 0, money = 0 },
 		}
 	end
 	profile.Data.Pets = pets

@@ -4,10 +4,25 @@ local State = {}
 
 State.Pet = {
 	Index     = "PetIndex",
-	Type      = "PetType",
+	Id        = "PetID",
 	XP        = "XP",
+	MaxXP     = "MaxXP",
+	Order     = "Order",
 	Money     = "Money",
 	MoneyRate = "MoneyRate",
+	WalkSpeed = "PetWalkSpeed",
+	MotionState = "PetMotionState",
+	MotionSeq = "PetMotionSeq",
+	SegmentWalkSpeed = "PetSegmentWalkSpeed",
+	SegmentStartTime = "PetSegmentStartTime",
+	SegmentDuration = "PetSegmentDuration",
+	SegmentStartLX = "PetSegmentStartLX",
+	SegmentStartLZ = "PetSegmentStartLZ",
+	SegmentStartLRY = "PetSegmentStartLRY",
+	SegmentTargetLX = "PetSegmentTargetLX",
+	SegmentTargetLZ = "PetSegmentTargetLZ",
+	SegmentTargetLRY = "PetSegmentTargetLRY",
+	VisualBaseScale = "PetVisualBaseScale",
 }
 
 State.Player = {

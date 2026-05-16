@@ -9,7 +9,6 @@ local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
-local Balance = require(Shared:WaitForChild("Balance"))
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
@@ -95,9 +94,8 @@ local function hasFeedablePetFood()
 end
 
 local function petCanGainXP(pet)
-	local petType = pet:GetAttribute(State.Pet.Type)
-	local level = Balance.PetLevelFromType(petType)
-	return level < Balance.MAX_PET_LEVEL
+	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+	return type(maxXP) == "number" and maxXP > 0
 end
 
 local function plotSize()
