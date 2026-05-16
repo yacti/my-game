@@ -56,11 +56,16 @@ local BALANCES = {
 local state = {}
 
 local function feedTypeOf(machine)
-	return machine:GetAttribute(State.Feed.Type) or machine.Name
+	local feedType = machine:GetAttribute(State.Feed.Type)
+	if type(feedType) == "string" and feedType ~= "" then
+		return feedType
+	end
+	return nil
 end
 
 local function balanceFor(machine)
-	return BALANCES[feedTypeOf(machine)] or PumpkinPatchBalance
+	local feedType = feedTypeOf(machine)
+	return feedType and BALANCES[feedType] or nil
 end
 
 local function maxXPFor(balance, stageIndex)
@@ -238,12 +243,17 @@ local function makeSlotAnchor(machine, baseFoodPart)
 end
 
 function Patches.Setup(machine, plot, owner)
+	local balance = balanceFor(machine)
+	if not balance then
+		warn(string.format("[Patches] unknown %s %q", State.Feed.Type, tostring(feedTypeOf(machine))))
+		return
+	end
 	if not machine:IsA("Model") then
-		warn(string.format("[%s] expected Model, got %s", balanceFor(machine).WarnPrefix, machine.ClassName))
+		warn(string.format("[%s] expected Model, got %s", balance.WarnPrefix, machine.ClassName))
 		return
 	end
 
-	local s = { owner = owner, plot = plot, balance = balanceFor(machine), slots = {}, lastTick = os.time(), conns = {} }
+	local s = { owner = owner, plot = plot, balance = balance, slots = {}, lastTick = os.time(), conns = {} }
 	state[machine] = s
 
 	for _, child in ipairs(machine:GetChildren()) do

@@ -62,14 +62,15 @@ local function promptParentFor(instance)
 end
 
 local function isFeedMachine(instance)
+	local feedType = instance:GetAttribute(State.Feed.Type)
 	return (instance:IsA("BasePart") or instance:IsA("Model"))
-		and instance:GetAttribute(State.Feed.Type) ~= nil
+		and type(feedType) == "string"
+		and feedType ~= ""
 		and instance:GetAttribute(State.Feed.Index) ~= nil
 end
 
 local function isProcessor(machine)
 	return machine:GetAttribute(State.Feed.Class) == "Processor"
-		or machine:GetAttribute(State.Feed.Type) == "Processor1"
 end
 
 local function acceptedFoodType(machine)

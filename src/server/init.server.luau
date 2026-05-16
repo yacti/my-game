@@ -36,15 +36,21 @@ local PLACE_RATE_SECONDS = 0.25
 -- ── Tool factories ────────────────────────────────────────────────────────────
 
 local function makeFeedTool(feedType)
-	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
 	local template = FeedMachines.GetTemplate(feedType)
-	tool.Name = template and template.Name or feedType
+	if not template then
+		warn("[FeedMachines] No feed template for tool: " .. tostring(feedType))
+		return nil
+	end
+	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
+	tool.Name = template.Name
 	tool:SetAttribute(State.Feed.Type, feedType)
 	return tool
 end
 
 local function isFeedTool(item)
-	return item and item:IsA("Tool") and item:GetAttribute(State.Feed.Type) ~= nil
+	if not (item and item:IsA("Tool")) then return false end
+	local feedType = item:GetAttribute(State.Feed.Type)
+	return type(feedType) == "string" and feedType ~= ""
 end
 
 local function consumeRateLimit(map, player, interval)
@@ -118,8 +124,12 @@ local function saveFeedState(plot, player, profile)
 			-- pivot in the floor's local frame (lx/lz/lry) so placements
 			-- survive Floor rotations / translations.
 			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, f:GetPivot())
+			local feedType = f:GetAttribute(State.Feed.Type)
+			if type(feedType) ~= "string" or feedType == "" then
+				continue
+			end
 			local rec = {
-				type = f:GetAttribute(State.Feed.Type) or f.Name,
+				type = feedType,
 				lx   = lx,
 				lz   = lz,
 				lry  = lry,
@@ -366,13 +376,16 @@ end
 
 local function pickupFeed(feed, plot, player)
 	if not feed or not feed:IsDescendantOf(plot) then return end
-	if not ((feed:IsA("BasePart") or feed:IsA("Model")) and feed:GetAttribute(State.Feed.Type)) then return end
+	if not (feed:IsA("BasePart") or feed:IsA("Model")) then return end
+	local feedType = feed:GetAttribute(State.Feed.Type)
+	if type(feedType) ~= "string" or feedType == "" then return end
 	if player:GetAttribute("EditMode") ~= true then return end
 	if not isPlayerNearInstance(player, feed, 14) then return end
 	if not FeedMachines.PrePickup(feed, player) then return end
 
-	local feedType = feed:GetAttribute(State.Feed.Type) or feed.Name
-	makeFeedTool(feedType).Parent = player.Backpack
+	local tool = makeFeedTool(feedType)
+	if not tool then return end
+	tool.Parent = player.Backpack
 	feed:Destroy()
 end
 
@@ -455,7 +468,8 @@ Players.PlayerAdded:Connect(function(player)
 			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 				if type(count) == "number" then
 					for _ = 1, count do
-						makeFeedTool(feedType).Parent = player.Backpack
+						local tool = makeFeedTool(feedType)
+						if tool then tool.Parent = player.Backpack end
 					end
 				end
 			end
@@ -574,6 +588,10 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 		end
 
 		local feedType = tool:GetAttribute(State.Feed.Type)
+		if type(feedType) ~= "string" or feedType == "" then
+			sendPlaceResult(player, requestId, false, "no-feed-tool")
+			return
+		end
 
 		local floor = plot:FindFirstChild("Floor")
 		if not floor then

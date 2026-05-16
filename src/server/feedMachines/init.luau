@@ -1,15 +1,16 @@
 -- Registry + dispatcher for FeedMachine templates.
 --
--- Templates live at ReplicatedStorage.FeedMachines.<Class>.<TemplateName>.
+-- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>.
 -- A template can be a BasePart (e.g. Clicker1) or a Model (e.g.
 -- PumpkinPatch). The template carries:
 --   FeedClass  (string, broad behavior class, e.g. "Clicker", "Patch", or "Tree")
---   FeedType   (string, equals template name; what the rest of the codebase keys on)
+--   FeedType   (string, stable gameplay id; template/model Name is visual only)
 --   FoodType   (string, foodType produced/accepted, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --
--- Dispatch is by FeedClass. Add a small per-type override table only when a
--- feed type needs behavior that differs from its class.
+-- Dispatch starts from FeedType. The registry maps that stable id to the
+-- template's FeedClass; the containing folder is only the default when
+-- FeedClass is omitted.
 --
 -- Each module conforms to:
 --   class.Setup(machine, plot, owner)         -- wire interactions; init state
@@ -52,25 +53,39 @@ local function buildIndex()
 				local isPart  = template:IsA("BasePart")
 				local isModel = template:IsA("Model")
 				if isPart or isModel then
-					local feedType = template:GetAttribute(State.Feed.Type) or template.Name
+					local feedType = template:GetAttribute(State.Feed.Type)
+					if type(feedType) ~= "string" or feedType == "" then
+						warn(string.format(
+							"[FeedMachines] Skipping %s: missing %s attribute",
+							template:GetFullName(),
+							State.Feed.Type
+						))
+						continue
+					end
 					if result[feedType] then
 						warn(string.format(
 							"[FeedMachines] Duplicate FeedType %q (in %s)",
 							feedType, classFolder.Name
 						))
+						continue
 					end
-					-- Ensure class + type attributes reflect parent folder /
-					-- template name so cloned instances always carry them
-					-- (saveFeedState reads FeedType off the attribute).
-					if template:GetAttribute(State.Feed.Class) == nil then
-						template:SetAttribute(State.Feed.Class, classFolder.Name)
+					local feedClass = template:GetAttribute(State.Feed.Class)
+					if type(feedClass) ~= "string" or feedClass == "" then
+						feedClass = classFolder.Name
+						template:SetAttribute(State.Feed.Class, feedClass)
 					end
-					if template:GetAttribute(State.Feed.Type) == nil then
-						template:SetAttribute(State.Feed.Type, feedType)
+					if not CLASSES[feedClass] then
+						warn(string.format(
+							"[FeedMachines] Skipping %s: unknown %s %q",
+							template:GetFullName(),
+							State.Feed.Class,
+							tostring(feedClass)
+						))
+						continue
 					end
 					result[feedType] = {
 						template = template,
-						class    = template:GetAttribute(State.Feed.Class),
+						class    = feedClass,
 					}
 				end
 			end
@@ -94,6 +109,10 @@ function FeedMachines.GetClass(feedType)
 	return rec and rec.class or nil
 end
 
+function FeedMachines.IsClass(feedClass)
+	return CLASSES[feedClass] ~= nil
+end
+
 function FeedMachines.AllFeedTypes()
 	local out = {}
 	for ft in pairs(getIndex()) do out[#out+1] = ft end
@@ -104,13 +123,17 @@ end
 -- ── Dispatch ──────────────────────────────────────────────────────────────────
 
 local function feedTypeOf(machine)
-	return machine:GetAttribute(State.Feed.Type) or machine.Name
+	local feedType = machine:GetAttribute(State.Feed.Type)
+	if type(feedType) == "string" and feedType ~= "" then
+		return feedType
+	end
+	return nil
 end
 
 local function classOf(machine)
-	local cls = machine:GetAttribute(State.Feed.Class)
-	if cls then return cls end
-	return FeedMachines.GetClass(feedTypeOf(machine))
+	local feedType = feedTypeOf(machine)
+	if not feedType then return nil end
+	return FeedMachines.GetClass(feedType)
 end
 
 local function impl(machine)
@@ -124,6 +147,7 @@ function FeedMachines.Setup(machine, plot, owner)
 		warn(string.format("[FeedMachines] No implementation for %s", tostring(name)))
 		return
 	end
+	machine:SetAttribute(State.Feed.Class, name)
 	mod.Setup(machine, plot, owner)
 	-- Auto-cleanup when the part dies (player picks it up, plot resets, etc.).
 	machine.Destroying:Connect(function() FeedMachines.Teardown(machine) end)

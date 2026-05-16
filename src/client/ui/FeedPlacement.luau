@@ -27,15 +27,19 @@ local function isHiddenPreviewPart(part)
 	return part.Name:match("^BaseFood") ~= nil
 end
 
--- Templates live at ReplicatedStorage.FeedMachines.<Class>.<FeedType>. The
--- equipped FeedMachine tool carries a FeedType attribute; we search the
--- FeedMachines tree for a template (BasePart or Model) with matching name.
+-- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>. The
+-- equipped FeedMachine tool carries the stable FeedType attribute; template
+-- names are visual only.
 local function findTemplate(feedType)
 	local root = ReplicatedStorage:WaitForChild("FeedMachines")
 	for _, classFolder in ipairs(root:GetChildren()) do
 		if classFolder:IsA("Folder") then
-			local t = classFolder:FindFirstChild(feedType)
-			if t and (t:IsA("BasePart") or t:IsA("Model")) then return t end
+			for _, template in ipairs(classFolder:GetChildren()) do
+				if (template:IsA("BasePart") or template:IsA("Model"))
+					and template:GetAttribute(State.Feed.Type) == feedType then
+					return template
+				end
+			end
 		end
 	end
 	return nil
@@ -86,7 +90,8 @@ end
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
 	while current and current ~= plot do
-		if current:GetAttribute("FeedType") and current:GetAttribute("FeedIndex") then
+		local feedType = current:GetAttribute(State.Feed.Type)
+		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
 			if current:IsA("BasePart") then return current end
 			if current:IsA("Model") and current.PrimaryPart == part then return current end
 			return nil
@@ -538,9 +543,10 @@ function FeedPlacement.start()
 
 	local function bindTool(tool)
 		if not tool:IsA("Tool") then return end
-		if tool:GetAttribute(State.Feed.Type) == nil then return end
+		local toolFeedType = tool:GetAttribute(State.Feed.Type)
+		if type(toolFeedType) ~= "string" or toolFeedType == "" then return end
 		tool.Equipped:Connect(function()
-			activeFeedType  = tool:GetAttribute(State.Feed.Type)
+			activeFeedType  = toolFeedType
 			placing         = true
 			currentRotation = 0
 			selectedLX      = nil

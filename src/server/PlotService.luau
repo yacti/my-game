@@ -2,6 +2,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 
 local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
@@ -11,7 +12,8 @@ local FLOOR_MARGIN = 8
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
 	while current and current ~= plot do
-		if current:GetAttribute("FeedType") and current:GetAttribute("FeedIndex") then
+		local feedType = current:GetAttribute(State.Feed.Type)
+		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
 			if current:IsA("BasePart") then return current end
 			if current:IsA("Model") and current.PrimaryPart == part then return current end
 			return nil
@@ -97,14 +99,16 @@ end
 function PlotService.GetSortedFeeds(plot)
 	local feeds = {}
 	for _, obj in pairs(plot:GetDescendants()) do
+		local feedType = obj:GetAttribute(State.Feed.Type)
 		if (obj:IsA("BasePart") or obj:IsA("Model"))
-			and obj:GetAttribute("FeedType")
-			and obj:GetAttribute("FeedIndex") then
+			and type(feedType) == "string"
+			and feedType ~= ""
+			and obj:GetAttribute(State.Feed.Index) then
 			table.insert(feeds, obj)
 		end
 	end
 	table.sort(feeds, function(a, b)
-		return (a:GetAttribute("FeedIndex") or 0) < (b:GetAttribute("FeedIndex") or 0)
+		return (a:GetAttribute(State.Feed.Index) or 0) < (b:GetAttribute(State.Feed.Index) or 0)
 	end)
 	return feeds
 end
@@ -139,6 +143,15 @@ local function stripPromptTemplates(clone)
 		if descendant:IsA("ProximityPrompt") then
 			descendant:Destroy()
 		end
+	end
+end
+
+local function applyFeedIdentity(instance, feedType, feedIndex)
+	instance:SetAttribute(State.Feed.Type, feedType)
+	instance:SetAttribute(State.Feed.Index, feedIndex)
+	local feedClass = FeedMachines.GetClass(feedType)
+	if feedClass then
+		instance:SetAttribute(State.Feed.Class, feedClass)
 	end
 end
 
@@ -289,8 +302,7 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		end
 		local clone = template:Clone()
 		stripPromptTemplates(clone)
-		clone:SetAttribute("FeedType",  feedType)
-		clone:SetAttribute("FeedIndex", i)
+		applyFeedIdentity(clone, feedType, i)
 
 		local height = templateHeight(clone)
 		anchorAndPlace(clone, localToWorldOnFloorTop(floor, rec.lx or 0, rec.lz or 0, height / 2, rec.lry or 0))
@@ -313,14 +325,13 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 
 	local clone = template:Clone()
 	stripPromptTemplates(clone)
-	clone:SetAttribute("FeedType", feedType)
 
 	local maxIndex = 0
 	for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
-		local idx = f:GetAttribute("FeedIndex") or 0
+		local idx = f:GetAttribute(State.Feed.Index) or 0
 		if idx > maxIndex then maxIndex = idx end
 	end
-	clone:SetAttribute("FeedIndex", maxIndex + 1)
+	applyFeedIdentity(clone, feedType, maxIndex + 1)
 
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))

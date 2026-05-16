@@ -21,7 +21,7 @@ State.Feed = {
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under
-	-- ReplicatedStorage.FeedMachines.<Class>.<Name> may set any of these
+	-- ReplicatedStorage.FeedMachines.<Class>.<DisplayName> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
 	FoodType        = "FoodType",        -- class-specific: produced food id or accepted food group
 	MaxFood         = "MaxFood",         -- Clicker: cap of unpicked food on the floor

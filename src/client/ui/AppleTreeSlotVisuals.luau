@@ -35,7 +35,7 @@ local shakeIds = {}
 
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
-	local feedType = tree:GetAttribute(State.Feed.Type) or tree.Name
+	local feedType = tree:GetAttribute(State.Feed.Type)
 	return feedType == "AppleTree" or feedType == "CherryTree"
 end
 
