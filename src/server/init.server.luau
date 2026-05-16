@@ -40,6 +40,7 @@ local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
+local PET_FEED_REACTION_SECONDS = 2
 
 MarketService.Start()
 
@@ -190,7 +191,7 @@ local function tryEvolvePet(plot, pet, player, profile)
 	if petData.xp < maxXP then return end
 
 	local nextPetId = PetCatalog.NextPetId(petId)
-	if not nextPetId then return end
+	if not nextPetId then return pet end
 
 	petData.petId = nextPetId
 	petData.xp = 0
@@ -203,14 +204,16 @@ local function tryEvolvePet(plot, pet, player, profile)
 		PlotService.ApplyPetIdAttributes(pet, nextPetId)
 		PlotService.RescalePet(pet, 0, logicalPivot)
 		publishPetState(pet, petData.money, 0)
-		return
+		return pet
 	end
 
 	local newPet = PlotService.ReplacePetAt(plot, pet, nextPetId, idx, 0, PetMotionService.GetLogicalPivot(pet))
 	if newPet then
 		publishPetState(newPet, petData.money, 0)
 		onPetEvolved(plot, player, profile, newPet)
+		return newPet
 	end
+	return pet
 end
 
 local function primaryPartOf(instance)
@@ -239,6 +242,30 @@ local function isPlayerNearInstance(player, instance, maxDistance)
 		and (root.Position - position).Magnitude <= maxDistance
 end
 
+local function playerFloorLocal(plot, player)
+	local floor = PlotService.GetFloor(plot)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (floor and root and root:IsA("BasePart")) then return nil, nil end
+
+	local faceLX, faceLZ = PlotService.WorldPivotToFloorLocal(floor, root.CFrame)
+	return faceLX, faceLZ
+end
+
+local function triggerPetFeedReaction(pet, faceLX, faceLZ)
+	if type(faceLX) ~= "number" or type(faceLZ) ~= "number" then return end
+
+	local seq = (pet:GetAttribute(State.Pet.FeedReactionSeq) or 0) + 1
+	local direction = seq % 2 == 0 and 1 or -1
+
+	pet:SetAttribute(State.Pet.FeedReactionSeq, seq)
+	pet:SetAttribute(State.Pet.FeedReactionStartTime, workspace:GetServerTimeNow())
+	pet:SetAttribute(State.Pet.FeedReactionDuration, PET_FEED_REACTION_SECONDS)
+	pet:SetAttribute(State.Pet.FeedReactionDirection, direction)
+	pet:SetAttribute(State.Pet.FeedReactionFaceLX, faceLX)
+	pet:SetAttribute(State.Pet.FeedReactionFaceLZ, faceLZ)
+end
+
 local function feedPet(plot, player, profile, pet)
 	if not pet or not pet:IsA("Model") or not pet:IsDescendantOf(plot) then return end
 	local primary = pet.PrimaryPart
@@ -261,13 +288,17 @@ local function feedPet(plot, player, profile, pet)
 	food:Destroy()
 
 	petData.xp += foodXP
+	local activePet = pet
 	if petData.xp >= maxXP then
-		tryEvolvePet(plot, pet, player, profile)
+		activePet = tryEvolvePet(plot, pet, player, profile) or pet
 	else
 		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
 		PlotService.RescalePet(pet, petData.xp, logicalPivot)
 		pet:SetAttribute(State.Pet.XP, petData.xp)
 	end
+	local faceLX, faceLZ = playerFloorLocal(plot, player)
+	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ)
+	triggerPetFeedReaction(activePet, faceLX, faceLZ)
 end
 
 setupPetInteractions = function(plot, player, profile, pet)

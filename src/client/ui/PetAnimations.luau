@@ -9,15 +9,19 @@ local State = require(Shared:WaitForChild("State"))
 local FADE_SECONDS = 0.18
 local ANIMATOR_WAIT_SECONDS = 5
 local DEFAULT_WALK_SPEED = 8
+local FEED_REACTION_TILT_RADIANS = math.rad(15)
+local FEED_REACTION_TWEEN_SECONDS = 0.2
+local TURN_TWEEN_SECONDS = 0.2
 local BOX_CORNER_SIGNS = { -1, 1 }
 
 local PetAnimations = {}
 local attached = {}
 local cleanup
 
-local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry)
+local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll)
 	local localCF = CFrame.new(lx, floor.Size.Y / 2 + pivotFloorOffset, lz)
 		* CFrame.Angles(0, lry or 0, 0)
+		* CFrame.Angles(0, 0, roll or 0)
 	return floor.CFrame * localCF
 end
 
@@ -56,7 +60,107 @@ local function segmentNumber(pet, key)
 	return type(value) == "number" and value or nil
 end
 
-local function renderPet(record)
+local function readSegmentData(pet)
+	local packed = pet:GetAttribute(State.Pet.SegmentData)
+	if type(packed) ~= "string" or packed == "" then
+		return nil
+	end
+
+	local values = {}
+	for part in string.gmatch(packed, "[^,]+") do
+		values[#values + 1] = tonumber(part)
+	end
+
+	if #values ~= 9 then
+		return nil
+	end
+	for _, value in ipairs(values) do
+		if value == nil then
+			return nil
+		end
+	end
+
+	return {
+		packed = packed,
+		seq = values[1],
+		startTime = values[2],
+		duration = values[3],
+		startLX = values[4],
+		startLZ = values[5],
+		startLRY = values[6],
+		targetLX = values[7],
+		targetLZ = values[8],
+		targetLRY = values[9],
+	}
+end
+
+local function readLegacySegment(pet)
+	local seq = segmentNumber(pet, State.Pet.MotionSeq)
+	local startTime = segmentNumber(pet, State.Pet.SegmentStartTime)
+	local duration = segmentNumber(pet, State.Pet.SegmentDuration)
+	local startLX = segmentNumber(pet, State.Pet.SegmentStartLX)
+	local startLZ = segmentNumber(pet, State.Pet.SegmentStartLZ)
+	local startLRY = segmentNumber(pet, State.Pet.SegmentStartLRY)
+	local targetLX = segmentNumber(pet, State.Pet.SegmentTargetLX)
+	local targetLZ = segmentNumber(pet, State.Pet.SegmentTargetLZ)
+	local targetLRY = segmentNumber(pet, State.Pet.SegmentTargetLRY)
+	if seq == nil or startTime == nil or duration == nil
+		or startLX == nil or startLZ == nil or startLRY == nil
+		or targetLX == nil or targetLZ == nil or targetLRY == nil then
+		return nil
+	end
+
+	return {
+		packed = nil,
+		seq = seq,
+		startTime = startTime,
+		duration = duration,
+		startLX = startLX,
+		startLZ = startLZ,
+		startLRY = startLRY,
+		targetLX = targetLX,
+		targetLZ = targetLZ,
+		targetLRY = targetLRY,
+	}
+end
+
+local function shortestAngleDelta(fromAngle, toAngle)
+	return math.atan2(math.sin(toAngle - fromAngle), math.cos(toAngle - fromAngle))
+end
+
+local function normalizeAngle(angle)
+	return math.atan2(math.sin(angle), math.cos(angle))
+end
+
+local function applySegment(record, segment)
+	local currentLRY = normalizeAngle(record.visualLRY or segment.startLRY)
+	record.segment = segment
+	record.turnStartLRY = currentLRY
+	record.turnTargetLRY = normalizeAngle(segment.targetLRY)
+	record.turnStartClock = os.clock()
+end
+
+local function feedReactionTargetRoll(pet)
+	local startTime = segmentNumber(pet, State.Pet.FeedReactionStartTime)
+	local duration = segmentNumber(pet, State.Pet.FeedReactionDuration)
+	local direction = segmentNumber(pet, State.Pet.FeedReactionDirection)
+	if startTime == nil or duration == nil or duration <= 0 or direction == nil then
+		return 0
+	end
+
+	local elapsed = Workspace:GetServerTimeNow() - startTime
+	if elapsed < 0 then
+		return 0
+	end
+
+	if elapsed > duration then
+		return 0
+	end
+
+	return FEED_REACTION_TILT_RADIANS * math.clamp(direction, -1, 1)
+end
+
+local function renderPet(record, dt)
 	local pet = record.pet
 	if not pet.Parent then
 		cleanup(pet)
@@ -66,29 +170,51 @@ local function renderPet(record)
 	local floor = floorForPet(pet)
 	if not floor then return end
 
-	local startTime = segmentNumber(pet, State.Pet.SegmentStartTime)
-	local duration = segmentNumber(pet, State.Pet.SegmentDuration)
-	local startLX = segmentNumber(pet, State.Pet.SegmentStartLX)
-	local startLZ = segmentNumber(pet, State.Pet.SegmentStartLZ)
-	local startLRY = segmentNumber(pet, State.Pet.SegmentStartLRY)
-	local targetLX = segmentNumber(pet, State.Pet.SegmentTargetLX)
-	local targetLZ = segmentNumber(pet, State.Pet.SegmentTargetLZ)
-	local targetLRY = segmentNumber(pet, State.Pet.SegmentTargetLRY)
-	if startTime == nil or duration == nil
-		or startLX == nil or startLZ == nil or startLRY == nil
-		or targetLX == nil or targetLZ == nil or targetLRY == nil then
+	local packed = pet:GetAttribute(State.Pet.SegmentData)
+	if type(packed) == "string" and packed ~= "" and (not record.segment or record.segment.packed ~= packed) then
+		local segment = readSegmentData(pet)
+		if segment then
+			applySegment(record, segment)
+		end
+	elseif packed == nil then
+		local seq = segmentNumber(pet, State.Pet.MotionSeq)
+		if seq ~= nil and (not record.segment or record.segment.seq ~= seq) then
+			local segment = readLegacySegment(pet)
+			if segment then
+				applySegment(record, segment)
+			end
+		end
+	end
+
+	local segment = record.segment
+	if not segment then
 		return
 	end
 
+	local elapsed = Workspace:GetServerTimeNow() - segment.startTime
 	local alpha = 1
-	if duration > 0 then
-		alpha = math.clamp((Workspace:GetServerTimeNow() - startTime) / duration, 0, 1)
+	if segment.duration > 0 then
+		alpha = math.clamp(elapsed / segment.duration, 0, 1)
 	end
 
-	local lx = startLX + (targetLX - startLX) * alpha
-	local lz = startLZ + (targetLZ - startLZ) * alpha
-	local lry = startLRY + (targetLRY - startLRY) * alpha
-	pet:PivotTo(localToWorldOnFloorTop(floor, lx, lz, modelPivotFloorOffset(pet), lry))
+	local turnElapsed = record.turnStartClock and (os.clock() - record.turnStartClock) or TURN_TWEEN_SECONDS
+	local turnAlpha = TURN_TWEEN_SECONDS > 0 and math.clamp(turnElapsed / TURN_TWEEN_SECONDS, 0, 1) or 1
+	local lx = segment.startLX + (segment.targetLX - segment.startLX) * alpha
+	local lz = segment.startLZ + (segment.targetLZ - segment.startLZ) * alpha
+	local turnStartLRY = record.turnStartLRY or segment.startLRY
+	local turnTargetLRY = record.turnTargetLRY or segment.targetLRY
+	local lry = normalizeAngle(turnStartLRY + shortestAngleDelta(turnStartLRY, turnTargetLRY) * turnAlpha)
+	record.visualLRY = lry
+	local targetRoll = feedReactionTargetRoll(pet)
+	local rollAlpha = FEED_REACTION_TWEEN_SECONDS > 0
+		and (1 - math.exp(-(dt or 0) / FEED_REACTION_TWEEN_SECONDS))
+		or 1
+	record.roll += (targetRoll - record.roll) * math.clamp(rollAlpha, 0, 1)
+	if math.abs(record.roll - targetRoll) < 0.001 then
+		record.roll = targetRoll
+	end
+
+	pet:PivotTo(localToWorldOnFloorTop(floor, lx, lz, modelPivotFloorOffset(pet), lry, record.roll))
 end
 
 local function isPet(instance)
@@ -190,6 +316,12 @@ local function bindPet(pet)
 		tracks = {},
 		animations = {},
 		current = nil,
+		roll = 0,
+		segment = nil,
+		visualLRY = nil,
+		turnStartLRY = nil,
+		turnTargetLRY = nil,
+		turnStartClock = nil,
 	}
 	attached[pet] = record
 
@@ -273,9 +405,9 @@ end
 
 function PetAnimations.start()
 	watchWorkspace()
-	RunService.RenderStepped:Connect(function()
+	RunService.RenderStepped:Connect(function(dt)
 		for _, record in pairs(attached) do
-			renderPet(record)
+			renderPet(record, dt)
 		end
 	end)
 end

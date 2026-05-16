@@ -13,6 +13,7 @@ State.Pet = {
 	WalkSpeed = "PetWalkSpeed",
 	MotionState = "PetMotionState",
 	MotionSeq = "PetMotionSeq",
+	SegmentData = "PetSegmentData",
 	SegmentWalkSpeed = "PetSegmentWalkSpeed",
 	SegmentStartTime = "PetSegmentStartTime",
 	SegmentDuration = "PetSegmentDuration",
@@ -22,6 +23,12 @@ State.Pet = {
 	SegmentTargetLX = "PetSegmentTargetLX",
 	SegmentTargetLZ = "PetSegmentTargetLZ",
 	SegmentTargetLRY = "PetSegmentTargetLRY",
+	FeedReactionSeq = "PetFeedReactionSeq",
+	FeedReactionStartTime = "PetFeedReactionStartTime",
+	FeedReactionDuration = "PetFeedReactionDuration",
+	FeedReactionDirection = "PetFeedReactionDirection",
+	FeedReactionFaceLX = "PetFeedReactionFaceLX",
+	FeedReactionFaceLZ = "PetFeedReactionFaceLZ",
 	VisualBaseScale = "PetVisualBaseScale",
 }
 

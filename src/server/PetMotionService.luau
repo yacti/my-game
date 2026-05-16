@@ -9,6 +9,8 @@ local PlotService = require(script.Parent:WaitForChild("PlotService"))
 
 local UPDATE_INTERVAL = 0.2
 local TARGET_EPSILON = 0.05
+local POST_FEED_IDLE_SECONDS = 2
+local TURN_TWEEN_SECONDS = 0.2
 
 local registry = {}
 local heartbeatConnection = nil
@@ -22,6 +24,28 @@ end
 
 local function clamp(value, minValue, maxValue)
 	return math.clamp(value, minValue, maxValue)
+end
+
+local function shortestAngleDelta(fromAngle, toAngle)
+	return math.atan2(math.sin(toAngle - fromAngle), math.cos(toAngle - fromAngle))
+end
+
+local function packNumber(value)
+	return string.format("%.17g", value)
+end
+
+local function packSegmentData(state)
+	return table.concat({
+		packNumber(state.motionSeq),
+		packNumber(state.startTime),
+		packNumber(state.duration),
+		packNumber(state.startLX),
+		packNumber(state.startLZ),
+		packNumber(state.startLRY),
+		packNumber(state.targetLX),
+		packNumber(state.targetLZ),
+		packNumber(state.targetLRY),
+	}, ",")
 end
 
 local function floorForState(state)
@@ -88,8 +112,6 @@ local function publishSegment(state, motionState, startLX, startLZ, startLRY, ta
 	state.motionSeq += 1
 
 	local pet = state.pet
-	pet:SetAttribute(State.Pet.MotionState, motionState)
-	pet:SetAttribute(State.Pet.MotionSeq, state.motionSeq)
 	pet:SetAttribute(State.Pet.SegmentWalkSpeed, state.walkSpeed)
 	pet:SetAttribute(State.Pet.SegmentStartTime, state.startTime)
 	pet:SetAttribute(State.Pet.SegmentDuration, duration)
@@ -99,6 +121,9 @@ local function publishSegment(state, motionState, startLX, startLZ, startLRY, ta
 	pet:SetAttribute(State.Pet.SegmentTargetLX, targetLX)
 	pet:SetAttribute(State.Pet.SegmentTargetLZ, targetLZ)
 	pet:SetAttribute(State.Pet.SegmentTargetLRY, targetLRY)
+	pet:SetAttribute(State.Pet.MotionState, motionState)
+	pet:SetAttribute(State.Pet.MotionSeq, state.motionSeq)
+	pet:SetAttribute(State.Pet.SegmentData, packSegmentData(state))
 end
 
 local function beginIdle(state)
@@ -127,12 +152,12 @@ local function beginWalk(state)
 		return
 	end
 
-	local startLX, startLZ = currentFloorLocal(state, floor)
+	local startLX, startLZ, startLRY = currentFloorLocal(state, floor)
 	local targetLX, targetLZ, duration, walkSpeed = chooseTargetInsideFloor(state, floor)
 	local dx = targetLX - startLX
 	local dz = targetLZ - startLZ
-	local lry = math.atan2(-dx, -dz)
-	publishSegment(state, PetCatalog.MotionStates.Walk, startLX, startLZ, lry, targetLX, targetLZ, lry, duration, walkSpeed)
+	local targetLRY = math.atan2(-dx, -dz)
+	publishSegment(state, PetCatalog.MotionStates.Walk, startLX, startLZ, startLRY, targetLX, targetLZ, targetLRY, duration, walkSpeed)
 end
 
 local function unregister(pet)
@@ -161,12 +186,24 @@ local function tickPet(state, dt)
 	local floor = floorForState(state)
 	if not floor then return end
 
+	local now = workspace:GetServerTimeNow()
+	if state.feedIdleUntil and now >= state.feedIdleUntil then
+		state.feedIdleUntil = nil
+	end
+
 	if state.startTime == nil then
+		if state.feedIdleUntil then
+			return
+		end
 		beginWalk(state)
 		return
 	end
 
-	local elapsed = workspace:GetServerTimeNow() - state.startTime
+	if state.feedIdleUntil then
+		return
+	end
+
+	local elapsed = now - state.startTime
 	if elapsed < (state.duration or 0) then
 		return
 	end
@@ -228,6 +265,7 @@ function PetMotionService.Register(plot, pet)
 		targetLX = nil,
 		targetLZ = nil,
 		targetLRY = nil,
+		feedIdleUntil = nil,
 		destroyingConnection = nil,
 	}
 
@@ -250,6 +288,41 @@ function PetMotionService.RefreshPet(pet)
 	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
 	state.startTime = nil
 	beginWalk(state)
+end
+
+function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ)
+	local state = registry[pet]
+	if not state then return end
+
+	local floor = floorForState(state)
+	if not floor then return end
+
+	local now = workspace:GetServerTimeNow()
+	state.feedIdleUntil = now + POST_FEED_IDLE_SECONDS
+
+	local lx, lz, lry = currentFloorLocal(state, floor)
+	local targetLRY = lry
+	if type(faceLX) == "number" and type(faceLZ) == "number" then
+		local dx = faceLX - lx
+		local dz = faceLZ - lz
+		if math.abs(dx) + math.abs(dz) >= 0.001 then
+			targetLRY = math.atan2(-dx, -dz)
+		end
+	end
+
+	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
+	publishSegment(
+		state,
+		PetCatalog.MotionStates.Idle,
+		lx,
+		lz,
+		lry,
+		lx,
+		lz,
+		targetLRY,
+		TURN_TWEEN_SECONDS,
+		0
+	)
 end
 
 function PetMotionService.GetLogicalPivot(pet)
@@ -282,7 +355,11 @@ function PetMotionService.GetLogicalPivot(pet)
 
 	local lx = startLX + (targetLX - startLX) * alpha
 	local lz = startLZ + (targetLZ - startLZ) * alpha
-	local lry = startLRY + (targetLRY - startLRY) * alpha
+	local turnAlpha = 1
+	if state.startTime then
+		turnAlpha = math.clamp((workspace:GetServerTimeNow() - state.startTime) / TURN_TWEEN_SECONDS, 0, 1)
+	end
+	local lry = startLRY + shortestAngleDelta(startLRY, targetLRY) * turnAlpha
 	return PlotService.LocalToWorldOnFloorTop(floor, lx, lz, PlotService.PetPivotFloorOffset(pet), lry)
 end
 
