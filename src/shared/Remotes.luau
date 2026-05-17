@@ -16,6 +16,12 @@ Remotes.Names = {
 	PlaceFeedMachine = "PlaceFeedMachine",
 	PlaceFeedMachineResult = "PlaceFeedMachineResult",
 	PromptInteract = "PromptInteract",
+	MarketStateRequest = "MarketStateRequest",
+	MarketStateUpdated = "MarketStateUpdated",
+	MarketPurchaseRequest = "MarketPurchaseRequest",
+	MarketPurchaseResult = "MarketPurchaseResult",
+	MarketRestockRequest = "MarketRestockRequest",
+	MarketRestockResult = "MarketRestockResult",
 }
 
 local Definitions = {
@@ -26,6 +32,12 @@ local Definitions = {
 	[Remotes.Names.PlaceFeedMachine] = "RemoteEvent",
 	[Remotes.Names.PlaceFeedMachineResult] = "RemoteEvent",
 	[Remotes.Names.PromptInteract] = "RemoteEvent",
+	[Remotes.Names.MarketStateRequest] = "RemoteEvent",
+	[Remotes.Names.MarketStateUpdated] = "RemoteEvent",
+	[Remotes.Names.MarketPurchaseRequest] = "RemoteEvent",
+	[Remotes.Names.MarketPurchaseResult] = "RemoteEvent",
+	[Remotes.Names.MarketRestockRequest] = "RemoteEvent",
+	[Remotes.Names.MarketRestockResult] = "RemoteEvent",
 }
 
 local function getFolder()

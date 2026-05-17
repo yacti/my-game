@@ -2,12 +2,16 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local PlotSizes    = require(ReplicatedStorage.Shared:WaitForChild("PlotSizes"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local CurrencyService = require(script.Parent:WaitForChild("CurrencyService"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 
 local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
 
 local FLOOR_MARGIN = 8
+local FOOTPRINT_BOUNDS_EPSILON = 0.001
+local BOX_CORNER_SIGNS = { -1, 1 }
 
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
@@ -48,8 +52,113 @@ end
 local plots       = collectPlots()
 local plotOwners  = {}
 local playerPlots = {}
+local partStates  = setmetatable({}, { __mode = "k" })
+local visualStates = setmetatable({}, { __mode = "k" })
 
 local PlotService = {}
+
+local function rememberPartState(part)
+	local state = partStates[part]
+	if state then return state end
+
+	state = {
+		Transparency = part.Transparency,
+		CanCollide = part.CanCollide,
+		CanTouch = part.CanTouch,
+		CanQuery = part.CanQuery,
+	}
+	partStates[part] = state
+	return state
+end
+
+local function rememberVisualState(instance)
+	local state = visualStates[instance]
+	if state then return state end
+
+	state = {
+		Transparency = instance.Transparency,
+	}
+	visualStates[instance] = state
+	return state
+end
+
+local function setBasePartActive(part, active)
+	local state = rememberPartState(part)
+	if active then
+		part.Transparency = state.Transparency
+		part.CanCollide = state.CanCollide
+		part.CanTouch = state.CanTouch
+		part.CanQuery = state.CanQuery
+	else
+		part.Transparency = 1
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+	end
+end
+
+local function setVisualActive(instance, active)
+	local state = rememberVisualState(instance)
+	instance.Transparency = active and state.Transparency or 1
+end
+
+local function setInstanceTreeActive(instance, active)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			setBasePartActive(descendant, active)
+		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+			setVisualActive(descendant, active)
+		end
+	end
+end
+
+local function assetModelName(size)
+	return PlotSizes.AssetModelName(size)
+end
+
+local function getAssetModel(plot, size)
+	local model = plot:FindFirstChild(assetModelName(size))
+	return model and model:IsA("Model") and model or nil
+end
+
+local function capturePlacedPivots(plot)
+	local pivots = {}
+	for _, instance in ipairs(PlotService.GetSortedPets(plot)) do
+		pivots[#pivots + 1] = {
+			instance = instance,
+			pivot = instance:GetPivot(),
+		}
+	end
+	for _, instance in ipairs(PlotService.GetSortedFeeds(plot)) do
+		pivots[#pivots + 1] = {
+			instance = instance,
+			pivot = instance:GetPivot(),
+		}
+	end
+	return pivots
+end
+
+local function restorePlacedPivots(pivots)
+	for _, record in ipairs(pivots) do
+		local instance = record.instance
+		if instance and instance.Parent then
+			instance:PivotTo(record.pivot)
+		end
+	end
+end
+
+local function disableFloorReferences(plot)
+	local references = plot:FindFirstChild("FloorReferences")
+	if not references then return end
+
+	for _, descendant in ipairs(references:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			setBasePartActive(descendant, false)
+		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+			setVisualActive(descendant, false)
+		end
+	end
+end
 
 function PlotService.GetPlots()
 	return plots
@@ -69,6 +178,82 @@ end
 function PlotService.GetPlayerPlot(player)
 	local i = playerPlots[player]
 	return i and plots[i] or nil
+end
+
+function PlotService.GetFloor(plot)
+	local floor = plot and plot:FindFirstChild("Floor")
+	return floor and floor:IsA("BasePart") and floor or nil
+end
+
+function PlotService.GetFloorReference(plot, size)
+	local references = plot and plot:FindFirstChild("FloorReferences")
+	if not references then return nil end
+
+	local reference = references:FindFirstChild(PlotSizes.ReferenceName(size))
+	return reference and reference:IsA("BasePart") and reference or nil
+end
+
+function PlotService.GetPlotSize(plot)
+	return PlotSizes.Clamp(plot and plot:GetAttribute(State.Player.PlotSize) or PlotSizes.MIN_SIZE)
+end
+
+function PlotService.ApplyPlotSize(plot, size, preservePlaced)
+	if not plot then return false, "no-plot" end
+
+	size = PlotSizes.Clamp(size)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return false, "no-floor" end
+
+	local reference = PlotService.GetFloorReference(plot, size)
+	if not reference then return false, "no-reference" end
+
+	local pivots = preservePlaced == false and nil or capturePlacedPivots(plot)
+	floor.Size = reference.Size
+	floor.CFrame = reference.CFrame
+
+	disableFloorReferences(plot)
+	for tier = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
+		local assets = getAssetModel(plot, tier)
+		if assets then
+			setInstanceTreeActive(assets, tier == size)
+		end
+	end
+
+	if pivots then
+		restorePlacedPivots(pivots)
+	end
+	plot:SetAttribute(State.Player.PlotSize, size)
+	return true
+end
+
+function PlotService.TryPurchasePlotSize(player, plot, profile)
+	if not plot or not profile then return false, "no-profile" end
+
+	local currentSize = PlotService.GetPlotSize(plot)
+	local nextSize = PlotSizes.NextSize(currentSize)
+	if not nextSize then
+		return false, "max-size"
+	end
+
+	local price = PlotSizes.UpgradePrice(nextSize)
+	if type(price) ~= "number" then
+		return false, "no-price"
+	end
+
+	local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, price)
+	if not spent then
+		return false, spendCode, currency
+	end
+
+	local applied, applyCode = PlotService.ApplyPlotSize(plot, nextSize, true)
+	if not applied then
+		CurrencyService.Add(player, profile, price)
+		return false, applyCode, profile.Data.Currency or 0
+	end
+
+	profile.Data.PlotSize = nextSize
+	player:SetAttribute(State.Player.PlotSize, nextSize)
+	return true, nil, nextSize, price
 end
 
 function PlotService.FreePlot(player)
@@ -188,6 +373,30 @@ local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 	return nil, nil
 end
 
+local function boundsFitOnFloor(floor, boundsCF, boundsSize)
+	local halfFloorX = floor.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfFloorZ = floor.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				if math.abs(floorCorner.X) > halfFloorX or math.abs(floorCorner.Z) > halfFloorZ then
+					return false
+				end
+			end
+		end
+	end
+
+	return true
+end
+
 -- Inverse: given a world pivot, return its (lx, lz, lry) in the floor's
 -- local frame. Y is dropped — we only persist the planar offset because
 -- machines and pets always rest on the floor surface.
@@ -234,7 +443,7 @@ end
 -- savePetsFromPlot will persist their new lx/lz/lry on the next snapshot.
 function PlotService.SpawnPetsForPlot(plot, pets)
 	pets = pets or {}
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	if not floor then
 		warn("[PlotService] " .. plot.Name .. " has no Floor — cannot spawn pets")
 		return
@@ -262,7 +471,7 @@ end
 -- Replaces a pet Model in place with a new pet type, keeping its plot position.
 -- Returns the new Model (already parented), or nil on failure.
 function PlotService.ReplacePetAt(plot, oldPet, newType, petIndex, xp)
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
 	local lx, lz, lry = worldPivotToFloorLocal(floor, oldPet:GetPivot())
 	oldPet:Destroy()
@@ -283,7 +492,7 @@ end
 
 function PlotService.SpawnFeedsForPlot(plot, placements)
 	placements = placements or {}
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	if not floor then
 		warn("[PlotService] " .. plot.Name .. " has no Floor — cannot spawn feeds")
 		return
@@ -314,7 +523,7 @@ end
 -- new instance (BasePart or Model) with FeedType and FeedIndex set,
 -- parented to the plot.
 function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
 
 	local template = FeedMachines.GetTemplate(feedType)
@@ -339,8 +548,18 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 	return clone
 end
 
+function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return false end
+
+	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
+	if not boundsCF or not boundsSize then return false end
+
+	return boundsFitOnFloor(floor, boundsCF, boundsSize)
+end
+
 function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	if not floor then return true end
 
 	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)

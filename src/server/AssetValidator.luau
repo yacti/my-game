@@ -7,6 +7,8 @@ local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local Food = require(Shared:WaitForChild("Food"))
+local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
+local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -130,6 +132,7 @@ local function validateFeedTemplates(errors)
 	if not root then return end
 
 	validateFeedTemplateIdentity(root, errors)
+	MarketCatalog.Validate(errors)
 
 	for _, feedType in ipairs(REQUIRED_FEEDS) do
 		local template = FeedMachines.GetTemplate(feedType)
@@ -137,6 +140,56 @@ local function validateFeedTemplates(errors)
 			add(errors, "Missing feed machine template " .. feedType)
 		elseif template:IsA("Model") and not template.PrimaryPart then
 			add(errors, template:GetFullName() .. " missing PrimaryPart")
+		end
+	end
+end
+
+local function validateMarketTemplate(template, errors)
+	child(template, "ItemName", "TextLabel", errors)
+	child(template, "Stock", "TextLabel", errors)
+
+	local iconHolder = child(template, "IconHolder", "Frame", errors)
+	if iconHolder then
+		child(iconHolder, "ItemIcon", "ViewportFrame", errors)
+	end
+
+	local buyBtns = child(template, "BuyBtns", "Frame", errors)
+	if buyBtns then
+		local cashBtn = child(buyBtns, "CashBtn", "ImageButton", errors)
+		if cashBtn then
+			child(cashBtn, "PriceLabel", "TextLabel", errors)
+		end
+		local robuxBtn = child(buyBtns, "RobuxBtn", "ImageButton", errors)
+		if robuxBtn then
+			child(robuxBtn, "PriceLabel", "TextLabel", errors)
+		end
+	end
+end
+
+local function validateMarketUi(errors)
+	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
+	if not ui then return end
+
+	local marketGui = child(ui, "MarketGui", "ScreenGui", errors)
+	local market = marketGui and child(marketGui, "Market", "Frame", errors)
+	if not market then return end
+
+	child(market, "CloseButton", "ImageButton", errors)
+	local scrollHolder = child(market, "ScrollHolder", "ScrollingFrame", errors)
+	if scrollHolder then
+		local template = child(scrollHolder, "ItemTemplate", "Frame", errors)
+		if template then
+			validateMarketTemplate(template, errors)
+		end
+	end
+
+	local background = child(market, "Background", "Frame", errors)
+	local header = background and child(background, "Header", "Frame", errors)
+	if header then
+		child(header, "RestockTimer", "TextLabel", errors)
+		local restock = child(header, "Restock", "ImageButton", errors)
+		if restock then
+			child(restock, "Text", "TextLabel", errors)
 		end
 	end
 end
@@ -294,6 +347,15 @@ local function validatePlots(errors)
 		foundPlot = true
 		child(plot, "Floor", "BasePart", errors)
 		child(plot, "SpawnLocation", "SpawnLocation", errors)
+		child(plot, "UpgradeSize", "BasePart", errors)
+
+		local references = child(plot, "FloorReferences", "Folder", errors)
+		for size = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
+			if references then
+				child(references, PlotSizes.ReferenceName(size), "BasePart", errors)
+			end
+			child(plot, PlotSizes.AssetModelName(size), "Model", errors)
+		end
 	end
 
 	if plotsFolder then
@@ -313,6 +375,10 @@ local function validatePlots(errors)
 	end
 end
 
+local function validateMarketPart(errors)
+	child(Workspace, "MarketPart", "BasePart", errors)
+end
+
 function AssetValidator.validate()
 	local errors = {}
 
@@ -328,7 +394,9 @@ function AssetValidator.validate()
 	validateFeedTemplates(errors)
 	validateFoodTemplates(errors)
 	validateUi(errors)
+	validateMarketUi(errors)
 	validatePlots(errors)
+	validateMarketPart(errors)
 
 	if #errors > 0 then
 		error("[AssetValidator] Startup asset validation failed:\n- " .. table.concat(errors, "\n- "))

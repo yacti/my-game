@@ -11,11 +11,15 @@ require(Server:WaitForChild("AssetValidator")).validate()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
+local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
+local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
+local MarketService     = require(Server:WaitForChild("MarketService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 
@@ -33,25 +37,7 @@ local placeLocks = {}
 local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
 
--- ── Tool factories ────────────────────────────────────────────────────────────
-
-local function makeFeedTool(feedType)
-	local template = FeedMachines.GetTemplate(feedType)
-	if not template then
-		warn("[FeedMachines] No feed template for tool: " .. tostring(feedType))
-		return nil
-	end
-	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
-	tool.Name = template.Name
-	tool:SetAttribute(State.Feed.Type, feedType)
-	return tool
-end
-
-local function isFeedTool(item)
-	if not (item and item:IsA("Tool")) then return false end
-	local feedType = item:GetAttribute(State.Feed.Type)
-	return type(feedType) == "string" and feedType ~= ""
-end
+MarketService.Start()
 
 local function consumeRateLimit(map, player, interval)
 	local now = os.clock()
@@ -90,7 +76,7 @@ end
 -- spawned Models and their attributes). Preserves xp/money from the existing
 -- profile entry when possible; falls back to 0.
 local function savePetsFromPlot(plot, profile)
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	local saved = {}
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
@@ -116,7 +102,7 @@ end
 -- ── Feed state save ───────────────────────────────────────────────────────────
 
 local function saveFeedState(plot, player, profile)
-	local floor = plot:FindFirstChild("Floor")
+	local floor = PlotService.GetFloor(plot)
 	local placements = {}
 	if floor then
 		for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
@@ -146,7 +132,7 @@ local function saveFeedState(plot, player, profile)
 
 	local feedInventory = {}
 	local function captureTool(item)
-		if not isFeedTool(item) then return end
+		if not FeedMachineTools.IsFeedTool(item) then return end
 		local ft = item:GetAttribute(State.Feed.Type)
 		feedInventory[ft] = (feedInventory[ft] or 0) + 1
 	end
@@ -273,10 +259,9 @@ local function setupPetCollection(plot, player, profile, pet)
 		if not petData then return end
 		local money = petData.money or 0
 		if money < 1 then return end
-		profile.Data.Currency += money
+		CurrencyService.Add(player, profile, money)
 		petData.money = 0
 		pet:SetAttribute(State.Pet.Money, 0)
-		CurrencyUpdated:FireClient(player, profile.Data.Currency)
 	end)
 	table.insert(petConnections[player], conn)
 end
@@ -383,10 +368,31 @@ local function pickupFeed(feed, plot, player)
 	if not isPlayerNearInstance(player, feed, 14) then return end
 	if not FeedMachines.PrePickup(feed, player) then return end
 
-	local tool = makeFeedTool(feedType)
+	local tool = FeedMachineTools.MakeFeedTool(feedType)
 	if not tool then return end
 	tool.Parent = player.Backpack
 	feed:Destroy()
+end
+
+local function upgradePlotSize(target, plot, player, profile)
+	local upgradePart = plot:FindFirstChild("UpgradeSize")
+	if target ~= upgradePart then return end
+	if not upgradePart or not upgradePart:IsA("BasePart") then return end
+	if not isPlayerNearInstance(player, upgradePart, 14) then return end
+
+	local ok, code, nextSize = PlotService.TryPurchasePlotSize(player, plot, profile)
+	if not ok then
+		if code == "max-size" then
+			NotificationService.Info(player, "Your plot is already max size.")
+		elseif code == "insufficient-currency" then
+			NotificationService.Error(player, "Not enough currency for this plot upgrade.")
+		elseif code ~= "busy" then
+			NotificationService.Error(player, "Could not upgrade plot size.")
+		end
+		return
+	end
+
+	NotificationService.Success(player, "Plot upgraded to size " .. tostring(nextSize) .. "!")
 end
 
 -- Always-present inventory tool that players use to enter "edit mode".
@@ -418,6 +424,8 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, plot.Name)
+	PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+	player:SetAttribute(State.Player.PlotSize, PlotSizes.MIN_SIZE)
 
 	local spawnLocation = plot:FindFirstChild("SpawnLocation")
 	if spawnLocation then player.RespawnLocation = spawnLocation end
@@ -425,9 +433,20 @@ Players.PlayerAdded:Connect(function(player)
 	local profile = PlayerDataService.LoadPlayerAsync(player)
 	if not profile then
 		player:SetAttribute(State.Player.AssignedPlotName, nil)
+		player:SetAttribute(State.Player.PlotSize, nil)
+		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
 		PlotService.FreePlot(player)
 		return
 	end
+
+	profile.Data.PlotSize = PlotSizes.Clamp(profile.Data.PlotSize)
+	local applied, applyReason = PlotService.ApplyPlotSize(plot, profile.Data.PlotSize, false)
+	if not applied then
+		warn(string.format("[init] Failed to apply %s plot size %s: %s", player.Name, tostring(profile.Data.PlotSize), tostring(applyReason)))
+		profile.Data.PlotSize = PlotSizes.MIN_SIZE
+		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+	end
+	player:SetAttribute(State.Player.PlotSize, profile.Data.PlotSize)
 
 	PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
 	PlotService.SpawnFeedsForPlot(plot, profile.Data.FeedPlacements)
@@ -453,6 +472,7 @@ Players.PlayerAdded:Connect(function(player)
 	startPetMoneyLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
+	MarketService.SendState(player)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
@@ -468,7 +488,7 @@ Players.PlayerAdded:Connect(function(player)
 			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 				if type(count) == "number" then
 					for _ = 1, count do
-						local tool = makeFeedTool(feedType)
+						local tool = FeedMachineTools.MakeFeedTool(feedType)
 						if tool then tool.Parent = player.Backpack end
 					end
 				end
@@ -495,9 +515,11 @@ Players.PlayerRemoving:Connect(function(player)
 		-- FeedMachines registry relies on to tear down per-class state
 		-- (and to despawn any food the machine spawned on the floor).
 		PlotService.DestroyFeeds(plot)
+		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
 		PlotService.FreePlot(player)
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, nil)
+	player:SetAttribute(State.Player.PlotSize, nil)
 
 	PlayerDataService.UnloadPlayer(player)
 end)
@@ -544,6 +566,8 @@ PromptInteract.OnServerEvent:Connect(function(player, action, target)
 			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
 				FeedMachines.PickupTreeGround(target, player)
 			end
+		elseif action == Interactions.Actions.PlotSizeUpgrade then
+			upgradePlotSize(target, plot, player, profile)
 		end
 	end)
 	snapshotProfileState(player, plot, profile)
@@ -582,7 +606,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 			return
 		end
 		local tool = character:FindFirstChildWhichIsA("Tool")
-		if not isFeedTool(tool) then
+		if not FeedMachineTools.IsFeedTool(tool) then
 			sendPlaceResult(player, requestId, false, "no-feed-tool")
 			return
 		end
@@ -593,7 +617,7 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 			return
 		end
 
-		local floor = plot:FindFirstChild("Floor")
+		local floor = PlotService.GetFloor(plot)
 		if not floor then
 			sendPlaceResult(player, requestId, false, "no-floor")
 			return
@@ -618,6 +642,10 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
 		local snappedLZ  = math.round(localCF.Z)
 		local _, lry, _  = localCF:ToEulerAnglesXYZ()
 		local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
+		if not PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
+			sendPlaceResult(player, requestId, false, "out-of-bounds")
+			return
+		end
 		if PlotService.FeedPlacementOverlaps(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
 			sendPlaceResult(player, requestId, false, "overlap")
 			return

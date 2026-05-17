@@ -12,6 +12,7 @@ State.Pet = {
 
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
+	PlotSize = "PlotSize",
 }
 
 State.Feed = {
@@ -30,6 +31,15 @@ State.Feed = {
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
 	XPMultiplier    = "XPMultiplier",    -- Processor/AppleTree: multiplier on produced XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
+
+	-- Shop tunables. Templates with InShop=true and all three required shop
+	-- attributes are listed in the Market catalog.
+	InShop         = "InShop",
+	ShopPrice      = "ShopPrice",
+	ShopRarityRate = "ShopRarityRate", -- percent chance from 0..100
+	ShopStockRange = "ShopStockRange", -- NumberRange, per-player allowance per offer
+	ShopRobuxProductId = "ShopRobuxProductId",
+	ShopRobuxPrice     = "ShopRobuxPrice",
 
 	-- Server-published runtime state (clients can read for UI).
 	QueueCount = "QueueCount", -- Processor
