@@ -9,9 +9,9 @@ local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
-local Balance = require(Shared:WaitForChild("Balance"))
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
@@ -23,6 +23,10 @@ local LocalPrompts = {}
 local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
+
+local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
+local DEFAULT_PROMPT_DISTANCE = 10
+local PET_FEED_PROMPT_DISTANCE = 12
 
 local function findPlotByName(plotName)
 	if type(plotName) ~= "string" or plotName == "" then return nil end
@@ -56,10 +60,33 @@ local function isEditMode()
 	return (tool ~= nil and tool.Name == "EditTool") or player:GetAttribute("EditMode") == true
 end
 
-local function promptParentFor(instance)
+local function promptPartFor(instance)
 	if instance:IsA("BasePart") then return instance end
 	if instance:IsA("Model") then return instance.PrimaryPart end
 	return nil
+end
+
+local function promptParentFor(instance, kind)
+	local part = promptPartFor(instance)
+	if not part then return nil end
+
+	local attachmentName = PROMPT_ATTACHMENT_PREFIX .. kind
+	local attachment = part:FindFirstChild(attachmentName)
+	if attachment then
+		return attachment:IsA("Attachment") and attachment or part
+	end
+
+	attachment = Instance.new("Attachment")
+	attachment.Name = attachmentName
+	attachment.Parent = part
+	return attachment
+end
+
+local function isTreeGroundPickupTarget(instance)
+	return (instance:IsA("BasePart") or instance:IsA("Model"))
+		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
+		and instance.Parent ~= nil
+		and instance.Parent.Name == State.TreeClicker.GroundFolder
 end
 
 local function isFeedMachine(instance)
@@ -95,9 +122,13 @@ local function hasFeedablePetFood()
 end
 
 local function petCanGainXP(pet)
-	local petType = pet:GetAttribute(State.Pet.Type)
-	local level = Balance.PetLevelFromType(petType)
-	return level < Balance.MAX_PET_LEVEL
+	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+	if type(maxXP) ~= "number" or maxXP <= 0 then return false end
+
+	local xp = pet:GetAttribute(State.Pet.XP)
+	if type(xp) ~= "number" or xp < maxXP then return true end
+
+	return PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) ~= nil
 end
 
 local function plotSize()
@@ -132,8 +163,9 @@ end
 local function configurePrompt(prompt, kind)
 	prompt.Name = "__LocalPrompt_" .. kind
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
+	prompt.MaxActivationDistance = kind == "PetFeed" and PET_FEED_PROMPT_DISTANCE or DEFAULT_PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 	if kind == "FeedPickup" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.F
 		prompt.HoldDuration = 0.5
@@ -145,15 +177,23 @@ end
 local function removePrompt(target, kind)
 	local bucket = byTarget[target]
 	local prompt = bucket and bucket[kind]
-	if prompt then prompt:Destroy() end
+	if prompt then
+		local parent = prompt.Parent
+		prompt:Destroy()
+		if parent and parent:IsA("Attachment") and parent.Name == PROMPT_ATTACHMENT_PREFIX .. kind then
+			parent:Destroy()
+		end
+	end
 	if bucket then
 		bucket[kind] = nil
 		if next(bucket) == nil then byTarget[target] = nil end
 	end
 end
 
-local function addPrompt(target, kind, action, parent)
-	if not target or not parent then return end
+local function addPrompt(target, kind, action)
+	if not target then return end
+	local parent = promptParentFor(target, kind)
+	if not parent then return end
 	byTarget[target] = byTarget[target] or {}
 	if byTarget[target][kind] then return end
 
@@ -161,7 +201,15 @@ local function addPrompt(target, kind, action, parent)
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
 	prompt.Triggered:Connect(function()
+		if kind == "TreeGroundPickup" then
+			prompt.Enabled = false
+		end
 		PromptInteract:FireServer(action, target)
+	end)
+	target.AncestryChanged:Connect(function()
+		if not target:IsDescendantOf(Workspace) then
+			removePrompt(target, kind)
+		end
 	end)
 
 	byTarget[target][kind] = prompt
@@ -171,33 +219,29 @@ local function tryBind(instance)
 	if isInOwnPlot(instance) ~= true then return end
 
 	if instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
-		addPrompt(instance, "PetFeed", Interactions.Actions.PetFeed, promptParentFor(instance))
+		addPrompt(instance, "PetFeed", Interactions.Actions.PetFeed)
 	end
 
 	if isFeedMachine(instance) then
-		local parent = promptParentFor(instance)
-		addPrompt(instance, "FeedPickup", Interactions.Actions.FeedPickup, parent)
+		addPrompt(instance, "FeedPickup", Interactions.Actions.FeedPickup)
 		if isProcessor(instance) then
-			addPrompt(instance, "FeedMachine", Interactions.Actions.FeedMachine, parent)
+			addPrompt(instance, "FeedMachine", Interactions.Actions.FeedMachine)
 		end
 	end
 
 	if instance:IsA("BasePart") and instance.Name == "SlotAnchor" then
 		local machine = instance.Parent
 		if machine and machine:GetAttribute(State.Feed.Class) == "Patch" then
-			addPrompt(instance, "PatchHarvest", Interactions.Actions.PatchHarvest, instance)
+			addPrompt(instance, "PatchHarvest", Interactions.Actions.PatchHarvest)
 		end
 	end
 
-	if (instance:IsA("BasePart") or instance:IsA("Model"))
-		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
-		and instance.Parent ~= nil
-		and instance.Parent.Name == State.TreeClicker.GroundFolder then
-		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup, promptParentFor(instance))
+	if isTreeGroundPickupTarget(instance) then
+		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup)
 	end
 
 	if instance:IsA("BasePart") and instance.Name == "UpgradeSize" then
-		addPrompt(instance, "PlotSizeUpgrade", Interactions.Actions.PlotSizeUpgrade, instance)
+		addPrompt(instance, "PlotSizeUpgrade", Interactions.Actions.PlotSizeUpgrade)
 	end
 end
 
@@ -238,6 +282,10 @@ local function refreshPrompt(target, kind, prompt)
 		prompt.ActionText = "Harvest"
 		prompt.Enabled = not isEditMode() and hasSlotFood(target)
 	elseif kind == "TreeGroundPickup" then
+		if not isTreeGroundPickupTarget(target) then
+			removePrompt(target, kind)
+			return
+		end
 		prompt.ActionText = "Pick Up"
 		prompt.Enabled = not isEditMode()
 	elseif kind == "PlotSizeUpgrade" then

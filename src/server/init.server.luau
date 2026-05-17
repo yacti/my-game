@@ -11,6 +11,7 @@ require(Server:WaitForChild("AssetValidator")).validate()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
+local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
@@ -19,6 +20,7 @@ local NotificationService = require(Server:WaitForChild("NotificationService"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
@@ -28,7 +30,6 @@ local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
 local PromptInteract   = Remotes.get(Remotes.Names.PromptInteract)
 
-local petConnections = {}
 local promptLastFire = {}
 local promptLocks = {}
 local placeLastFire = {}
@@ -36,6 +37,9 @@ local placeLocks = {}
 
 local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
+local PET_COLLECTION_DISTANCE = 5
+local PET_COLLECTION_INTERVAL = 0.25
+local PET_FEED_REACTION_SECONDS = 2
 
 MarketService.Start()
 
@@ -83,14 +87,14 @@ local function savePetsFromPlot(plot, profile)
 		if idx then
 			local existing = profile.Data.Pets and profile.Data.Pets[idx] or nil
 			local entry = {
-				type  = pet:GetAttribute(State.Pet.Type) or (existing and existing.type) or "Pet1",
+				petId = pet:GetAttribute(State.Pet.Id) or (existing and existing.petId) or "Pet1",
 				xp    = existing and existing.xp or 0,
 				money = existing and existing.money or 0,
 			}
 			-- Position + rotation are stored in floor-local space so they
 			-- survive Floor rotations / translations between sessions.
 			if floor then
-				local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
+				local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, PetMotionService.GetLogicalPivot(pet))
 				entry.lx, entry.lz, entry.lry = lx, lz, lry
 			end
 			saved[idx] = entry
@@ -162,41 +166,52 @@ local function publishPetState(pet, money, xp)
 	pet:SetAttribute(State.Pet.XP,    xp or 0)
 end
 
--- ── Feed prompts + evolution ─────────────────────────────────────────────────
-
-local setupPetInteractions  -- forward decl
-
-local function onPetEvolved(plot, player, profile, newPet)
-	setupPetInteractions(plot, player, profile, newPet)
-end
+-- ── Pet feeding + evolution ──────────────────────────────────────────────────
 
 local function tryEvolvePet(plot, pet, player, profile)
 	local idx = pet:GetAttribute(State.Pet.Index)
-	local petType = pet:GetAttribute(State.Pet.Type)
+	local petId = pet:GetAttribute(State.Pet.Id)
 	local petData = profile.Data.Pets[idx]
 	if not petData then return end
 
-	local level = Balance.PetLevelFromType(petType)
-	if level >= Balance.MAX_PET_LEVEL then
-		petData.xp = Balance.XPToEvolve(level - 1) -- clamp
+	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+	if type(maxXP) ~= "number" or maxXP <= 0 then
+		petData.xp = 0
 		return
 	end
 
-	local threshold = Balance.XPToEvolve(level)
-	if petData.xp < threshold then return end
+	if petData.xp < maxXP then return end
 
-	local nextType = Balance.NextPetType(petType)
-	if not nextType then return end
+	local nextPetId = PetCatalog.NextPetId(petId)
+	if not nextPetId then
+		petData.xp = math.min(petData.xp, maxXP)
+		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
+		PlotService.RescalePet(pet, petData.xp, logicalPivot)
+		pet:SetAttribute(State.Pet.XP, petData.xp)
+		return pet
+	end
 
-	petData.type = nextType
+	petData.petId = nextPetId
 	petData.xp = 0
 	-- money persists on evolution
 
-	local newPet = PlotService.ReplacePetAt(plot, pet, nextType, idx, 0)
+	local currentVisual = PetCatalog.VisualForPetId(petId)
+	local nextVisual = PetCatalog.VisualForPetId(nextPetId)
+	if currentVisual and nextVisual and currentVisual.ModelName == nextVisual.ModelName then
+		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
+		PlotService.ApplyPetIdAttributes(pet, nextPetId)
+		PlotService.RescalePet(pet, 0, logicalPivot)
+		publishPetState(pet, petData.money, 0)
+		return pet
+	end
+
+	local newPet = PlotService.ReplacePetAt(plot, pet, nextPetId, idx, 0, PetMotionService.GetLogicalPivot(pet))
 	if newPet then
 		publishPetState(newPet, petData.money, 0)
-		onPetEvolved(plot, player, profile, newPet)
+		PetMotionService.Register(plot, newPet)
+		return newPet
 	end
+	return pet
 end
 
 local function primaryPartOf(instance)
@@ -206,14 +221,47 @@ local function primaryPartOf(instance)
 	return nil
 end
 
+local function positionOfInstance(instance)
+	if instance and instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
+		return PetMotionService.GetLogicalPosition(instance)
+	end
+
+	local primary = primaryPartOf(instance)
+	return primary and primary.Position or nil
+end
+
 local function isPlayerNearInstance(player, instance, maxDistance)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local primary = primaryPartOf(instance)
+	local position = positionOfInstance(instance)
 	return root ~= nil
 		and root:IsA("BasePart")
-		and primary ~= nil
-		and (root.Position - primary.Position).Magnitude <= maxDistance
+		and position ~= nil
+		and (root.Position - position).Magnitude <= maxDistance
+end
+
+local function playerFloorLocal(plot, player)
+	local floor = PlotService.GetFloor(plot)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (floor and root and root:IsA("BasePart")) then return nil, nil end
+
+	local faceLX, faceLZ = PlotService.WorldPivotToFloorLocal(floor, root.CFrame)
+	return faceLX, faceLZ
+end
+
+local function triggerPetFeedReaction(pet, faceLX, faceLZ)
+	if type(faceLX) ~= "number" or type(faceLZ) ~= "number" then return end
+
+	local seq = (pet:GetAttribute(State.Pet.FeedReactionSeq) or 0) + 1
+	local direction = seq % 2 == 0 and 1 or -1
+
+	pet:SetAttribute(State.Pet.FeedReactionSeq, seq)
+	pet:SetAttribute(State.Pet.FeedReactionStartTime, workspace:GetServerTimeNow())
+	pet:SetAttribute(State.Pet.FeedReactionDuration, PET_FEED_REACTION_SECONDS)
+	pet:SetAttribute(State.Pet.FeedReactionDirection, direction)
+	pet:SetAttribute(State.Pet.FeedReactionFaceLX, faceLX)
+	pet:SetAttribute(State.Pet.FeedReactionFaceLZ, faceLZ)
 end
 
 local function feedPet(plot, player, profile, pet)
@@ -227,8 +275,9 @@ local function feedPet(plot, player, profile, pet)
 	local petData = profile.Data.Pets[idx]
 	if not petData then return end
 
-	local level = Balance.PetLevelFromType(pet:GetAttribute(State.Pet.Type))
-	if level >= Balance.MAX_PET_LEVEL then return end
+	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+	if type(maxXP) ~= "number" or maxXP <= 0 then return end
+	if (petData.xp or 0) >= maxXP and PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) == nil then return end
 
 	local food = Food.FindFirstInBackpack(player)
 	if not food then return end
@@ -237,44 +286,18 @@ local function feedPet(plot, player, profile, pet)
 	if not foodXP then return end
 	food:Destroy()
 
-	petData.xp += foodXP
-	PlotService.RescalePet(pet, petData.xp)
-	pet:SetAttribute(State.Pet.XP, petData.xp)
-
-	if petData.xp >= Balance.XPToEvolve(level) then
-		tryEvolvePet(plot, pet, player, profile)
+	petData.xp = (petData.xp or 0) + foodXP
+	local activePet = pet
+	if petData.xp >= maxXP then
+		activePet = tryEvolvePet(plot, pet, player, profile) or pet
+	else
+		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
+		PlotService.RescalePet(pet, petData.xp, logicalPivot)
+		pet:SetAttribute(State.Pet.XP, petData.xp)
 	end
-end
-
-local function setupPetCollection(plot, player, profile, pet)
-	local primary = pet.PrimaryPart
-	if not primary then return end
-
-	petConnections[player] = petConnections[player] or {}
-	local conn = primary.Touched:Connect(function(hit)
-		local character = player.Character
-		if not character or not hit:IsDescendantOf(character) then return end
-		local idx = pet:GetAttribute(State.Pet.Index)
-		local petData = profile.Data.Pets[idx]
-		if not petData then return end
-		local money = petData.money or 0
-		if money < 1 then return end
-		CurrencyService.Add(player, profile, money)
-		petData.money = 0
-		pet:SetAttribute(State.Pet.Money, 0)
-	end)
-	table.insert(petConnections[player], conn)
-end
-
-setupPetInteractions = function(plot, player, profile, pet)
-	setupPetCollection(plot, player, profile, pet)
-end
-
-local function clearPetConnections(player)
-	if petConnections[player] then
-		for _, conn in ipairs(petConnections[player]) do conn:Disconnect() end
-		petConnections[player] = nil
-	end
+	local faceLX, faceLZ = playerFloorLocal(plot, player)
+	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ)
+	triggerPetFeedReaction(activePet, faceLX, faceLZ)
 end
 
 -- ── Currency / offline helpers ────────────────────────────────────────────────
@@ -306,6 +329,39 @@ local function startPetMoneyLoop(player, plot, profile)
 					local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
 					petData.money = (petData.money or 0) + rate
 					pet:SetAttribute(State.Pet.Money, petData.money)
+				end
+			end
+		end
+	end)
+end
+
+local function startPetCollectionLoop(player, plot, profile)
+	task.spawn(function()
+		while PlotService.GetPlayerPlot(player) == plot do
+			task.wait(PET_COLLECTION_INTERVAL)
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if not (root and root:IsA("BasePart")) then
+				continue
+			end
+
+			for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
+				local idx = pet:GetAttribute(State.Pet.Index)
+				local petData = profile.Data.Pets[idx]
+				if not petData then
+					continue
+				end
+
+				local money = petData.money or 0
+				if money < 1 then
+					continue
+				end
+
+				local petPosition = PetMotionService.GetLogicalPosition(pet)
+				if (root.Position - petPosition).Magnitude <= PET_COLLECTION_DISTANCE then
+					CurrencyService.Add(player, profile, money)
+					petData.money = 0
+					pet:SetAttribute(State.Pet.Money, 0)
 				end
 			end
 		end
@@ -466,10 +522,11 @@ Players.PlayerAdded:Connect(function(player)
 		local money = petData and petData.money or 0
 		local xp = petData and petData.xp or 0
 		publishPetState(pet, money, xp)
-		setupPetInteractions(plot, player, profile, pet)
+		PetMotionService.Register(plot, pet)
 	end
 
 	startPetMoneyLoop(player, plot, profile)
+	startPetCollectionLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
 	MarketService.SendState(player)
@@ -509,7 +566,7 @@ Players.PlayerRemoving:Connect(function(player)
 			snapshotProfileState(player, plot, profile)
 		end
 
-		clearPetConnections(player)
+		PetMotionService.UnregisterPlot(plot)
 		PlotService.DestroyPets(plot)
 		-- Destroying the feed parts fires Destroying on each, which the
 		-- FeedMachines registry relies on to tear down per-class state

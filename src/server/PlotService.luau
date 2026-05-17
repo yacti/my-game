@@ -2,12 +2,13 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
 local PlotSizes    = require(ReplicatedStorage.Shared:WaitForChild("PlotSizes"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local CurrencyService = require(script.Parent:WaitForChild("CurrencyService"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 
-local PetTemplates = ReplicatedStorage:WaitForChild("Pets")
+local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 
 local FLOOR_MARGIN = 8
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
@@ -54,6 +55,7 @@ local plotOwners  = {}
 local playerPlots = {}
 local partStates  = setmetatable({}, { __mode = "k" })
 local visualStates = setmetatable({}, { __mode = "k" })
+local localToWorldOnFloorTop
 
 local PlotService = {}
 
@@ -340,6 +342,121 @@ local function applyFeedIdentity(instance, feedType, feedIndex)
 	end
 end
 
+local function normalizePetModel(model)
+	local primary = model.PrimaryPart
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = descendant == primary
+			descendant.Massless = true
+		elseif descendant:IsA("ProximityPrompt") then
+			descendant:Destroy()
+		end
+	end
+end
+
+local function petVisualForId(petId)
+	local definition = PetCatalog.GetDefinition(petId)
+	if not definition then return nil, nil end
+
+	local visual = definition.Visual
+	local modelName = visual and visual.ModelName
+	if type(modelName) ~= "string" or modelName == "" then
+		return nil, definition
+	end
+
+	local template = PetModels:FindFirstChild(modelName)
+	if not (template and template:IsA("Model")) then
+		return nil, definition
+	end
+	return template, definition
+end
+
+local function numberAttributeOrDefault(instance, attributeName, defaultValue)
+	local value = instance:GetAttribute(attributeName)
+	return type(value) == "number" and value or defaultValue
+end
+
+local function applyPetIdAttributes(pet, definition)
+	local templatePetId = pet:GetAttribute(State.Pet.Id)
+	local useTemplateProgression = templatePetId == definition.Id
+
+	pet:SetAttribute(State.Pet.Id, definition.Id)
+	pet:SetAttribute(State.Pet.Order, useTemplateProgression
+		and numberAttributeOrDefault(pet, State.Pet.Order, definition.Order)
+		or definition.Order)
+	pet:SetAttribute(State.Pet.MaxXP, useTemplateProgression
+		and numberAttributeOrDefault(pet, State.Pet.MaxXP, definition.MaxXP)
+		or definition.MaxXP)
+	pet:SetAttribute(State.Pet.WalkSpeed, useTemplateProgression
+		and numberAttributeOrDefault(pet, State.Pet.WalkSpeed, definition.WalkSpeed)
+		or definition.WalkSpeed)
+	pet:SetAttribute(State.Pet.MoneyRate, pet:GetAttribute(State.Pet.Order))
+end
+
+local function modelPivotFloorOffset(model)
+	local pivot = model:GetPivot()
+	local boundsCF, boundsSize = model:GetBoundingBox()
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+	local lowestLocalY = math.huge
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local pivotCorner = pivot:PointToObjectSpace(worldCorner)
+				lowestLocalY = math.min(lowestLocalY, pivotCorner.Y)
+			end
+		end
+	end
+
+	if lowestLocalY == math.huge then return 0 end
+	return math.max(-lowestLocalY, 0)
+end
+
+local function seatPetOnFloor(pet, floor, lx, lz, lry)
+	pet:PivotTo(localToWorldOnFloorTop(floor, lx, lz, modelPivotFloorOffset(pet), lry))
+end
+
+local function petFootprintPadding(floor, pet)
+	local pivotLocal = floor.CFrame:PointToObjectSpace(pet:GetPivot().Position)
+	local boundsCF, boundsSize = pet:GetBoundingBox()
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+	local maxX = 0
+	local maxZ = 0
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				maxX = math.max(maxX, math.abs(floorCorner.X - pivotLocal.X))
+				maxZ = math.max(maxZ, math.abs(floorCorner.Z - pivotLocal.Z))
+			end
+		end
+	end
+
+	local rotationSafePadding = math.max(maxX, maxZ)
+	return rotationSafePadding, rotationSafePadding
+end
+
+local function petFloorLocalBounds(floor, pet)
+	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	local halfX = math.max(floor.Size.X / 2 - paddingX, 0)
+	local halfZ = math.max(floor.Size.Z / 2 - paddingZ, 0)
+	return -halfX, halfX, -halfZ, halfZ
+end
+
 -- ── Floor-local placement helpers ─────────────────────────────────────────────
 -- All persisted feed/pet positions are stored in the floor's *local* frame
 -- (lx, lz on the floor surface, lry as Y rotation in floor space) so they
@@ -349,7 +466,7 @@ end
 -- World CFrame for an object whose feet sit on the floor's top surface,
 -- offset by halfHeight along the floor's local up axis, and rotated lry
 -- around the floor's local up.
-local function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
 	local localCF = CFrame.new(lx, floor.Size.Y / 2 + halfHeight, lz)
 		* CFrame.Angles(0, lry or 0, 0)
 	return floor.CFrame * localCF
@@ -409,36 +526,34 @@ end
 -- Clones a pet Model template, applies scale, positions it on the floor at
 -- floor-local (lx, lz) with floor-local Y rotation lry. Returns the clone
 -- (not yet parented to the plot).
-function PlotService.CreatePet(petType, petIndex, xp, floor, lx, lz, lry)
-	local template = PetTemplates:FindFirstChild(petType)
+function PlotService.CreatePet(petId, petIndex, xp, floor, lx, lz, lry)
+	local template, definition = petVisualForId(petId)
 	if not template then
-		warn("[PlotService] No pet template: " .. tostring(petType))
+		warn("[PlotService] No pet visual template: " .. tostring(petId))
 		return nil
 	end
 	if not template.PrimaryPart then
-		warn("[PlotService] Pet template missing PrimaryPart: " .. petType)
+		warn("[PlotService] Pet visual template missing PrimaryPart: " .. petId)
 		return nil
 	end
 
 	local clone = template:Clone()
 	stripPromptTemplates(clone)
-	clone:SetAttribute("PetType",  petType)
-	clone:SetAttribute("PetIndex", petIndex)
-	-- MoneyRate is on the template; Clone carries it. Ensure present:
-	if clone:GetAttribute("MoneyRate") == nil then
-		clone:SetAttribute("MoneyRate", Balance.PetLevelFromType(petType))
-	end
+	normalizePetModel(clone)
+	applyPetIdAttributes(clone, definition)
+	clone:SetAttribute(State.Pet.Index, petIndex)
+	clone:SetAttribute(State.Pet.MotionState, PetCatalog.MotionStates.Idle)
 
-	local level = Balance.PetLevelFromType(petType)
-	local scale = Balance.ScaleForXP(xp or 0, level)
-	clone:ScaleTo(scale)
+	local scale = Balance.ScaleForXP(xp or 0, clone:GetAttribute(State.Pet.MaxXP))
+	local visualBaseScale = clone:GetScale()
+	clone:SetAttribute(State.Pet.VisualBaseScale, visualBaseScale)
+	clone:ScaleTo(visualBaseScale * scale)
 
-	local extents = clone:GetExtentsSize()
-	clone:PivotTo(localToWorldOnFloorTop(floor, lx, lz, extents.Y / 2, lry))
+	seatPetOnFloor(clone, floor, lx, lz, lry)
 	return clone
 end
 
--- pets: array of { type, xp, money, lx?, lz?, lry? } (1-indexed). Pets without
+-- pets: array of { petId, xp, money, lx?, lz?, lry? } (1-indexed). Pets without
 -- saved positions (legacy saves) get a random floor-local position once;
 -- savePetsFromPlot will persist their new lx/lz/lry on the next snapshot.
 function PlotService.SpawnPetsForPlot(plot, pets)
@@ -461,21 +576,22 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 			lz  = (math.random() * 2 - 1) * halfZ
 			lry = 0
 		end
-		local clone = PlotService.CreatePet(petData.type, i, petData.xp or 0, floor, lx, lz, lry)
+		local petId = petData.petId
+		local clone = PlotService.CreatePet(petId, i, petData.xp or 0, floor, lx, lz, lry)
 		if clone then
 			clone.Parent = plot
 		end
 	end
 end
 
--- Replaces a pet Model in place with a new pet type, keeping its plot position.
+-- Replaces a pet Model in place with a new pet id, keeping its plot position.
 -- Returns the new Model (already parented), or nil on failure.
-function PlotService.ReplacePetAt(plot, oldPet, newType, petIndex, xp)
+function PlotService.ReplacePetAt(plot, oldPet, newPetId, petIndex, xp, worldPivot)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
-	local lx, lz, lry = worldPivotToFloorLocal(floor, oldPet:GetPivot())
+	local lx, lz, lry = worldPivotToFloorLocal(floor, worldPivot or oldPet:GetPivot())
 	oldPet:Destroy()
-	local clone = PlotService.CreatePet(newType, petIndex, xp or 0, floor, lx, lz, lry)
+	local clone = PlotService.CreatePet(newPetId, petIndex, xp or 0, floor, lx, lz, lry)
 	if clone then
 		clone.Parent = plot
 	end
@@ -483,11 +599,26 @@ function PlotService.ReplacePetAt(plot, oldPet, newType, petIndex, xp)
 end
 
 -- Re-applies scale to a pet based on its current XP (does not move it).
-function PlotService.RescalePet(pet, xp)
-	local petType = pet:GetAttribute("PetType")
-	local level = Balance.PetLevelFromType(petType)
-	local scale = Balance.ScaleForXP(xp or 0, level)
-	pet:ScaleTo(scale)
+function PlotService.RescalePet(pet, xp, worldPivot)
+	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+	local scale = Balance.ScaleForXP(xp or 0, maxXP)
+	local visualBaseScale = pet:GetAttribute(State.Pet.VisualBaseScale) or pet:GetScale()
+	local floor = pet.Parent and PlotService.GetFloor(pet.Parent) or nil
+	local lx, lz, lry
+	if floor then
+		lx, lz, lry = worldPivotToFloorLocal(floor, worldPivot or pet:GetPivot())
+	end
+	pet:ScaleTo(visualBaseScale * scale)
+	if floor then
+		seatPetOnFloor(pet, floor, lx, lz, lry)
+	end
+end
+
+function PlotService.ApplyPetIdAttributes(pet, petId)
+	local definition = PetCatalog.GetDefinition(petId)
+	if not definition then return false end
+	applyPetIdAttributes(pet, definition)
+	return true
 end
 
 function PlotService.SpawnFeedsForPlot(plot, placements)
@@ -586,6 +717,18 @@ end
 
 function PlotService.LocalToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
 	return localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
+end
+
+function PlotService.PetPivotFloorOffset(pet)
+	return modelPivotFloorOffset(pet)
+end
+
+function PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
+	return seatPetOnFloor(pet, floor, lx, lz, lry)
+end
+
+function PlotService.PetFloorLocalBounds(floor, pet)
+	return petFloorLocalBounds(floor, pet)
 end
 
 -- Exposed so PlaceFeedMachine can compute placement Y from the template alone.

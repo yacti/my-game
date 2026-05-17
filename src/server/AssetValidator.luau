@@ -5,9 +5,9 @@ local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Balance = require(Shared:WaitForChild("Balance"))
 local Food = require(Shared:WaitForChild("Food"))
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
@@ -15,7 +15,7 @@ local State = require(Shared:WaitForChild("State"))
 local AssetValidator = {}
 
 local REQUIRED_ROOTS = {
-	"Pets",
+	"PetModels",
 	"FeedMachines",
 	"Food",
 	"UI",
@@ -67,25 +67,88 @@ local function validateTool(tool, errors)
 	child(tool, "Handle", "BasePart", errors)
 end
 
-local function validatePetTemplates(errors)
-	local pets = child(ReplicatedStorage, "Pets", "Folder", errors)
-	if not pets then return end
+local function validateAnimationId(source, key, animationId, errors)
+	if type(animationId) ~= "string" or not animationId:match("^rbxassetid://%d+$") then
+		add(errors, string.format("%s has invalid %s %q", source, key, tostring(animationId)))
+	end
+end
 
-	for level = 1, Balance.MAX_PET_LEVEL do
-		local petName = "Pet" .. level
-		local pet = child(pets, petName, "Model", errors)
-		if pet then
-			if not pet.PrimaryPart then
-				add(errors, pet:GetFullName() .. " missing PrimaryPart")
-			end
-			if pet:GetAttribute(State.Pet.MoneyRate) == nil then
-				add(errors, pet:GetFullName() .. " missing " .. State.Pet.MoneyRate .. " attribute")
-			end
-			for _, descendant in ipairs(pet:GetDescendants()) do
-				if descendant:IsA("ProximityPrompt") then
-					add(errors, pet:GetFullName() .. " contains baked ProximityPrompt " .. descendant:GetFullName())
-				end
-			end
+local function validatePetVisual(model, visual, errors)
+	if not model.PrimaryPart then
+		add(errors, model:GetFullName() .. " missing PrimaryPart")
+	end
+	if not model:FindFirstChildWhichIsA("Animator", true) then
+		add(errors, model:GetFullName() .. " missing Animator")
+	end
+
+	local hasPart = false
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			hasPart = true
+		elseif descendant:IsA("ProximityPrompt") then
+			add(errors, model:GetFullName() .. " contains baked ProximityPrompt " .. descendant:GetFullName())
+		end
+	end
+	if not hasPart then
+		add(errors, model:GetFullName() .. " has no BasePart descendants")
+	end
+
+	validateAnimationId(model:GetFullName(), "IdleAnimationId", visual.IdleAnimationId, errors)
+	validateAnimationId(model:GetFullName(), "WalkAnimationId", visual.WalkAnimationId, errors)
+end
+
+local function validatePetCatalog(errors)
+	local petModels = child(ReplicatedStorage, "PetModels", "Folder", errors)
+	if not petModels then return end
+
+	local seenPetIds = {}
+	local seenOrders = {}
+	local definitions = {}
+
+	for _, model in ipairs(petModels:GetChildren()) do
+		if not model:IsA("Model") then
+			continue
+		end
+
+		local petId = model:GetAttribute(State.Pet.Id)
+		if type(petId) ~= "string" or petId == "" then
+			add(errors, model:GetFullName() .. " missing " .. State.Pet.Id .. " attribute")
+			continue
+		end
+		if seenPetIds[petId] then
+			add(errors, string.format("Duplicate %s %q on %s and %s", State.Pet.Id, petId, seenPetIds[petId]:GetFullName(), model:GetFullName()))
+		else
+			seenPetIds[petId] = model
+		end
+
+		local definition = PetCatalog.GetDefinition(petId)
+		if not definition then
+			add(errors, "Missing pet catalog definition " .. petId)
+			continue
+		end
+		definitions[#definitions + 1] = definition
+
+		if type(definition.WalkSpeed) ~= "number" or definition.WalkSpeed <= 0 then
+			add(errors, "Pet catalog definition " .. petId .. " has invalid " .. State.Pet.WalkSpeed)
+		end
+		if type(definition.Order) ~= "number" or definition.Order < 1 or definition.Order % 1 ~= 0 then
+			add(errors, "Pet catalog definition " .. petId .. " has invalid " .. State.Pet.Order)
+		elseif seenOrders[definition.Order] then
+			add(errors, string.format("Duplicate %s %d on %s and %s", State.Pet.Order, definition.Order, seenOrders[definition.Order], petId))
+		else
+			seenOrders[definition.Order] = petId
+		end
+
+		validatePetVisual(model, definition.Visual, errors)
+	end
+
+	table.sort(definitions, function(a, b)
+		return (a.Order or math.huge) < (b.Order or math.huge)
+	end)
+	for index, definition in ipairs(definitions) do
+		local hasNext = definitions[index + 1] ~= nil
+		if hasNext and (type(definition.MaxXP) ~= "number" or definition.MaxXP <= 0) then
+			add(errors, "Pet catalog definition " .. definition.Id .. " has invalid " .. State.Pet.MaxXP)
 		end
 	end
 end
@@ -390,7 +453,7 @@ function AssetValidator.validate()
 	end
 
 	validateRemotes(errors)
-	validatePetTemplates(errors)
+	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
 	validateFoodTemplates(errors)
 	validateUi(errors)
