@@ -5,9 +5,9 @@ PlotSizes.MAX_SIZE = 4
 
 -- Server-authoritative defaults; tune these values as the economy settles.
 PlotSizes.UPGRADE_PRICES = {
-	[2] = 250,
-	[3] = 1000,
-	[4] = 3000,
+	[2] = 3,
+	[3] = 3,
+	[4] = 3,
 }
 
 local function finiteNumber(value, fallback)
