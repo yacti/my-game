@@ -2,8 +2,8 @@
 
 This project still uses Studio-authored assets for core gameplay templates.
 MCP can inspect and edit those live instances, but it is not rollback or source
-control. Before risky Studio or MCP edits, export the affected assets into this
-repo so git has a recovery point.
+control. UI is intentionally Studio/MCP-owned in `ReplicatedStorage.UI`; do not
+add game UI backups or Rojo mappings under `src/ui`.
 
 ## Current Runtime Asset Roots
 
@@ -32,7 +32,6 @@ asset-backups/
     Pets.rbxm
     FeedMachines.rbxm
     Food.rbxm
-    UI.rbxm
     FeedMachineTool.rbxm
     EditTool.rbxm
 ```
@@ -45,14 +44,13 @@ of truth.
 
 ## Gradual Source Ownership
 
-Move assets into Rojo/source ownership in small, tested commits:
+Move non-UI assets into Rojo/source ownership in small, tested commits:
 
-1. `ReplicatedStorage.UI`
-2. `ReplicatedStorage.FeedMachineTool`
-3. `ReplicatedStorage.EditTool`
-4. `ReplicatedStorage.Pets`
-5. `ReplicatedStorage.FeedMachines`
-6. `ReplicatedStorage.Food`
+1. `ReplicatedStorage.FeedMachineTool`
+2. `ReplicatedStorage.EditTool`
+3. `ReplicatedStorage.Pets`
+4. `ReplicatedStorage.FeedMachines`
+5. `ReplicatedStorage.Food`
 
 Avoid migrating everything at once. Complex models can break if pivots,
 `PrimaryPart`s, welds, attributes, or tool handles are not preserved.

@@ -12,6 +12,7 @@ require(Server:WaitForChild("AssetValidator")).validate()
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
+local NotificationService = require(Server:WaitForChild("NotificationService"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
@@ -20,6 +21,7 @@ local Food     = require(Shared:WaitForChild("Food"))
 
 local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
 local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
+local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
 local PromptInteract   = Remotes.get(Remotes.Names.PromptInteract)
 
 local petConnections = {}
@@ -34,15 +36,21 @@ local PLACE_RATE_SECONDS = 0.25
 -- ── Tool factories ────────────────────────────────────────────────────────────
 
 local function makeFeedTool(feedType)
-	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
 	local template = FeedMachines.GetTemplate(feedType)
-	tool.Name = template and template.Name or feedType
+	if not template then
+		warn("[FeedMachines] No feed template for tool: " .. tostring(feedType))
+		return nil
+	end
+	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
+	tool.Name = template.Name
 	tool:SetAttribute(State.Feed.Type, feedType)
 	return tool
 end
 
 local function isFeedTool(item)
-	return item and item:IsA("Tool") and item:GetAttribute(State.Feed.Type) ~= nil
+	if not (item and item:IsA("Tool")) then return false end
+	local feedType = item:GetAttribute(State.Feed.Type)
+	return type(feedType) == "string" and feedType ~= ""
 end
 
 local function consumeRateLimit(map, player, interval)
@@ -116,8 +124,12 @@ local function saveFeedState(plot, player, profile)
 			-- pivot in the floor's local frame (lx/lz/lry) so placements
 			-- survive Floor rotations / translations.
 			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, f:GetPivot())
+			local feedType = f:GetAttribute(State.Feed.Type)
+			if type(feedType) ~= "string" or feedType == "" then
+				continue
+			end
 			local rec = {
-				type = f:GetAttribute(State.Feed.Type) or f.Name,
+				type = feedType,
 				lx   = lx,
 				lz   = lz,
 				lry  = lry,
@@ -364,13 +376,16 @@ end
 
 local function pickupFeed(feed, plot, player)
 	if not feed or not feed:IsDescendantOf(plot) then return end
-	if not ((feed:IsA("BasePart") or feed:IsA("Model")) and feed:GetAttribute(State.Feed.Type)) then return end
+	if not (feed:IsA("BasePart") or feed:IsA("Model")) then return end
+	local feedType = feed:GetAttribute(State.Feed.Type)
+	if type(feedType) ~= "string" or feedType == "" then return end
 	if player:GetAttribute("EditMode") ~= true then return end
 	if not isPlayerNearInstance(player, feed, 14) then return end
 	if not FeedMachines.PrePickup(feed, player) then return end
 
-	local feedType = feed:GetAttribute(State.Feed.Type) or feed.Name
-	makeFeedTool(feedType).Parent = player.Backpack
+	local tool = makeFeedTool(feedType)
+	if not tool then return end
+	tool.Parent = player.Backpack
 	feed:Destroy()
 end
 
@@ -453,7 +468,8 @@ Players.PlayerAdded:Connect(function(player)
 			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 				if type(count) == "number" then
 					for _ = 1, count do
-						makeFeedTool(feedType).Parent = player.Backpack
+						local tool = makeFeedTool(feedType)
+						if tool then tool.Parent = player.Backpack end
 					end
 				end
 			end
@@ -535,25 +551,59 @@ end)
 
 -- ── Feed placement remote ─────────────────────────────────────────────────────
 
-PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
-	if not isValidCFrame(cframe) then return end
-	if not consumeRateLimit(placeLastFire, player, PLACE_RATE_SECONDS) then return end
+local function sendPlaceResult(player, requestId, success, reason)
+	if type(requestId) ~= "number" then return end
+	PlaceFeedMachineResult:FireClient(player, requestId, success, reason)
+end
+
+PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
+	if not isValidCFrame(cframe) then
+		sendPlaceResult(player, requestId, false, "invalid-cframe")
+		return
+	end
+	if not consumeRateLimit(placeLastFire, player, PLACE_RATE_SECONDS) then
+		sendPlaceResult(player, requestId, false, "rate-limited")
+		return
+	end
 	local plot = PlotService.GetPlayerPlot(player)
-	if not plot then return end
+	if not plot then
+		sendPlaceResult(player, requestId, false, "no-plot")
+		return
+	end
+	if placeLocks[player] then
+		sendPlaceResult(player, requestId, false, "busy")
+		return
+	end
 
 	withPlayerLock(placeLocks, player, function()
 		local character = player.Character
-		if not character then return end
+		if not character then
+			sendPlaceResult(player, requestId, false, "no-character")
+			return
+		end
 		local tool = character:FindFirstChildWhichIsA("Tool")
-		if not isFeedTool(tool) then return end
+		if not isFeedTool(tool) then
+			sendPlaceResult(player, requestId, false, "no-feed-tool")
+			return
+		end
 
 		local feedType = tool:GetAttribute(State.Feed.Type)
+		if type(feedType) ~= "string" or feedType == "" then
+			sendPlaceResult(player, requestId, false, "no-feed-tool")
+			return
+		end
 
 		local floor = plot:FindFirstChild("Floor")
-		if not floor then return end
+		if not floor then
+			sendPlaceResult(player, requestId, false, "no-floor")
+			return
+		end
 
 		local template = FeedMachines.GetTemplate(feedType)
-		if not template then return end
+		if not template then
+			sendPlaceResult(player, requestId, false, "no-template")
+			return
+		end
 
 		-- Bounds check + grid snap + rotation snap all in the floor's local
 		-- frame, so machines align to the (possibly rotated) plot's axes
@@ -561,20 +611,29 @@ PlaceFeedMachine.OnServerEvent:Connect(function(player, cframe)
 		local localCF = floor.CFrame:ToObjectSpace(cframe)
 		if math.abs(localCF.X) > floor.Size.X / 2 or
 		   math.abs(localCF.Z) > floor.Size.Z / 2 then
+			sendPlaceResult(player, requestId, false, "out-of-bounds")
 			return
 		end
 		local snappedLX  = math.round(localCF.X)
 		local snappedLZ  = math.round(localCF.Z)
 		local _, lry, _  = localCF:ToEulerAnglesXYZ()
 		local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
-
-		tool:Destroy()
+		if PlotService.FeedPlacementOverlaps(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
+			sendPlaceResult(player, requestId, false, "overlap")
+			return
+		end
 
 		local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
-		if not feedPart then return end
+		if not feedPart then
+			sendPlaceResult(player, requestId, false, "place-failed")
+			return
+		end
 
+		tool:Destroy()
 		FeedMachines.Setup(feedPart, plot, player)
 		local profile = PlayerDataService.GetProfile(player)
 		if profile then snapshotProfileState(player, plot, profile) end
+		sendPlaceResult(player, requestId, true)
+		NotificationService.Success(player, feedPart.Name .. " placed!")
 	end)
 end)

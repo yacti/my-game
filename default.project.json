@@ -12,10 +12,16 @@
         "TreeClickerEffect": {
           "$className": "RemoteEvent"
         },
+        "PlayerNotification": {
+          "$className": "RemoteEvent"
+        },
         "CurrencyUpdated": {
           "$className": "RemoteEvent"
         },
         "PlaceFeedMachine": {
+          "$className": "RemoteEvent"
+        },
+        "PlaceFeedMachineResult": {
           "$className": "RemoteEvent"
         },
         "PromptInteract": {

@@ -22,6 +22,8 @@ local REQUIRED_ROOTS = {
 	"Remotes",
 }
 
+-- Stable FeedType values that must exist somewhere under FeedMachines.
+-- Template/model names are visual only and are intentionally not validated here.
 local REQUIRED_FEEDS = {
 	"Clicker1",
 	"Processor1",
@@ -86,9 +88,48 @@ local function validatePetTemplates(errors)
 	end
 end
 
+local function validateFeedTemplateIdentity(root, errors)
+	local seenByFeedType = {}
+	for _, classFolder in ipairs(root:GetChildren()) do
+		if not classFolder:IsA("Folder") then
+			continue
+		end
+		for _, template in ipairs(classFolder:GetChildren()) do
+			if not (template:IsA("BasePart") or template:IsA("Model")) then
+				continue
+			end
+
+			local feedType = template:GetAttribute(State.Feed.Type)
+			if type(feedType) ~= "string" or feedType == "" then
+				add(errors, template:GetFullName() .. " missing " .. State.Feed.Type .. " attribute")
+			elseif seenByFeedType[feedType] then
+				add(errors, string.format(
+					"Duplicate %s %q on %s and %s",
+					State.Feed.Type,
+					feedType,
+					seenByFeedType[feedType]:GetFullName(),
+					template:GetFullName()
+				))
+			else
+				seenByFeedType[feedType] = template
+			end
+
+			local feedClass = template:GetAttribute(State.Feed.Class)
+			if type(feedClass) ~= "string" or feedClass == "" then
+				feedClass = classFolder.Name
+			end
+			if not FeedMachines.IsClass(feedClass) then
+				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Class, tostring(feedClass)))
+			end
+		end
+	end
+end
+
 local function validateFeedTemplates(errors)
 	local root = child(ReplicatedStorage, "FeedMachines", "Folder", errors)
 	if not root then return end
+
+	validateFeedTemplateIdentity(root, errors)
 
 	for _, feedType in ipairs(REQUIRED_FEEDS) do
 		local template = FeedMachines.GetTemplate(feedType)
@@ -126,7 +167,11 @@ local function collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, erro
 			end
 
 			if type(balance) == "table" and balance.Chain ~= nil then
-				local feedType = type(balance.FeedType) == "string" and balance.FeedType or module.Name
+				local feedType = balance.FeedType
+				if type(feedType) ~= "string" or feedType == "" then
+					add(errors, module:GetFullName() .. " missing FeedType")
+					continue
+				end
 				if type(balance.Chain) ~= "table" or #balance.Chain == 0 then
 					add(errors, string.format("%s has empty or invalid Chain", module:GetFullName()))
 					continue
@@ -222,6 +267,15 @@ local function validateUi(errors)
 	if not ui then return end
 	for _, name in ipairs(REQUIRED_UI) do
 		child(ui, name, nil, errors)
+	end
+
+	local hud = child(ui, "HUD", "ScreenGui", errors)
+	if hud then
+		local notifications = child(hud, "Notifications", "GuiObject", errors)
+		if notifications then
+			child(notifications, "NotificationTemplate", "TextLabel", errors)
+			child(notifications, "UIListLayout", "UIListLayout", errors)
+		end
 	end
 end
 

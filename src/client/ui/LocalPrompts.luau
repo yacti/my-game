@@ -61,22 +61,16 @@ local function promptParentFor(instance)
 	return nil
 end
 
-local function isTreeGroundPickupTarget(instance)
-	return (instance:IsA("BasePart") or instance:IsA("Model"))
-		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
-		and instance.Parent ~= nil
-		and instance.Parent.Name == State.TreeClicker.GroundFolder
-end
-
 local function isFeedMachine(instance)
+	local feedType = instance:GetAttribute(State.Feed.Type)
 	return (instance:IsA("BasePart") or instance:IsA("Model"))
-		and instance:GetAttribute(State.Feed.Type) ~= nil
+		and type(feedType) == "string"
+		and feedType ~= ""
 		and instance:GetAttribute(State.Feed.Index) ~= nil
 end
 
 local function isProcessor(machine)
 	return machine:GetAttribute(State.Feed.Class) == "Processor"
-		or machine:GetAttribute(State.Feed.Type) == "Processor1"
 end
 
 local function acceptedFoodType(machine)
@@ -149,15 +143,7 @@ local function addPrompt(target, kind, action, parent)
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
 	prompt.Triggered:Connect(function()
-		if kind == "TreeGroundPickup" then
-			prompt.Enabled = false
-		end
 		PromptInteract:FireServer(action, target)
-	end)
-	target.AncestryChanged:Connect(function()
-		if not target:IsDescendantOf(Workspace) then
-			removePrompt(target, kind)
-		end
 	end)
 
 	byTarget[target][kind] = prompt
@@ -185,7 +171,10 @@ local function tryBind(instance)
 		end
 	end
 
-	if isTreeGroundPickupTarget(instance) then
+	if (instance:IsA("BasePart") or instance:IsA("Model"))
+		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
+		and instance.Parent ~= nil
+		and instance.Parent.Name == State.TreeClicker.GroundFolder then
 		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup, promptParentFor(instance))
 	end
 end
@@ -227,10 +216,6 @@ local function refreshPrompt(target, kind, prompt)
 		prompt.ActionText = "Harvest"
 		prompt.Enabled = not isEditMode() and hasSlotFood(target)
 	elseif kind == "TreeGroundPickup" then
-		if not isTreeGroundPickupTarget(target) then
-			removePrompt(target, kind)
-			return
-		end
 		prompt.ActionText = "Pick Up"
 		prompt.Enabled = not isEditMode()
 	end

@@ -4,8 +4,9 @@
 -- is camera-based and would hide legitimate slots when the camera is pulled
 -- back.
 --
--- Identification: a "slot food" is any BasePart/Model with a FoodType
--- attribute that lives under a parent named "SlotAnchor" (patch growth slots).
+-- Identification: patch slot food is any BasePart/Model with a FoodType
+-- attribute that lives under a Patch machine's SlotAnchor. Tree machines also
+-- use SlotAnchor for on-branch fruit, but those visuals should not get this UI.
 -- Server keeps the XP attribute in sync, so the billboard just listens to
 -- attribute changes.
 --
@@ -30,7 +31,10 @@ local SlotXPBillboard = {}
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
 	if obj:GetAttribute(State.Food.Id) == nil and obj:GetAttribute(State.Food.Type) == nil then return false end
-	return obj.Parent ~= nil and obj.Parent.Name == "SlotAnchor"
+	local anchor = obj.Parent
+	if not anchor or anchor.Name ~= "SlotAnchor" then return false end
+	local machine = anchor.Parent
+	return machine ~= nil and machine:GetAttribute(State.Feed.Class) == "Patch"
 end
 
 local function adorneeFor(food)

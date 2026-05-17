@@ -6,9 +6,7 @@ local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
 
--- Fresh ProfileStore-backed schema. This intentionally does not migrate the
--- old PlayerData_v13 raw DataStore; existing-player reset is a product decision
--- for the current pre-publish build.
+-- Fresh ProfileStore-backed schema for the active PlayerData store.
 local DATA_TEMPLATE = {
 	Pets = {
 		{ type = "Pet1", xp = 0, money = 0 },

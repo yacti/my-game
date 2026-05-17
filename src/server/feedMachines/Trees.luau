@@ -75,11 +75,16 @@ local BALANCES = {
 local state = {}
 
 local function feedTypeOf(machine)
-	return machine:GetAttribute(State.Feed.Type) or machine.Name
+	local feedType = machine:GetAttribute(State.Feed.Type)
+	if type(feedType) == "string" and feedType ~= "" then
+		return feedType
+	end
+	return nil
 end
 
 local function balanceFor(machine)
-	return BALANCES[feedTypeOf(machine)] or AppleTreeBalance
+	local feedType = feedTypeOf(machine)
+	return feedType and BALANCES[feedType] or nil
 end
 
 local function maxXPFor(foodId)
@@ -100,13 +105,12 @@ local function xpMultiplierFor(machine)
 	return multiplier
 end
 
-local function clickIntervalFor(machine)
-	local balance = balanceFor(machine)
+local function clickIntervalFor(machine, s)
 	local maxClicksPerSecond = machine:GetAttribute(State.Feed.MaxClicksPerSecond)
 	if type(maxClicksPerSecond) ~= "number" or maxClicksPerSecond <= 0 then
-		maxClicksPerSecond = balance.DefaultMaxClicksPerSecond
+		maxClicksPerSecond = s.balance.DefaultMaxClicksPerSecond
 	else
-		maxClicksPerSecond = math.min(maxClicksPerSecond, balance.DefaultMaxClicksPerSecond)
+		maxClicksPerSecond = math.min(maxClicksPerSecond, s.balance.DefaultMaxClicksPerSecond)
 	end
 	return 1 / maxClicksPerSecond
 end
@@ -139,11 +143,20 @@ local function configureSlotPart(part)
 	part.CollisionGroup = FRUIT_GROUP
 end
 
+local function disableBakedBillboards(instance)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BillboardGui") then
+			descendant.Enabled = false
+		end
+	end
+end
+
 local function spawnSlotVisual(slot, balance)
 	local foodId = balance.Chain[1]
 	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 	local clone = template:Clone()
+	disableBakedBillboards(clone)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
 		clone.CFrame = slot.anchor.CFrame
@@ -367,7 +380,7 @@ local function onTreeClicked(machine, s, player)
 	if player ~= s.owner then return end
 	if s.owner:GetAttribute("EditMode") == true then return end
 
-	local clickInterval = clickIntervalFor(machine)
+	local clickInterval = clickIntervalFor(machine, s)
 	local now = os.clock()
 	if now - s.lastClick < clickInterval then return end
 
@@ -450,6 +463,10 @@ end
 
 function TreeClicker.Setup(machine, plot, owner)
 	local balance = balanceFor(machine)
+	if not balance then
+		warn(string.format("[TreeClicker] unknown %s %q", State.Feed.Type, tostring(feedTypeOf(machine))))
+		return
+	end
 	if not machine:IsA("Model") or not machine.PrimaryPart then
 		warn(string.format("[%s] expected Model with PrimaryPart", balance.WarnPrefix))
 		return
