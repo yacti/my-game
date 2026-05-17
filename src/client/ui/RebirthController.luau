@@ -134,7 +134,8 @@ function RebirthController.start()
 		UiEffects.BindButton(openButton)
 	end
 	rewardTemplate.Visible = false
-	panel.Visible = false
+	rebirthGui.Enabled = false
+	local panelState = UiEffects.PreparePanel(panel)
 
 	local RebirthStateRequest = Remotes.get(Remotes.Names.RebirthStateRequest)
 	local RebirthStateUpdated = Remotes.get(Remotes.Names.RebirthStateUpdated)
@@ -149,6 +150,8 @@ function RebirthController.start()
 	local pendingRequest = false
 	local nextRequestId = 0
 	local lastStateRequest = 0
+	local isOpen = false
+	local transitionToken = 0
 
 	local function setError(text)
 		if errorLabel then
@@ -218,13 +221,29 @@ function RebirthController.start()
 	end
 
 	local function openPanel()
+		if isOpen then
+			requestState()
+			return
+		end
+		isOpen = true
+		transitionToken += 1
 		rebirthGui.Enabled = true
-		panel.Visible = true
+		UiEffects.PlayOpen(panel, panelState)
 		requestState()
 	end
 
 	local function closePanel()
-		panel.Visible = false
+		if not isOpen then
+			return
+		end
+		isOpen = false
+		transitionToken += 1
+		local token = transitionToken
+		UiEffects.PlayClose(panel, panelState, function()
+			if transitionToken == token and not isOpen then
+				rebirthGui.Enabled = false
+			end
+		end)
 	end
 
 	closeButton.Activated:Connect(closePanel)
@@ -295,7 +314,7 @@ function RebirthController.start()
 	task.spawn(function()
 		while rebirthGui.Parent do
 			task.wait(STATE_RETRY_SECONDS)
-			if panel.Visible and os.clock() - lastStateRequest >= STATE_RETRY_SECONDS then
+			if isOpen and os.clock() - lastStateRequest >= STATE_RETRY_SECONDS then
 				requestState()
 			end
 		end
