@@ -50,6 +50,25 @@ local function buttonColorTarget(button)
 	return "BackgroundColor3", button.BackgroundColor3
 end
 
+local pressedButtons = setmetatable({}, { __mode = "k" })
+local inputEndedConnection = nil
+
+local function ensureInputEndedConnection()
+	if inputEndedConnection then
+		return
+	end
+
+	inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+
+		for _, release in pairs(pressedButtons) do
+			release()
+		end
+	end)
+end
+
 function UiEffects.BindButton(button)
 	if not (button and button:IsA("GuiButton")) then
 		return
@@ -64,6 +83,8 @@ function UiEffects.BindButton(button)
 	local uiScale = findOrCreateScale(button)
 	local hovering = false
 	local pressing = false
+
+	ensureInputEndedConnection()
 
 	local function setHover(active)
 		if button.Active == false then
@@ -85,34 +106,39 @@ function UiEffects.BindButton(button)
 		})
 	end
 
+	local function releasePress()
+		if not pressing then
+			return
+		end
+		pressedButtons[button] = nil
+		setPressed(false)
+		if not hovering then
+			setHover(false)
+		end
+	end
+
 	button.MouseEnter:Connect(function()
 		setHover(true)
 	end)
 
 	button.MouseLeave:Connect(function()
 		setHover(false)
-		if pressing then
-			setPressed(false)
-		end
+		releasePress()
 	end)
 
 	button.MouseButton1Down:Connect(function()
 		setPressed(true)
+		if pressing then
+			pressedButtons[button] = releasePress
+		end
 	end)
 
 	button.MouseButton1Up:Connect(function()
-		setPressed(false)
+		releasePress()
 	end)
 
-	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			if pressing then
-				setPressed(false)
-				if not hovering then
-					setHover(false)
-				end
-			end
-		end
+	button.Destroying:Connect(function()
+		pressedButtons[button] = nil
 	end)
 end
 

@@ -21,19 +21,28 @@ local active = {}
 
 local function findContainer(hud)
 	local found = hud:FindFirstChild(CONTAINER_NAME, true)
-	assert(found and found:IsA("GuiObject"), "HUD UI missing Notifications GuiObject")
+	if not (found and found:IsA("GuiObject")) then
+		warn("[Notifications] HUD UI missing Notifications GuiObject")
+		return nil
+	end
 	return found
 end
 
 local function findItemTemplate(guiContainer)
 	local found = guiContainer:FindFirstChild(ITEM_TEMPLATE_NAME, true)
-	assert(found and found:IsA("TextLabel"), "Notifications UI missing NotificationTemplate TextLabel")
+	if not (found and found:IsA("TextLabel")) then
+		warn("[Notifications] Notifications UI missing NotificationTemplate TextLabel")
+		return nil
+	end
 	return found
 end
 
 local function ensureListLayout(guiContainer)
 	local layout = guiContainer:FindFirstChildOfClass("UIListLayout")
-	assert(layout, "Notifications Container missing UIListLayout")
+	if not layout then
+		warn("[Notifications] Notifications container missing UIListLayout")
+		return nil
+	end
 	layout.FillDirection = Enum.FillDirection.Vertical
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	return layout
@@ -127,14 +136,20 @@ function Notifications.start()
 
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
-	local hud = playerGui:WaitForChild(HUD_NAME)
+	local hud = playerGui:WaitForChild(HUD_NAME, 10)
+	if not hud then
+		warn("[Notifications] Missing HUD ScreenGui")
+		return
+	end
 
 	container = findContainer(hud)
+	if not container then return end
 	template = findItemTemplate(container)
+	if not template then return end
 	template.Visible = false
 	template.BackgroundTransparency = 1
 	template.Font = Enum.Font.FredokaOne
-	ensureListLayout(container)
+	if not ensureListLayout(container) then return end
 	template.Parent = nil
 
 	Remotes.get(Remotes.Names.PlayerNotification).OnClientEvent:Connect(Notifications.show)

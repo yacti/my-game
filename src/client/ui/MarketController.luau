@@ -17,6 +17,7 @@ local OPEN_TOUCH_DEBOUNCE = 1
 local TOUCH_CHECK_INTERVAL = 0.15
 local STATE_RETRY_SECONDS = 2
 local TREE_SPIN_RADIANS_PER_SECOND = math.rad(18)
+local PENDING_PURCHASE_TIMEOUT_SECONDS = 8
 
 local function waitForDirectChild(parent, name, className)
 	local child = parent:WaitForChild(name, 10)
@@ -252,6 +253,20 @@ function MarketController.start()
 		end
 	end
 
+	local function prunePendingPurchases()
+		local now = os.clock()
+		for feedType, startedAt in pairs(pendingPurchases) do
+			if type(startedAt) ~= "number" or now - startedAt > PENDING_PURCHASE_TIMEOUT_SECONDS then
+				pendingPurchases[feedType] = nil
+			end
+		end
+	end
+
+	local function isPurchasePending(feedType)
+		prunePendingPurchases()
+		return pendingPurchases[feedType] ~= nil
+	end
+
 	local function updateCard(item)
 		local card = cardsByFeedType[item.feedType]
 		if not card then
@@ -266,7 +281,7 @@ function MarketController.start()
 
 		if cashBtn then
 			setTextStack(directChild(cashBtn, "PriceLabel", "TextLabel"), formatCurrency(item.price))
-			local canBuy = remaining > 0 and currentCurrency >= (item.price or 0) and pendingPurchases[item.feedType] ~= true
+			local canBuy = remaining > 0 and currentCurrency >= (item.price or 0) and not isPurchasePending(item.feedType)
 			setButtonEnabled(cashBtn, canBuy)
 		end
 
@@ -302,7 +317,7 @@ function MarketController.start()
 			if cashBtn then
 				UiEffects.BindButton(cashBtn)
 				cashBtn.Activated:Connect(function()
-					if pendingPurchases[item.feedType] then
+					if isPurchasePending(item.feedType) then
 						return
 					end
 					local remaining = latestRemaining[item.feedType] or 0
@@ -310,7 +325,7 @@ function MarketController.start()
 						return
 					end
 					nextPurchaseRequestId += 1
-					pendingPurchases[item.feedType] = true
+					pendingPurchases[item.feedType] = os.clock()
 					updateCard(item)
 					MarketPurchaseRequest:FireServer(nextPurchaseRequestId, item.feedType)
 				end)
@@ -381,7 +396,7 @@ function MarketController.start()
 		currentCurrency = tonumber(payload.currency) or currentCurrency
 		cycleEnd = tonumber(payload.cycleEnd) or 0
 		serverTimeOffset = (tonumber(payload.serverTime) or os.time()) - os.time()
-		table.clear(pendingPurchases)
+		prunePendingPurchases()
 		rebuildCards()
 	end)
 

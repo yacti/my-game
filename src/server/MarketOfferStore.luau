@@ -170,12 +170,22 @@ end
 
 function MarketOfferStore.ApplyServerOverride(receiptId)
 	local globalOffer = MarketOfferStore.GetGlobalOffer(true)
+	local receiptKey = receiptId and tostring(receiptId) or nil
+	if receiptKey and overrideOffer and overrideOffer.receiptId == receiptKey then
+		return cloneOffer(overrideOffer)
+	end
+
 	overrideSerial += 1
 
 	local catalog = MarketCatalog.GetCatalog()
-	local salt = string.format("server:%s:%s:%d", game.JobId, tostring(receiptId or HttpService:GenerateGUID(false)), overrideSerial)
+	local salt = receiptKey
+		and string.format("server:%s:%s", game.JobId, receiptKey)
+		or string.format("server:%s:%s:%d", game.JobId, HttpService:GenerateGUID(false), overrideSerial)
 	local offer = MarketCatalog.GenerateOffer(catalog, globalOffer.cycleId, globalOffer.cycleStart, globalOffer.cycleEnd, salt)
-	offer.offerId = string.format("server-%s-%d", game.JobId ~= "" and game.JobId or "studio", overrideSerial)
+	offer.offerId = receiptKey
+		and string.format("server-%s-%s", game.JobId ~= "" and game.JobId or "studio", receiptKey)
+		or string.format("server-%s-%d", game.JobId ~= "" and game.JobId or "studio", overrideSerial)
+	offer.receiptId = receiptKey
 	overrideOffer = offer
 	overridePurchases = {}
 	notifyListeners()

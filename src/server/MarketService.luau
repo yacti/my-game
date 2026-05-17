@@ -160,25 +160,52 @@ local function ensureMarketReceipts(profile)
 	return receipts
 end
 
+local function receiptKey(purchaseId)
+	if purchaseId == nil then
+		return nil
+	end
+	return tostring(purchaseId)
+end
+
 local function hasProcessedReceipt(profile, purchaseId)
+	purchaseId = receiptKey(purchaseId)
+	if not purchaseId then
+		return false
+	end
 	local receipts = ensureMarketReceipts(profile)
 	return receipts[purchaseId] == true
 end
 
 local function markProcessedReceipt(profile, purchaseId)
+	purchaseId = receiptKey(purchaseId)
+	if not purchaseId then
+		return
+	end
 	local receipts = ensureMarketReceipts(profile)
 	receipts[purchaseId] = true
 end
 
-local function grantFeedMachine(player, feedType, profile)
+local function makeFeedMachineTool(feedType)
 	local tool = FeedMachineTools.MakeFeedTool(feedType)
 	if not tool then
-		return false
+		return nil
 	end
+	return tool
+end
+
+local function recordFeedMachineGrant(profile, feedType)
 	if profile then
 		profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 		profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + 1
 	end
+end
+
+local function grantFeedMachine(player, feedType, profile)
+	local tool = makeFeedMachineTool(feedType)
+	if not tool then
+		return false
+	end
+	recordFeedMachineGrant(profile, feedType)
 	tool.Parent = player.Backpack
 	return true
 end
@@ -292,7 +319,11 @@ local function processFeedProduct(receiptInfo, player, feedType)
 	if not profile then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if hasProcessedReceipt(profile, receiptInfo.PurchaseId) then
+	local purchaseId = receiptKey(receiptInfo.PurchaseId)
+	if not purchaseId then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if hasProcessedReceipt(profile, purchaseId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
@@ -301,11 +332,15 @@ local function processFeedProduct(receiptInfo, player, feedType)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	if not grantFeedMachine(player, feedType, profile) then
+	local tool = makeFeedMachineTool(feedType)
+	if not tool then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	markProcessedReceipt(profile, receiptInfo.PurchaseId)
+	recordFeedMachineGrant(profile, feedType)
+	markProcessedReceipt(profile, purchaseId)
+	profile:Save()
+	tool.Parent = player.Backpack
 	NotificationService.Success(player, "Purchased " .. feedType .. "!")
 	sendState(player)
 	return Enum.ProductPurchaseDecision.PurchaseGranted
@@ -316,12 +351,17 @@ local function processRestockProduct(receiptInfo, player)
 	if not profile then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if hasProcessedReceipt(profile, receiptInfo.PurchaseId) then
+	local purchaseId = receiptKey(receiptInfo.PurchaseId)
+	if not purchaseId then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if hasProcessedReceipt(profile, purchaseId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
-	MarketService.ApplyServerRestock(receiptInfo.PurchaseId)
-	markProcessedReceipt(profile, receiptInfo.PurchaseId)
+	MarketService.ApplyServerRestock(purchaseId)
+	markProcessedReceipt(profile, purchaseId)
+	profile:Save()
 	NotificationService.Success(player, "Server shop restocked!")
 	MarketRestockResult:FireClient(player, {
 		success = true,
