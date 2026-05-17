@@ -29,6 +29,7 @@ local DATA_TEMPLATE = {
 	},
 	MarketReceipts = {},
 	Currency = 0,
+	Rebirths = 0,
 	PlotSize = PlotSizes.MIN_SIZE,
 	LastSeen = 0,
 }
@@ -183,6 +184,7 @@ local function ensureValidData(profile)
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = 0
 	end
+	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
 	profile.Data.PlotSize = PlotSizes.Clamp(profile.Data.PlotSize)
 
 	if type(profile.Data.LastSeen) ~= "number" then

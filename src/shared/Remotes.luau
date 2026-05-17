@@ -22,6 +22,10 @@ Remotes.Names = {
 	MarketPurchaseResult = "MarketPurchaseResult",
 	MarketRestockRequest = "MarketRestockRequest",
 	MarketRestockResult = "MarketRestockResult",
+	RebirthStateRequest = "RebirthStateRequest",
+	RebirthStateUpdated = "RebirthStateUpdated",
+	RebirthRequest = "RebirthRequest",
+	RebirthResult = "RebirthResult",
 }
 
 local Definitions = {
@@ -38,6 +42,10 @@ local Definitions = {
 	[Remotes.Names.MarketPurchaseResult] = "RemoteEvent",
 	[Remotes.Names.MarketRestockRequest] = "RemoteEvent",
 	[Remotes.Names.MarketRestockResult] = "RemoteEvent",
+	[Remotes.Names.RebirthStateRequest] = "RemoteEvent",
+	[Remotes.Names.RebirthStateUpdated] = "RemoteEvent",
+	[Remotes.Names.RebirthRequest] = "RemoteEvent",
+	[Remotes.Names.RebirthResult] = "RemoteEvent",
 }
 
 local function getFolder()

@@ -9,6 +9,7 @@ local Food = require(Shared:WaitForChild("Food"))
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
+local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -60,6 +61,17 @@ local function child(parent, name, className, errors)
 		return nil
 	end
 	return instance
+end
+
+local function descendant(parent, name, className, errors)
+	if not parent then return nil end
+	for _, instance in ipairs(parent:GetDescendants()) do
+		if instance.Name == name and (not className or instance:IsA(className)) then
+			return instance
+		end
+	end
+	add(errors, string.format("Missing descendant %s.%s", parent:GetFullName(), name))
+	return nil
 end
 
 local function validateTool(tool, errors)
@@ -145,11 +157,18 @@ local function validatePetCatalog(errors)
 	table.sort(definitions, function(a, b)
 		return (a.Order or math.huge) < (b.Order or math.huge)
 	end)
+	local orderOneCount = 0
 	for index, definition in ipairs(definitions) do
+		if definition.Order == 1 then
+			orderOneCount += 1
+		end
 		local hasNext = definitions[index + 1] ~= nil
 		if hasNext and (type(definition.MaxXP) ~= "number" or definition.MaxXP <= 0) then
 			add(errors, "Pet catalog definition " .. definition.Id .. " has invalid " .. State.Pet.MaxXP)
 		end
+	end
+	if orderOneCount ~= 1 then
+		add(errors, string.format("Expected exactly one Order 1 pet for rebirth reset, found %d", orderOneCount))
 	end
 end
 
@@ -253,6 +272,89 @@ local function validateMarketUi(errors)
 		local restock = child(header, "Restock", "ImageButton", errors)
 		if restock then
 			child(restock, "Text", "TextLabel", errors)
+		end
+	end
+end
+
+local function validateRebirthUi(errors)
+	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
+	if not ui then return end
+
+	local rebirthGui = child(ui, "Rebirth", "ScreenGui", errors)
+	if not rebirthGui then return end
+
+	descendant(rebirthGui, "Panel", "GuiObject", errors)
+	descendant(rebirthGui, "CloseButton", "GuiButton", errors)
+	descendant(rebirthGui, "RebirthButton", "GuiButton", errors)
+	descendant(rebirthGui, "SkipButton", "GuiButton", errors)
+	descendant(rebirthGui, "TierLabel", "TextLabel", errors)
+	descendant(rebirthGui, "PriceLabel", "TextLabel", errors)
+	descendant(rebirthGui, "CashLabel", "TextLabel", errors)
+	local progressBar = descendant(rebirthGui, "ProgressBar", "GuiObject", errors)
+	if progressBar then
+		descendant(progressBar, "Fill", "GuiObject", errors)
+	end
+	local rewardList = descendant(rebirthGui, "RewardList", "GuiObject", errors)
+	if rewardList then
+		descendant(rewardList, "RewardTemplate", "GuiObject", errors)
+	end
+end
+
+local function validateRebirthBalance(errors)
+	local seenProducts = {}
+	local tiers = RebirthBalance.Tiers
+	if type(tiers) ~= "table" then
+		add(errors, "RebirthBalance.Tiers must be a table")
+		return
+	end
+
+	for tierNumber, tier in pairs(tiers) do
+		local source = "RebirthBalance.Tiers[" .. tostring(tierNumber) .. "]"
+		if type(tierNumber) ~= "number" or tierNumber < 1 or tierNumber % 1 ~= 0 then
+			add(errors, source .. " has invalid tier number")
+		end
+		if type(tier) ~= "table" then
+			add(errors, source .. " must be a table")
+			continue
+		end
+		if type(tier.Price) ~= "number" or tier.Price <= 0 then
+			add(errors, source .. " has invalid Price")
+		end
+
+		local skipProductId = tonumber(tier.SkipProductId) or 0
+		if skipProductId < 0 or skipProductId % 1 ~= 0 then
+			add(errors, source .. " has invalid SkipProductId")
+		elseif skipProductId > 0 then
+			if seenProducts[skipProductId] then
+				add(errors, string.format("Duplicate rebirth SkipProductId %d on tier %s and tier %s", skipProductId, tostring(seenProducts[skipProductId]), tostring(tierNumber)))
+			else
+				seenProducts[skipProductId] = tierNumber
+			end
+		end
+
+		for index, reward in ipairs(tier.PetRewards or {}) do
+			local petId = type(reward) == "table" and reward.petId or nil
+			local amount = type(reward) == "table" and reward.amount or nil
+			if type(petId) ~= "string" or not PetCatalog.GetDefinition(petId) then
+				add(errors, string.format("%s.PetRewards[%d] has unknown petId %q", source, index, tostring(petId)))
+			end
+			if type(amount) ~= "number" or amount < 1 or amount % 1 ~= 0 then
+				add(errors, string.format("%s.PetRewards[%d] has invalid amount", source, index))
+			end
+		end
+
+		for index, reward in ipairs(tier.Rewards or {}) do
+			if type(reward) ~= "table" or reward.kind ~= "FeedMachine" then
+				add(errors, string.format("%s.Rewards[%d] has unsupported kind", source, index))
+				continue
+			end
+			local amount = reward.amount
+			if type(amount) ~= "number" or amount < 1 or amount % 1 ~= 0 then
+				add(errors, string.format("%s.Rewards[%d] has invalid amount", source, index))
+			end
+			if type(reward.feedType) ~= "string" or not FeedMachines.GetTemplate(reward.feedType) then
+				add(errors, string.format("%s.Rewards[%d] has unknown feedType %q", source, index, tostring(reward.feedType)))
+			end
 		end
 	end
 end
@@ -387,6 +489,7 @@ local function validateUi(errors)
 
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
+		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
 			child(notifications, "NotificationTemplate", "TextLabel", errors)
@@ -455,9 +558,11 @@ function AssetValidator.validate()
 	validateRemotes(errors)
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
+	validateRebirthBalance(errors)
 	validateFoodTemplates(errors)
 	validateUi(errors)
 	validateMarketUi(errors)
+	validateRebirthUi(errors)
 	validatePlots(errors)
 	validateMarketPart(errors)
 

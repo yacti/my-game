@@ -17,6 +17,7 @@ local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local MarketService     = require(Server:WaitForChild("MarketService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local RebirthService    = require(Server:WaitForChild("RebirthService"))
 
 local Balance  = require(Shared:WaitForChild("Balance"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
@@ -41,6 +42,7 @@ local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
 local PET_FEED_REACTION_SECONDS = 2
 
+RebirthService.Start()
 MarketService.Start()
 
 local function consumeRateLimit(map, player, interval)
@@ -530,6 +532,7 @@ Players.PlayerAdded:Connect(function(player)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
 	MarketService.SendState(player)
+	RebirthService.SendState(player)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)

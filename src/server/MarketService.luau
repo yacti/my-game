@@ -5,10 +5,11 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
-local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
+local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local MarketOfferStore = require(Server:WaitForChild("MarketOfferStore"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
+local RebirthService = require(Server:WaitForChild("RebirthService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
@@ -185,31 +186,6 @@ local function markProcessedReceipt(profile, purchaseId)
 	receipts[purchaseId] = true
 end
 
-local function makeFeedMachineTool(feedType)
-	local tool = FeedMachineTools.MakeFeedTool(feedType)
-	if not tool then
-		return nil
-	end
-	return tool
-end
-
-local function recordFeedMachineGrant(profile, feedType)
-	if profile then
-		profile.Data.FeedInventory = profile.Data.FeedInventory or {}
-		profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + 1
-	end
-end
-
-local function grantFeedMachine(player, feedType, profile)
-	local tool = makeFeedMachineTool(feedType)
-	if not tool then
-		return false
-	end
-	recordFeedMachineGrant(profile, feedType)
-	tool.Parent = player.Backpack
-	return true
-end
-
 local function currentAllowance(offer, feedType)
 	local allowance = offer.items and offer.items[feedType]
 	if type(allowance) ~= "number" then
@@ -279,7 +255,7 @@ local function purchase(player, requestId, feedType)
 			return
 		end
 
-		if not grantFeedMachine(player, feedType, profile) then
+		if not FeedRewardService.Grant(player, profile, feedType, 1) then
 			CurrencyService.Add(player, profile, item.price)
 			sendPurchaseResult(player, requestId, false, "grant-failed", feedType)
 			return
@@ -332,15 +308,18 @@ local function processFeedProduct(receiptInfo, player, feedType)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	local tool = makeFeedMachineTool(feedType)
-	if not tool then
+	local preparedGrant = nil
+	preparedGrant = FeedRewardService.PrepareGrant(feedType, 1)
+	if not preparedGrant then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	recordFeedMachineGrant(profile, feedType)
+	local granted = FeedRewardService.ApplyPrepared(player, profile, preparedGrant)
+	if not granted then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 	markProcessedReceipt(profile, purchaseId)
 	profile:Save()
-	tool.Parent = player.Backpack
 	NotificationService.Success(player, "Purchased " .. feedType .. "!")
 	sendState(player)
 	return Enum.ProductPurchaseDecision.PurchaseGranted
@@ -378,6 +357,10 @@ local function processReceipt(receiptInfo)
 
 	if receiptInfo.ProductId == MarketProducts.RestockProductId then
 		return processRestockProduct(receiptInfo, player)
+	end
+
+	if MarketProducts.RebirthTierForProductId(receiptInfo.ProductId) then
+		return RebirthService.ProcessSkipReceipt(receiptInfo, player)
 	end
 
 	local feedType = MarketProducts.FeedTypeForProductId(receiptInfo.ProductId)

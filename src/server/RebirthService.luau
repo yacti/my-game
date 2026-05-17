@@ -1,0 +1,556 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Server = script.Parent
+local CurrencyService = require(Server:WaitForChild("CurrencyService"))
+local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
+local NotificationService = require(Server:WaitForChild("NotificationService"))
+local PetMotionService = require(Server:WaitForChild("PetMotionService"))
+local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
+local PlotService = require(Server:WaitForChild("PlotService"))
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local State = require(Shared:WaitForChild("State"))
+
+local RebirthService = {}
+
+local REQUEST_RATE_SECONDS = 0.75
+local STATE_RATE_SECONDS = 0.5
+local FLOOR_MARGIN = 8
+
+local started = false
+local transactionLocks = {}
+local requestLastFire = {}
+local stateLastFire = {}
+
+local RebirthStateUpdated = Remotes.get(Remotes.Names.RebirthStateUpdated)
+local RebirthResult = Remotes.get(Remotes.Names.RebirthResult)
+
+local function consumeRateLimit(map, player, interval)
+	local now = os.clock()
+	local previous = map[player] or 0
+	if now - previous < interval then
+		return false
+	end
+	map[player] = now
+	return true
+end
+
+local function integer(value, fallback)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return fallback
+	end
+	return math.floor(value)
+end
+
+local function deepCopyArray(array)
+	local copy = {}
+	for i, value in ipairs(array or {}) do
+		if type(value) == "table" then
+			local entry = {}
+			for k, v in pairs(value) do
+				entry[k] = v
+			end
+			copy[i] = entry
+		end
+	end
+	return copy
+end
+
+local function copyMap(map)
+	local copy = {}
+	for k, v in pairs(map or {}) do
+		copy[k] = v
+	end
+	return copy
+end
+
+local function receiptKey(purchaseId)
+	if purchaseId == nil then
+		return nil
+	end
+	return tostring(purchaseId)
+end
+
+local function ensureReceipts(profile)
+	local receipts = profile.Data.MarketReceipts
+	if type(receipts) ~= "table" then
+		receipts = {}
+		profile.Data.MarketReceipts = receipts
+	end
+	return receipts
+end
+
+local function hasProcessedReceipt(profile, purchaseId)
+	purchaseId = receiptKey(purchaseId)
+	if not purchaseId then
+		return false
+	end
+	return ensureReceipts(profile)[purchaseId] == true
+end
+
+local function markProcessedReceipt(profile, purchaseId)
+	purchaseId = receiptKey(purchaseId)
+	if not purchaseId then
+		return
+	end
+	ensureReceipts(profile)[purchaseId] = true
+end
+
+local function saveProfile(profile)
+	local ok, err = pcall(function()
+		profile:Save()
+	end)
+	if not ok then
+		warn("[RebirthService] Profile save failed: " .. tostring(err))
+	end
+	return ok
+end
+
+local function orderOnePetId()
+	local found
+	local count = 0
+	for _, petId in ipairs(PetCatalog.AllPetIds()) do
+		local definition = PetCatalog.GetDefinition(petId)
+		if definition and definition.Order == 1 then
+			found = petId
+			count += 1
+		end
+	end
+	if count ~= 1 then
+		return nil, "invalid-order-one-pet"
+	end
+	return found
+end
+
+local function publishPetState(pet, money, xp)
+	pet:SetAttribute(State.Pet.Money, money or 0)
+	pet:SetAttribute(State.Pet.XP, xp or 0)
+end
+
+local function currentPetPositions(plot)
+	local floor = PlotService.GetFloor(plot)
+	local positions = {}
+	if not floor then
+		return positions
+	end
+	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
+		local index = pet:GetAttribute(State.Pet.Index)
+		if type(index) == "number" then
+			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, PetMotionService.GetLogicalPivot(pet))
+			positions[index] = { lx = lx, lz = lz, lry = lry }
+		end
+	end
+	return positions
+end
+
+local function assignMissingPositions(pets, floor)
+	local count = math.max(#pets, 1)
+	local halfX = math.max(floor.Size.X / 2 - FLOOR_MARGIN, 0)
+	local halfZ = math.max(floor.Size.Z / 2 - FLOOR_MARGIN, 0)
+	local radius = math.min(halfX, halfZ) * 0.45
+
+	for index, pet in ipairs(pets) do
+		if pet.lx == nil or pet.lz == nil then
+			local angle = (index - 1) / count * math.pi * 2
+			pet.lx = math.cos(angle) * radius
+			pet.lz = math.sin(angle) * radius
+			pet.lry = 0
+		end
+		pet.lry = tonumber(pet.lry) or 0
+	end
+end
+
+local function buildTargetPets(plot, profile, tier)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then
+		return nil, "no-floor"
+	end
+
+	local basePetId, baseCode = orderOnePetId()
+	if not basePetId then
+		return nil, baseCode
+	end
+
+	local positions = currentPetPositions(plot)
+	local targetPets = {}
+	for index, existing in ipairs(profile.Data.Pets or {}) do
+		local position = positions[index] or existing
+		targetPets[#targetPets + 1] = {
+			petId = basePetId,
+			xp = 0,
+			money = 0,
+			lx = tonumber(position and position.lx),
+			lz = tonumber(position and position.lz),
+			lry = tonumber(position and position.lry) or 0,
+		}
+	end
+
+	for _, reward in ipairs(tier.PetRewards or {}) do
+		local petId = reward.petId
+		local amount = integer(reward.amount, 0)
+		if type(petId) ~= "string" or not PetCatalog.GetDefinition(petId) or amount <= 0 then
+			return nil, "invalid-pet-reward"
+		end
+		for _ = 1, amount do
+			targetPets[#targetPets + 1] = {
+				petId = petId,
+				xp = 0,
+				money = 0,
+			}
+		end
+	end
+
+	assignMissingPositions(targetPets, floor)
+	return targetPets
+end
+
+local function destroyPreparedPets(preparedPets)
+	for _, pet in ipairs(preparedPets or {}) do
+		if pet then
+			pet:Destroy()
+		end
+	end
+end
+
+local function preparePetModels(plot, pets)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then
+		return nil, "no-floor"
+	end
+
+	local prepared = {}
+	for index, petData in ipairs(pets or {}) do
+		local clone = PlotService.CreatePet(petData.petId, index, petData.xp or 0, floor, petData.lx or 0, petData.lz or 0, petData.lry or 0)
+		if not clone then
+			destroyPreparedPets(prepared)
+			return nil, "pet-build-failed"
+		end
+		prepared[#prepared + 1] = clone
+	end
+	return prepared
+end
+
+local function prepareFeedRewards(tier)
+	local prepared = {}
+	for _, reward in ipairs(tier.Rewards or {}) do
+		if reward.kind ~= "FeedMachine" then
+			for _, grant in ipairs(prepared) do
+				FeedRewardService.DestroyPrepared(grant)
+			end
+			return nil, "invalid-reward-kind"
+		end
+
+		local amount = integer(reward.amount, 0)
+		local grant, code = FeedRewardService.PrepareGrant(reward.feedType, amount)
+		if not grant then
+			for _, existing in ipairs(prepared) do
+				FeedRewardService.DestroyPrepared(existing)
+			end
+			return nil, code or "invalid-feed-reward"
+		end
+		prepared[#prepared + 1] = grant
+	end
+	return prepared
+end
+
+local function destroyPreparedFeedRewards(preparedRewards)
+	for _, grant in ipairs(preparedRewards or {}) do
+		FeedRewardService.DestroyPrepared(grant)
+	end
+end
+
+local function applyPreparedFeedRewards(player, profile, preparedRewards)
+	for _, grant in ipairs(preparedRewards or {}) do
+		local ok, code = FeedRewardService.ApplyPrepared(player, profile, grant)
+		if not ok then
+			return false, code
+		end
+	end
+	return true
+end
+
+local function snapshotProfile(profile)
+	return {
+		Currency = integer(profile.Data.Currency, 0),
+		Rebirths = integer(profile.Data.Rebirths, 0),
+		Pets = deepCopyArray(profile.Data.Pets),
+		FeedInventory = copyMap(profile.Data.FeedInventory),
+		MarketReceipts = copyMap(profile.Data.MarketReceipts),
+	}
+end
+
+local function restoreProfile(player, profile, snapshot)
+	CurrencyService.SetBalanceForServer(player, profile, snapshot.Currency or 0, true)
+	profile.Data.Rebirths = snapshot.Rebirths or 0
+	profile.Data.Pets = deepCopyArray(snapshot.Pets)
+	profile.Data.FeedInventory = copyMap(snapshot.FeedInventory)
+	profile.Data.MarketReceipts = copyMap(snapshot.MarketReceipts)
+end
+
+local function swapPreparedPets(plot, profilePets, preparedPets)
+	PetMotionService.UnregisterPlot(plot)
+	PlotService.DestroyPets(plot)
+
+	for _, pet in ipairs(preparedPets) do
+		pet.Parent = plot
+	end
+	for index, pet in ipairs(preparedPets) do
+		local petData = profilePets[index] or {}
+		publishPetState(pet, petData.money or 0, petData.xp or 0)
+		PetMotionService.Register(plot, pet)
+	end
+
+	local spawned = #PlotService.GetSortedPets(plot)
+	return spawned == #profilePets
+end
+
+local function restoreLivePets(plot, pets)
+	local prepared, code = preparePetModels(plot, pets)
+	if not prepared then
+		return false, code
+	end
+	local ok = swapPreparedPets(plot, pets, prepared)
+	if not ok then
+		destroyPreparedPets(prepared)
+		return false, "restore-failed"
+	end
+	return true
+end
+
+local function buildStatePayload(player)
+	local profile = PlayerDataService.GetProfile(player)
+	local rebirths = profile and integer(profile.Data.Rebirths, 0) or 0
+	local tierNumber, tier = RebirthBalance.GetNextTier(rebirths)
+	local currency = profile and integer(profile.Data.Currency, 0) or 0
+	local price = tier and integer(tier.Price, 0) or 0
+
+	return {
+		profileReady = profile ~= nil,
+		rebirths = rebirths,
+		nextTier = tier and tierNumber or nil,
+		maxTier = tier == nil,
+		price = price,
+		currency = currency,
+		progress = price > 0 and math.clamp(currency / price, 0, 1) or 1,
+		rewards = RebirthBalance.ToClientRewards(tier),
+		skipProductId = tier and integer(tier.SkipProductId, 0) > 0 and tier.SkipProductId or nil,
+	}
+end
+
+local function sendState(player)
+	RebirthStateUpdated:FireClient(player, buildStatePayload(player))
+end
+
+function RebirthService.SendState(player)
+	sendState(player)
+end
+
+local function sendResult(player, requestId, success, code)
+	local payload = {
+		requestId = requestId,
+		success = success,
+		code = code,
+		state = buildStatePayload(player),
+	}
+	RebirthResult:FireClient(player, payload)
+end
+
+local function runTransaction(player, options)
+	local profile = PlayerDataService.GetProfile(player)
+	if not profile then
+		return false, "no-profile"
+	end
+
+	local plot = PlotService.GetPlayerPlot(player)
+	if not plot then
+		return false, "no-plot"
+	end
+
+	local currentRebirths = integer(profile.Data.Rebirths, 0)
+	local tierNumber, tier = RebirthBalance.GetNextTier(currentRebirths)
+	if not tier then
+		return false, "max-tier"
+	end
+	if options.expectedTier and tierNumber ~= options.expectedTier then
+		return false, "tier-mismatch"
+	end
+
+	local targetPets, petCode = buildTargetPets(plot, profile, tier)
+	if not targetPets then
+		return false, petCode
+	end
+	local preparedPets, preparePetCode = preparePetModels(plot, targetPets)
+	if not preparedPets then
+		return false, preparePetCode
+	end
+	local preparedFeeds, prepareFeedCode = prepareFeedRewards(tier)
+	if not preparedFeeds then
+		destroyPreparedPets(preparedPets)
+		return false, prepareFeedCode
+	end
+
+	local snapshot = snapshotProfile(profile)
+	local minimumCash = options.skip == true and 0 or integer(tier.Price, 0)
+	local resetOk, resetCode = CurrencyService.ResetToZeroForRebirth(player, profile, minimumCash, true)
+	if not resetOk then
+		destroyPreparedPets(preparedPets)
+		destroyPreparedFeedRewards(preparedFeeds)
+		return false, resetCode
+	end
+
+	profile.Data.Rebirths = tierNumber
+	profile.Data.Pets = targetPets
+
+	local feedsOk, feedsCode = applyPreparedFeedRewards(player, profile, preparedFeeds)
+	if not feedsOk then
+		restoreProfile(player, profile, snapshot)
+		destroyPreparedPets(preparedPets)
+		destroyPreparedFeedRewards(preparedFeeds)
+		restoreLivePets(plot, snapshot.Pets)
+		return false, feedsCode or "grant-failed"
+	end
+
+	if not swapPreparedPets(plot, profile.Data.Pets, preparedPets) then
+		restoreProfile(player, profile, snapshot)
+		destroyPreparedFeedRewards(preparedFeeds)
+		local restored = restoreLivePets(plot, snapshot.Pets)
+		if not restored then
+			warn("[RebirthService] Failed to restore live pet state after rebirth swap failure")
+		end
+		return false, "pet-swap-failed"
+	end
+
+	if options.purchaseId then
+		markProcessedReceipt(profile, options.purchaseId)
+	end
+
+	if not saveProfile(profile) then
+		restoreProfile(player, profile, snapshot)
+		destroyPreparedFeedRewards(preparedFeeds)
+		local restored = restoreLivePets(plot, snapshot.Pets)
+		if not restored then
+			warn("[RebirthService] Failed to restore live pet state after profile save failure")
+		end
+		CurrencyService.Publish(player, profile)
+		sendState(player)
+		return false, "save-failed"
+	end
+
+	CurrencyService.Publish(player, profile)
+	sendState(player)
+	NotificationService.Success(player, string.format("Rebirth %d complete!", tierNumber))
+	return true, "ok"
+end
+
+local function performRebirth(player, options)
+	if transactionLocks[player] then
+		return false, "busy"
+	end
+
+	transactionLocks[player] = true
+	local ok, success, code = pcall(runTransaction, player, options or {})
+	transactionLocks[player] = nil
+
+	if not ok then
+		warn("[RebirthService] Transaction failed: " .. tostring(success))
+		return false, "server-error"
+	end
+	return success, code
+end
+
+local function markReceiptNoOp(profile, purchaseId, reason)
+	markProcessedReceipt(profile, purchaseId)
+	local saved = saveProfile(profile)
+	if not saved then
+		local receipts = ensureReceipts(profile)
+		receipts[receiptKey(purchaseId)] = nil
+	end
+	warn("[RebirthService] Rebirth skip receipt no-op: " .. tostring(reason))
+	return saved
+end
+
+function RebirthService.ProcessSkipReceipt(receiptInfo, player)
+	local profile = PlayerDataService.GetProfile(player)
+	if not profile then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local purchaseId = receiptKey(receiptInfo.PurchaseId)
+	if not purchaseId then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if hasProcessedReceipt(profile, purchaseId) then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
+	local productTier = RebirthBalance.TierForSkipProductId(receiptInfo.ProductId)
+	if not productTier then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local nextTierNumber, nextTier = RebirthBalance.GetNextTier(profile.Data.Rebirths)
+	if not nextTier then
+		return markReceiptNoOp(profile, purchaseId, "max-tier")
+			and Enum.ProductPurchaseDecision.PurchaseGranted
+			or Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if productTier ~= nextTierNumber then
+		return markReceiptNoOp(profile, purchaseId, productTier < nextTierNumber and "stale-tier" or "future-tier")
+			and Enum.ProductPurchaseDecision.PurchaseGranted
+			or Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local success, code = performRebirth(player, {
+		skip = true,
+		expectedTier = productTier,
+		purchaseId = purchaseId,
+	})
+	if success then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
+	warn(string.format("[RebirthService] Skip receipt could not be granted: %s", tostring(code)))
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+function RebirthService.Start()
+	if started then
+		return
+	end
+	started = true
+
+	Remotes.get(Remotes.Names.RebirthStateRequest).OnServerEvent:Connect(function(player)
+		if not consumeRateLimit(stateLastFire, player, STATE_RATE_SECONDS) then
+			return
+		end
+		sendState(player)
+	end)
+
+	Remotes.get(Remotes.Names.RebirthRequest).OnServerEvent:Connect(function(player, requestId)
+		if type(requestId) ~= "number" then
+			requestId = nil
+		end
+		if not consumeRateLimit(requestLastFire, player, REQUEST_RATE_SECONDS) then
+			sendResult(player, requestId, false, "rate-limited")
+			return
+		end
+
+		local success, code = performRebirth(player, {
+			skip = false,
+		})
+		sendResult(player, requestId, success, code)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		transactionLocks[player] = nil
+		requestLastFire[player] = nil
+		stateLastFire[player] = nil
+	end)
+end
+
+return RebirthService

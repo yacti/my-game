@@ -6,7 +6,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local CurrencyService = {}
 
 local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
-local spendLocks = {}
+local currencyLocks = {}
 
 local function balance(profile)
 	return profile and (tonumber(profile.Data.Currency) or 0) or 0
@@ -24,18 +24,45 @@ local function publish(player, profile)
 	CurrencyUpdated:FireClient(player, balance(profile))
 end
 
-function CurrencyService.Add(player, profile, amount)
-	amount = tonumber(amount) or 0
+local function acquire(player)
+	if currencyLocks[player] then
+		return false
+	end
+	currencyLocks[player] = true
+	return true
+end
+
+local function release(player)
+	currencyLocks[player] = nil
+end
+
+local function shouldPublish(deferPublish)
+	return deferPublish ~= true
+end
+
+function CurrencyService.Publish(player, profile)
+	publish(player, profile)
+end
+
+function CurrencyService.Add(player, profile, amount, deferPublish)
+	amount = spendAmount(amount)
 	if not profile or amount <= 0 then
 		return balance(profile)
 	end
+	if not acquire(player) then
+		return balance(profile), "busy"
+	end
 
 	profile.Data.Currency = balance(profile) + amount
-	publish(player, profile)
-	return profile.Data.Currency
+	local updated = profile.Data.Currency
+	release(player)
+	if shouldPublish(deferPublish) then
+		publish(player, profile)
+	end
+	return updated
 end
 
-function CurrencyService.TrySpend(player, profile, amount)
+function CurrencyService.TrySpend(player, profile, amount, deferPublish)
 	amount = spendAmount(amount)
 	if not profile then
 		return false, "no-profile", 0
@@ -43,22 +70,63 @@ function CurrencyService.TrySpend(player, profile, amount)
 	if amount <= 0 then
 		return true, nil, balance(profile)
 	end
-	if spendLocks[player] then
+	if not acquire(player) then
 		return false, "busy", balance(profile)
 	end
 
-	spendLocks[player] = true
 	local current = balance(profile)
 	if current < amount then
-		spendLocks[player] = nil
+		release(player)
 		return false, "insufficient-currency", current
 	end
 
 	profile.Data.Currency = current - amount
 	local updated = profile.Data.Currency
-	spendLocks[player] = nil
-	publish(player, profile)
+	release(player)
+	if shouldPublish(deferPublish) then
+		publish(player, profile)
+	end
 	return true, nil, updated
+end
+
+function CurrencyService.ResetToZeroForRebirth(player, profile, expectedMinimum, deferPublish)
+	expectedMinimum = spendAmount(expectedMinimum)
+	if not profile then
+		return false, "no-profile", 0
+	end
+	if not acquire(player) then
+		return false, "busy", balance(profile)
+	end
+
+	local current = balance(profile)
+	if current < expectedMinimum then
+		release(player)
+		return false, "insufficient-currency", current
+	end
+
+	profile.Data.Currency = 0
+	release(player)
+	if shouldPublish(deferPublish) then
+		publish(player, profile)
+	end
+	return true, nil, 0, current
+end
+
+function CurrencyService.SetBalanceForServer(player, profile, amount, deferPublish)
+	amount = spendAmount(amount)
+	if not profile then
+		return false, "no-profile", 0
+	end
+	if not acquire(player) then
+		return false, "busy", balance(profile)
+	end
+
+	profile.Data.Currency = amount
+	release(player)
+	if shouldPublish(deferPublish) then
+		publish(player, profile)
+	end
+	return true, nil, amount
 end
 
 return CurrencyService
