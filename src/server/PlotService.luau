@@ -63,12 +63,25 @@ local function rememberPartState(part)
 	local state = partStates[part]
 	if state then return state end
 
-	state = {
-		Transparency = part.Transparency,
-		CanCollide = part.CanCollide,
-		CanTouch = part.CanTouch,
-		CanQuery = part.CanQuery,
-	}
+	local isAlreadyHidden = part.Transparency >= 1
+		and part.CanCollide == false
+		and part.CanTouch == false
+		and part.CanQuery == false
+	if isAlreadyHidden then
+		state = {
+			Transparency = 0,
+			CanCollide = true,
+			CanTouch = true,
+			CanQuery = true,
+		}
+	else
+		state = {
+			Transparency = part.Transparency,
+			CanCollide = part.CanCollide,
+			CanTouch = part.CanTouch,
+			CanQuery = part.CanQuery,
+		}
+	end
 	partStates[part] = state
 	return state
 end
@@ -78,7 +91,7 @@ local function rememberVisualState(instance)
 	if state then return state end
 
 	state = {
-		Transparency = instance.Transparency,
+		Transparency = instance.Transparency >= 1 and 0 or instance.Transparency,
 	}
 	visualStates[instance] = state
 	return state
