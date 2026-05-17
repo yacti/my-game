@@ -4,6 +4,7 @@
 -- validated before anything changes.
 
 local Players           = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local RunService        = game:GetService("RunService")
 local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +24,7 @@ local LocalPrompts = {}
 local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
+local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local DEFAULT_PROMPT_DISTANCE = 10
@@ -64,6 +66,24 @@ local function promptPartFor(instance)
 	if instance:IsA("BasePart") then return instance end
 	if instance:IsA("Model") then return instance.PrimaryPart end
 	return nil
+end
+
+local function playerRootPosition()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root:IsA("BasePart") and root.Position or nil
+end
+
+local function promptWorldPosition(prompt)
+	local parent = prompt.Parent
+	if parent and parent:IsA("Attachment") then return parent.WorldPosition end
+	if parent and parent:IsA("BasePart") then return parent.Position end
+	return nil
+end
+
+local function promptDistance(prompt, rootPosition)
+	local position = promptWorldPosition(prompt)
+	return position and (position - rootPosition).Magnitude or nil
 end
 
 local function promptParentFor(instance, kind)
@@ -175,6 +195,16 @@ local function configurePrompt(prompt, kind)
 end
 
 local function removePrompt(target, kind)
+	local pendingBucket = pendingPromptParents[target]
+	local pendingConnections = pendingBucket and pendingBucket[kind]
+	if pendingConnections then
+		for _, connection in ipairs(pendingConnections) do
+			connection:Disconnect()
+		end
+		pendingBucket[kind] = nil
+		if next(pendingBucket) == nil then pendingPromptParents[target] = nil end
+	end
+
 	local bucket = byTarget[target]
 	local prompt = bucket and bucket[kind]
 	if prompt then
@@ -190,10 +220,49 @@ local function removePrompt(target, kind)
 	end
 end
 
-local function addPrompt(target, kind, action)
+local addPrompt
+
+local function waitForPromptParent(target, kind, action)
+	if not target:IsA("Model") then return end
+
+	pendingPromptParents[target] = pendingPromptParents[target] or {}
+	if pendingPromptParents[target][kind] then return end
+
+	local connections = {}
+	local function clearPending()
+		local bucket = pendingPromptParents[target]
+		if not bucket or bucket[kind] ~= connections then return end
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+		bucket[kind] = nil
+		if next(bucket) == nil then pendingPromptParents[target] = nil end
+	end
+
+	local function retry()
+		if not target:IsDescendantOf(Workspace) then
+			clearPending()
+			return
+		end
+		if promptPartFor(target) then
+			clearPending()
+			addPrompt(target, kind, action)
+		end
+	end
+
+	connections[#connections + 1] = target:GetPropertyChangedSignal("PrimaryPart"):Connect(retry)
+	connections[#connections + 1] = target.AncestryChanged:Connect(retry)
+	pendingPromptParents[target][kind] = connections
+	task.defer(retry)
+end
+
+addPrompt = function(target, kind, action)
 	if not target then return end
 	local parent = promptParentFor(target, kind)
-	if not parent then return end
+	if not parent then
+		waitForPromptParent(target, kind, action)
+		return
+	end
 	byTarget[target] = byTarget[target] or {}
 	if byTarget[target][kind] then return end
 
@@ -298,14 +367,42 @@ end
 
 local function refreshAll(shouldScan)
 	if shouldScan then scanPlot() end
+
+	local rootPosition = playerRootPosition()
+	local closestPrompt = nil
+	local closestDistance = math.huge
+
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
 			refreshPrompt(target, kind, prompt)
+			if prompt.Parent ~= nil and prompt.Enabled then
+				local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+				if distance and distance <= prompt.MaxActivationDistance then
+					if distance < closestDistance then
+						closestPrompt = prompt
+						closestDistance = distance
+					end
+				else
+					prompt.Enabled = false
+				end
+			end
+		end
+	end
+
+	for _, bucket in pairs(byTarget) do
+		for _, prompt in pairs(bucket) do
+			if prompt.Parent ~= nil and prompt.Enabled and prompt ~= closestPrompt then
+				prompt.Enabled = false
+			end
 		end
 	end
 end
 
 function LocalPrompts.start()
+	pcall(function()
+		ProximityPromptService.MaxPromptsVisible = 1
+	end)
+
 	Workspace.DescendantAdded:Connect(function(instance)
 		task.defer(tryBind, instance)
 	end)

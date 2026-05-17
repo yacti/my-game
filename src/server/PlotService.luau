@@ -1,5 +1,6 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
@@ -55,6 +56,7 @@ local plotOwners  = {}
 local playerPlots = {}
 local partStates  = setmetatable({}, { __mode = "k" })
 local visualStates = setmetatable({}, { __mode = "k" })
+local assetModelsByPlot = setmetatable({}, { __mode = "k" })
 local localToWorldOnFloorTop
 
 local PlotService = {}
@@ -91,7 +93,7 @@ local function rememberVisualState(instance)
 	if state then return state end
 
 	state = {
-		Transparency = instance.Transparency >= 1 and 0 or instance.Transparency,
+		Transparency = instance.Transparency,
 	}
 	visualStates[instance] = state
 	return state
@@ -131,9 +133,61 @@ local function assetModelName(size)
 	return PlotSizes.AssetModelName(size)
 end
 
+local function assetStorageRoot()
+	local root = ServerStorage:FindFirstChild("__PlotSizeAssets")
+	if root and root:IsA("Folder") then return root end
+
+	root = Instance.new("Folder")
+	root.Name = "__PlotSizeAssets"
+	root.Parent = ServerStorage
+	return root
+end
+
+local function assetStorageForPlot(plot)
+	local root = assetStorageRoot()
+	local folder = root:FindFirstChild(plot.Name)
+	if folder and folder:IsA("Folder") then return folder end
+
+	folder = Instance.new("Folder")
+	folder.Name = plot.Name
+	folder.Parent = root
+	return folder
+end
+
+local function assetModelMap(plot)
+	local map = assetModelsByPlot[plot]
+	if map then return map end
+
+	map = {}
+	assetModelsByPlot[plot] = map
+	return map
+end
+
 local function getAssetModel(plot, size)
-	local model = plot:FindFirstChild(assetModelName(size))
-	return model and model:IsA("Model") and model or nil
+	local name = assetModelName(size)
+	local map = assetModelMap(plot)
+	local cached = map[size]
+	if cached and cached.Parent then return cached end
+
+	local model = plot:FindFirstChild(name)
+	if not model then
+		model = assetStorageForPlot(plot):FindFirstChild(name)
+	end
+	if model and model:IsA("Model") then
+		map[size] = model
+		return model
+	end
+	return nil
+end
+
+local function setAssetModelActive(plot, model, active)
+	if active then
+		setInstanceTreeActive(model, true)
+		model.Parent = plot
+	else
+		setInstanceTreeActive(model, false)
+		model.Parent = assetStorageForPlot(plot)
+	end
 end
 
 local function capturePlacedPivots(plot)
@@ -230,7 +284,7 @@ function PlotService.ApplyPlotSize(plot, size, preservePlaced)
 	for tier = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
 		local assets = getAssetModel(plot, tier)
 		if assets then
-			setInstanceTreeActive(assets, tier == size)
+			setAssetModelActive(plot, assets, tier == size)
 		end
 	end
 
