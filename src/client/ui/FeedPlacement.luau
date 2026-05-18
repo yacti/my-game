@@ -12,6 +12,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
+local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 
 local PREVIEW_TRANSPARENCY = 0.5
 local PREVIEW_START_TRANSPARENCY = 1
@@ -266,8 +267,13 @@ function FeedPlacement.start()
 	local pendingPlacementRequestId = nil
 	local pendingPlacementCFrame = nil
 	local unequippedWhilePending = false
+	local placementGrid = nil
 
 	local function snapToGrid(v) return math.round(v) end
+
+	local function setGridEffectEnabled(enabled)
+		if placementGrid then placementGrid:SetEnabled(enabled) end
+	end
 
 	local function setPlacementVisible(visible)
 		if placementControls and placementControls:IsA("GuiObject") then
@@ -334,6 +340,7 @@ function FeedPlacement.start()
 		pendingPlacementRequestId = nil
 		pendingPlacementCFrame = nil
 		unequippedWhilePending = false
+		setGridEffectEnabled(false)
 		setPlacementVisible(false)
 		setConfirmVisible(true)
 		setConfirmEnabled(false)
@@ -351,6 +358,8 @@ function FeedPlacement.start()
 	local function getPlayerPlot()
 		return player.RespawnLocation and player.RespawnLocation.Parent or nil
 	end
+
+	placementGrid = PlacementGrid.new(getPlayerFloor)
 
 	local function ensurePreview()
 		if preview then return true end
@@ -482,6 +491,7 @@ function FeedPlacement.start()
 		end
 
 		if not ensurePreview() then return false end
+		setGridEffectEnabled(true)
 		selectedLX = snappedLX
 		selectedLZ = snappedLZ
 		applyPreviewCFrame()
@@ -519,6 +529,7 @@ function FeedPlacement.start()
 			pendingPlacementCFrame = cf
 			unequippedWhilePending = false
 			placing = false
+			setGridEffectEnabled(false)
 			setConfirmEnabled(false)
 			PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf)
 		end)
@@ -538,6 +549,7 @@ function FeedPlacement.start()
 			end
 			placing = true
 			setPlacementVisible(true)
+			setGridEffectEnabled(true)
 			if preview and selectedLX ~= nil and selectedLZ ~= nil then
 				setPreviewBlocked(previewPlacementBlocked())
 			else
@@ -566,6 +578,7 @@ function FeedPlacement.start()
 		local placedPreview = preview
 		placing = false
 		setPlacementVisible(false)
+		setGridEffectEnabled(false)
 		setConfirmEnabled(false)
 		previewMotionToken += 1
 		bouncingPreview = placedPreview
@@ -593,10 +606,12 @@ function FeedPlacement.start()
 			setPlacementVisible(true)
 			setConfirmVisible(true)
 			setConfirmEnabled(false)
+			setGridEffectEnabled(true)
 		end)
 		tool.Unequipped:Connect(function()
 			if pendingPlacementRequestId ~= nil then
 				unequippedWhilePending = true
+				setGridEffectEnabled(false)
 				return
 			end
 			if bouncingPreview then
