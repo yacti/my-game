@@ -14,15 +14,21 @@ local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 
-local PREVIEW_TRANSPARENCY = 0.5
-local PREVIEW_START_TRANSPARENCY = 1
+local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
-local PREVIEW_SHOW_TWEEN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PREVIEW_SELECT_BOUNCE_HEIGHT = 0.9
-local PREVIEW_SELECT_BOUNCE_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out)
+local PREVIEW_SELECT_BOUNCE_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_IDLE_BOUNCE_INTERVAL = 2
+local PREVIEW_IDLE_BIG_BOUNCE_HEIGHT = 2.7
+local PREVIEW_IDLE_SMALL_BOUNCE_HEIGHT = 1.05
+local PREVIEW_IDLE_UP_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_IDLE_BIG_DOWN_TWEEN = TweenInfo.new(0.26, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_IDLE_SMALL_UP_TWEEN = TweenInfo.new(0.13, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_IDLE_SMALL_DOWN_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_ROTATION_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local PREVIEW_BOUNCE_HEIGHT = 0.45
-local PREVIEW_BOUNCE_UP_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local PREVIEW_BOUNCE_DOWN_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out)
+local PREVIEW_BOUNCE_UP_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+local PREVIEW_BOUNCE_DOWN_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local BOX_CORNER_SIGNS = { -1, 1 }
 
@@ -62,8 +68,14 @@ local function setPreviewProps(part)
 	part.Anchored     = true
 	part.CanCollide   = false
 	part.CanQuery     = false
-	part.Transparency = isHiddenPreviewPart(part) and 1 or PREVIEW_START_TRANSPARENCY
+	part.Transparency = isHiddenPreviewPart(part) and 1 or PREVIEW_PART_TRANSPARENCY
 	part.CastShadow   = false
+end
+
+local function hidePreviewPrimaryPart(preview)
+	if preview:IsA("Model") and preview.PrimaryPart then
+		preview.PrimaryPart.Transparency = 1
+	end
 end
 
 local FeedPlacement = {}
@@ -128,21 +140,21 @@ local function feedHitboxRootFromPart(plot, part)
 	return nil
 end
 
-local function playPreviewShowTween(preview)
-	forEachPreviewPart(preview, function(part)
-		part.Transparency = PREVIEW_START_TRANSPARENCY
-		TweenService:Create(part, PREVIEW_SHOW_TWEEN, {
-			Transparency = PREVIEW_TRANSPARENCY,
-		}):Play()
-	end)
-end
-
 local function setPreviewCFrame(preview, cframe)
 	if preview:IsA("BasePart") then
 		preview.CFrame = cframe
 	elseif preview:IsA("Model") then
 		preview:PivotTo(cframe)
 	end
+end
+
+local function getPreviewCFrame(preview)
+	if preview:IsA("BasePart") then
+		return preview.CFrame
+	elseif preview:IsA("Model") then
+		return preview:GetPivot()
+	end
+	return nil
 end
 
 local function playPreviewBounce(preview, baseCFrame, onComplete)
@@ -291,6 +303,7 @@ function FeedPlacement.start()
 				if d:IsA("BasePart") then preparePreviewPart(d) end
 				if d:IsA("ClickDetector") or d:IsA("ProximityPrompt") then d:Destroy() end
 			end
+			hidePreviewPrimaryPart(clone)
 		end
 		clone.Parent = workspace
 		preview = clone
@@ -408,29 +421,164 @@ function FeedPlacement.start()
 		setConfirmEnabled(not blocked)
 	end
 
+	local function beginPreviewMotion()
+		previewMotionToken += 1
+		return previewMotionToken
+	end
+
+	local function previewMotionActive(token, movingPreview)
+		return token == previewMotionToken
+			and preview == movingPreview
+			and movingPreview.Parent ~= nil
+	end
+
+	local function playPreviewCFrameSequence(movingPreview, token, startCFrame, steps, onComplete)
+		local cfValue = Instance.new("CFrameValue")
+		cfValue.Value = startCFrame
+		setPreviewCFrame(movingPreview, startCFrame)
+
+		local changed
+		local cleanedUp = false
+		local function cleanup(completed)
+			if cleanedUp then return end
+			cleanedUp = true
+			if changed then changed:Disconnect() end
+			cfValue:Destroy()
+			if completed and onComplete then onComplete() end
+		end
+
+		changed = cfValue:GetPropertyChangedSignal("Value"):Connect(function()
+			if not previewMotionActive(token, movingPreview) then return end
+			setPreviewCFrame(movingPreview, cfValue.Value)
+		end)
+
+		local index = 0
+		local function playNext()
+			if not previewMotionActive(token, movingPreview) then
+				cleanup(false)
+				return
+			end
+
+			index += 1
+			local step = steps[index]
+			if not step then
+				cleanup(true)
+				return
+			end
+
+			local tween = TweenService:Create(cfValue, step.TweenInfo, { Value = step.CFrame })
+			tween.Completed:Connect(function()
+				if not previewMotionActive(token, movingPreview) then
+					cleanup(false)
+					return
+				end
+				setPreviewCFrame(movingPreview, step.CFrame)
+				playNext()
+			end)
+			tween:Play()
+		end
+
+		playNext()
+	end
+
+	local function shouldIdlePreview(token, movingPreview)
+		return placing
+			and pendingPlacementRequestId == nil
+			and selectedLX ~= nil
+			and selectedLZ ~= nil
+			and previewMotionActive(token, movingPreview)
+	end
+
+	local schedulePreviewIdle
+	local function startPreviewIdle()
+		if not preview then return end
+		local baseCFrame = getSelectedCFrame()
+		if not baseCFrame then return end
+
+		local token = beginPreviewMotion()
+		local idlePreview = preview
+		setPreviewCFrame(idlePreview, baseCFrame)
+		schedulePreviewIdle(token, idlePreview)
+	end
+
+	schedulePreviewIdle = function(token, idlePreview)
+		task.delay(PREVIEW_IDLE_BOUNCE_INTERVAL, function()
+			if not shouldIdlePreview(token, idlePreview) then return end
+
+			local baseCFrame = getSelectedCFrame()
+			if not baseCFrame then return end
+			local upVector = baseCFrame.UpVector
+			playPreviewCFrameSequence(idlePreview, token, baseCFrame, {
+				{
+					CFrame = baseCFrame + upVector * PREVIEW_IDLE_BIG_BOUNCE_HEIGHT,
+					TweenInfo = PREVIEW_IDLE_UP_TWEEN,
+				},
+				{
+					CFrame = baseCFrame,
+					TweenInfo = PREVIEW_IDLE_BIG_DOWN_TWEEN,
+				},
+				{
+					CFrame = baseCFrame + upVector * PREVIEW_IDLE_SMALL_BOUNCE_HEIGHT,
+					TweenInfo = PREVIEW_IDLE_SMALL_UP_TWEEN,
+				},
+				{
+					CFrame = baseCFrame,
+					TweenInfo = PREVIEW_IDLE_SMALL_DOWN_TWEEN,
+				},
+			}, function()
+				if shouldIdlePreview(token, idlePreview) then
+					local settledCFrame = getSelectedCFrame()
+					if settledCFrame then setPreviewCFrame(idlePreview, settledCFrame) end
+					schedulePreviewIdle(token, idlePreview)
+				end
+			end)
+		end)
+	end
+
 	local function playPreviewSelectBounce(baseCFrame)
 		if not preview then return end
-		previewMotionToken += 1
-		local token = previewMotionToken
+		local token = beginPreviewMotion()
 		local bouncing = preview
-		local cfValue = Instance.new("CFrameValue")
-		cfValue.Value = baseCFrame + baseCFrame.UpVector * PREVIEW_SELECT_BOUNCE_HEIGHT
-		setPreviewCFrame(bouncing, cfValue.Value)
-
-		local changed = cfValue:GetPropertyChangedSignal("Value"):Connect(function()
-			if token ~= previewMotionToken or preview ~= bouncing or not bouncing.Parent then return end
-			setPreviewCFrame(bouncing, cfValue.Value)
-		end)
-
-		local tween = TweenService:Create(cfValue, PREVIEW_SELECT_BOUNCE_TWEEN, { Value = baseCFrame })
-		tween.Completed:Connect(function()
-			changed:Disconnect()
-			cfValue:Destroy()
-			if token == previewMotionToken and preview == bouncing and bouncing.Parent then
+		local startCFrame = baseCFrame + baseCFrame.UpVector * PREVIEW_SELECT_BOUNCE_HEIGHT
+		playPreviewCFrameSequence(bouncing, token, startCFrame, {
+			{
+				CFrame = baseCFrame,
+				TweenInfo = PREVIEW_SELECT_BOUNCE_TWEEN,
+			},
+		}, function()
+			if previewMotionActive(token, bouncing) then
 				setPreviewCFrame(bouncing, baseCFrame)
+				startPreviewIdle()
 			end
 		end)
-		tween:Play()
+	end
+
+	local function setPreviewBlockedAtCFrame(targetCFrame, restoreCFrame)
+		if not preview then return end
+		local blockedPreview = preview
+		setPreviewCFrame(blockedPreview, targetCFrame)
+		local blocked = previewPlacementBlocked()
+		if restoreCFrame and blockedPreview.Parent then
+			setPreviewCFrame(blockedPreview, restoreCFrame)
+		end
+		setPreviewBlocked(blocked)
+	end
+
+	local function playPreviewRotationTween(startCFrame, targetCFrame)
+		if not preview then return end
+		local token = beginPreviewMotion()
+		local rotating = preview
+		playPreviewCFrameSequence(rotating, token, startCFrame, {
+			{
+				CFrame = targetCFrame,
+				TweenInfo = PREVIEW_ROTATION_TWEEN,
+			},
+		}, function()
+			if previewMotionActive(token, rotating) then
+				setPreviewCFrame(rotating, targetCFrame)
+				startPreviewIdle()
+			end
+		end)
 	end
 
 	local function selectFloorCellFromScreen(screenPosition)
@@ -464,7 +612,6 @@ function FeedPlacement.start()
 		selectedLX = snappedLX
 		selectedLZ = snappedLZ
 		applyPreviewCFrame()
-		playPreviewShowTween(preview)
 		setPreviewBlocked(previewPlacementBlocked())
 		local cf = getSelectedCFrame()
 		if cf then playPreviewSelectBounce(cf) end
@@ -474,11 +621,19 @@ function FeedPlacement.start()
 	UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe or not placing then return end
 		if input.KeyCode == Enum.KeyCode.R then
+			local startCFrame = preview and getPreviewCFrame(preview) or nil
 			currentRotation = (currentRotation + 90) % 360
-			previewMotionToken += 1
-			applyPreviewCFrame()
-			if selectedLX ~= nil and selectedLZ ~= nil then
-				setPreviewBlocked(previewPlacementBlocked())
+			if preview and selectedLX ~= nil and selectedLZ ~= nil then
+				local targetCFrame = getSelectedCFrame()
+				if startCFrame and targetCFrame then
+					setPreviewBlockedAtCFrame(targetCFrame, startCFrame)
+					playPreviewRotationTween(startCFrame, targetCFrame)
+				else
+					beginPreviewMotion()
+					applyPreviewCFrame()
+					setPreviewBlocked(previewPlacementBlocked())
+					startPreviewIdle()
+				end
 			end
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
@@ -500,6 +655,7 @@ function FeedPlacement.start()
 			placing = false
 			setGridEffectEnabled(false)
 			setConfirmEnabled(false)
+			beginPreviewMotion()
 			PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf)
 		end)
 	end
@@ -521,6 +677,7 @@ function FeedPlacement.start()
 			setGridEffectEnabled(true)
 			if preview and selectedLX ~= nil and selectedLZ ~= nil then
 				setPreviewBlocked(previewPlacementBlocked())
+				startPreviewIdle()
 			else
 				currentPlacementBlocked = true
 				setConfirmEnabled(false)
@@ -549,7 +706,7 @@ function FeedPlacement.start()
 		setPlacementVisible(false)
 		setGridEffectEnabled(false)
 		setConfirmEnabled(false)
-		previewMotionToken += 1
+		beginPreviewMotion()
 		bouncingPreview = placedPreview
 		playPreviewBounce(placedPreview, placedCFrame, function()
 			if preview == placedPreview then
