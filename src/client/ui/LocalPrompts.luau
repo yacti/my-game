@@ -28,7 +28,8 @@ local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = 
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local DEFAULT_PROMPT_DISTANCE = 10
-local PET_FEED_PROMPT_DISTANCE = 12
+local PET_FEED_PROMPT_DISTANCE = 8
+local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
 local function findPlotByName(plotName)
 	if type(plotName) ~= "string" or plotName == "" then return nil end
@@ -180,10 +181,16 @@ local function processorContext(machine)
 	return false, "Take Food"
 end
 
+local function promptActivationDistance(kind)
+	if kind == "PetFeed" then return PET_FEED_PROMPT_DISTANCE end
+	if kind == "TreeGroundPickup" then return FOOD_PICKUP_PROMPT_DISTANCE end
+	return DEFAULT_PROMPT_DISTANCE
+end
+
 local function configurePrompt(prompt, kind)
 	prompt.Name = "__LocalPrompt_" .. kind
 	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = kind == "PetFeed" and PET_FEED_PROMPT_DISTANCE or DEFAULT_PROMPT_DISTANCE
+	prompt.MaxActivationDistance = promptActivationDistance(kind)
 	prompt.RequiresLineOfSight = false
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 	if kind == "FeedPickup" then

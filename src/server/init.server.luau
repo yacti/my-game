@@ -41,6 +41,8 @@ local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
 local PET_FEED_REACTION_SECONDS = 2
+local PET_FEED_PROMPT_DISTANCE = 8
+local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
 RebirthService.Start()
 MarketService.Start()
@@ -271,7 +273,7 @@ local function feedPet(plot, player, profile, pet)
 	local primary = pet.PrimaryPart
 	if not primary then return end
 	if player:GetAttribute("EditMode") == true then return end
-	if not isPlayerNearInstance(player, pet, 12) then return end
+	if not isPlayerNearInstance(player, pet, PET_FEED_PROMPT_DISTANCE) then return end
 
 	local idx = pet:GetAttribute(State.Pet.Index)
 	local petData = profile.Data.Pets[idx]
@@ -623,7 +625,7 @@ PromptInteract.OnServerEvent:Connect(function(player, action, target)
 				FeedMachines.HarvestPatchAnchor(target, player)
 			end
 		elseif action == Interactions.Actions.TreeGroundPickup then
-			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, FOOD_PICKUP_PROMPT_DISTANCE) then
 				FeedMachines.PickupTreeGround(target, player)
 			end
 		elseif action == Interactions.Actions.PlotSizeUpgrade then
