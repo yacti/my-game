@@ -11,6 +11,9 @@ local ANIMATOR_WAIT_SECONDS = 5
 local DEFAULT_WALK_SPEED = 8
 local FEED_REACTION_TILT_RADIANS = math.rad(15)
 local FEED_REACTION_TWEEN_SECONDS = 0.2
+local COLLECT_JUMP_HEIGHT = 2.25
+local COLLECT_JUMP_SECONDS = 0.58
+local COLLECT_JUMP_ROLL_RADIANS = math.rad(7)
 local TURN_TWEEN_SECONDS = 0.2
 local BOX_CORNER_SIGNS = { -1, 1 }
 
@@ -18,8 +21,8 @@ local PetAnimations = {}
 local attached = {}
 local cleanup
 
-local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll)
-	local localCF = CFrame.new(lx, floor.Size.Y / 2 + pivotFloorOffset, lz)
+local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll, yOffset)
+	local localCF = CFrame.new(lx, floor.Size.Y / 2 + pivotFloorOffset + (yOffset or 0), lz)
 		* CFrame.Angles(0, lry or 0, 0)
 		* CFrame.Angles(0, 0, roll or 0)
 	return floor.CFrame * localCF
@@ -160,6 +163,35 @@ local function feedReactionTargetRoll(pet)
 	return FEED_REACTION_TILT_RADIANS * math.clamp(direction, -1, 1)
 end
 
+local function collectJumpOffset(record)
+	local startClock = record.collectJumpStartClock
+	if not startClock then
+		return 0, 0
+	end
+
+	local alpha = math.clamp((os.clock() - startClock) / COLLECT_JUMP_SECONDS, 0, 1)
+	if alpha >= 1 then
+		record.collectJumpStartClock = nil
+		return 0, 0
+	end
+
+	local jumpAlpha
+	if alpha < 0.5 then
+		local upAlpha = alpha * 2
+		jumpAlpha = 1 - (1 - upAlpha) * (1 - upAlpha)
+	else
+		local downAlpha = (alpha - 0.5) * 2
+		jumpAlpha = (1 - downAlpha) * (1 - downAlpha)
+	end
+
+	local rollAlpha = math.sin(alpha * math.pi) * math.sin(alpha * math.pi * 2)
+	return COLLECT_JUMP_HEIGHT * jumpAlpha, COLLECT_JUMP_ROLL_RADIANS * rollAlpha
+end
+
+local function triggerCollectJump(record)
+	record.collectJumpStartClock = os.clock()
+end
+
 local function renderPet(record, dt)
 	local pet = record.pet
 	if not pet.Parent then
@@ -213,8 +245,17 @@ local function renderPet(record, dt)
 	if math.abs(record.roll - targetRoll) < 0.001 then
 		record.roll = targetRoll
 	end
+	local collectYOffset, collectRoll = collectJumpOffset(record)
 
-	pet:PivotTo(localToWorldOnFloorTop(floor, lx, lz, modelPivotFloorOffset(pet), lry, record.roll))
+	pet:PivotTo(localToWorldOnFloorTop(
+		floor,
+		lx,
+		lz,
+		modelPivotFloorOffset(pet),
+		lry,
+		record.roll + collectRoll,
+		collectYOffset
+	))
 end
 
 local function isPet(instance)
@@ -317,6 +358,8 @@ local function bindPet(pet)
 		animations = {},
 		current = nil,
 		roll = 0,
+		collectJumpStartClock = nil,
+		lastMoney = pet:GetAttribute(State.Pet.Money) or 0,
 		segment = nil,
 		visualLRY = nil,
 		turnStartLRY = nil,
@@ -362,6 +405,13 @@ local function bindPet(pet)
 		end)
 		record.connections[#record.connections + 1] = pet:GetAttributeChangedSignal(State.Pet.SegmentWalkSpeed):Connect(function()
 			updateWalkAnimationSpeed(record)
+		end)
+		record.connections[#record.connections + 1] = pet:GetAttributeChangedSignal(State.Pet.Money):Connect(function()
+			local money = pet:GetAttribute(State.Pet.Money) or 0
+			if record.lastMoney >= 1 and money < 1 then
+				triggerCollectJump(record)
+			end
+			record.lastMoney = money
 		end)
 		record.connections[#record.connections + 1] = pet.Destroying:Connect(function()
 			cleanup(pet)
