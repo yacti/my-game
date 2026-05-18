@@ -9,7 +9,7 @@ local FLOOR_Y_OFFSET = 0.03
 local EFFECTS = {
 	{
 		Name = "GridEffect",
-		VisibleTransparency = 0.3,
+		VisibleTransparency = 0.8,
 		HiddenTransparency = 1,
 		VisualVisibleTransparency = 0.6,
 		MatchFloor = true,
