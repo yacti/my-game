@@ -23,42 +23,6 @@ local function findDescendant(root, name, className)
 	return nil
 end
 
-local function setTextStack(root, text)
-	if not root then
-		return
-	end
-	if root:IsA("TextLabel") or root:IsA("TextButton") then
-		root.Text = text
-	end
-	for _, descendant in ipairs(root:GetDescendants()) do
-		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
-			descendant.Text = text
-		end
-	end
-end
-
-local function setButtonEnabled(button, enabled)
-	if not button then
-		return
-	end
-	button.Active = enabled
-	button.AutoButtonColor = enabled
-	if button:IsA("ImageButton") then
-		button.ImageTransparency = enabled and 0 or 0.45
-	end
-	for _, descendant in ipairs(button:GetDescendants()) do
-		if descendant:IsA("TextLabel") then
-			descendant.TextTransparency = enabled and 0 or 0.35
-		elseif descendant:IsA("ImageLabel") then
-			descendant.ImageTransparency = enabled and 0 or 0.35
-		end
-	end
-end
-
-local function formatCurrency(amount)
-	return "$" .. tostring(math.floor(tonumber(amount) or 0))
-end
-
 local function rewardText(reward)
 	local amount = math.max(math.floor(tonumber(reward.amount) or 0), 0)
 	local prefix = amount > 1 and ("x" .. tostring(amount) .. " ") or ""
@@ -186,7 +150,7 @@ function RebirthController.start()
 			row.LayoutOrder = index
 			row.Visible = true
 			row:SetAttribute(GENERATED_REWARD_ATTR, true)
-			setTextStack(row, rewardText(reward))
+			UiEffects.SetTextStack(row, rewardText(reward))
 			row.Parent = rewardList
 		end
 	end
@@ -198,25 +162,25 @@ function RebirthController.start()
 		skipProductId = tonumber(state.skipProductId)
 
 		if state.maxTier == true then
-			setTextStack(tierLabel, "Max Rebirth")
-			setTextStack(priceLabel, "Max")
-			setTextStack(cashLabel, formatCurrency(currentCurrency))
+			UiEffects.SetTextStack(tierLabel, "Max Rebirth")
+			UiEffects.SetTextStack(priceLabel, "Max")
+			UiEffects.SetTextStack(cashLabel, UiEffects.FormatCurrency(currentCurrency))
 			setProgress(1)
-			setButtonEnabled(rebirthButton, false)
-			setButtonEnabled(skipButton, false)
+			UiEffects.SetButtonEnabled(rebirthButton, false)
+			UiEffects.SetButtonEnabled(skipButton, false)
 			renderRewards({})
 			return
 		end
 
 		local nextTier = tonumber(state.nextTier) or 0
-		setTextStack(tierLabel, "Rebirth " .. tostring(nextTier))
-		setTextStack(priceLabel, formatCurrency(nextPrice))
-		setTextStack(cashLabel, formatCurrency(currentCurrency) .. " / " .. formatCurrency(nextPrice))
+		UiEffects.SetTextStack(tierLabel, "Rebirth " .. tostring(nextTier))
+		UiEffects.SetTextStack(priceLabel, UiEffects.FormatCurrency(nextPrice))
+		UiEffects.SetTextStack(cashLabel, UiEffects.FormatCurrency(currentCurrency) .. " / " .. UiEffects.FormatCurrency(nextPrice))
 		setProgress(nextPrice > 0 and currentCurrency / nextPrice or 0)
 
 		local canRebirth = state.profileReady == true and nextPrice > 0 and currentCurrency >= nextPrice and not pendingRequest
-		setButtonEnabled(rebirthButton, canRebirth)
-		setButtonEnabled(skipButton, state.profileReady == true and type(skipProductId) == "number" and skipProductId > 0 and not pendingRequest)
+		UiEffects.SetButtonEnabled(rebirthButton, canRebirth)
+		UiEffects.SetButtonEnabled(skipButton, state.profileReady == true and type(skipProductId) == "number" and skipProductId > 0 and not pendingRequest)
 		renderRewards(state.rewards)
 	end
 

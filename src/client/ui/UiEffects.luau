@@ -27,14 +27,8 @@ local function scaleUDim2(value, scale)
 	)
 end
 
-local function findOrCreateScale(guiObject)
-	local uiScale = guiObject:FindFirstChildOfClass("UIScale")
-	if not uiScale then
-		uiScale = Instance.new("UIScale")
-		uiScale.Scale = 1
-		uiScale.Parent = guiObject
-	end
-	return uiScale
+local function findScale(guiObject)
+	return guiObject:FindFirstChildOfClass("UIScale")
 end
 
 local function tween(instance, tweenInfo, props)
@@ -80,7 +74,7 @@ function UiEffects.BindButton(button)
 
 	local colorProp, baseColor = buttonColorTarget(button)
 	local hoverColor = darken(baseColor, 0.72)
-	local uiScale = findOrCreateScale(button)
+	local uiScale = findScale(button)
 	local hovering = false
 	local pressing = false
 
@@ -101,9 +95,11 @@ function UiEffects.BindButton(button)
 			active = false
 		end
 		pressing = active
-		tween(uiScale, PRESS_TWEEN, {
-			Scale = active and 0.92 or 1,
-		})
+		if uiScale then
+			tween(uiScale, PRESS_TWEEN, {
+				Scale = active and 0.92 or 1,
+			})
+		end
 	end
 
 	local function releasePress()
@@ -142,15 +138,40 @@ function UiEffects.BindButton(button)
 	end)
 end
 
-function UiEffects.BindButtons(root)
+function UiEffects.SetTextStack(root, text)
 	if not root then
 		return
 	end
+	if root:IsA("TextLabel") or root:IsA("TextButton") then
+		root.Text = text
+	end
 	for _, descendant in ipairs(root:GetDescendants()) do
-		if descendant:IsA("GuiButton") then
-			UiEffects.BindButton(descendant)
+		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
+			descendant.Text = text
 		end
 	end
+end
+
+function UiEffects.SetButtonEnabled(button, enabled)
+	if not button then
+		return
+	end
+	button.Active = enabled
+	button.AutoButtonColor = enabled
+	if button:IsA("ImageButton") then
+		button.ImageTransparency = enabled and 0 or 0.45
+	end
+	for _, descendant in ipairs(button:GetDescendants()) do
+		if descendant:IsA("TextLabel") then
+			descendant.TextTransparency = enabled and 0 or 0.35
+		elseif descendant:IsA("ImageLabel") then
+			descendant.ImageTransparency = enabled and 0 or 0.35
+		end
+	end
+end
+
+function UiEffects.FormatCurrency(amount)
+	return "$" .. tostring(math.floor(tonumber(amount) or 0))
 end
 
 function UiEffects.PreparePanel(panel)

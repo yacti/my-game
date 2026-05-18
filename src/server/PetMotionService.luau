@@ -284,9 +284,17 @@ function PetMotionService.RefreshPet(pet)
 	local floor = floorForState(state)
 	if not floor then return end
 
-	local lx, lz, lry = currentFloorLocal(state, floor)
+	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
 	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
-	state.startTime = nil
+	state.feedIdleUntil = nil
+	state.startLX = lx
+	state.startLZ = lz
+	state.startLRY = lry
+	state.targetLX = lx
+	state.targetLZ = lz
+	state.targetLRY = lry
+	state.startTime = workspace:GetServerTimeNow()
+	state.duration = 0
 	beginWalk(state)
 end
 
@@ -365,10 +373,6 @@ end
 
 function PetMotionService.GetLogicalPosition(pet)
 	return PetMotionService.GetLogicalPivot(pet).Position
-end
-
-function PetMotionService.Unregister(pet)
-	unregister(pet)
 end
 
 function PetMotionService.UnregisterPlot(plot)

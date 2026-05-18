@@ -1,6 +1,6 @@
 -- Feed machine placement HUD + preview. Prefers a ScreenGui template at
 -- ReplicatedStorage.UI.FeedPlacementGui (editable in Studio) with a descendant
--- TextButton named "ConfirmButton"; falls back to a code-built HUD otherwise.
+-- TextButton named "ConfirmButton".
 
 local Players           = game:GetService("Players")
 local TweenService      = game:GetService("TweenService")
@@ -181,11 +181,11 @@ local function playPreviewBounce(preview, baseCFrame, onComplete)
 	upTween:Play()
 end
 
-local function findConfirmButton(gui)
+local function findConfirmButton(gui, shouldWarn)
 	local named = gui:FindFirstChild("ConfirmButton", true)
 	if named and named:IsA("TextButton") then return named end
-	for _, d in ipairs(gui:GetDescendants()) do
-		if d:IsA("TextButton") then return d end
+	if shouldWarn then
+		warn(string.format("[FeedPlacement] %s missing ConfirmButton TextButton", gui:GetFullName()))
 	end
 	return nil
 end
@@ -198,41 +198,8 @@ local function cloneTemplate()
 		clone.Enabled = false
 		return clone
 	end
+	warn("[FeedPlacement] Missing ReplicatedStorage.UI.FeedPlacementGui ScreenGui")
 	return nil
-end
-
-local function buildFallbackGui()
-	local gui = Instance.new("ScreenGui")
-	gui.Name         = "FeedPlacementGui"
-	gui.ResetOnSpawn = false
-	gui.Enabled      = false
-
-	local confirmBtn = Instance.new("TextButton")
-	confirmBtn.Name             = "ConfirmButton"
-	confirmBtn.Size             = UDim2.new(0, 200, 0, 55)
-	confirmBtn.Position         = UDim2.new(0.5, -100, 1, -80)
-	confirmBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-	confirmBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
-	confirmBtn.Text             = "Place Feed Machine"
-	confirmBtn.Font             = Enum.Font.GothamBold
-	confirmBtn.TextScaled       = true
-	confirmBtn.BorderSizePixel  = 0
-	confirmBtn.Parent           = gui
-	Instance.new("UICorner", confirmBtn).CornerRadius = UDim.new(0, 8)
-
-	local hint = Instance.new("TextLabel")
-	hint.Name                     = "Hint"
-	hint.Size                     = UDim2.new(0, 200, 0, 30)
-	hint.Position                 = UDim2.new(0.5, -100, 1, -115)
-	hint.BackgroundTransparency   = 1
-	hint.Text                     = "[R] Rotate  •  Confirm to place"
-	hint.Font                     = Enum.Font.Gotham
-	hint.TextColor3               = Color3.fromRGB(255, 255, 255)
-	hint.TextSize                 = 14
-	hint.TextStrokeTransparency   = 0
-	hint.Parent                   = gui
-
-	return gui
 end
 
 function FeedPlacement.start()
@@ -242,11 +209,13 @@ function FeedPlacement.start()
 	local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
 
 	local gui = PlayerGui:FindFirstChild("HUD")
-	if not (gui and gui:IsA("ScreenGui") and findConfirmButton(gui)) then
-		gui = cloneTemplate() or buildFallbackGui()
+	if not (gui and gui:IsA("ScreenGui") and findConfirmButton(gui, false)) then
+		gui = cloneTemplate()
+		if not gui then return end
 		gui.Parent = PlayerGui
 	end
-	local confirmBtn = findConfirmButton(gui)
+	local confirmBtn = findConfirmButton(gui, true)
+	if not confirmBtn then return end
 	local placementControls = gui:FindFirstChild("PlacementControls", true)
 	local confirmDefaults = confirmBtn and {
 		Active = confirmBtn.Active,

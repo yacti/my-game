@@ -9,7 +9,7 @@ add game UI backups or Rojo mappings under `src/ui`.
 
 These live under `ReplicatedStorage` and are required by server/client code:
 
-- `Pets`
+- `PetModels`
 - `FeedMachines`
 - `Food`
 - `UI`
@@ -29,7 +29,7 @@ Recommended layout:
 ```text
 asset-backups/
   YYYY-MM-DD-before-description/
-    Pets.rbxm
+    PetModels.rbxm
     FeedMachines.rbxm
     Food.rbxm
     FeedMachineTool.rbxm
@@ -48,7 +48,7 @@ Move non-UI assets into Rojo/source ownership in small, tested commits:
 
 1. `ReplicatedStorage.FeedMachineTool`
 2. `ReplicatedStorage.EditTool`
-3. `ReplicatedStorage.Pets`
+3. `ReplicatedStorage.PetModels`
 4. `ReplicatedStorage.FeedMachines`
 5. `ReplicatedStorage.Food`
 
@@ -59,5 +59,6 @@ Avoid migrating everything at once. Complex models can break if pivots,
 
 `src/server/AssetValidator.luau` checks required asset roots, templates,
 attributes, remotes, tools, UI templates, and plot structure at server startup.
-If Studio state drifts from what the code expects, the game should fail loudly
-instead of partially booting.
+Critical gameplay assets still fail startup when they are missing or malformed.
+Studio-owned UI assets warn clearly and the affected UI path skips itself; the
+code should not generate fallback UI.

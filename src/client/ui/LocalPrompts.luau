@@ -27,9 +27,13 @@ local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
+local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
+local DEFAULT_PROMPT_TEMPLATE_NAME = "LocalPrompt"
 local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
+local warnedInvalidPromptTemplates = {}
+local warnedMissingPromptTemplates = {}
 
 local function findPlotByName(plotName)
 	if type(plotName) ~= "string" or plotName == "" then return nil end
@@ -201,6 +205,41 @@ local function configurePrompt(prompt, kind)
 	end
 end
 
+local function promptTemplateFor(kind)
+	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
+	local promptTemplates = uiFolder and uiFolder:FindFirstChild(PROMPT_TEMPLATE_FOLDER_NAME)
+	local specificTemplate = promptTemplates and promptTemplates:FindFirstChild(kind)
+	if specificTemplate then
+		if specificTemplate:IsA("ProximityPrompt") then
+			return specificTemplate
+		end
+		if not warnedInvalidPromptTemplates[kind] then
+			warn(string.format("[LocalPrompts] %s is %s, expected ProximityPrompt", specificTemplate:GetFullName(), specificTemplate.ClassName))
+			warnedInvalidPromptTemplates[kind] = true
+		end
+	end
+
+	local defaultTemplate = uiFolder and uiFolder:FindFirstChild(DEFAULT_PROMPT_TEMPLATE_NAME)
+	if defaultTemplate and defaultTemplate:IsA("ProximityPrompt") then
+		return defaultTemplate
+	end
+	if not warnedMissingPromptTemplates[kind] then
+		warn(string.format(
+			"[LocalPrompts] Missing ReplicatedStorage.UI.%s.%s or ReplicatedStorage.UI.%s ProximityPrompt",
+			PROMPT_TEMPLATE_FOLDER_NAME,
+			kind,
+			DEFAULT_PROMPT_TEMPLATE_NAME
+		))
+		warnedMissingPromptTemplates[kind] = true
+	end
+	return nil
+end
+
+local function clonePrompt(kind)
+	local template = promptTemplateFor(kind)
+	return template and template:Clone() or nil
+end
+
 local function removePrompt(target, kind)
 	local pendingBucket = pendingPromptParents[target]
 	local pendingConnections = pendingBucket and pendingBucket[kind]
@@ -273,7 +312,8 @@ addPrompt = function(target, kind, action)
 	byTarget[target] = byTarget[target] or {}
 	if byTarget[target][kind] then return end
 
-	local prompt = Instance.new("ProximityPrompt")
+	local prompt = clonePrompt(kind)
+	if not prompt then return end
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
 	prompt.Triggered:Connect(function()

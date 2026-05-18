@@ -23,15 +23,17 @@ local SHAKE_DURATION     = 0.25
 local SHAKE_ANGLE        = math.rad(5)
 local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
+local GROUND_XP_TEMPLATE_NAME = "TreeGroundXPBillboard"
 local GROUND_FOOD_RESCAN_DELAYS = { 0.25, 1, 3 }
-local XP_TEXT_COLOR      = Color3.fromRGB(255, 255, 255)
-local XP_GAIN_TEXT_COLOR = Color3.fromRGB(255, 236, 120)
+local XP_LABEL_NAME      = "XPLabel"
 
 local animated = {}
 local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
 local shakeIds = {}
+local warnedMissingGroundXPTemplate = false
+local warnedMissingGroundXPLabel = false
 
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
@@ -160,6 +162,31 @@ local function adorneeFor(food)
 	return nil
 end
 
+local function cloneGroundXPTemplate()
+	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
+	local template = uiFolder and uiFolder:FindFirstChild(GROUND_XP_TEMPLATE_NAME)
+	if not (template and template:IsA("BillboardGui")) then
+		if not warnedMissingGroundXPTemplate then
+			warn("[AppleTreeSlotVisuals] Missing ReplicatedStorage.UI.TreeGroundXPBillboard BillboardGui")
+			warnedMissingGroundXPTemplate = true
+		end
+		return nil
+	end
+	return template:Clone()
+end
+
+local function findXPLabel(gui)
+	local label = gui:FindFirstChild(XP_LABEL_NAME, true)
+	if label and label:IsA("TextLabel") then
+		return label
+	end
+	if not warnedMissingGroundXPLabel then
+		warn("[AppleTreeSlotVisuals] TreeGroundXPBillboard missing XPLabel TextLabel")
+		warnedMissingGroundXPLabel = true
+	end
+	return nil
+end
+
 local function foodIdFor(food)
 	local foodId = food:GetAttribute(State.Food.Id)
 	if type(foodId) == "string" and foodId ~= "" then return foodId end
@@ -186,6 +213,11 @@ local function currentXPFor(food)
 	return tonumber(food:GetAttribute(State.Food.XP)) or 0
 end
 
+local function gainTextColorFor(label)
+	local color = label:GetAttribute("GainTextColor")
+	return typeof(color) == "Color3" and color or label.TextColor3
+end
+
 local function renderXPText(food, label, xpOverride)
 	local xp = roundedXP(xpOverride or currentXPFor(food))
 	local maxXP = maxXPFor(foodIdFor(food))
@@ -210,7 +242,7 @@ local function animateXPText(food, record)
 
 	if targetXP <= startXP then
 		record.displayedXP = targetXP
-		record.label.TextColor3 = XP_TEXT_COLOR
+		record.label.TextColor3 = record.baseTextColor
 		renderXPText(food, record.label, targetXP)
 		return
 	end
@@ -218,7 +250,7 @@ local function animateXPText(food, record)
 	local value = Instance.new("NumberValue")
 	value.Value = startXP
 	record.counterValue = value
-	record.label.TextColor3 = XP_GAIN_TEXT_COLOR
+	record.label.TextColor3 = record.gainTextColor
 
 	value.Changed:Connect(function(nextValue)
 		record.displayedXP = nextValue
@@ -235,7 +267,7 @@ local function animateXPText(food, record)
 		renderXPText(food, record.label, targetXP)
 		value:Destroy()
 		TweenService:Create(record.label, TweenInfo.new(0.15), {
-			TextColor3 = XP_TEXT_COLOR,
+			TextColor3 = record.baseTextColor,
 		}):Play()
 	end)
 	tween:Play()
@@ -256,28 +288,23 @@ local function attachXPBillboard(food)
 	local adornee = adorneeFor(food)
 	if not adornee then return false end
 
-	local gui = Instance.new("BillboardGui")
-	gui.Name        = "XPBillboard"
-	gui.Adornee     = adornee
-	gui.Size        = UDim2.new(0, 80, 0, 24)
-	gui.StudsOffset = Vector3.new(0, 4, 0)
-	gui.AlwaysOnTop = true
+	local gui = cloneGroundXPTemplate()
+	if not gui then return false end
+	local label = findXPLabel(gui)
+	if not label then
+		gui:Destroy()
+		return false
+	end
+	gui.Name = "XPBillboard"
+	gui.Adornee = adornee
 	gui.MaxDistance = BILLBOARD_RANGE
-
-	local label = Instance.new("TextLabel")
-	label.Size                   = UDim2.fromScale(1, 1)
-	label.BackgroundColor3       = Color3.fromRGB(30, 30, 30)
-	label.BackgroundTransparency = 0.2
-	label.TextColor3             = XP_TEXT_COLOR
-	label.Font                   = Enum.Font.GothamBold
-	label.TextScaled             = true
-	label.Parent                 = gui
-	Instance.new("UICorner", label).CornerRadius = UDim.new(0, 6)
 
 	local record = {
 		gui = gui,
 		conns = {},
 		label = label,
+		baseTextColor = label.TextColor3,
+		gainTextColor = gainTextColorFor(label),
 		displayedXP = currentXPFor(food),
 		counterTween = nil,
 		counterValue = nil,

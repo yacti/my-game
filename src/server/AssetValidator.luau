@@ -19,7 +19,6 @@ local REQUIRED_ROOTS = {
 	"PetModels",
 	"FeedMachines",
 	"Food",
-	"UI",
 	"FeedMachineTool",
 	"EditTool",
 	"Remotes",
@@ -35,15 +34,18 @@ local REQUIRED_FEEDS = {
 	"PumpkinPatch",
 }
 
-local REQUIRED_UI = {
-	"HUD",
-	"PetMoneyBillboard",
-	"PetXPBillboard",
-}
-
 local REQUIRED_TOOLS = {
 	"FeedMachineTool",
 	"EditTool",
+}
+
+local PROMPT_TEMPLATE_KINDS = {
+	"PetFeed",
+	"FeedPickup",
+	"FeedMachine",
+	"PatchHarvest",
+	"TreeGroundPickup",
+	"PlotSizeUpgrade",
 }
 
 local function add(errors, message)
@@ -300,6 +302,55 @@ local function validateRebirthUi(errors)
 	end
 end
 
+local function validateBillboardTemplate(ui, name, labelName, errors)
+	local billboard = child(ui, name, "BillboardGui", errors)
+	if billboard and labelName then
+		descendant(billboard, labelName, "TextLabel", errors)
+	end
+	return billboard
+end
+
+local function validatePromptTemplates(ui, errors)
+	local generic = ui:FindFirstChild("LocalPrompt")
+	if generic then
+		if not generic:IsA("ProximityPrompt") then
+			add(errors, string.format("%s is %s, expected ProximityPrompt", generic:GetFullName(), generic.ClassName))
+		end
+	else
+		local templates = child(ui, "PromptTemplates", "Folder", errors)
+		if not templates then return end
+
+		for _, kind in ipairs(PROMPT_TEMPLATE_KINDS) do
+			child(templates, kind, "ProximityPrompt", errors)
+		end
+	end
+end
+
+local function validateHudCurrency(hud, errors)
+	local currency = hud:FindFirstChild("Currency")
+	local amount = currency and currency:FindFirstChild("Amount")
+	if amount and amount:IsA("TextLabel") then return end
+	if descendant(hud, "CurrencyLabel", "TextLabel", {}) then return end
+	add(errors, string.format("Missing %s.Currency.Amount or descendant CurrencyLabel TextLabel", hud:GetFullName()))
+end
+
+local function hasPlacementControls(root)
+	local controls = root and root:FindFirstChild("PlacementControls", true)
+	local confirm = controls and controls:FindFirstChild("ConfirmButton", true)
+	return confirm and confirm:IsA("TextButton")
+end
+
+local function validatePlacementControls(ui, hud, errors)
+	if hasPlacementControls(hud) then
+		return
+	end
+
+	local placement = child(ui, "FeedPlacementGui", "ScreenGui", errors)
+	if placement then
+		descendant(placement, "ConfirmButton", "TextButton", errors)
+	end
+end
+
 local function validateRebirthBalance(errors)
 	local seenProducts = {}
 	local tiers = RebirthBalance.Tiers
@@ -483,12 +534,10 @@ end
 local function validateUi(errors)
 	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
 	if not ui then return end
-	for _, name in ipairs(REQUIRED_UI) do
-		child(ui, name, nil, errors)
-	end
 
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
+		validateHudCurrency(hud, errors)
 		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
@@ -496,6 +545,22 @@ local function validateUi(errors)
 			child(notifications, "UIListLayout", "UIListLayout", errors)
 		end
 	end
+
+	validateBillboardTemplate(ui, "PetMoneyBillboard", "MoneyLabel", errors)
+	local petXP = validateBillboardTemplate(ui, "PetXPBillboard", nil, errors)
+	if petXP then
+		local background = child(petXP, "Background", "GuiObject", errors)
+		if background then
+			child(background, "Fill", "GuiObject", errors)
+		end
+	end
+	validateBillboardTemplate(ui, "ToolStatsBillboard", "StatsLabel", errors)
+	validateBillboardTemplate(ui, "SlotXPBillboard", "XPLabel", errors)
+	validateBillboardTemplate(ui, "TreeGroundXPBillboard", "XPLabel", errors)
+
+	validatePlacementControls(ui, hud, errors)
+
+	validatePromptTemplates(ui, errors)
 end
 
 local function validateRemotes(errors)
@@ -547,6 +612,7 @@ end
 
 function AssetValidator.validate()
 	local errors = {}
+	local warnings = {}
 
 	for _, name in ipairs(REQUIRED_ROOTS) do
 		child(ReplicatedStorage, name, nil, errors)
@@ -560,12 +626,15 @@ function AssetValidator.validate()
 	validateFeedTemplates(errors)
 	validateRebirthBalance(errors)
 	validateFoodTemplates(errors)
-	validateUi(errors)
-	validateMarketUi(errors)
-	validateRebirthUi(errors)
+	validateUi(warnings)
+	validateMarketUi(warnings)
+	validateRebirthUi(warnings)
 	validatePlots(errors)
 	validateMarketPart(errors)
 
+	if #warnings > 0 then
+		warn("[AssetValidator] Studio UI asset warnings:\n- " .. table.concat(warnings, "\n- "))
+	end
 	if #errors > 0 then
 		error("[AssetValidator] Startup asset validation failed:\n- " .. table.concat(errors, "\n- "))
 	end

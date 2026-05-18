@@ -49,8 +49,6 @@ local function ensureListLayout(guiContainer)
 end
 
 local function applyItemStyle(label, payload)
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.FredokaOne
 	label.Text = payload.text
 	label.TextColor3 = NotificationConfig.TextColors[payload.kind] or NotificationConfig.TextColors[NotificationConfig.Kinds.Info]
 	label.TextTransparency = 1
@@ -147,8 +145,6 @@ function Notifications.start()
 	template = findItemTemplate(container)
 	if not template then return end
 	template.Visible = false
-	template.BackgroundTransparency = 1
-	template.Font = Enum.Font.FredokaOne
 	if not ensureListLayout(container) then return end
 	template.Parent = nil
 

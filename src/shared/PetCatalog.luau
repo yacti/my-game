@@ -82,28 +82,12 @@ function PetCatalog.GetDefinition(petId)
 	return nil
 end
 
-function PetCatalog.MustGetDefinition(petId)
-	local definition = PetCatalog.GetDefinition(petId)
-	if not definition then
-		error("Unknown pet id: " .. tostring(petId))
-	end
-	return definition
-end
-
 function PetCatalog.AllPetIds()
 	local petIds = {}
 	for _, definition in ipairs(allDefinitions()) do
 		petIds[#petIds + 1] = definition.Id
 	end
 	return petIds
-end
-
-function PetCatalog.AllVisualNames()
-	local names = {}
-	for _, definition in ipairs(allDefinitions()) do
-		names[#names + 1] = definition.Visual.ModelName
-	end
-	return names
 end
 
 function PetCatalog.VisualForPetId(petId)
@@ -115,11 +99,6 @@ function PetCatalog.WalkSpeedForPetId(petId)
 	local definition = PetCatalog.GetDefinition(petId)
 	local walkSpeed = definition and definition.WalkSpeed
 	return type(walkSpeed) == "number" and walkSpeed > 0 and walkSpeed or 7
-end
-
-function PetCatalog.OrderForPetId(petId)
-	local definition = PetCatalog.GetDefinition(petId)
-	return definition and definition.Order or nil
 end
 
 function PetCatalog.MaxXPForPetId(petId)

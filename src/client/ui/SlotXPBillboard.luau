@@ -22,11 +22,40 @@ local Food = require(Shared:WaitForChild("Food"))
 local State = require(Shared:WaitForChild("State"))
 
 local RANGE = 10
+local SLOT_XP_TEMPLATE_NAME = "SlotXPBillboard"
+local XP_LABEL_NAME = "XPLabel"
 
 local player    = Players.LocalPlayer
 local tracked   = {}  -- [food] = gui
 
 local SlotXPBillboard = {}
+local warnedMissingTemplate = false
+local warnedMissingLabel = false
+
+local function cloneTemplate()
+	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
+	local template = uiFolder and uiFolder:FindFirstChild(SLOT_XP_TEMPLATE_NAME)
+	if not (template and template:IsA("BillboardGui")) then
+		if not warnedMissingTemplate then
+			warn("[SlotXPBillboard] Missing ReplicatedStorage.UI.SlotXPBillboard BillboardGui")
+			warnedMissingTemplate = true
+		end
+		return nil
+	end
+	return template:Clone()
+end
+
+local function findXPLabel(gui)
+	local label = gui:FindFirstChild(XP_LABEL_NAME, true)
+	if label and label:IsA("TextLabel") then
+		return label
+	end
+	if not warnedMissingLabel then
+		warn("[SlotXPBillboard] SlotXPBillboard missing XPLabel TextLabel")
+		warnedMissingLabel = true
+	end
+	return nil
+end
 
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -73,25 +102,17 @@ local function build(food)
 	local adornee = adorneeFor(food)
 	if not adornee then return end
 
-	local gui = Instance.new("BillboardGui")
-	gui.Name        = "XPBillboard"
-	gui.Adornee     = adornee
-	gui.Size        = UDim2.new(0, 80, 0, 24)
-	-- Fixed offset that clears the food at max scale (1.5x) without
-	-- needing to update each frame as the model grows.
-	gui.StudsOffset = Vector3.new(0, 4, 0)
-	gui.AlwaysOnTop = true
-	gui.Enabled     = false  -- gated by Heartbeat below
+	local gui = cloneTemplate()
+	if not gui then return end
+	local label = findXPLabel(gui)
+	if not label then
+		gui:Destroy()
+		return
+	end
 
-	local label = Instance.new("TextLabel")
-	label.Size                   = UDim2.fromScale(1, 1)
-	label.BackgroundColor3       = Color3.fromRGB(30, 30, 30)
-	label.BackgroundTransparency = 0.2
-	label.TextColor3             = Color3.fromRGB(255, 255, 255)
-	label.Font                   = Enum.Font.GothamBold
-	label.TextScaled             = true
-	label.Parent                 = gui
-	Instance.new("UICorner", label).CornerRadius = UDim.new(0, 6)
+	gui.Name = "XPBillboard"
+	gui.Adornee = adornee
+	gui.Enabled = false  -- gated by Heartbeat below
 
 	local function render()
 		local xp       = food:GetAttribute("XP") or 0

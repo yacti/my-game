@@ -8,9 +8,9 @@ Run this checklist before publishing a live build.
 - Rojo is connected and fully synced.
 - `ReplicatedStorage.Remotes` exists exactly once and contains every remote
   declared in `default.project.json`.
-- `ReplicatedStorage.Pets` templates contain no baked `ProximityPrompt`s.
+- `ReplicatedStorage.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
-  `Pets`, `FeedMachines`, `Food`, `UI`, `FeedMachineTool`, and `EditTool`.
+  `PetModels`, `FeedMachines`, `Food`, `UI`, `FeedMachineTool`, and `EditTool`.
 - Risky Studio/MCP asset edits have a matching `.rbxm` or `.rbxmx` checkpoint
   under `asset-backups/`.
 
@@ -36,4 +36,6 @@ Run this checklist before publishing a live build.
 - Join a clean session and confirm no infinite-yield warnings.
 - Confirm no missing template warnings for feed machines or food.
 - Confirm no duplicate feed type warnings.
+- Confirm any missing `ReplicatedStorage.UI` warnings are intentional; missing UI
+  should skip the affected UI path and should never create fallback UI.
 - Confirm local prompts show correct per-player context.

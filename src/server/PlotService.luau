@@ -229,10 +229,6 @@ local function disableFloorReferences(plot)
 	end
 end
 
-function PlotService.GetPlots()
-	return plots
-end
-
 function PlotService.AssignPlot(player)
 	for i, plot in ipairs(plots) do
 		if not plotOwners[i] then

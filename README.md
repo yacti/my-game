@@ -20,3 +20,5 @@ For more help, check out [the Rojo documentation](https://rojo.space/docs).
 
 - Asset workflow and backup guidance: `docs/asset-workflow.md`
 - Pre-publish checklist: `docs/publish-checklist.md`
+- Tooling follow-up: add StyLua, Selene, or Luau analysis when the repo adopts a
+  standard Luau toolchain.

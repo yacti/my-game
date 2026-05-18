@@ -36,40 +36,6 @@ local function directChild(parent, name, className)
 	return child
 end
 
-local function setTextStack(root, text)
-	if not root then
-		return
-	end
-	if root:IsA("TextLabel") or root:IsA("TextButton") then
-		root.Text = text
-	end
-	for _, descendant in ipairs(root:GetDescendants()) do
-		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
-			descendant.Text = text
-		end
-	end
-end
-
-local function setButtonEnabled(button, enabled)
-	if not button then
-		return
-	end
-	button.Active = enabled
-	button.AutoButtonColor = enabled
-	button.ImageTransparency = enabled and 0 or 0.45
-	for _, descendant in ipairs(button:GetDescendants()) do
-		if descendant:IsA("TextLabel") then
-			descendant.TextTransparency = enabled and 0 or 0.35
-		elseif descendant:IsA("ImageLabel") then
-			descendant.ImageTransparency = enabled and 0 or 0.35
-		end
-	end
-end
-
-local function formatCurrency(amount)
-	return "$" .. tostring(math.floor(tonumber(amount) or 0))
-end
-
 local function formatCountdown(seconds)
 	seconds = math.max(math.floor(seconds or 0), 0)
 	local minutes = math.floor(seconds / 60)
@@ -217,7 +183,7 @@ function MarketController.start()
 	local panelState = UiEffects.PreparePanel(market)
 	UiEffects.BindButton(closeButton)
 	UiEffects.BindButton(restockButton)
-	setButtonEnabled(restockButton, true)
+	UiEffects.SetButtonEnabled(restockButton, true)
 
 	local MarketStateRequest = Remotes.get(Remotes.Names.MarketStateRequest)
 	local MarketStateUpdated = Remotes.get(Remotes.Names.MarketStateUpdated)
@@ -276,13 +242,13 @@ function MarketController.start()
 		local cashBtn = directChild(directChild(card, "BuyBtns", "Frame"), "CashBtn", "ImageButton")
 		local robuxBtn = directChild(directChild(card, "BuyBtns", "Frame"), "RobuxBtn", "ImageButton")
 
-		setTextStack(directChild(card, "ItemName", "TextLabel"), item.displayName or item.feedType)
-		setTextStack(directChild(card, "Stock", "TextLabel"), "Stock: " .. tostring(remaining))
+		UiEffects.SetTextStack(directChild(card, "ItemName", "TextLabel"), item.displayName or item.feedType)
+		UiEffects.SetTextStack(directChild(card, "Stock", "TextLabel"), "Stock: " .. tostring(remaining))
 
 		if cashBtn then
-			setTextStack(directChild(cashBtn, "PriceLabel", "TextLabel"), formatCurrency(item.price))
+			UiEffects.SetTextStack(directChild(cashBtn, "PriceLabel", "TextLabel"), UiEffects.FormatCurrency(item.price))
 			local canBuy = remaining > 0 and currentCurrency >= (item.price or 0) and not isPurchasePending(item.feedType)
-			setButtonEnabled(cashBtn, canBuy)
+			UiEffects.SetButtonEnabled(cashBtn, canBuy)
 		end
 
 		if robuxBtn then
@@ -291,8 +257,8 @@ function MarketController.start()
 			if hasRobuxProduct then
 				robuxText = type(item.robuxPrice) == "number" and ("R$" .. tostring(item.robuxPrice)) or "Robux"
 			end
-			setTextStack(directChild(robuxBtn, "PriceLabel", "TextLabel"), robuxText)
-			setButtonEnabled(robuxBtn, hasRobuxProduct)
+			UiEffects.SetTextStack(directChild(robuxBtn, "PriceLabel", "TextLabel"), robuxText)
+			UiEffects.SetButtonEnabled(robuxBtn, hasRobuxProduct)
 		end
 	end
 
@@ -440,7 +406,7 @@ function MarketController.start()
 	task.spawn(function()
 		while true do
 			local adjustedNow = os.time() + serverTimeOffset
-			setTextStack(restockTimer, formatCountdown(cycleEnd - adjustedNow))
+			UiEffects.SetTextStack(restockTimer, formatCountdown(cycleEnd - adjustedNow))
 			if isOpen and cycleEnd <= adjustedNow and os.clock() - lastStateRequest >= STATE_RETRY_SECONDS then
 				requestState()
 			end
