@@ -4,6 +4,7 @@ local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 
@@ -139,6 +140,7 @@ function FeedPlacementService.Start(config)
 
 			tool:Destroy()
 			FeedMachines.Setup(feedPart, plot, player)
+			PetMotionService.RefreshPlotRoutes(plot)
 			local profile = PlayerDataService.GetProfile(player)
 			if profile and type(snapshotProfileState) == "function" then
 				snapshotProfileState(player, plot, profile)

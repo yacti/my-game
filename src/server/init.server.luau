@@ -394,6 +394,7 @@ local function pickupFeed(feed, plot, player)
 	if not tool then return end
 	tool.Parent = player.Backpack
 	feed:Destroy()
+	PetMotionService.RefreshPlotRoutes(plot)
 end
 
 local function upgradePlotSize(target, plot, player, profile)

@@ -15,6 +15,7 @@ local COLLECT_JUMP_HEIGHT = 2.25
 local COLLECT_JUMP_SECONDS = 0.58
 local COLLECT_JUMP_ROLL_RADIANS = math.rad(7)
 local TURN_TWEEN_SECONDS = 0.2
+local CORNER_ROTATION_BLEND = 0.75
 local BOX_CORNER_SIGNS = { -1, 1 }
 
 local PetAnimations = {}
@@ -52,6 +53,15 @@ local function modelPivotFloorOffset(model)
 	return math.max(-lowestLocalY, 0)
 end
 
+local function cachedPivotFloorOffset(record)
+	local scale = record.pet:GetScale()
+	if record.pivotFloorOffset == nil or record.pivotFloorOffsetScale ~= scale then
+		record.pivotFloorOffset = modelPivotFloorOffset(record.pet)
+		record.pivotFloorOffsetScale = scale
+	end
+	return record.pivotFloorOffset
+end
+
 local function floorForPet(pet)
 	local plot = pet.Parent
 	local floor = plot and plot:FindFirstChild("Floor") or nil
@@ -74,7 +84,7 @@ local function readSegmentData(pet)
 		values[#values + 1] = tonumber(part)
 	end
 
-	if #values ~= 9 then
+	if #values ~= 9 and #values ~= 12 then
 		return nil
 	end
 	for _, value in ipairs(values) do
@@ -94,6 +104,9 @@ local function readSegmentData(pet)
 		targetLX = values[7],
 		targetLZ = values[8],
 		targetLRY = values[9],
+		nextLX = values[10] or segmentNumber(pet, State.Pet.SegmentNextLX),
+		nextLZ = values[11] or segmentNumber(pet, State.Pet.SegmentNextLZ),
+		cornerRadius = values[12] or segmentNumber(pet, State.Pet.SegmentCornerRadius) or 0,
 	}
 end
 
@@ -124,6 +137,9 @@ local function readLegacySegment(pet)
 		targetLX = targetLX,
 		targetLZ = targetLZ,
 		targetLRY = targetLRY,
+		nextLX = segmentNumber(pet, State.Pet.SegmentNextLX),
+		nextLZ = segmentNumber(pet, State.Pet.SegmentNextLZ),
+		cornerRadius = segmentNumber(pet, State.Pet.SegmentCornerRadius) or 0,
 	}
 end
 
@@ -133,6 +149,20 @@ end
 
 local function normalizeAngle(angle)
 	return math.atan2(math.sin(angle), math.cos(angle))
+end
+
+local function smoothstep(alpha)
+	alpha = math.clamp(alpha, 0, 1)
+	return alpha * alpha * (3 - 2 * alpha)
+end
+
+local function quadraticBezier(a, b, c, alpha)
+	local inverse = 1 - alpha
+	return a * inverse * inverse + b * 2 * inverse * alpha + c * alpha * alpha
+end
+
+local function lerpVector2(a, b, alpha)
+	return a + (b - a) * alpha
 end
 
 local function applySegment(record, segment)
@@ -188,6 +218,41 @@ local function collectJumpOffset(record)
 	return COLLECT_JUMP_HEIGHT * jumpAlpha, COLLECT_JUMP_ROLL_RADIANS * rollAlpha
 end
 
+local function curvedSegmentPosition(segment, alpha)
+	local start = Vector2.new(segment.startLX, segment.startLZ)
+	local target = Vector2.new(segment.targetLX, segment.targetLZ)
+	local base = lerpVector2(start, target, alpha)
+	local radius = segment.cornerRadius or 0
+	if radius <= 0 or type(segment.nextLX) ~= "number" or type(segment.nextLZ) ~= "number" then
+		return base.X, base.Y, nil
+	end
+
+	local incoming = target - start
+	local outgoing = Vector2.new(segment.nextLX, segment.nextLZ) - target
+	local incomingLength = incoming.Magnitude
+	local outgoingLength = outgoing.Magnitude
+	if incomingLength <= 0.001 or outgoingLength <= 0.001 then
+		return base.X, base.Y, nil
+	end
+
+	radius = math.min(radius, incomingLength * 0.35, outgoingLength * 0.35)
+	if radius <= 0.001 then
+		return base.X, base.Y, nil
+	end
+
+	local cornerStartAlpha = math.clamp(1 - radius / incomingLength, 0, 0.92)
+	if alpha <= cornerStartAlpha then
+		return base.X, base.Y, nil
+	end
+
+	local turnAlpha = smoothstep((alpha - cornerStartAlpha) / math.max(1 - cornerStartAlpha, 0.001))
+	local entry = lerpVector2(start, target, cornerStartAlpha)
+	local outgoingUnit = outgoing.Unit
+	local control = target - outgoingUnit * (radius * 0.5)
+	local curved = quadraticBezier(entry, control, target, turnAlpha)
+	return curved.X, curved.Y, turnAlpha
+end
+
 local function triggerCollectJump(record)
 	record.collectJumpStartClock = os.clock()
 end
@@ -231,11 +296,21 @@ local function renderPet(record, dt)
 
 	local turnElapsed = record.turnStartClock and (os.clock() - record.turnStartClock) or TURN_TWEEN_SECONDS
 	local turnAlpha = TURN_TWEEN_SECONDS > 0 and math.clamp(turnElapsed / TURN_TWEEN_SECONDS, 0, 1) or 1
-	local lx = segment.startLX + (segment.targetLX - segment.startLX) * alpha
-	local lz = segment.startLZ + (segment.targetLZ - segment.startLZ) * alpha
+	local lx, lz, cornerAlpha = curvedSegmentPosition(segment, alpha)
 	local turnStartLRY = record.turnStartLRY or segment.startLRY
 	local turnTargetLRY = record.turnTargetLRY or segment.targetLRY
 	local lry = normalizeAngle(turnStartLRY + shortestAngleDelta(turnStartLRY, turnTargetLRY) * turnAlpha)
+	if cornerAlpha and type(segment.nextLX) == "number" and type(segment.nextLZ) == "number" then
+		local nextDX = segment.nextLX - segment.targetLX
+		local nextDZ = segment.nextLZ - segment.targetLZ
+		if math.abs(nextDX) + math.abs(nextDZ) > 0.001 then
+			local nextLRY = math.atan2(-nextDX, -nextDZ)
+			local angleDelta = math.abs(shortestAngleDelta(lry, nextLRY))
+			local angleBlend = math.clamp(angleDelta / math.pi, 0, 1)
+			local blend = cornerAlpha * CORNER_ROTATION_BLEND * angleBlend
+			lry = normalizeAngle(lry + shortestAngleDelta(lry, nextLRY) * blend)
+		end
+	end
 	record.visualLRY = lry
 	local targetRoll = feedReactionTargetRoll(pet)
 	local rollAlpha = FEED_REACTION_TWEEN_SECONDS > 0
@@ -251,7 +326,7 @@ local function renderPet(record, dt)
 		floor,
 		lx,
 		lz,
-		modelPivotFloorOffset(pet),
+		cachedPivotFloorOffset(record),
 		lry,
 		record.roll + collectRoll,
 		collectYOffset
@@ -365,6 +440,8 @@ local function bindPet(pet)
 		turnStartLRY = nil,
 		turnTargetLRY = nil,
 		turnStartClock = nil,
+		pivotFloorOffset = nil,
+		pivotFloorOffsetScale = nil,
 	}
 	attached[pet] = record
 

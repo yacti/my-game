@@ -553,6 +553,34 @@ local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 	return nil, nil
 end
 
+local function floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+	local minX = math.huge
+	local maxX = -math.huge
+	local minZ = math.huge
+	local maxZ = -math.huge
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				minX = math.min(minX, floorCorner.X)
+				maxX = math.max(maxX, floorCorner.X)
+				minZ = math.min(minZ, floorCorner.Z)
+				maxZ = math.max(maxZ, floorCorner.Z)
+			end
+		end
+	end
+
+	if minX == math.huge then return nil end
+	return minX, maxX, minZ, maxZ
+end
+
 local function boundsFitOnFloor(floor, boundsCF, boundsSize)
 	local halfFloorX = floor.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
 	local halfFloorZ = floor.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
@@ -792,6 +820,43 @@ end
 
 function PlotService.PetFloorLocalBounds(floor, pet)
 	return petFloorLocalBounds(floor, pet)
+end
+
+function PlotService.PetFootprintPadding(floor, pet)
+	return petFootprintPadding(floor, pet)
+end
+
+function PlotService.GetNavigationObstacleBounds(plot)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return {} end
+
+	local obstacles = {}
+	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+		local boundsCF, boundsSize
+		if feed:IsA("BasePart") then
+			boundsCF, boundsSize = feed.CFrame, feed.Size
+		elseif feed:IsA("Model") then
+			local primary = feed.PrimaryPart
+			if primary then
+				boundsCF, boundsSize = primary.CFrame, primary.Size
+			end
+		end
+
+		if boundsCF and boundsSize then
+			local minX, maxX, minZ, maxZ = floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
+			if minX then
+				obstacles[#obstacles + 1] = {
+					instance = feed,
+					minX = minX,
+					maxX = maxX,
+					minZ = minZ,
+					maxZ = maxZ,
+				}
+			end
+		end
+	end
+
+	return obstacles
 end
 
 -- Exposed so PlaceFeedMachine can compute placement Y from the template alone.

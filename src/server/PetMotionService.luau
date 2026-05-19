@@ -11,19 +11,26 @@ local UPDATE_INTERVAL = 0.2
 local TARGET_EPSILON = 0.05
 local POST_FEED_IDLE_SECONDS = 2
 local TURN_TWEEN_SECONDS = 0.2
+local MIN_WALK_SEGMENT_SECONDS = 0.3
+local WALK_SPEED_VARIATION = 0.08
+local NAVIGATION_WARN_INTERVAL = 10
+local ROUTE_REFRESH_MIN_IDLE_SECONDS = 0.15
+local ROUTE_REFRESH_STAGGER_SECONDS = 0.85
 
 local registry = {}
 local heartbeatConnection = nil
 local accumulator = 0
+local petNavigation = nil
+local petNavigationChecked = false
+local lastNavigationWarn = {
+	missing = -math.huge,
+	failed = -math.huge,
+}
 
 local PetMotionService = {}
 
 local function randomBetween(rng, minValue, maxValue)
 	return rng:NextNumber(minValue, maxValue)
-end
-
-local function clamp(value, minValue, maxValue)
-	return math.clamp(value, minValue, maxValue)
 end
 
 local function shortestAngleDelta(fromAngle, toAngle)
@@ -35,6 +42,10 @@ local function packNumber(value)
 end
 
 local function packSegmentData(state)
+	local nextLX = type(state.nextLX) == "number" and state.nextLX or state.targetLX
+	local nextLZ = type(state.nextLZ) == "number" and state.nextLZ or state.targetLZ
+	local cornerRadius = type(state.cornerRadius) == "number" and state.cornerRadius or 0
+
 	return table.concat({
 		packNumber(state.motionSeq),
 		packNumber(state.startTime),
@@ -45,6 +56,9 @@ local function packSegmentData(state)
 		packNumber(state.targetLX),
 		packNumber(state.targetLZ),
 		packNumber(state.targetLRY),
+		packNumber(nextLX),
+		packNumber(nextLZ),
+		packNumber(cornerRadius),
 	}, ",")
 end
 
@@ -77,7 +91,38 @@ local function walkSpeedFor(state)
 	return PetCatalog.WalkSpeedForPetId(state.pet:GetAttribute(State.Pet.Id))
 end
 
-local function chooseTargetInsideFloor(state, floor)
+local function warnNavigation(kind, message)
+	local now = os.clock()
+	if now - (lastNavigationWarn[kind] or -math.huge) < NAVIGATION_WARN_INTERVAL then
+		return
+	end
+	lastNavigationWarn[kind] = now
+	warn(message)
+end
+
+local function navigation()
+	if petNavigationChecked then
+		return petNavigation
+	end
+
+	local module = script.Parent:FindFirstChild("PetNavigation")
+	if not module then
+		warnNavigation("missing", "[PetMotionService] PetNavigation unavailable; using straight pet wander until it syncs")
+		return nil
+	end
+
+	local ok, result = pcall(require, module)
+	if not ok then
+		warnNavigation("failed", "[PetMotionService] Failed to load PetNavigation: " .. tostring(result))
+		return nil
+	end
+
+	petNavigation = result
+	petNavigationChecked = true
+	return petNavigation
+end
+
+local function chooseFallbackTargetInsideFloor(state, floor)
 	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, state.pet)
 	local lx, lz = currentFloorLocal(state, floor)
 	local duration = durationFor(state, "MinWalkSeconds", "MaxWalkSeconds")
@@ -87,8 +132,8 @@ local function chooseTargetInsideFloor(state, floor)
 	local angle = state.rng:NextNumber(0, math.pi * 2)
 	local targetLX = lx + math.cos(angle) * distance
 	local targetLZ = lz + math.sin(angle) * distance
-	targetLX = clamp(targetLX, minX, maxX)
-	targetLZ = clamp(targetLZ, minZ, maxZ)
+	targetLX = math.clamp(targetLX, minX, maxX)
+	targetLZ = math.clamp(targetLZ, minZ, maxZ)
 
 	if (Vector2.new(targetLX - lx, targetLZ - lz)).Magnitude <= TARGET_EPSILON then
 		targetLX = randomBetween(state.rng, minX, maxX)
@@ -98,7 +143,17 @@ local function chooseTargetInsideFloor(state, floor)
 	return targetLX, targetLZ, duration, walkSpeed
 end
 
-local function publishSegment(state, motionState, startLX, startLZ, startLRY, targetLX, targetLZ, targetLRY, duration, walkSpeed)
+local function clearRoute(state)
+	state.route = nil
+	state.routeIndex = nil
+	state.routeDestination = nil
+end
+
+local function segmentDistance(startLX, startLZ, targetLX, targetLZ)
+	return (Vector2.new(targetLX - startLX, targetLZ - startLZ)).Magnitude
+end
+
+local function publishSegment(state, motionState, startLX, startLZ, startLRY, targetLX, targetLZ, targetLRY, duration, walkSpeed, nextLX, nextLZ, cornerRadius)
 	state.motionState = motionState
 	state.startTime = workspace:GetServerTimeNow()
 	state.duration = duration
@@ -109,6 +164,9 @@ local function publishSegment(state, motionState, startLX, startLZ, startLRY, ta
 	state.targetLX = targetLX
 	state.targetLZ = targetLZ
 	state.targetLRY = targetLRY
+	state.nextLX = nextLX
+	state.nextLZ = nextLZ
+	state.cornerRadius = cornerRadius
 	state.motionSeq += 1
 
 	local pet = state.pet
@@ -121,6 +179,9 @@ local function publishSegment(state, motionState, startLX, startLZ, startLRY, ta
 	pet:SetAttribute(State.Pet.SegmentTargetLX, targetLX)
 	pet:SetAttribute(State.Pet.SegmentTargetLZ, targetLZ)
 	pet:SetAttribute(State.Pet.SegmentTargetLRY, targetLRY)
+	pet:SetAttribute(State.Pet.SegmentNextLX, nextLX)
+	pet:SetAttribute(State.Pet.SegmentNextLZ, nextLZ)
+	pet:SetAttribute(State.Pet.SegmentCornerRadius, cornerRadius)
 	pet:SetAttribute(State.Pet.MotionState, motionState)
 	pet:SetAttribute(State.Pet.MotionSeq, state.motionSeq)
 	pet:SetAttribute(State.Pet.SegmentData, packSegmentData(state))
@@ -153,11 +214,79 @@ local function beginWalk(state)
 	end
 
 	local startLX, startLZ, startLRY = currentFloorLocal(state, floor)
-	local targetLX, targetLZ, duration, walkSpeed = chooseTargetInsideFloor(state, floor)
-	local dx = targetLX - startLX
-	local dz = targetLZ - startLZ
+	local nav = navigation()
+	if not nav then
+		local targetLX, targetLZ, duration, walkSpeed = chooseFallbackTargetInsideFloor(state, floor)
+		local dx = targetLX - startLX
+		local dz = targetLZ - startLZ
+		local targetLRY = math.atan2(-dx, -dz)
+		publishSegment(state, PetCatalog.MotionStates.Walk, startLX, startLZ, startLRY, targetLX, targetLZ, targetLRY, duration, walkSpeed)
+		return
+	end
+
+	local waypoint
+	for _ = 1, 2 do
+		if not state.route or not state.routeIndex or state.routeIndex > #state.route then
+			local planned = nav.PlanWander(state.plot, floor, state.pet, startLX, startLZ, state.rng)
+			if not planned or not planned.route or #planned.route == 0 then
+				clearRoute(state)
+				beginIdle(state)
+				return
+			end
+
+			state.route = planned.route
+			state.routeIndex = 1
+			state.routeDestination = planned.route[#planned.route]
+			if planned.recoveredStart then
+				startLX = planned.startLX
+				startLZ = planned.startLZ
+				PlotService.SeatPetOnFloor(state.pet, floor, startLX, startLZ, startLRY)
+			end
+		end
+
+		waypoint = state.route[state.routeIndex]
+		if waypoint and nav.LegIsClear(state.plot, floor, state.pet, startLX, startLZ, waypoint.lx, waypoint.lz) then
+			break
+		end
+
+		clearRoute(state)
+		waypoint = nil
+	end
+
+	if not waypoint then
+		beginIdle(state)
+		return
+	end
+
+	local distance = segmentDistance(startLX, startLZ, waypoint.lx, waypoint.lz)
+	if distance <= TARGET_EPSILON then
+		state.routeIndex += 1
+		beginWalk(state)
+		return
+	end
+
+	state.routeIndex += 1
+	local walkSpeed = walkSpeedFor(state)
+	local segmentWalkSpeed = walkSpeed * state.rng:NextNumber(1 - WALK_SPEED_VARIATION, 1 + WALK_SPEED_VARIATION)
+	local duration = math.max(distance / segmentWalkSpeed, MIN_WALK_SEGMENT_SECONDS)
+	local dx = waypoint.lx - startLX
+	local dz = waypoint.lz - startLZ
 	local targetLRY = math.atan2(-dx, -dz)
-	publishSegment(state, PetCatalog.MotionStates.Walk, startLX, startLZ, startLRY, targetLX, targetLZ, targetLRY, duration, walkSpeed)
+	publishSegment(
+		state,
+		PetCatalog.MotionStates.Walk,
+		startLX,
+		startLZ,
+		startLRY,
+		waypoint.lx,
+		waypoint.lz,
+		targetLRY,
+		duration,
+		segmentWalkSpeed,
+		waypoint.nextLX,
+		waypoint.nextLZ,
+		waypoint.cornerRadius
+	)
 end
 
 local function unregister(pet)
@@ -210,7 +339,12 @@ local function tickPet(state, dt)
 
 	PlotService.SeatPetOnFloor(pet, floor, state.targetLX or state.startLX or 0, state.targetLZ or state.startLZ or 0, state.targetLRY or state.startLRY or 0)
 	if state.motionState == PetCatalog.MotionStates.Walk then
-		beginIdle(state)
+		if state.route and state.routeIndex and state.routeIndex <= #state.route then
+			beginWalk(state)
+		else
+			clearRoute(state)
+			beginIdle(state)
+		end
 	else
 		beginWalk(state)
 	end
@@ -265,6 +399,12 @@ function PetMotionService.Register(plot, pet)
 		targetLX = nil,
 		targetLZ = nil,
 		targetLRY = nil,
+		route = nil,
+		routeIndex = nil,
+		routeDestination = nil,
+		nextLX = nil,
+		nextLZ = nil,
+		cornerRadius = nil,
 		feedIdleUntil = nil,
 		destroyingConnection = nil,
 	}
@@ -287,6 +427,7 @@ function PetMotionService.RefreshPet(pet)
 	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
 	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
 	state.feedIdleUntil = nil
+	clearRoute(state)
 	state.startLX = lx
 	state.startLZ = lz
 	state.startLRY = lry
@@ -307,6 +448,7 @@ function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ)
 
 	local now = workspace:GetServerTimeNow()
 	state.feedIdleUntil = now + POST_FEED_IDLE_SECONDS
+	clearRoute(state)
 
 	local lx, lz, lry = currentFloorLocal(state, floor)
 	local targetLRY = lry
@@ -373,6 +515,44 @@ end
 
 function PetMotionService.GetLogicalPosition(pet)
 	return PetMotionService.GetLogicalPivot(pet).Position
+end
+
+function PetMotionService.RefreshPlotRoutes(plot)
+	for pet, state in pairs(registry) do
+		if state.plot == plot and pet.Parent then
+			local floor = floorForState(state)
+			if floor then
+				local lx, lz, lry = currentFloorLocal(state, floor)
+				PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
+				clearRoute(state)
+				if not state.feedIdleUntil then
+					local delay = ROUTE_REFRESH_MIN_IDLE_SECONDS
+						+ state.rng:NextNumber(0, ROUTE_REFRESH_STAGGER_SECONDS)
+					publishSegment(
+						state,
+						PetCatalog.MotionStates.Idle,
+						lx,
+						lz,
+						lry,
+						lx,
+						lz,
+						lry,
+						delay,
+						0
+					)
+				else
+					state.startLX = lx
+					state.startLZ = lz
+					state.startLRY = lry
+					state.targetLX = lx
+					state.targetLZ = lz
+					state.targetLRY = lry
+					state.startTime = workspace:GetServerTimeNow()
+					state.duration = 0
+				end
+			end
+		end
+	end
 end
 
 function PetMotionService.UnregisterPlot(plot)
