@@ -16,11 +16,14 @@ local DATA_TEMPLATE = {
 	},
 	FeedPlacements = {},
 	FeedInventory = {
-		Clicker1 = 1,
 		Processor1 = 1,
 		AppleTree = 1,
+		BananaTree = 1,
 		CherryTree = 1,
+		FigTree = 1,
+		OrangeTree = 1,
 		PumpkinPatch = 1,
+		StarfruitTree = 1,
 	},
 	FoodInventory = {}, -- { [FoodId] = count }
 	MarketPurchases = {

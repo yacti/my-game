@@ -1,7 +1,7 @@
 -- Shared tree-clicker FeedMachine implementation for AppleTree/CherryTree.
 --
--- Server owns gameplay state: click validation, per-slot piles, XP, pickup
--- prompts, persistence, and chain morphing. Clients own transient visuals:
+-- Server owns gameplay state: click validation, per-slot piles, XP, pickup,
+-- and persistence. Clients own transient visuals:
 -- tree shake, falling food animation, slot respawn tween, and XP billboards.
 --
 -- Each tree model carries numbered pairs:
@@ -20,9 +20,9 @@
 --
 -- Tunable attribute on the template:
 --   MaxClicksPerSecond (number, default 5; capped at 5 to limit autoclickers)
+--   FoodDrop           (string, food id dropped by each accepted click)
 --   XPMultiplier       (number, default 1; multiplies XP added per drop)
--- Per-foodId MaxXP is read from each food template's MaxXP attribute.
--- The exact food chain and tunables come from per-tree balance modules.
+-- Timing tunables come from per-tree balance modules.
 
 local PhysicsService    = game:GetService("PhysicsService")
 local Players           = game:GetService("Players")
@@ -38,6 +38,13 @@ local AppleTreeBalance = require(TreeBalance:WaitForChild("AppleTreeBalance"))
 local CherryTreeBalance = require(TreeBalance:WaitForChild("CherryTreeBalance"))
 
 local TreeClickerEffect = Remotes.get(Remotes.Names.TreeClickerEffect)
+
+local DEFAULT_BALANCE = {
+	DefaultMaxClicksPerSecond = 5,
+	SlotRespawn = 1,
+	DropEffectDuration = 0.45,
+	EffectRadius = 75,
+}
 
 -- Collision groups: tree-clicker fruits and ground markers physically collide
 -- only with the plot Floor. Drops are now visual client tweens, but ground
@@ -62,7 +69,7 @@ local BALANCES = {
 }
 
 -- state[machine] = {
---   owner, plot, balance, lastClick, conns,
+--   owner, plot, balance, foodDrop, lastClick, conns,
 --   slots = { [i] = {
 --     n,             -- numeric suffix shared by BaseFoodN and BaseFoodGroundN
 --     anchor,        -- invisible spawn point, replaces BaseFoodN
@@ -84,12 +91,31 @@ end
 
 local function balanceFor(machine)
 	local feedType = feedTypeOf(machine)
-	return feedType and BALANCES[feedType] or nil
+	if not feedType then return nil end
+	local balance = BALANCES[feedType]
+	if balance then return balance end
+
+	return {
+		FeedType = feedType,
+		WarnPrefix = feedType,
+		DefaultMaxClicksPerSecond = DEFAULT_BALANCE.DefaultMaxClicksPerSecond,
+		SlotRespawn = DEFAULT_BALANCE.SlotRespawn,
+		DropEffectDuration = DEFAULT_BALANCE.DropEffectDuration,
+		EffectRadius = DEFAULT_BALANCE.EffectRadius,
+	}
 end
 
-local function maxXPFor(foodId)
-	local t = Food.GetTemplate(foodId)
-	return t and (t:GetAttribute("MaxXP") or 5) or 5
+local function foodDropFor(machine, balance)
+	local foodId = machine:GetAttribute(State.Feed.FoodDrop)
+	if type(foodId) ~= "string" or foodId == "" then
+		warn(string.format("[%s] missing %s attribute on %s", balance.WarnPrefix, State.Feed.FoodDrop, machine:GetFullName()))
+		return nil
+	end
+	if not Food.GetTemplate(foodId) then
+		warn(string.format("[%s] unknown %s %q on %s", balance.WarnPrefix, State.Feed.FoodDrop, foodId, machine:GetFullName()))
+		return nil
+	end
+	return foodId
 end
 
 local function dropXPFor(foodId)
@@ -113,11 +139,6 @@ local function clickIntervalFor(machine, s)
 		maxClicksPerSecond = math.min(maxClicksPerSecond, s.balance.DefaultMaxClicksPerSecond)
 	end
 	return 1 / maxClicksPerSecond
-end
-
-local function chainStageOf(balance, foodId)
-	for i, id in ipairs(balance.Chain) do if id == foodId then return i end end
-	return nil
 end
 
 local function groundFolder(machine)
@@ -151,8 +172,7 @@ local function disableBakedBillboards(instance)
 	end
 end
 
-local function spawnSlotVisual(slot, balance)
-	local foodId = balance.Chain[1]
+local function spawnSlotVisual(slot, foodId)
 	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 	local clone = template:Clone()
@@ -281,26 +301,10 @@ local function spawnSlotGround(machine, s, slot, foodId, xp)
 	}
 end
 
--- Add XP to the slot's ground fruit; advance through the chain whenever
--- cumulative xp crosses a stage's MaxXP. Past the terminal stage, xp
--- keeps accumulating without further morphs.
-local function addXPToSlotGround(machine, s, slot, deltaXP)
+local function addXPToSlotGround(slot, deltaXP)
 	if not slot.ground then return end
 	slot.ground.xp = slot.ground.xp + deltaXP
 	slot.ground.model:SetAttribute(State.Food.XP, slot.ground.xp)
-
-	local stage    = chainStageOf(s.balance, slot.ground.foodId) or 1
-	local advanced = false
-	while stage < #s.balance.Chain and slot.ground.xp >= maxXPFor(s.balance.Chain[stage]) do
-		stage    = stage + 1
-		advanced = true
-	end
-	if advanced then
-		local newType = s.balance.Chain[stage]
-		local xp = slot.ground.xp
-		destroySlotGround(slot)
-		spawnSlotGround(machine, s, slot, newType, xp)
-	end
 end
 
 pickupSlotGround = function(machine, s, slot, player)
@@ -317,7 +321,7 @@ local function applyDrop(machine, s, slot, foodId)
 	if not state[machine] then return end
 	local dropXP = dropXPFor(foodId) * xpMultiplierFor(machine)
 	if slot.ground then
-		addXPToSlotGround(machine, s, slot, dropXP)
+		addXPToSlotGround(slot, dropXP)
 	else
 		spawnSlotGround(machine, s, slot, foodId, dropXP)
 	end
@@ -339,7 +343,7 @@ local function tickRespawns(s)
 	for _, slot in ipairs(s.slots) do
 		if slot.respawnAt and now >= slot.respawnAt then
 			slot.respawnAt = nil
-			slot.foodPart  = spawnSlotVisual(slot, s.balance)
+			slot.foodPart  = spawnSlotVisual(slot, s.foodDrop)
 		end
 	end
 end
@@ -391,7 +395,7 @@ local function onTreeClicked(machine, s, player)
 	slot.respawnAt = now + s.balance.SlotRespawn
 	s.lastClick = now
 
-	local foodId = s.balance.Chain[1]
+	local foodId = s.foodDrop
 	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId)
 	task.delay(s.balance.DropEffectDuration, function()
 		applyDrop(machine, s, slot, foodId)
@@ -440,7 +444,7 @@ local function setupSlots(machine, s)
 						respawnAt = nil,
 						ground    = nil,
 					}
-					slot.foodPart = spawnSlotVisual(slot, s.balance)
+					slot.foodPart = spawnSlotVisual(slot, s.foodDrop)
 					table.insert(s.slots, slot)
 				end
 			end
@@ -471,6 +475,8 @@ function TreeClicker.Setup(machine, plot, owner)
 		warn(string.format("[%s] expected Model with PrimaryPart", balance.WarnPrefix))
 		return
 	end
+	local foodDrop = foodDropFor(machine, balance)
+	if not foodDrop then return end
 
 	-- Tag the plot's Floor so AppleTree fruits can physically collide
 	-- with it (and only it). Idempotent across multiple AppleTrees on
@@ -482,6 +488,7 @@ function TreeClicker.Setup(machine, plot, owner)
 
 	local s = {
 		balance   = balance,
+		foodDrop = foodDrop,
 		owner     = owner,
 		plot      = plot,
 		lastClick = 0,
@@ -534,11 +541,9 @@ function TreeClicker.Apply(machine, placement)
 	for _, slot in ipairs(s.slots) do
 		local entry = piles[tostring(slot.n)]
 		if type(entry) == "table" then
-			local foodId = tostring(entry.foodId or entry.foodType or s.balance.Chain[1])
-			if not chainStageOf(s.balance, foodId) then foodId = s.balance.Chain[1] end
 			local xp = math.max(tonumber(entry.xp) or 0, 0)
 			destroySlotGround(slot)
-			spawnSlotGround(machine, s, slot, foodId, xp)
+			spawnSlotGround(machine, s, slot, s.foodDrop, xp)
 		end
 	end
 end

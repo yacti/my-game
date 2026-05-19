@@ -1,0 +1,64 @@
+{
+  "createdAtUnix": 1779210574,
+  "createdFor": "Tree FoodDrop Simplification",
+  "assets": {
+    "ReplicatedStorage.FeedMachines.Clicker.Apple Tree": {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+      "name": "Apple Tree",
+      "className": "Model",
+      "primaryPart": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree.PrimaryPart",
+      "attributes": {
+        "InShop": true,
+        "FeedType": "AppleTree",
+        "FeedClass": "Tree",
+        "MaxClicksPerSecond": 5,
+        "ShopRarityRate": 100,
+        "ShopStockRange": null,
+        "ShopPrice": 100,
+        "XPMultiplier": 10
+      },
+      "childrenCount": 18
+    },
+    "ReplicatedStorage.Food.Apple": {
+      "path": "ReplicatedStorage.Food.Apple",
+      "name": "Apple",
+      "className": "Model",
+      "primaryPart": "ReplicatedStorage.Food.Apple.Apple",
+      "attributes": {
+        "FoodId": "Apple",
+        "FoodType": "Fruit",
+        "XP": 4
+      },
+      "childrenCount": 1
+    },
+    "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree": {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+      "name": "Cherry Tree",
+      "className": "Model",
+      "primaryPart": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree.PrimaryPart",
+      "attributes": {
+        "InShop": true,
+        "FeedType": "CherryTree",
+        "FeedClass": "Tree",
+        "MaxClicksPerSecond": 5,
+        "ShopRarityRate": 50,
+        "ShopStockRange": "1 2 ",
+        "ShopPrice": 250,
+        "XPMultiplier": 1,
+        "FoodDrop": "Cherry"
+      },
+      "childrenCount": 42
+    },
+    "ReplicatedStorage.Food.Clicker.Cherry": {
+      "path": "ReplicatedStorage.Food.Clicker.Cherry",
+      "name": "Cherry",
+      "className": "Model",
+      "primaryPart": "ReplicatedStorage.Food.Clicker.Cherry.PrimaryPart",
+      "attributes": {
+        "FoodId": "Cherry",
+        "FoodType": "Fruit"
+      },
+      "childrenCount": 7
+    }
+  }
+}

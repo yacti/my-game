@@ -481,12 +481,30 @@ local function collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
 	end
 end
 
+local function collectTreeFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
+	for _, feedType in ipairs(FeedMachines.AllFeedTypes()) do
+		if FeedMachines.GetClass(feedType) == "Tree" then
+			local template = FeedMachines.GetTemplate(feedType)
+			if not template then continue end
+
+			addRequiredFoodId(
+				requiredFoodIds,
+				sourcesByFoodId,
+				template:GetAttribute(State.Feed.FoodDrop),
+				string.format("%s %s", feedType, State.Feed.FoodDrop),
+				errors
+			)
+		end
+	end
+end
+
 local function collectRequiredFoodIds(errors)
 	local requiredFoodIds = {}
 	local sourcesByFoodId = {}
 
 	collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, errors)
 	collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+	collectTreeFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
 
 	table.sort(requiredFoodIds)
 	return requiredFoodIds, sourcesByFoodId

@@ -50,6 +50,7 @@ State.Feed = {
 	-- ReplicatedStorage.FeedMachines.<Class>.<DisplayName> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
 	FoodType        = "FoodType",        -- class-specific: produced food id or accepted food group
+	FoodDrop        = "FoodDrop",        -- Tree: food id dropped by each accepted click
 	MaxFood         = "MaxFood",         -- Clicker: cap of unpicked food on the floor
 	ClickCooldown   = "ClickCooldown",   -- Clicker: seconds between clicks
 	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap

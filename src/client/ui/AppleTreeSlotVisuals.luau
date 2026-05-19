@@ -187,24 +187,6 @@ local function findXPLabel(gui)
 	return nil
 end
 
-local function foodIdFor(food)
-	local foodId = food:GetAttribute(State.Food.Id)
-	if type(foodId) == "string" and foodId ~= "" then return foodId end
-
-	-- Backward compatibility for old replicated piles where FoodType was the
-	-- exact template key.
-	local oldFoodType = food:GetAttribute(State.Food.Type)
-	if type(oldFoodType) == "string" and Food.GetTemplate(oldFoodType) then
-		return oldFoodType
-	end
-	return nil
-end
-
-local function maxXPFor(foodId)
-	local template = foodId and Food.GetTemplate(foodId)
-	return template and (template:GetAttribute("MaxXP") or 5) or 5
-end
-
 local function roundedXP(value)
 	return math.floor((tonumber(value) or 0) + 0.5)
 end
@@ -218,10 +200,9 @@ local function gainTextColorFor(label)
 	return typeof(color) == "Color3" and color or label.TextColor3
 end
 
-local function renderXPText(food, label, xpOverride)
-	local xp = roundedXP(xpOverride or currentXPFor(food))
-	local maxXP = maxXPFor(foodIdFor(food))
-	label.Text = string.format("%d/%d xp", xp, maxXP)
+local function renderXPText(label, xpOverride)
+	local xp = roundedXP(xpOverride)
+	label.Text = string.format("%d xp", xp)
 end
 
 local function stopXPCounter(record)
@@ -243,7 +224,7 @@ local function animateXPText(food, record)
 	if targetXP <= startXP then
 		record.displayedXP = targetXP
 		record.label.TextColor3 = record.baseTextColor
-		renderXPText(food, record.label, targetXP)
+		renderXPText(record.label, targetXP)
 		return
 	end
 
@@ -254,7 +235,7 @@ local function animateXPText(food, record)
 
 	value.Changed:Connect(function(nextValue)
 		record.displayedXP = nextValue
-		renderXPText(food, record.label, nextValue)
+		renderXPText(record.label, nextValue)
 	end)
 
 	local tween = TweenService:Create(value, XP_COUNT_TWEEN_INFO, { Value = targetXP })
@@ -264,7 +245,7 @@ local function animateXPText(food, record)
 		record.displayedXP = targetXP
 		record.counterTween = nil
 		record.counterValue = nil
-		renderXPText(food, record.label, targetXP)
+		renderXPText(record.label, targetXP)
 		value:Destroy()
 		TweenService:Create(record.label, TweenInfo.new(0.15), {
 			TextColor3 = record.baseTextColor,
@@ -309,16 +290,16 @@ local function attachXPBillboard(food)
 		counterTween = nil,
 		counterValue = nil,
 	}
-	renderXPText(food, label, record.displayedXP)
+	renderXPText(label, record.displayedXP)
 	local conns = {}
 	table.insert(conns, food:GetAttributeChangedSignal(State.Food.XP):Connect(function()
 		animateXPText(food, record)
 	end))
 	table.insert(conns, food:GetAttributeChangedSignal(State.Food.Type):Connect(function()
-		renderXPText(food, label, record.displayedXP)
+		renderXPText(label, record.displayedXP)
 	end))
 	table.insert(conns, food:GetAttributeChangedSignal(State.Food.Id):Connect(function()
-		renderXPText(food, label, record.displayedXP)
+		renderXPText(label, record.displayedXP)
 	end))
 	record.conns = conns
 
@@ -428,21 +409,57 @@ local function applyTargetCFrame(target, cframe)
 	end
 end
 
+local function applyShakeTarget(target, cframe)
+	applyTargetCFrame(target.instance, cframe)
+	if not target.children then return end
+
+	for _, child in ipairs(target.children) do
+		if child.instance.Parent then
+			child.instance.CFrame = cframe * child.localCFrame
+		end
+	end
+end
+
 local function restoreTargets(targets)
 	for _, target in ipairs(targets) do
 		if target.instance.Parent then
-			applyTargetCFrame(target.instance, target.baseCFrame)
+			applyShakeTarget(target, target.baseCFrame)
 		end
 	end
+end
+
+local function hasLeafAncestor(part, tree)
+	local parent = part.Parent
+	while parent and parent ~= tree do
+		if parent:IsA("BasePart") and parent.Name == "Leaf" then
+			return true
+		end
+		parent = parent.Parent
+	end
+	return false
+end
+
+local function leafChildren(leaf)
+	local children = {}
+	for _, descendant in ipairs(leaf:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(children, {
+				instance = descendant,
+				localCFrame = leaf.CFrame:ToObjectSpace(descendant.CFrame),
+			})
+		end
+	end
+	return children
 end
 
 local function collectShakeTargets(tree)
 	local targets = {}
 	for _, d in ipairs(tree:GetDescendants()) do
-		if d:IsA("BasePart") and d.Name == "Leaf" then
+		if d:IsA("BasePart") and d.Name == "Leaf" and not hasLeafAncestor(d, tree) then
 			table.insert(targets, {
 				instance = d,
 				baseCFrame = d.CFrame,
+				children = leafChildren(d),
 				phase = math.random() * math.pi * 2,
 			})
 		end
@@ -489,8 +506,8 @@ local function shakeTree(tree)
 			for _, target in ipairs(targets) do
 				if target.instance.Parent then
 					local wave = math.sin((elapsed * 42) + target.phase) * fade
-					applyTargetCFrame(
-						target.instance,
+					applyShakeTarget(
+						target,
 						target.baseCFrame
 							* CFrame.new(wave * SHAKE_OFFSET, 0, 0)
 							* CFrame.Angles(0, 0, wave * SHAKE_ANGLE)

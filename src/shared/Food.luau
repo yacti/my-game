@@ -82,11 +82,14 @@ function Food.XPOf(food)
 	if not template then return nil end
 
 	local baseXP = tonumber(template:GetAttribute(State.Food.XP)) or 1
-	local maxXP = tonumber(template:GetAttribute("MaxXP")) or baseXP
+	local xp = tonumber(food:GetAttribute(State.Food.XP)) or baseXP
+	local maxXP = tonumber(template:GetAttribute("MaxXP"))
+	if not maxXP then
+		return math.max(xp, 0)
+	end
+
 	local multiplier = tonumber(food:GetAttribute("XPMultiplier")) or 1
 	if multiplier < 1 then multiplier = 1 end
-
-	local xp = tonumber(food:GetAttribute(State.Food.XP)) or baseXP
 	return math.clamp(xp, 0, math.max(baseXP, maxXP * multiplier))
 end
 
