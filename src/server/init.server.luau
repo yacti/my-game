@@ -37,6 +37,8 @@ local PET_FEED_REACTION_SECONDS = 2
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
+PlotService.ResetVacantPlotsToDefaultSize()
+
 RebirthService.Start()
 MarketService.Start()
 

@@ -291,6 +291,21 @@ function PlotService.ApplyPlotSize(plot, size, preservePlaced)
 	return true
 end
 
+function PlotService.ResetVacantPlotsToDefaultSize()
+	for i, plot in ipairs(plots) do
+		if not plotOwners[i] then
+			local applied, reason = PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+			if not applied then
+				warn(string.format(
+					"[PlotService] Failed to reset vacant plot %s to default size: %s",
+					plot.Name,
+					tostring(reason)
+				))
+			end
+		end
+	end
+end
+
 function PlotService.TryPurchasePlotSize(player, plot, profile)
 	if not plot or not profile then return false, "no-profile" end
 
