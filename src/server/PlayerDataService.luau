@@ -12,7 +12,6 @@ local USE_MOCK_STORE_IN_STUDIO = true
 local DATA_TEMPLATE = {
 	Pets = {
 		{ petId = "Pet1", xp = 0, money = 0 },
-		{ petId = "Pet1", xp = 0, money = 0 },
 	},
 	FeedPlacements = {},
 	FeedInventory = {
@@ -81,7 +80,6 @@ local function ensureValidData(profile)
 	end
 	if #pets == 0 then
 		pets = {
-			{ petId = "Pet1", xp = 0, money = 0 },
 			{ petId = "Pet1", xp = 0, money = 0 },
 		}
 	end

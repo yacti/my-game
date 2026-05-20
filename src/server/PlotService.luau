@@ -471,7 +471,7 @@ local function applyPetIdAttributes(pet, definition)
 	pet:SetAttribute(State.Pet.WalkSpeed, useTemplateProgression
 		and numberAttributeOrDefault(pet, State.Pet.WalkSpeed, definition.WalkSpeed)
 		or definition.WalkSpeed)
-	pet:SetAttribute(State.Pet.MoneyRate, pet:GetAttribute(State.Pet.Order))
+	pet:SetAttribute(State.Pet.MoneyRate, numberAttributeOrDefault(pet, State.Pet.MoneyRate, 1))
 end
 
 local function modelPivotFloorOffset(model)
