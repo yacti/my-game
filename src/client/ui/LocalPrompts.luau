@@ -13,7 +13,7 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
-local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
 
@@ -32,8 +32,13 @@ local DEFAULT_PROMPT_TEMPLATE_NAME = "LocalPrompt"
 local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
+local GRID_UNLOCK_PROMPT_DISTANCE = 5
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
+
+local function isLocalPromptAttachment(instance)
+	return instance:IsA("Attachment") and instance.Name:sub(1, #PROMPT_ATTACHMENT_PREFIX) == PROMPT_ATTACHMENT_PREFIX
+end
 
 local function findPlotByName(plotName)
 	if type(plotName) ~= "string" or plotName == "" then return nil end
@@ -67,9 +72,20 @@ local function isEditMode()
 	return (tool ~= nil and tool.Name == "EditTool") or player:GetAttribute("EditMode") == true
 end
 
-local function promptPartFor(instance)
+local function firstBasePartDescendant(instance)
 	if instance:IsA("BasePart") then return instance end
-	if instance:IsA("Model") then return instance.PrimaryPart end
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then return descendant end
+	end
+	return nil
+end
+
+local function promptPartFor(instance, kind)
+	if instance:IsA("BasePart") then return instance end
+	if instance:IsA("Model") then
+		return instance.PrimaryPart or (kind == "GridPartUnlock" and firstBasePartDescendant(instance) or nil)
+	end
+	if kind == "GridPartUnlock" then return firstBasePartDescendant(instance) end
 	return nil
 end
 
@@ -77,6 +93,125 @@ local function playerRootPosition()
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return root and root:IsA("BasePart") and root.Position or nil
+end
+
+local function instanceWorldCenter(instance)
+	if instance:IsA("BasePart") then
+		return instance.Position
+	end
+	if instance:IsA("Model") then
+		local cframe = instance:GetBoundingBox()
+		return cframe.Position
+	end
+	local part = firstBasePartDescendant(instance)
+	return part and part.Position or nil
+end
+
+local function isVisiblePromptTarget(instance)
+	if instance:IsA("BasePart") then
+		return instance.Transparency < 1
+	end
+	if instance:IsA("Model") then
+		for _, descendant in ipairs(instance:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.Transparency < 1 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function gridPartAt(plot, x, z)
+	if not plot then return nil end
+	for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+		local folder = plot:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart")
+					and PlotGrid.NormalizeInteger(child:GetAttribute(PlotGrid.Attributes.X)) == x
+					and PlotGrid.NormalizeInteger(child:GetAttribute(PlotGrid.Attributes.Z)) == z then
+					return child
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function addVisibleFenceCandidate(candidates, fence)
+	if fence and (fence:IsA("BasePart") or fence:IsA("Model")) and isVisiblePromptTarget(fence) then
+		candidates[#candidates + 1] = fence
+	end
+end
+
+local function visibleFencesForGridPart(gridPart)
+	local candidates = {}
+	if not PlotGrid.IsUnlockableGridPart(gridPart) then
+		return candidates
+	end
+
+	for _, sideNumber in ipairs(PlotGrid.SideNumbers) do
+		addVisibleFenceCandidate(candidates, gridPart:FindFirstChild("Fence" .. tostring(sideNumber)))
+	end
+
+	local plot = gridPart.Parent and gridPart.Parent.Parent or nil
+	local x = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.X))
+	local z = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.Z))
+	if not x or not z then
+		return candidates
+	end
+
+	for _, sideNumber in ipairs(PlotGrid.SideNumbers) do
+		local side = PlotGrid.SideByNumber[sideNumber]
+		local neighbor = gridPartAt(plot, x + side.dx, z + side.dz)
+		local fence = neighbor and neighbor:FindFirstChild("Fence" .. tostring(side.opposite)) or nil
+		addVisibleFenceCandidate(candidates, fence)
+	end
+
+	return candidates
+end
+
+local function nearestVisibleFenceForGridPart(gridPart)
+	local candidates = visibleFencesForGridPart(gridPart)
+	if #candidates == 0 then return nil end
+
+	local rootPosition = playerRootPosition()
+	if not rootPosition then
+		return candidates[1]
+	end
+
+	local bestFence = candidates[1]
+	local bestDistance = math.huge
+	for _, fence in ipairs(candidates) do
+		local center = instanceWorldCenter(fence)
+		local distance = center and (center - rootPosition).Magnitude or math.huge
+		if distance < bestDistance then
+			bestFence = fence
+			bestDistance = distance
+		end
+	end
+	return bestFence
+end
+
+local function promptAnchorInstance(instance, kind)
+	if kind == "GridPartUnlock" and PlotGrid.IsUnlockableGridPart(instance) then
+		return nearestVisibleFenceForGridPart(instance) or instance
+	end
+	return instance
+end
+
+local function promptAttachmentName(instance, kind)
+	if kind == "GridPartUnlock" and PlotGrid.IsUnlockableGridPart(instance) then
+		local x = PlotGrid.NormalizeInteger(instance:GetAttribute(PlotGrid.Attributes.X)) or 0
+		local z = PlotGrid.NormalizeInteger(instance:GetAttribute(PlotGrid.Attributes.Z)) or 0
+		return PROMPT_ATTACHMENT_PREFIX .. kind .. "_" .. PlotGrid.CoordKey(x, z)
+	end
+	return PROMPT_ATTACHMENT_PREFIX .. kind
+end
+
+local function promptAnchorWorldPosition(instance, kind)
+	local anchor = promptAnchorInstance(instance, kind)
+	return anchor and instanceWorldCenter(anchor) or nil
 end
 
 local function promptWorldPosition(prompt)
@@ -92,18 +227,30 @@ local function promptDistance(prompt, rootPosition)
 end
 
 local function promptParentFor(instance, kind)
-	local part = promptPartFor(instance)
+	local anchor = promptAnchorInstance(instance, kind)
+	local part = anchor and promptPartFor(anchor, kind) or nil
 	if not part then return nil end
 
-	local attachmentName = PROMPT_ATTACHMENT_PREFIX .. kind
+	local attachmentName = promptAttachmentName(instance, kind)
 	local attachment = part:FindFirstChild(attachmentName)
 	if attachment then
-		return attachment:IsA("Attachment") and attachment or part
+		if attachment:IsA("Attachment") then
+			local worldPosition = promptAnchorWorldPosition(instance, kind)
+			if worldPosition then
+				attachment.WorldPosition = worldPosition
+			end
+			return attachment
+		end
+		return part
 	end
 
 	attachment = Instance.new("Attachment")
 	attachment.Name = attachmentName
 	attachment.Parent = part
+	local worldPosition = promptAnchorWorldPosition(instance, kind)
+	if worldPosition then
+		attachment.WorldPosition = worldPosition
+	end
 	return attachment
 end
 
@@ -120,6 +267,29 @@ local function isFeedMachine(instance)
 		and type(feedType) == "string"
 		and feedType ~= ""
 		and instance:GetAttribute(State.Feed.Index) ~= nil
+end
+
+local function owningGridPart(instance)
+	return PlotGrid.GridPartFromInstance(instance)
+end
+
+local function gridUnlockContext(target)
+	local gridPart = owningGridPart(target)
+	if not gridPart or gridPart:GetAttribute(State.Grid.Purchasable) ~= true then
+		return false, "Unlock"
+	end
+	if not nearestVisibleFenceForGridPart(gridPart) then
+		return false, "Unlock"
+	end
+
+	local price = gridPart:GetAttribute(State.Grid.Price)
+	if type(price) ~= "number" then
+		price = gridPart:GetAttribute(PlotGrid.Attributes.UnlockPrice)
+	end
+	if type(price) == "number" then
+		return true, "Unlock: $" .. tostring(price)
+	end
+	return true, "Unlock"
 end
 
 local function isProcessor(machine)
@@ -156,23 +326,6 @@ local function petCanGainXP(pet)
 	return PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) ~= nil
 end
 
-local function plotSize()
-	return PlotSizes.Clamp(player:GetAttribute(State.Player.PlotSize))
-end
-
-local function plotUpgradeText()
-	local nextSize = PlotSizes.NextSize(plotSize())
-	if not nextSize then
-		return false, "Max Size"
-	end
-
-	local price = PlotSizes.UpgradePrice(nextSize)
-	if type(price) ~= "number" then
-		return false, "Upgrade"
-	end
-	return true, "Upgrade: $" .. tostring(price)
-end
-
 local function processorContext(machine)
 	if isEditMode() then return false, "Take Food" end
 	local accepted = acceptedFoodType(machine)
@@ -188,6 +341,7 @@ end
 local function promptActivationDistance(kind)
 	if kind == "PetFeed" then return PET_FEED_PROMPT_DISTANCE end
 	if kind == "TreeGroundPickup" then return FOOD_PICKUP_PROMPT_DISTANCE end
+	if kind == "GridPartUnlock" then return GRID_UNLOCK_PROMPT_DISTANCE end
 	return DEFAULT_PROMPT_DISTANCE
 end
 
@@ -200,6 +354,9 @@ local function configurePrompt(prompt, kind)
 	if kind == "FeedPickup" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.F
 		prompt.HoldDuration = 0.5
+	elseif kind == "GridPartUnlock" then
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0.25
 	else
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 	end
@@ -256,7 +413,7 @@ local function removePrompt(target, kind)
 	if prompt then
 		local parent = prompt.Parent
 		prompt:Destroy()
-		if parent and parent:IsA("Attachment") and parent.Name == PROMPT_ATTACHMENT_PREFIX .. kind then
+		if parent and isLocalPromptAttachment(parent) then
 			parent:Destroy()
 		end
 	end
@@ -290,7 +447,7 @@ local function waitForPromptParent(target, kind, action)
 			clearPending()
 			return
 		end
-		if promptPartFor(target) then
+		if promptPartFor(target, kind) then
 			clearPending()
 			addPrompt(target, kind, action)
 		end
@@ -356,8 +513,8 @@ local function tryBind(instance)
 		addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup)
 	end
 
-	if instance:IsA("BasePart") and instance.Name == "UpgradeSize" then
-		addPrompt(instance, "PlotSizeUpgrade", Interactions.Actions.PlotSizeUpgrade)
+	if instance:IsA("BasePart") and PlotGrid.IsUnlockableGridPart(instance) then
+		addPrompt(instance, "GridPartUnlock", Interactions.Actions.GridPartUnlock)
 	end
 end
 
@@ -404,11 +561,23 @@ local function refreshPrompt(target, kind, prompt)
 		end
 		prompt.ActionText = "Pick Up"
 		prompt.Enabled = not isEditMode()
-	elseif kind == "PlotSizeUpgrade" then
-		local canUpgrade, actionText = plotUpgradeText()
-		prompt.ObjectText = "Plot Size"
+	elseif kind == "GridPartUnlock" then
+		local parent = promptParentFor(target, kind)
+		if not parent then
+			prompt.Enabled = false
+			return
+		end
+		if prompt.Parent ~= parent then
+			local previousParent = prompt.Parent
+			prompt.Parent = parent
+			if previousParent and isLocalPromptAttachment(previousParent) then
+				previousParent:Destroy()
+			end
+		end
+		local canUnlock, actionText = gridUnlockContext(target)
+		prompt.ObjectText = "Plot Area"
 		prompt.ActionText = actionText
-		prompt.Enabled = not isEditMode() and canUpgrade
+		prompt.Enabled = not isEditMode() and canUnlock
 	end
 end
 
@@ -455,7 +624,6 @@ function LocalPrompts.start()
 	end)
 
 	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function() refreshAll(true) end)
-	player:GetAttributeChangedSignal(State.Player.PlotSize):Connect(function() refreshAll(false) end)
 	player:GetPropertyChangedSignal("RespawnLocation"):Connect(function() refreshAll(true) end)
 	player:GetAttributeChangedSignal("EditMode"):Connect(function() refreshAll(false) end)
 	local function watchCharacter(character)

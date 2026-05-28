@@ -37,7 +37,14 @@ State.Pet = {
 
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
-	PlotSize = "PlotSize",
+}
+
+State.Grid = {
+	Unlocked = "GridUnlocked",
+	Purchasable = "GridPurchasable",
+	Visible = "GridVisible",
+	Frontier = "GridFrontier",
+	Price = "GridPrice",
 }
 
 State.Feed = {

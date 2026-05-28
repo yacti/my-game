@@ -11,6 +11,7 @@ require(Server:WaitForChild("AssetValidator")).validate()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
+local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
@@ -23,7 +24,6 @@ local RebirthService    = require(Server:WaitForChild("RebirthService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
-local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 
@@ -37,7 +37,7 @@ local PET_FEED_REACTION_SECONDS = 2
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
-PlotService.ResetVacantPlotsToDefaultSize()
+PlotGridService.ResetVacantPlotsToStarter()
 
 RebirthService.Start()
 MarketService.Start()
@@ -399,28 +399,21 @@ local function pickupFeed(feed, plot, player)
 	PetMotionService.RefreshPlotRoutes(plot)
 end
 
-local function upgradePlotSize(target, plot, player, profile)
-	local upgradePart = plot:FindFirstChild("UpgradeSize")
-	if target ~= upgradePart then return end
-	if not upgradePart or not upgradePart:IsA("BasePart") then return end
-	if not isPlayerNearInstance(player, upgradePart, 14) then return end
-
-	local ok, code, nextSize = PlotService.TryPurchasePlotSize(player, plot, profile)
+local function unlockGridPart(target, plot, player, profile)
+	local ok, code, _, price = PlotGridService.TryPurchaseCell(player, plot, profile, target)
 	if not ok then
-		if code == "max-size" then
-			NotificationService.Info(player, "Your plot is already max size.")
+		if code == "already-unlocked" then
+			NotificationService.Info(player, "That plot area is already unlocked.")
 		elseif code == "insufficient-currency" then
-			NotificationService.Error(player, "Not enough currency for this plot upgrade.")
+			NotificationService.Error(player, "Not enough currency for this plot area.")
 		elseif code ~= "busy" then
-			NotificationService.Error(player, "Could not upgrade plot size.")
+			NotificationService.Error(player, "Could not unlock that plot area.")
 		end
 		return
 	end
 
-	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-		PetMotionService.RefreshPet(pet)
-	end
-	NotificationService.Success(player, "Plot upgraded to size " .. tostring(nextSize) .. "!")
+	PetMotionService.RefreshPlotRoutes(plot)
+	NotificationService.Success(player, "Plot area unlocked for $" .. tostring(price) .. "!")
 end
 
 -- Always-present inventory tool that players use to enter "edit mode".
@@ -452,8 +445,7 @@ Players.PlayerAdded:Connect(function(player)
 		return
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, plot.Name)
-	PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
-	player:SetAttribute(State.Player.PlotSize, PlotSizes.MIN_SIZE)
+	PlotGridService.ResetPlotState(plot)
 
 	local spawnLocation = plot:FindFirstChild("SpawnLocation")
 	if spawnLocation then player.RespawnLocation = spawnLocation end
@@ -461,20 +453,16 @@ Players.PlayerAdded:Connect(function(player)
 	local profile = PlayerDataService.LoadPlayerAsync(player)
 	if not profile then
 		player:SetAttribute(State.Player.AssignedPlotName, nil)
-		player:SetAttribute(State.Player.PlotSize, nil)
-		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+		PlotGridService.ResetPlotState(plot)
 		PlotService.FreePlot(player)
 		return
 	end
 
-	profile.Data.PlotSize = PlotSizes.Clamp(profile.Data.PlotSize)
-	local applied, applyReason = PlotService.ApplyPlotSize(plot, profile.Data.PlotSize, false)
+	local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
 	if not applied then
-		warn(string.format("[init] Failed to apply %s plot size %s: %s", player.Name, tostring(profile.Data.PlotSize), tostring(applyReason)))
-		profile.Data.PlotSize = PlotSizes.MIN_SIZE
-		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+		warn(string.format("[init] Failed to apply %s plot grid state: %s", player.Name, tostring(applyReason)))
+		PlotGridService.ResetPlotState(plot)
 	end
-	player:SetAttribute(State.Player.PlotSize, profile.Data.PlotSize)
 
 	PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
 	PlotService.SpawnFeedsForPlot(plot, profile.Data.FeedPlacements)
@@ -545,11 +533,10 @@ Players.PlayerRemoving:Connect(function(player)
 		-- FeedMachines registry relies on to tear down per-class state
 		-- (and to despawn any food the machine spawned on the floor).
 		PlotService.DestroyFeeds(plot)
-		PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
+		PlotGridService.ResetPlotState(plot)
 		PlotService.FreePlot(player)
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, nil)
-	player:SetAttribute(State.Player.PlotSize, nil)
 
 	PlayerDataService.UnloadPlayer(player)
 end)
@@ -598,8 +585,8 @@ PromptInteractionService.Start({
 				FeedMachines.PickupTreeGround(target, player)
 			end
 		end,
-		[Interactions.Actions.PlotSizeUpgrade] = function(player, target, plot, profile)
-			upgradePlotSize(target, plot, player, profile)
+		[Interactions.Actions.GridPartUnlock] = function(player, target, plot, profile)
+			unlockGridPart(target, plot, player, profile)
 		end,
 	},
 	afterInteraction = function(player, plot, profile)

@@ -19,7 +19,6 @@ local RebirthService = {}
 
 local REQUEST_RATE_SECONDS = 0.75
 local STATE_RATE_SECONDS = 0.5
-local FLOOR_MARGIN = 8
 
 local started = false
 local transactionLocks = {}
@@ -148,17 +147,9 @@ local function currentPetPositions(plot)
 	return positions
 end
 
-local function assignMissingPositions(pets, floor)
-	local count = math.max(#pets, 1)
-	local halfX = math.max(floor.Size.X / 2 - FLOOR_MARGIN, 0)
-	local halfZ = math.max(floor.Size.Z / 2 - FLOOR_MARGIN, 0)
-	local radius = math.min(halfX, halfZ) * 0.45
-
-	for index, pet in ipairs(pets) do
-		if pet.lx == nil or pet.lz == nil then
-			local angle = (index - 1) / count * math.pi * 2
-			pet.lx = math.cos(angle) * radius
-			pet.lz = math.sin(angle) * radius
+local function normalizePetRotations(pets)
+	for _, pet in ipairs(pets) do
+		if pet.lry == nil then
 			pet.lry = 0
 		end
 		pet.lry = tonumber(pet.lry) or 0
@@ -205,7 +196,7 @@ local function buildTargetPets(plot, profile, tier)
 		end
 	end
 
-	assignMissingPositions(targetPets, floor)
+	normalizePetRotations(targetPets)
 	return targetPets
 end
 
@@ -230,6 +221,22 @@ local function preparePetModels(plot, pets)
 			destroyPreparedPets(prepared)
 			return nil, "pet-build-failed"
 		end
+		local fitted, fitLX, fitLZ = PlotService.FitPetOnUnlockedGrid(
+			plot,
+			clone,
+			petData.lx or 0,
+			petData.lz or 0,
+			petData.lry or 0,
+			petData.lx == nil or petData.lz == nil
+		)
+		if not fitted then
+			clone:Destroy()
+			destroyPreparedPets(prepared)
+			return nil, "pet-grid-fit-failed"
+		end
+		petData.lx = fitLX
+		petData.lz = fitLZ
+		petData.lry = tonumber(petData.lry) or 0
 		prepared[#prepared + 1] = clone
 	end
 	return prepared

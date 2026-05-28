@@ -6,6 +6,7 @@ local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State = require(Shared:WaitForChild("State"))
 
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
+local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 
 local UPDATE_INTERVAL = 0.2
 local TARGET_EPSILON = 0.05
@@ -73,6 +74,18 @@ local function currentFloorLocal(state, floor)
 	return lx, lz, lry
 end
 
+local function nearestPetFit(state, floor, lx, lz)
+	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
+	local fitLX, fitLZ = PlotGridService.NearestUnlockedPoint(state.plot, lx, lz, paddingX, paddingZ)
+	if not PlotGridService.IsWalkableFootprint(state.plot, fitLX, fitLZ, paddingX, paddingZ) then
+		fitLX, fitLZ = PlotGridService.FirstUnlockedPoint(state.plot, paddingX, paddingZ)
+	end
+	if PlotGridService.IsWalkableFootprint(state.plot, fitLX, fitLZ, paddingX, paddingZ) then
+		return fitLX, fitLZ
+	end
+	return lx, lz
+end
+
 local function durationFor(state, minKey, maxKey)
 	local visual = state.visual
 	local minSeconds = visual[minKey] or 2
@@ -123,21 +136,28 @@ local function navigation()
 end
 
 local function chooseFallbackTargetInsideFloor(state, floor)
-	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, state.pet)
+	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, state.pet, state.plot)
+	if minX >= maxX or minZ >= maxZ then
+		return nil, nil, nil, nil
+	end
 	local lx, lz = currentFloorLocal(state, floor)
 	local duration = durationFor(state, "MinWalkSeconds", "MaxWalkSeconds")
 	local walkSpeed = walkSpeedFor(state)
 	local distance = walkSpeed * duration
+	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
 
 	local angle = state.rng:NextNumber(0, math.pi * 2)
 	local targetLX = lx + math.cos(angle) * distance
 	local targetLZ = lz + math.sin(angle) * distance
 	targetLX = math.clamp(targetLX, minX, maxX)
 	targetLZ = math.clamp(targetLZ, minZ, maxZ)
+	targetLX, targetLZ = PlotGridService.NearestUnlockedPoint(state.plot, targetLX, targetLZ, paddingX, paddingZ)
 
 	if (Vector2.new(targetLX - lx, targetLZ - lz)).Magnitude <= TARGET_EPSILON then
-		targetLX = randomBetween(state.rng, minX, maxX)
-		targetLZ = randomBetween(state.rng, minZ, maxZ)
+		targetLX, targetLZ = PlotGridService.RandomUnlockedPoint(state.plot, state.rng, paddingX, paddingZ)
+		if not targetLX or not targetLZ then
+			targetLX, targetLZ = PlotGridService.FirstUnlockedPoint(state.plot, paddingX, paddingZ)
+		end
 	end
 
 	return targetLX, targetLZ, duration, walkSpeed
@@ -192,6 +212,7 @@ local function beginIdle(state)
 	if not floor then return end
 
 	local lx, lz, lry = currentFloorLocal(state, floor)
+	lx, lz = nearestPetFit(state, floor, lx, lz)
 	PlotService.SeatPetOnFloor(state.pet, floor, lx, lz, lry)
 	publishSegment(
 		state,
@@ -217,6 +238,10 @@ local function beginWalk(state)
 	local nav = navigation()
 	if not nav then
 		local targetLX, targetLZ, duration, walkSpeed = chooseFallbackTargetInsideFloor(state, floor)
+		if not targetLX or not targetLZ then
+			beginIdle(state)
+			return
+		end
 		local dx = targetLX - startLX
 		local dz = targetLZ - startLZ
 		local targetLRY = math.atan2(-dx, -dz)
@@ -425,6 +450,7 @@ function PetMotionService.RefreshPet(pet)
 	if not floor then return end
 
 	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
+	lx, lz = nearestPetFit(state, floor, lx, lz)
 	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
 	state.feedIdleUntil = nil
 	clearRoute(state)
@@ -451,6 +477,7 @@ function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ)
 	clearRoute(state)
 
 	local lx, lz, lry = currentFloorLocal(state, floor)
+	lx, lz = nearestPetFit(state, floor, lx, lz)
 	local targetLRY = lry
 	if type(faceLX) == "number" and type(faceLZ) == "number" then
 		local dx = faceLX - lx
@@ -523,6 +550,7 @@ function PetMotionService.RefreshPlotRoutes(plot)
 			local floor = floorForState(state)
 			if floor then
 				local lx, lz, lry = currentFloorLocal(state, floor)
+				lx, lz = nearestPetFit(state, floor, lx, lz)
 				PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
 				clearRoute(state)
 				if not state.feedIdleUntil then

@@ -1,10 +1,12 @@
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
+local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 
 local CELL_SIZE = 2.5
 local CLEARANCE_PADDING = 0.25
 local DESTINATION_ATTEMPTS = 24
 local MAX_ROUTE_POINTS = 160
 local MIN_DESTINATION_DISTANCE = 4
+local MIN_DIRECT_WANDER_DISTANCE = 1.25
 local MAX_CORNER_RADIUS = 1.75
 local LINE_SAMPLE_STEP = CELL_SIZE * 0.5
 
@@ -41,7 +43,7 @@ local function clamp(value, minValue, maxValue)
 end
 
 local function buildGrid(plot, floor, pet)
-	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, pet)
+	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, pet, plot)
 	if minX >= maxX or minZ >= maxZ then
 		return nil
 	end
@@ -59,6 +61,9 @@ local function buildGrid(plot, floor, pet)
 		maxX = maxX,
 		minZ = minZ,
 		maxZ = maxZ,
+		plot = plot,
+		paddingX = paddingX,
+		paddingZ = paddingZ,
 		columns = columns,
 		rows = rows,
 		blocked = {},
@@ -70,8 +75,9 @@ local function buildGrid(plot, floor, pet)
 		grid.blocked[ix] = {}
 		for iz = 1, rows do
 			local center = PetNavigation.CellCenter(grid, ix, iz)
-			local blocked = false
+			local blocked = not PlotGridService.IsWalkableFootprint(plot, center.lx, center.lz, paddingX, paddingZ)
 			for _, obstacle in ipairs(obstacles) do
+				if blocked then break end
 				if center.lx >= obstacle.minX - paddingX
 					and center.lx <= obstacle.maxX + paddingX
 					and center.lz >= obstacle.minZ - paddingZ
@@ -114,6 +120,9 @@ end
 
 local function pointIsFree(grid, lx, lz)
 	if lx < grid.minX or lx > grid.maxX or lz < grid.minZ or lz > grid.maxZ then
+		return false
+	end
+	if not PlotGridService.IsWalkableFootprint(grid.plot, lx, lz, grid.paddingX, grid.paddingZ) then
 		return false
 	end
 	local ix, iz = cellForPoint(grid, lx, lz)
@@ -289,6 +298,21 @@ local function chooseDestination(grid, startPoint, startIX, startIZ, rng)
 	return bestCell and bestCell.ix or nil, bestCell and bestCell.iz or nil
 end
 
+local function chooseDirectDestination(grid, startPoint, rng)
+	for _ = 1, DESTINATION_ATTEMPTS do
+		local candidate = point(
+			rng:NextNumber(grid.minX, grid.maxX),
+			rng:NextNumber(grid.minZ, grid.maxZ)
+		)
+		if distance(startPoint, candidate) >= MIN_DIRECT_WANDER_DISTANCE
+			and pointIsFree(grid, candidate.lx, candidate.lz)
+			and lineIsClear(grid, startPoint, candidate) then
+			return candidate
+		end
+	end
+	return nil
+end
+
 local function simplifyPath(grid, cellPath)
 	if not cellPath or #cellPath == 0 then
 		return {}
@@ -412,7 +436,22 @@ function PetNavigation.PlanWander(plot, floor, pet, startLX, startLZ, rng)
 		end
 	end
 	if not cellPath then
-		return nil
+		local directDestination = chooseDirectDestination(grid, startPoint, rng)
+		if not directDestination then
+			return nil
+		end
+		return {
+			startLX = startPoint.lx,
+			startLZ = startPoint.lz,
+			recoveredStart = recoveredStart,
+			route = {
+				{
+					lx = directDestination.lx,
+					lz = directDestination.lz,
+					cornerRadius = 0,
+				},
+			},
+		}
 	end
 
 	local path = simplifyPath(grid, cellPath)

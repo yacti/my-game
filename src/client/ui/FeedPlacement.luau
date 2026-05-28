@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
@@ -123,6 +124,58 @@ local function boundsFitOnFloor(floor, boundsCF, boundsSize)
 		end
 	end
 
+	return true
+end
+
+local function unlockedGridParts(plot)
+	local parts = {}
+	if not plot then return parts end
+	for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+		local folder = plot:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") and child:GetAttribute(State.Grid.Unlocked) == true then
+					parts[#parts + 1] = child
+				end
+			end
+		end
+	end
+	return parts
+end
+
+local function pointInsideGridPart(part, worldPoint)
+	local localPoint = part.CFrame:PointToObjectSpace(worldPoint)
+	return math.abs(localPoint.X) <= part.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
+		and math.abs(localPoint.Z) <= part.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
+end
+
+local function pointInsideUnlockedGrid(plot, worldPoint)
+	for _, part in ipairs(unlockedGridParts(plot)) do
+		if pointInsideGridPart(part, worldPoint) then
+			return true
+		end
+	end
+	return false
+end
+
+local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
+	if not plot then return false end
+	local halfBounds = Vector3.new(boundsSize.X / 2, 0, boundsSize.Z / 2)
+	if not pointInsideUnlockedGrid(plot, boundsCF.Position) then
+		return false
+	end
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sz in ipairs(BOX_CORNER_SIGNS) do
+			local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+				sx * halfBounds.X,
+				0,
+				sz * halfBounds.Z
+			))
+			if not pointInsideUnlockedGrid(plot, worldCorner) then
+				return false
+			end
+		end
+	end
 	return true
 end
 
@@ -382,10 +435,12 @@ function FeedPlacement.start()
 
 	local function previewFitsOnGrid()
 		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
 		if not floor or not floor:IsA("BasePart") then return false end
 		local boundsCF, boundsSize = getPreviewBounds()
 		if not boundsCF or not boundsSize then return false end
 		return boundsFitOnFloor(floor, boundsCF, boundsSize)
+			and boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
 	end
 
 	local function previewOverlapsFeed()
@@ -589,7 +644,10 @@ function FeedPlacement.start()
 		local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = { floor }
+		local plot = getPlayerPlot()
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return false end
+		params.FilterDescendantsInstances = gridParts
 
 		local hit = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
 		if not hit then return false end

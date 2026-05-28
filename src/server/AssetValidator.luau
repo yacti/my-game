@@ -8,7 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
-local PlotSizes = require(Shared:WaitForChild("PlotSizes"))
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
@@ -45,7 +45,7 @@ local PROMPT_TEMPLATE_KINDS = {
 	"FeedMachine",
 	"PatchHarvest",
 	"TreeGroundPickup",
-	"PlotSizeUpgrade",
+	"GridPartUnlock",
 }
 
 local function add(errors, message)
@@ -592,18 +592,103 @@ local function validatePlots(errors)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
 
+	local function validateGridPart(plot, floor, part, folderName, seenCoords)
+		if not part:IsA("BasePart") then
+			add(errors, string.format("%s.%s contains %s %s, expected BasePart GridPart", plot:GetFullName(), folderName, part.ClassName, part.Name))
+			return
+		end
+
+		local gridX = PlotGrid.NormalizeInteger(part:GetAttribute(PlotGrid.Attributes.X))
+		local gridZ = PlotGrid.NormalizeInteger(part:GetAttribute(PlotGrid.Attributes.Z))
+		if not gridX or not gridZ then
+			add(errors, part:GetFullName() .. " missing integer GridX/GridZ attributes")
+			return
+		end
+		local key = PlotGrid.CoordKey(gridX, gridZ)
+		if seenCoords[key] then
+			add(errors, string.format("Duplicate GridX/GridZ %s on %s and %s", key, seenCoords[key]:GetFullName(), part:GetFullName()))
+		else
+			seenCoords[key] = part
+		end
+
+		if folderName == PlotGrid.Folders.Unlockable then
+			local price = PlotGrid.NormalizeNonNegativeNumber(part:GetAttribute(PlotGrid.Attributes.UnlockPrice))
+			if not price or price <= 0 then
+				add(errors, part:GetFullName() .. " missing positive UnlockPrice attribute")
+			end
+			child(part, "VacantGrid", "Model", errors)
+		end
+
+		if floor then
+			local localPosition = floor.CFrame:PointToObjectSpace(part.Position)
+			if math.abs(localPosition.Y) > math.max(floor.Size.Y, part.Size.Y) + 0.05 then
+				add(errors, part:GetFullName() .. " is not coplanar with Floor coordinate frame")
+			end
+			local upDot = math.abs(part.CFrame.UpVector:Dot(floor.CFrame.UpVector))
+			if upDot < 0.999 then
+				add(errors, part:GetFullName() .. " is not aligned with Floor up axis")
+			end
+		end
+
+		for _, sideNumber in ipairs(PlotGrid.SideNumbers) do
+			local fence = part:FindFirstChild("Fence" .. tostring(sideNumber))
+			if folderName == PlotGrid.Folders.Unlockable and (not fence or not (fence:IsA("Model") or fence:IsA("BasePart"))) then
+				add(errors, string.format("Missing %s.Fence%d Model/BasePart", part:GetFullName(), sideNumber))
+			end
+		end
+
+		for cornerName in pairs(PlotGrid.Corners) do
+			local corner = part:FindFirstChild(cornerName)
+			if folderName == PlotGrid.Folders.Unlockable and (not corner or not corner:IsA("BasePart")) then
+				add(errors, string.format("Missing %s.%s BasePart", part:GetFullName(), cornerName))
+			end
+		end
+	end
+
 	local function validatePlot(plot)
 		foundPlot = true
-		child(plot, "Floor", "BasePart", errors)
+		local floor = plot:FindFirstChild("Floor")
+		if floor and not floor:IsA("BasePart") then
+			add(errors, string.format("%s is %s, expected optional BasePart Floor", floor:GetFullName(), floor.ClassName))
+			floor = nil
+		end
 		child(plot, "SpawnLocation", "SpawnLocation", errors)
-		child(plot, "UpgradeSize", "BasePart", errors)
 
-		local references = child(plot, "FloorReferences", "Folder", errors)
-		for size = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
-			if references then
-				child(references, PlotSizes.ReferenceName(size), "BasePart", errors)
+		if floor then
+			if floor.Transparency < 1 or floor.CanCollide or floor.CanTouch or floor.CanQuery then
+				add(errors, floor:GetFullName() .. " must be an invisible non-colliding coordinate frame")
 			end
-			child(plot, PlotSizes.AssetModelName(size), "Model", errors)
+		end
+
+		local seenCoords = {}
+		for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+			local folder = child(plot, folderName, "Folder", errors)
+			if folder then
+				local gridCount = 0
+				for _, instance in ipairs(folder:GetChildren()) do
+					if instance:IsA("BasePart") then
+						gridCount += 1
+						validateGridPart(plot, floor, instance, folderName, seenCoords)
+					end
+				end
+				if gridCount == 0 then
+					add(errors, folder:GetFullName() .. " must contain at least one GridPart BasePart")
+				end
+			end
+		end
+
+		local gridAreas = plot:FindFirstChild(PlotGrid.Folders.Unlockable)
+		local sourceFence = false
+		if gridAreas then
+			for _, instance in ipairs(gridAreas:GetChildren()) do
+				if instance:IsA("BasePart") and instance:FindFirstChild("Fence1") and instance:FindFirstChild("CornerFence1_2") then
+					sourceFence = true
+					break
+				end
+			end
+		end
+		if not sourceFence then
+			add(errors, plot:GetFullName() .. " needs at least one GridAreas GridPart with fence/corner source assets")
 		end
 	end
 

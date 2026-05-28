@@ -1,17 +1,14 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerStorage = game:GetService("ServerStorage")
 
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
-local PlotSizes    = require(ReplicatedStorage.Shared:WaitForChild("PlotSizes"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
-local CurrencyService = require(script.Parent:WaitForChild("CurrencyService"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
+local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 
 local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 
-local FLOOR_MARGIN = 8
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local BOX_CORNER_SIGNS = { -1, 1 }
 
@@ -54,180 +51,9 @@ end
 local plots       = collectPlots()
 local plotOwners  = {}
 local playerPlots = {}
-local partStates  = setmetatable({}, { __mode = "k" })
-local visualStates = setmetatable({}, { __mode = "k" })
-local assetModelsByPlot = setmetatable({}, { __mode = "k" })
 local localToWorldOnFloorTop
 
 local PlotService = {}
-
-local function rememberPartState(part)
-	local state = partStates[part]
-	if state then return state end
-
-	local isAlreadyHidden = part.Transparency >= 1
-		and part.CanCollide == false
-		and part.CanTouch == false
-		and part.CanQuery == false
-	if isAlreadyHidden then
-		state = {
-			Transparency = 0,
-			CanCollide = true,
-			CanTouch = true,
-			CanQuery = true,
-		}
-	else
-		state = {
-			Transparency = part.Transparency,
-			CanCollide = part.CanCollide,
-			CanTouch = part.CanTouch,
-			CanQuery = part.CanQuery,
-		}
-	end
-	partStates[part] = state
-	return state
-end
-
-local function rememberVisualState(instance)
-	local state = visualStates[instance]
-	if state then return state end
-
-	state = {
-		Transparency = instance.Transparency,
-	}
-	visualStates[instance] = state
-	return state
-end
-
-local function setBasePartActive(part, active)
-	local state = rememberPartState(part)
-	if active then
-		part.Transparency = state.Transparency
-		part.CanCollide = state.CanCollide
-		part.CanTouch = state.CanTouch
-		part.CanQuery = state.CanQuery
-	else
-		part.Transparency = 1
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-	end
-end
-
-local function setVisualActive(instance, active)
-	local state = rememberVisualState(instance)
-	instance.Transparency = active and state.Transparency or 1
-end
-
-local function setInstanceTreeActive(instance, active)
-	for _, descendant in ipairs(instance:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			setBasePartActive(descendant, active)
-		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-			setVisualActive(descendant, active)
-		end
-	end
-end
-
-local function assetModelName(size)
-	return PlotSizes.AssetModelName(size)
-end
-
-local function assetStorageRoot()
-	local root = ServerStorage:FindFirstChild("__PlotSizeAssets")
-	if root and root:IsA("Folder") then return root end
-
-	root = Instance.new("Folder")
-	root.Name = "__PlotSizeAssets"
-	root.Parent = ServerStorage
-	return root
-end
-
-local function assetStorageForPlot(plot)
-	local root = assetStorageRoot()
-	local folder = root:FindFirstChild(plot.Name)
-	if folder and folder:IsA("Folder") then return folder end
-
-	folder = Instance.new("Folder")
-	folder.Name = plot.Name
-	folder.Parent = root
-	return folder
-end
-
-local function assetModelMap(plot)
-	local map = assetModelsByPlot[plot]
-	if map then return map end
-
-	map = {}
-	assetModelsByPlot[plot] = map
-	return map
-end
-
-local function getAssetModel(plot, size)
-	local name = assetModelName(size)
-	local map = assetModelMap(plot)
-	local cached = map[size]
-	if cached and cached.Parent then return cached end
-
-	local model = plot:FindFirstChild(name)
-	if not model then
-		model = assetStorageForPlot(plot):FindFirstChild(name)
-	end
-	if model and model:IsA("Model") then
-		map[size] = model
-		return model
-	end
-	return nil
-end
-
-local function setAssetModelActive(plot, model, active)
-	if active then
-		setInstanceTreeActive(model, true)
-		model.Parent = plot
-	else
-		setInstanceTreeActive(model, false)
-		model.Parent = assetStorageForPlot(plot)
-	end
-end
-
-local function capturePlacedPivots(plot)
-	local pivots = {}
-	for _, instance in ipairs(PlotService.GetSortedPets(plot)) do
-		pivots[#pivots + 1] = {
-			instance = instance,
-			pivot = instance:GetPivot(),
-		}
-	end
-	for _, instance in ipairs(PlotService.GetSortedFeeds(plot)) do
-		pivots[#pivots + 1] = {
-			instance = instance,
-			pivot = instance:GetPivot(),
-		}
-	end
-	return pivots
-end
-
-local function restorePlacedPivots(pivots)
-	for _, record in ipairs(pivots) do
-		local instance = record.instance
-		if instance and instance.Parent then
-			instance:PivotTo(record.pivot)
-		end
-	end
-end
-
-local function disableFloorReferences(plot)
-	local references = plot:FindFirstChild("FloorReferences")
-	if not references then return end
-
-	for _, descendant in ipairs(references:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			setBasePartActive(descendant, false)
-		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-			setVisualActive(descendant, false)
-		end
-	end
-end
 
 function PlotService.AssignPlot(player)
 	for i, plot in ipairs(plots) do
@@ -248,92 +74,6 @@ end
 function PlotService.GetFloor(plot)
 	local floor = plot and plot:FindFirstChild("Floor")
 	return floor and floor:IsA("BasePart") and floor or nil
-end
-
-function PlotService.GetFloorReference(plot, size)
-	local references = plot and plot:FindFirstChild("FloorReferences")
-	if not references then return nil end
-
-	local reference = references:FindFirstChild(PlotSizes.ReferenceName(size))
-	return reference and reference:IsA("BasePart") and reference or nil
-end
-
-function PlotService.GetPlotSize(plot)
-	return PlotSizes.Clamp(plot and plot:GetAttribute(State.Player.PlotSize) or PlotSizes.MIN_SIZE)
-end
-
-function PlotService.ApplyPlotSize(plot, size, preservePlaced)
-	if not plot then return false, "no-plot" end
-
-	size = PlotSizes.Clamp(size)
-	local floor = PlotService.GetFloor(plot)
-	if not floor then return false, "no-floor" end
-
-	local reference = PlotService.GetFloorReference(plot, size)
-	if not reference then return false, "no-reference" end
-
-	local pivots = preservePlaced == false and nil or capturePlacedPivots(plot)
-	floor.Size = reference.Size
-	floor.CFrame = reference.CFrame
-
-	disableFloorReferences(plot)
-	for tier = PlotSizes.MIN_SIZE, PlotSizes.MAX_SIZE do
-		local assets = getAssetModel(plot, tier)
-		if assets then
-			setAssetModelActive(plot, assets, tier == size)
-		end
-	end
-
-	if pivots then
-		restorePlacedPivots(pivots)
-	end
-	plot:SetAttribute(State.Player.PlotSize, size)
-	return true
-end
-
-function PlotService.ResetVacantPlotsToDefaultSize()
-	for i, plot in ipairs(plots) do
-		if not plotOwners[i] then
-			local applied, reason = PlotService.ApplyPlotSize(plot, PlotSizes.MIN_SIZE, false)
-			if not applied then
-				warn(string.format(
-					"[PlotService] Failed to reset vacant plot %s to default size: %s",
-					plot.Name,
-					tostring(reason)
-				))
-			end
-		end
-	end
-end
-
-function PlotService.TryPurchasePlotSize(player, plot, profile)
-	if not plot or not profile then return false, "no-profile" end
-
-	local currentSize = PlotService.GetPlotSize(plot)
-	local nextSize = PlotSizes.NextSize(currentSize)
-	if not nextSize then
-		return false, "max-size"
-	end
-
-	local price = PlotSizes.UpgradePrice(nextSize)
-	if type(price) ~= "number" then
-		return false, "no-price"
-	end
-
-	local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, price)
-	if not spent then
-		return false, spendCode, currency
-	end
-
-	local applied, applyCode = PlotService.ApplyPlotSize(plot, nextSize, true)
-	if not applied then
-		CurrencyService.Add(player, profile, price)
-		return false, applyCode, profile.Data.Currency or 0
-	end
-
-	profile.Data.PlotSize = nextSize
-	player:SetAttribute(State.Player.PlotSize, nextSize)
-	return true, nil, nextSize, price
 end
 
 function PlotService.FreePlot(player)
@@ -528,11 +268,39 @@ local function petFootprintPadding(floor, pet)
 	return rotationSafePadding, rotationSafePadding
 end
 
-local function petFloorLocalBounds(floor, pet)
+local function petFloorLocalBounds(floor, pet, plot)
 	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	if plot then
+		local minX, maxX, minZ, maxZ = PlotGridService.GetUnlockedLocalBounds(plot, paddingX, paddingZ)
+		if minX and minX < maxX and minZ < maxZ then
+			return minX, maxX, minZ, maxZ
+		end
+		return 0, 0, 0, 0
+	end
+
 	local halfX = math.max(floor.Size.X / 2 - paddingX, 0)
 	local halfZ = math.max(floor.Size.Z / 2 - paddingZ, 0)
 	return -halfX, halfX, -halfZ, halfZ
+end
+
+local function fitPetOnUnlockedGrid(plot, pet, floor, lx, lz, lry, preferRandom)
+	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	local fitLX, fitLZ
+	if preferRandom then
+		fitLX, fitLZ = PlotGridService.RandomUnlockedPoint(plot, Random.new(), paddingX, paddingZ)
+	else
+		fitLX, fitLZ = PlotGridService.NearestUnlockedPoint(plot, lx, lz, paddingX, paddingZ)
+	end
+	if not fitLX or not fitLZ
+		or not PlotGridService.IsWalkableFootprint(plot, fitLX, fitLZ, paddingX, paddingZ) then
+		fitLX, fitLZ = PlotGridService.FirstUnlockedPoint(plot, paddingX, paddingZ)
+	end
+	if not fitLX or not fitLZ
+		or not PlotGridService.IsWalkableFootprint(plot, fitLX, fitLZ, paddingX, paddingZ) then
+		return false
+	end
+	seatPetOnFloor(pet, floor, fitLX, fitLZ, lry)
+	return true, fitLX, fitLZ
 end
 
 -- ── Floor-local placement helpers ─────────────────────────────────────────────
@@ -670,21 +438,34 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 		return
 	end
 
-	local halfX = floor.Size.X / 2 - FLOOR_MARGIN
-	local halfZ = floor.Size.Z / 2 - FLOOR_MARGIN
-
 	for i, petData in ipairs(pets) do
-		local lx, lz, lry
+		local lx, lz, lry = nil, nil, 0
+		local hadSavedPosition = petData.lx ~= nil and petData.lz ~= nil
 		if petData.lx ~= nil and petData.lz ~= nil then
 			lx, lz, lry = petData.lx, petData.lz, petData.lry or 0
 		else
-			lx  = (math.random() * 2 - 1) * halfX
-			lz  = (math.random() * 2 - 1) * halfZ
-			lry = 0
+			lx, lz = PlotGridService.RandomUnlockedPoint(plot, Random.new(), 0, 0)
+		end
+		if not lx or not lz then
+			lx, lz = PlotGridService.FirstUnlockedPoint(plot, 0, 0)
+		end
+		if not lx or not lz then
+			warn(string.format("[PlotService] No unlocked grid cell available to spawn pet %s for %s", tostring(petData.petId), plot.Name))
+			continue
 		end
 		local petId = petData.petId
 		local clone = PlotService.CreatePet(petId, i, petData.xp or 0, floor, lx, lz, lry)
 		if clone then
+			local fitted = fitPetOnUnlockedGrid(plot, clone, floor, lx, lz, lry, not hadSavedPosition)
+			if not fitted then
+				warn(string.format(
+					"[PlotService] Could not fit pet %s inside unlocked grid for %s",
+					tostring(petId),
+					plot.Name
+				))
+				clone:Destroy()
+				continue
+			end
 			clone.Parent = plot
 		end
 	end
@@ -751,7 +532,8 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 		applyFeedIdentity(clone, feedType, i)
 
 		local height = templateHeight(clone)
-		anchorAndPlace(clone, localToWorldOnFloorTop(floor, rec.lx or 0, rec.lz or 0, height / 2, rec.lry or 0))
+		local lx, lz = PlotGridService.NearestUnlockedPoint(plot, rec.lx or 0, rec.lz or 0)
+		anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, rec.lry or 0))
 		clone.Parent = plot
 	end
 end
@@ -793,6 +575,7 @@ function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
 	if not boundsCF or not boundsSize then return false end
 
 	return boundsFitOnFloor(floor, boundsCF, boundsSize)
+		and PlotGridService.CanPlaceFootprint(plot, boundsCF, boundsSize)
 end
 
 function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
@@ -833,12 +616,18 @@ function PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
 	return seatPetOnFloor(pet, floor, lx, lz, lry)
 end
 
-function PlotService.PetFloorLocalBounds(floor, pet)
-	return petFloorLocalBounds(floor, pet)
+function PlotService.PetFloorLocalBounds(floor, pet, plot)
+	return petFloorLocalBounds(floor, pet, plot)
 end
 
 function PlotService.PetFootprintPadding(floor, pet)
 	return petFootprintPadding(floor, pet)
+end
+
+function PlotService.FitPetOnUnlockedGrid(plot, pet, lx, lz, lry, preferRandom)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return false end
+	return fitPetOnUnlockedGrid(plot, pet, floor, lx, lz, lry or 0, preferRandom == true)
 end
 
 function PlotService.GetNavigationObstacleBounds(plot)
