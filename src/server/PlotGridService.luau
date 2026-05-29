@@ -6,6 +6,7 @@ local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local State = require(Shared:WaitForChild("State"))
 
 local CurrencyService = require(script.Parent:WaitForChild("CurrencyService"))
+local InstanceVisibility = require(script.Parent:WaitForChild("InstanceVisibility"))
 
 local PlotGridService = {}
 
@@ -15,84 +16,21 @@ local RUNTIME_FLOOR_NAME = "Floor"
 
 local indexesByPlot = setmetatable({}, { __mode = "k" })
 local statesByPlot = setmetatable({}, { __mode = "k" })
-local partStates = setmetatable({}, { __mode = "k" })
-local visualStates = setmetatable({}, { __mode = "k" })
 
-local function rememberPartState(part)
-	local state = partStates[part]
-	if state then return state end
-
-	local isRuntimeHidden = part.Transparency >= 1
-		and part.CanCollide == false
-		and part.CanTouch == false
-		and part.CanQuery == false
-	if isRuntimeHidden then
-		state = {
-			Transparency = 0,
-			CanCollide = part.Name ~= "VacantGridPart",
-			CanTouch = part.Name ~= "VacantGridPart",
-			CanQuery = part.Name ~= "VacantGridPart",
-			CastShadow = true,
-		}
-	else
-		state = {
-			Transparency = part.Transparency,
-			CanCollide = part.CanCollide,
-			CanTouch = part.CanTouch,
-			CanQuery = part.CanQuery,
-			CastShadow = part.CastShadow,
-		}
-	end
-	partStates[part] = state
-	return state
-end
-
-local function rememberVisualState(instance)
-	local state = visualStates[instance]
-	if state then return state end
-
-	state = {
-		Transparency = instance.Transparency >= 1 and 0 or instance.Transparency,
-	}
-	visualStates[instance] = state
-	return state
-end
+local GRID_VISIBILITY_OPTIONS = {
+	RuntimeHiddenAsVisible = true,
+	RuntimeHiddenVisualAsVisible = true,
+	RuntimeHiddenCanCollide = function(part)
+		return part.Name ~= "VacantGridPart"
+	end,
+}
 
 local function setBasePartActive(part, active)
-	local state = rememberPartState(part)
-	if active then
-		part.Transparency = state.Transparency
-		part.CanCollide = state.CanCollide
-		part.CanTouch = state.CanTouch
-		part.CanQuery = state.CanQuery
-		part.CastShadow = state.CastShadow
-	else
-		part.Transparency = 1
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-		part.CastShadow = false
-	end
-end
-
-local function setVisualActive(instance, active)
-	local state = rememberVisualState(instance)
-	instance.Transparency = active and state.Transparency or 1
+	InstanceVisibility.SetActive(part, active, GRID_VISIBILITY_OPTIONS)
 end
 
 local function setInstanceTreeActive(instance, active)
-	if instance:IsA("BasePart") then
-		setBasePartActive(instance, active)
-	elseif instance:IsA("Decal") or instance:IsA("Texture") then
-		setVisualActive(instance, active)
-	end
-	for _, descendant in ipairs(instance:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			setBasePartActive(descendant, active)
-		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-			setVisualActive(descendant, active)
-		end
-	end
+	InstanceVisibility.SetTreeActive(instance, active, GRID_VISIBILITY_OPTIONS)
 end
 
 local function collectGridParts(folder, isStarter)

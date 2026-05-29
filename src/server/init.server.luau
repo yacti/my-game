@@ -28,6 +28,7 @@ local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 
 local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
+local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 
 local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
@@ -38,6 +39,7 @@ local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
 PlotGridService.ResetVacantPlotsToStarter()
+PlotService.SyncVacantPlotVisibility()
 
 RebirthService.Start()
 MarketService.Start()
@@ -400,6 +402,7 @@ local function pickupFeed(feed, plot, player)
 end
 
 local function unlockGridPart(target, plot, player, profile)
+	local gridPart = PlotGridService.ResolveGridPart(target)
 	local ok, code, _, price = PlotGridService.TryPurchaseCell(player, plot, profile, target)
 	if not ok then
 		if code == "already-unlocked" then
@@ -413,6 +416,9 @@ local function unlockGridPart(target, plot, player, profile)
 	end
 
 	PetMotionService.RefreshPlotRoutes(plot)
+	if gridPart then
+		GridUnlockEffect:FireAllClients(gridPart)
+	end
 	NotificationService.Success(player, "Plot area unlocked for $" .. tostring(price) .. "!")
 end
 

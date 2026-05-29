@@ -653,6 +653,7 @@ local function validatePlots(errors)
 			floor = nil
 		end
 		child(plot, "SpawnLocation", "SpawnLocation", errors)
+		child(plot, "VacantPlot", "Model", errors)
 
 		if floor then
 			if floor.Transparency < 1 or floor.CanCollide or floor.CanTouch or floor.CanQuery then

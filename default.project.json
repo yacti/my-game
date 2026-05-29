@@ -12,6 +12,9 @@
         "TreeClickerEffect": {
           "$className": "RemoteEvent"
         },
+        "GridUnlockEffect": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

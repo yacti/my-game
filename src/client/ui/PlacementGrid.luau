@@ -1,10 +1,17 @@
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
+local State = require(Shared:WaitForChild("State"))
 
 local PlacementGrid = {}
 PlacementGrid.__index = PlacementGrid
 
 local FLOOR_Y_OFFSET = 0.03
+local LOCAL_GRID_EFFECT_FOLDER = "__LocalGridEffects"
+local LOCAL_GRID_EFFECT_PREFIX = "__LocalGridEffect_"
 
 local EFFECTS = {
 	{
@@ -25,9 +32,32 @@ local function setPartInactive(part)
 	part.CastShadow = false
 end
 
-local function syncEffectToFloor(effect, floor)
-	effect.Size = floor.Size
-	effect.CFrame = floor.CFrame * CFrame.new(0, FLOOR_Y_OFFSET, 0)
+local function plotGridParts(plot, unlockedOnly)
+	local parts = {}
+	if not plot then return parts end
+
+	for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+		local folder = plot:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart")
+					and (not unlockedOnly or child:GetAttribute(State.Grid.Unlocked) == true) then
+					parts[#parts + 1] = child
+				end
+			end
+		end
+	end
+	return parts
+end
+
+local function unlockedGridParts(plot)
+	return plotGridParts(plot, true)
+end
+
+local function gridEffectNameForPart(gridPart)
+	local x = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.X)) or 0
+	local z = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.Z)) or 0
+	return LOCAL_GRID_EFFECT_PREFIX .. PlotGrid.CoordKey(x, z)
 end
 
 local function cancelTween(tweenByInstance, instance)
@@ -44,6 +74,8 @@ function PlacementGrid.new(getFloor)
 		_getFloor = getFloor,
 		_enabled = false,
 		_floor = nil,
+		_effectFolder = nil,
+		_effectClones = {},
 		_connections = {},
 		_tweenByInstance = {},
 	}, PlacementGrid)
@@ -60,10 +92,43 @@ function PlacementGrid:_disconnectFloor()
 	self._floor = nil
 end
 
+function PlacementGrid:_destroyClones()
+	for _, clone in pairs(self._effectClones) do
+		cancelTween(self._tweenByInstance, clone)
+		for _, descendant in ipairs(clone:GetDescendants()) do
+			cancelTween(self._tweenByInstance, descendant)
+		end
+		clone:Destroy()
+	end
+	table.clear(self._effectClones)
+
+	if self._effectFolder then
+		self._effectFolder:Destroy()
+		self._effectFolder = nil
+	end
+end
+
 function PlacementGrid:_effectForFloor(floor, config)
 	local plot = floor and floor.Parent
 	local effect = plot and plot:FindFirstChild(config.Name)
 	return effect and effect:IsA("BasePart") and effect or nil
+end
+
+function PlacementGrid:_effectFolderForFloor(floor)
+	local plot = floor and floor.Parent
+	if not plot then return nil end
+
+	local folder = self._effectFolder
+	if folder and folder.Parent == plot then
+		return folder
+	end
+
+	if folder then folder:Destroy() end
+	folder = Instance.new("Folder")
+	folder.Name = LOCAL_GRID_EFFECT_FOLDER
+	folder.Parent = plot
+	self._effectFolder = folder
+	return folder
 end
 
 function PlacementGrid:_tweenTransparency(instance, tweenInfo, transparency)
@@ -111,42 +176,104 @@ function PlacementGrid:_setEffectTransparency(effect, config, visible, animated)
 	end
 end
 
-function PlacementGrid:_applyEffect(effect, floor, config, visible, animated)
-	setPartInactive(effect)
-	if visible and config.MatchFloor then
-		syncEffectToFloor(effect, floor)
+function PlacementGrid:_syncCloneToGridPart(clone, gridPart)
+	clone.Size = Vector3.new(gridPart.Size.X, clone.Size.Y, gridPart.Size.Z)
+	clone.CFrame = gridPart.CFrame * CFrame.new(0, FLOOR_Y_OFFSET, 0)
+end
+
+function PlacementGrid:_createClone(template, gridPart, config)
+	local folder = self:_effectFolderForFloor(self._floor)
+	if not folder then return nil end
+
+	local clone = template:Clone()
+	clone.Name = gridEffectNameForPart(gridPart)
+	setPartInactive(clone)
+	self:_syncCloneToGridPart(clone, gridPart)
+	self:_setEffectTransparency(clone, config, false, false)
+	clone.Parent = folder
+	return clone
+end
+
+function PlacementGrid:_syncClones(template, floor, config, animated)
+	local live = {}
+	for _, gridPart in ipairs(unlockedGridParts(floor.Parent)) do
+		local name = gridEffectNameForPart(gridPart)
+		live[name] = true
+
+		local clone = self._effectClones[name]
+		if not clone or clone.Parent == nil then
+			clone = self:_createClone(template, gridPart, config)
+			if clone then self._effectClones[name] = clone end
+		elseif clone.Parent ~= self:_effectFolderForFloor(floor) then
+			clone.Parent = self:_effectFolderForFloor(floor)
+		end
+
+		if clone then
+			self:_syncCloneToGridPart(clone, gridPart)
+			self:_setEffectTransparency(clone, config, true, animated)
+		end
 	end
-	self:_setEffectTransparency(effect, config, visible, animated)
+
+	for name, clone in pairs(self._effectClones) do
+		if not live[name] then
+			cancelTween(self._tweenByInstance, clone)
+			for _, descendant in ipairs(clone:GetDescendants()) do
+				cancelTween(self._tweenByInstance, descendant)
+			end
+			clone:Destroy()
+			self._effectClones[name] = nil
+		end
+	end
+end
+
+function PlacementGrid:_applyTemplateEffect(effect, config)
+	setPartInactive(effect)
+	self:_setEffectTransparency(effect, config, false, false)
 end
 
 function PlacementGrid:_hideWorkspaceEffects()
 	for _, descendant in ipairs(Workspace:GetDescendants()) do
 		for _, config in ipairs(EFFECTS) do
 			if descendant.Name == config.Name and descendant:IsA("BasePart") then
-				self:_applyEffect(descendant, nil, config, false, false)
+				self:_applyTemplateEffect(descendant, config)
 			end
 		end
 	end
+	self:_destroyClones()
 end
 
 function PlacementGrid:_setVisible(visible, animated)
 	local floor = visible and self._getFloor() or self._floor
 
 	if not floor then
-		if not visible then self:_hideWorkspaceEffects() end
+		if not visible then self:_destroyClones() end
 		return
 	end
 
 	for _, config in ipairs(EFFECTS) do
 		local effect = self:_effectForFloor(floor, config)
 		if effect then
-			self:_applyEffect(effect, floor, config, visible, animated)
+			self:_applyTemplateEffect(effect, config)
+			if visible then
+				self:_syncClones(effect, floor, config, animated)
+			else
+				for _, clone in pairs(self._effectClones) do
+					self:_setEffectTransparency(clone, config, false, animated)
+				end
+			end
 		end
+	end
+
+	if not visible then
+		task.delay(0.18, function()
+			if not self._enabled then self:_destroyClones() end
+		end)
 	end
 end
 
 function PlacementGrid:_bindFloor(floor)
 	if self._floor == floor then return end
+	self:_destroyClones()
 	self:_disconnectFloor()
 	self._floor = floor
 
@@ -157,6 +284,13 @@ function PlacementGrid:_bindFloor(floor)
 	table.insert(self._connections, floor:GetPropertyChangedSignal("CFrame"):Connect(function()
 		if self._enabled then self:_setVisible(true) end
 	end))
+
+	local plot = floor.Parent
+	for _, gridPart in ipairs(plotGridParts(plot, false)) do
+		table.insert(self._connections, gridPart:GetAttributeChangedSignal(State.Grid.Unlocked):Connect(function()
+			if self._enabled then self:_setVisible(true) end
+		end))
+	end
 end
 
 function PlacementGrid:SetEnabled(enabled)

@@ -6,11 +6,46 @@ local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog")
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
+local InstanceVisibility = require(script.Parent:WaitForChild("InstanceVisibility"))
 
 local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local BOX_CORNER_SIGNS = { -1, 1 }
+local VACANT_PLOT_NAME = "VacantPlot"
+
+local function isInVacantPlot(instance, vacantPlot)
+	return vacantPlot ~= nil and (instance == vacantPlot or instance:IsDescendantOf(vacantPlot))
+end
+
+local function isGridPresentationDescendant(plot, instance)
+	local current = instance
+	while current and current ~= plot do
+		if current.Parent == plot
+			and (current.Name == "StarterArea" or current.Name == "GridAreas") then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function setPlotVacantPresentation(plot, vacant)
+	local vacantPlot = plot and plot:FindFirstChild(VACANT_PLOT_NAME)
+	if not plot then return end
+
+	for _, descendant in ipairs(plot:GetDescendants()) do
+		if descendant ~= vacantPlot then
+			if isInVacantPlot(descendant, vacantPlot) then
+				InstanceVisibility.SetActive(descendant, vacant)
+			elseif vacant then
+				InstanceVisibility.SetActive(descendant, false)
+			elseif not isGridPresentationDescendant(plot, descendant) then
+				InstanceVisibility.SetActive(descendant, true)
+			end
+		end
+	end
+end
 
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
@@ -60,6 +95,7 @@ function PlotService.AssignPlot(player)
 		if not plotOwners[i] then
 			plotOwners[i]       = player
 			playerPlots[player] = i
+			setPlotVacantPresentation(plot, false)
 			return plot, i
 		end
 	end
@@ -79,8 +115,16 @@ end
 function PlotService.FreePlot(player)
 	local i = playerPlots[player]
 	if i then
+		local plot = plots[i]
 		plotOwners[i]       = nil
 		playerPlots[player] = nil
+		setPlotVacantPresentation(plot, true)
+	end
+end
+
+function PlotService.SyncVacantPlotVisibility()
+	for i, plot in ipairs(plots) do
+		setPlotVacantPresentation(plot, plotOwners[i] == nil)
 	end
 end
 
