@@ -1,0 +1,66 @@
+[
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+    "feedType": "AppleTree",
+    "rollChanceN": 16,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": 100
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Banana Tree",
+    "feedType": "BananaTree",
+    "rollChanceN": 50,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": 250
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+    "feedType": "CherryTree",
+    "rollChanceN": 200,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": 250
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1",
+    "feedType": "Clicker1",
+    "rollChanceN": 2,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.FigTree",
+    "feedType": "FigTree",
+    "rollChanceN": 1000,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": 250
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Orange Tree",
+    "feedType": "OrangeTree",
+    "rollChanceN": 1000,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": 250
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Processor.Processor1",
+    "feedType": "Processor1",
+    "rollChanceN": 4,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch",
+    "feedType": "PumpkinPatch",
+    "rollChanceN": 8,
+    "rarity": "Common",
+    "price": null,
+    "shopPrice": null
+  }
+]

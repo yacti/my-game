@@ -1,0 +1,73 @@
+[
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+    "feedType": "AppleTree",
+    "attributes": {
+      "InShop": "true",
+      "ShopPrice": "100",
+      "ShopRarityRate": "100",
+      "ShopStockRange": "1 5 "
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Banana Tree",
+    "feedType": "BananaTree",
+    "attributes": {
+      "InShop": "true",
+      "ShopPrice": "250",
+      "ShopRarityRate": "50",
+      "ShopStockRange": "1 2 "
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+    "feedType": "CherryTree",
+    "attributes": {
+      "InShop": "true",
+      "ShopPrice": "250",
+      "ShopRarityRate": "50",
+      "ShopStockRange": "1 2 "
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1",
+    "feedType": "Clicker1",
+    "attributes": {
+      "InShop": "false"
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.FigTree",
+    "feedType": "FigTree",
+    "attributes": {
+      "InShop": "true",
+      "ShopPrice": "250",
+      "ShopRarityRate": "50",
+      "ShopStockRange": "1 2 "
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Orange Tree",
+    "feedType": "OrangeTree",
+    "attributes": {
+      "InShop": "true",
+      "ShopPrice": "250",
+      "ShopRarityRate": "50",
+      "ShopStockRange": "1 2 "
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Processor.Processor1",
+    "feedType": "Processor1",
+    "attributes": {
+      "InShop": "false"
+    }
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch",
+    "feedType": "PumpkinPatch",
+    "attributes": {
+      "InShop": "false"
+    }
+  }
+]

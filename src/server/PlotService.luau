@@ -13,6 +13,22 @@ local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local BOX_CORNER_SIGNS = { -1, 1 }
 local VACANT_PLOT_NAME = "VacantPlot"
+local ROLL_AREA_NAME = "RollArea"
+
+local ROLL_AREA_VISIBILITY_OPTIONS = {
+	RuntimeHiddenAsVisible = true,
+	RuntimeHiddenVisualAsVisible = true,
+	RuntimeHiddenCanCollide = function(part)
+		local current = part
+		while current do
+			if current.Name == "Path" then
+				return false
+			end
+			current = current.Parent
+		end
+		return true
+	end,
+}
 
 local function isInVacantPlot(instance, vacantPlot)
 	return vacantPlot ~= nil and (instance == vacantPlot or instance:IsDescendantOf(vacantPlot))
@@ -30,13 +46,36 @@ local function isGridPresentationDescendant(plot, instance)
 	return false
 end
 
+local function isRollAreaDescendant(plot, instance)
+	local current = instance
+	while current and current ~= plot do
+		if current.Name == ROLL_AREA_NAME then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function restoreRollAreaPresentation(plot)
+	local rollArea = plot and plot:FindFirstChild(ROLL_AREA_NAME)
+	if not rollArea then
+		return
+	end
+
+	InstanceVisibility.ForgetTree(rollArea)
+	InstanceVisibility.SetTreeActive(rollArea, true, ROLL_AREA_VISIBILITY_OPTIONS)
+end
+
 local function setPlotVacantPresentation(plot, vacant)
 	local vacantPlot = plot and plot:FindFirstChild(VACANT_PLOT_NAME)
 	if not plot then return end
 
 	for _, descendant in ipairs(plot:GetDescendants()) do
 		if descendant ~= vacantPlot then
-			if isInVacantPlot(descendant, vacantPlot) then
+			if not vacant and isRollAreaDescendant(plot, descendant) then
+				InstanceVisibility.SetActive(descendant, true)
+			elseif isInVacantPlot(descendant, vacantPlot) then
 				InstanceVisibility.SetActive(descendant, vacant)
 			elseif vacant then
 				InstanceVisibility.SetActive(descendant, false)
@@ -44,6 +83,9 @@ local function setPlotVacantPresentation(plot, vacant)
 				InstanceVisibility.SetActive(descendant, true)
 			end
 		end
+	end
+	if not vacant then
+		restoreRollAreaPresentation(plot)
 	end
 end
 

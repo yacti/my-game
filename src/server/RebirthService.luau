@@ -8,6 +8,7 @@ local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
+local ReceiptService = require(Server:WaitForChild("ReceiptService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -66,38 +67,6 @@ local function copyMap(map)
 		copy[k] = v
 	end
 	return copy
-end
-
-local function receiptKey(purchaseId)
-	if purchaseId == nil then
-		return nil
-	end
-	return tostring(purchaseId)
-end
-
-local function ensureReceipts(profile)
-	local receipts = profile.Data.MarketReceipts
-	if type(receipts) ~= "table" then
-		receipts = {}
-		profile.Data.MarketReceipts = receipts
-	end
-	return receipts
-end
-
-local function hasProcessedReceipt(profile, purchaseId)
-	purchaseId = receiptKey(purchaseId)
-	if not purchaseId then
-		return false
-	end
-	return ensureReceipts(profile)[purchaseId] == true
-end
-
-local function markProcessedReceipt(profile, purchaseId)
-	purchaseId = receiptKey(purchaseId)
-	if not purchaseId then
-		return
-	end
-	ensureReceipts(profile)[purchaseId] = true
 end
 
 local function saveProfile(profile)
@@ -287,7 +256,7 @@ local function snapshotProfile(profile)
 		Rebirths = integer(profile.Data.Rebirths, 0),
 		Pets = deepCopyArray(profile.Data.Pets),
 		FeedInventory = copyMap(profile.Data.FeedInventory),
-		MarketReceipts = copyMap(profile.Data.MarketReceipts),
+		ProcessedReceipts = copyMap(profile.Data.ProcessedReceipts),
 	}
 end
 
@@ -296,7 +265,7 @@ local function restoreProfile(player, profile, snapshot)
 	profile.Data.Rebirths = snapshot.Rebirths or 0
 	profile.Data.Pets = deepCopyArray(snapshot.Pets)
 	profile.Data.FeedInventory = copyMap(snapshot.FeedInventory)
-	profile.Data.MarketReceipts = copyMap(snapshot.MarketReceipts)
+	profile.Data.ProcessedReceipts = copyMap(snapshot.ProcessedReceipts)
 end
 
 local function swapPreparedPets(plot, profilePets, preparedPets)
@@ -433,7 +402,7 @@ local function runTransaction(player, options)
 	end
 
 	if options.purchaseId then
-		markProcessedReceipt(profile, options.purchaseId)
+		ReceiptService.MarkProcessed(profile, options.purchaseId)
 	end
 
 	if not saveProfile(profile) then
@@ -471,27 +440,31 @@ local function performRebirth(player, options)
 end
 
 local function markReceiptNoOp(profile, purchaseId, reason)
-	markProcessedReceipt(profile, purchaseId)
+	ReceiptService.MarkProcessed(profile, purchaseId)
 	local saved = saveProfile(profile)
 	if not saved then
-		local receipts = ensureReceipts(profile)
-		receipts[receiptKey(purchaseId)] = nil
+		ReceiptService.ClearProcessed(profile, purchaseId)
 	end
 	warn("[RebirthService] Rebirth skip receipt no-op: " .. tostring(reason))
 	return saved
 end
 
 function RebirthService.ProcessSkipReceipt(receiptInfo, player)
+	player = player or Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
 	local profile = PlayerDataService.GetProfile(player)
 	if not profile then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	local purchaseId = receiptKey(receiptInfo.PurchaseId)
+	local purchaseId = ReceiptService.Key(receiptInfo.PurchaseId)
 	if not purchaseId then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if hasProcessedReceipt(profile, purchaseId) then
+	if ReceiptService.HasProcessed(profile, purchaseId) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 

@@ -1,0 +1,66 @@
+[
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+    "name": "Apple Tree",
+    "feedType": "AppleTree",
+    "feedClass": "Tree",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Banana Tree",
+    "name": "Banana Tree",
+    "feedType": "BananaTree",
+    "feedClass": "Tree",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+    "name": "Cherry Tree",
+    "feedType": "CherryTree",
+    "feedClass": "Tree",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1",
+    "name": "Clicker1",
+    "feedType": "Clicker1",
+    "feedClass": "Clicker",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.FigTree",
+    "name": "FigTree",
+    "feedType": "FigTree",
+    "feedClass": "Tree",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Clicker.Orange Tree",
+    "name": "Orange Tree",
+    "feedType": "OrangeTree",
+    "feedClass": "Tree",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Processor.Processor1",
+    "name": "Processor1",
+    "feedType": "Processor1",
+    "feedClass": "Processor",
+    "rarity": "Common",
+    "rollChanceN": null
+  },
+  {
+    "path": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch",
+    "name": "PumpkinPatch",
+    "feedType": "PumpkinPatch",
+    "feedClass": "Patch",
+    "rarity": "Common",
+    "rollChanceN": null
+  }
+]

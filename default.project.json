@@ -15,6 +15,15 @@
         "GridUnlockEffect": {
           "$className": "RemoteEvent"
         },
+        "CrateRollEffect": {
+          "$className": "RemoteEvent"
+        },
+        "CrateRollPurchaseRequest": {
+          "$className": "RemoteEvent"
+        },
+        "CrateRollPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },
@@ -28,24 +37,6 @@
           "$className": "RemoteEvent"
         },
         "PromptInteract": {
-          "$className": "RemoteEvent"
-        },
-        "MarketStateRequest": {
-          "$className": "RemoteEvent"
-        },
-        "MarketStateUpdated": {
-          "$className": "RemoteEvent"
-        },
-        "MarketPurchaseRequest": {
-          "$className": "RemoteEvent"
-        },
-        "MarketPurchaseResult": {
-          "$className": "RemoteEvent"
-        },
-        "MarketRestockRequest": {
-          "$className": "RemoteEvent"
-        },
-        "MarketRestockResult": {
           "$className": "RemoteEvent"
         },
         "RebirthStateRequest": {

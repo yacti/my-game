@@ -25,11 +25,7 @@ local DATA_TEMPLATE = {
 		StarfruitTree = 1,
 	},
 	FoodInventory = {}, -- { [FoodId] = count }
-	MarketPurchases = {
-		cycleId = 0,
-		counts = {},
-	},
-	MarketReceipts = {},
+	ProcessedReceipts = {},
 	Currency = 0,
 	Rebirths = 0,
 	UnlockedGridKeys = {},
@@ -156,31 +152,15 @@ local function ensureValidData(profile)
 	end
 	profile.Data.FoodInventory = foodInventory
 
-	local marketPurchases = {
-		cycleId = 0,
-		counts = {},
-	}
-	if type(profile.Data.MarketPurchases) == "table" then
-		marketPurchases.cycleId = math.max(math.floor(tonumber(profile.Data.MarketPurchases.cycleId) or 0), 0)
-		if type(profile.Data.MarketPurchases.counts) == "table" then
-			for feedType, count in pairs(profile.Data.MarketPurchases.counts) do
-				if type(feedType) == "string" and type(count) == "number" and count > 0 then
-					marketPurchases.counts[feedType] = math.floor(count)
-				end
-			end
-		end
-	end
-	profile.Data.MarketPurchases = marketPurchases
-
-	local marketReceipts = {}
-	if type(profile.Data.MarketReceipts) == "table" then
-		for purchaseId, processed in pairs(profile.Data.MarketReceipts) do
+	local processedReceipts = {}
+	if type(profile.Data.ProcessedReceipts) == "table" then
+		for purchaseId, processed in pairs(profile.Data.ProcessedReceipts) do
 			if type(purchaseId) == "string" and processed == true then
-				marketReceipts[purchaseId] = true
+				processedReceipts[purchaseId] = true
 			end
 		end
 	end
-	profile.Data.MarketReceipts = marketReceipts
+	profile.Data.ProcessedReceipts = processedReceipts
 
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = 0

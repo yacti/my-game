@@ -6,12 +6,12 @@ local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
-local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RollChances = require(Shared:WaitForChild("RollChances"))
 local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
@@ -20,6 +20,7 @@ local REQUIRED_ROOTS = {
 	"PetModels",
 	"FeedMachines",
 	"Food",
+	"Crates",
 	"FeedMachineTool",
 	"EditTool",
 	"Remotes",
@@ -47,6 +48,13 @@ local PROMPT_TEMPLATE_KINDS = {
 	"PatchHarvest",
 	"TreeGroundPickup",
 	"GridPartUnlock",
+}
+
+local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
+	"ShopPrice",
+	"ShopRobuxPrice",
+	"RollPrice",
+	"PurchasePrice",
 }
 
 local function add(errors, message)
@@ -213,6 +221,26 @@ local function validateFeedTemplateIdentity(root, errors)
 			if rarity ~= nil and not Rarities.IsValid(rarity) then
 				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Rarity, tostring(rarity)))
 			end
+
+			local rollChanceN = template:GetAttribute(State.Feed.RollChanceN)
+			if not RollChances.BaseWeightForChance(rollChanceN) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.RollChanceN, tostring(rollChanceN)))
+			end
+
+			local price = template:GetAttribute(State.Feed.Price)
+			if type(price) ~= "number" or price < 0 or price ~= math.floor(price) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.Price, tostring(price)))
+			end
+			for _, attributeName in ipairs(DISALLOWED_FEED_PRICE_ATTRIBUTES) do
+				if template:GetAttribute(attributeName) ~= nil then
+					add(errors, string.format(
+						"%s has deprecated price attribute %s; use %s only",
+						template:GetFullName(),
+						attributeName,
+						State.Feed.Price
+					))
+				end
+			end
 		end
 	end
 end
@@ -222,7 +250,6 @@ local function validateFeedTemplates(errors)
 	if not root then return end
 
 	validateFeedTemplateIdentity(root, errors)
-	MarketCatalog.Validate(errors)
 
 	for _, feedType in ipairs(REQUIRED_FEEDS) do
 		local template = FeedMachines.GetTemplate(feedType)
@@ -234,53 +261,36 @@ local function validateFeedTemplates(errors)
 	end
 end
 
-local function validateMarketTemplate(template, errors)
-	child(template, "ItemName", "TextLabel", errors)
-	child(template, "Stock", "TextLabel", errors)
-
-	local iconHolder = child(template, "IconHolder", "Frame", errors)
-	if iconHolder then
-		child(iconHolder, "ItemIcon", "ViewportFrame", errors)
+local function validateCrateTemplate(template, errors)
+	if not template then return end
+	if not (template:IsA("BasePart") or template:IsA("Model")) then
+		add(errors, template:GetFullName() .. " is " .. template.ClassName .. ", expected BasePart or Model")
+		return
 	end
 
-	local buyBtns = child(template, "BuyBtns", "Frame", errors)
-	if buyBtns then
-		local cashBtn = child(buyBtns, "CashBtn", "ImageButton", errors)
-		if cashBtn then
-			child(cashBtn, "PriceLabel", "TextLabel", errors)
+	local hasPart = template:IsA("BasePart")
+	if template:IsA("Model") then
+		for _, descendant in ipairs(template:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				hasPart = true
+				break
+			end
 		end
-		local robuxBtn = child(buyBtns, "RobuxBtn", "ImageButton", errors)
-		if robuxBtn then
-			child(robuxBtn, "PriceLabel", "TextLabel", errors)
-		end
+	end
+	if not hasPart then
+		add(errors, template:GetFullName() .. " has no BasePart descendants")
 	end
 end
 
-local function validateMarketUi(errors)
-	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
-	if not ui then return end
+local function validateCrates(errors)
+	local crates = child(ReplicatedStorage, "Crates", "Folder", errors)
+	if not crates then return end
 
-	local marketGui = child(ui, "MarketGui", "ScreenGui", errors)
-	local market = marketGui and child(marketGui, "Market", "Frame", errors)
-	if not market then return end
-
-	child(market, "CloseButton", "ImageButton", errors)
-	local scrollHolder = child(market, "ScrollHolder", "ScrollingFrame", errors)
-	if scrollHolder then
-		local template = child(scrollHolder, "ItemTemplate", "Frame", errors)
-		if template then
-			validateMarketTemplate(template, errors)
-		end
-	end
-
-	local background = child(market, "Background", "Frame", errors)
-	local header = background and child(background, "Header", "Frame", errors)
-	if header then
-		child(header, "RestockTimer", "TextLabel", errors)
-		local restock = child(header, "Restock", "ImageButton", errors)
-		if restock then
-			child(restock, "Text", "TextLabel", errors)
-		end
+	RollChances.Validate(errors)
+	for _, crateId in ipairs(RollChances.CrateIds()) do
+		local config = RollChances.GetCrate(crateId)
+		local template = child(crates, config.TemplateName, nil, errors)
+		validateCrateTemplate(template, errors)
 	end
 end
 
@@ -697,6 +707,13 @@ local function validatePlots(errors)
 		if not sourceFence then
 			add(errors, plot:GetFullName() .. " needs at least one GridAreas GridPart with fence/corner source assets")
 		end
+
+		local rollArea = child(plot, "RollArea", "Folder", errors)
+		local buttonFolder = rollArea and child(rollArea, "Button", "Folder", errors)
+		if buttonFolder then
+			child(buttonFolder, "Button", "BasePart", errors)
+			child(buttonFolder, "CrateFloor", "BasePart", errors)
+		end
 	end
 
 	if plotsFolder then
@@ -716,10 +733,6 @@ local function validatePlots(errors)
 	end
 end
 
-local function validateMarketPart(errors)
-	child(Workspace, "MarketPart", "BasePart", errors)
-end
-
 function AssetValidator.validate()
 	local errors = {}
 	local warnings = {}
@@ -734,13 +747,12 @@ function AssetValidator.validate()
 	validateRemotes(errors)
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
+	validateCrates(errors)
 	validateRebirthBalance(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
-	validateMarketUi(warnings)
 	validateRebirthUi(warnings)
 	validatePlots(errors)
-	validateMarketPart(errors)
 
 	if #warnings > 0 then
 		warn("[AssetValidator] Studio UI asset warnings:\n- " .. table.concat(warnings, "\n- "))

@@ -5,6 +5,7 @@ Rarities.Rare = "Rare"
 Rarities.Epic = "Epic"
 Rarities.Legendary = "Legendary"
 Rarities.Mythical = "Mythical"
+Rarities.Secret = "Secret"
 
 Rarities.Order = {
 	Rarities.Common,
@@ -12,6 +13,7 @@ Rarities.Order = {
 	Rarities.Epic,
 	Rarities.Legendary,
 	Rarities.Mythical,
+	Rarities.Secret,
 }
 
 local DEFINITIONS = {
@@ -45,6 +47,12 @@ local DEFINITIONS = {
 		Color = Color3.fromRGB(255, 0, 255),
 		Animated = true,
 		RainbowPeriod = 4,
+	},
+	[Rarities.Secret] = {
+		Name = Rarities.Secret,
+		RGB = { 20, 20, 20 },
+		Color = Color3.fromRGB(20, 20, 20),
+		Animated = false,
 	},
 }
 

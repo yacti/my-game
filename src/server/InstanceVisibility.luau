@@ -93,4 +93,17 @@ function InstanceVisibility.SetTreeActive(instance, active, options)
 	end
 end
 
+function InstanceVisibility.Forget(instance)
+	partStates[instance] = nil
+	visualStates[instance] = nil
+	enabledStates[instance] = nil
+end
+
+function InstanceVisibility.ForgetTree(instance)
+	InstanceVisibility.Forget(instance)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		InstanceVisibility.Forget(descendant)
+	end
+end
+
 return InstanceVisibility

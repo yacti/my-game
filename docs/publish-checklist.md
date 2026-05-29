@@ -10,7 +10,7 @@ Run this checklist before publishing a live build.
   declared in `default.project.json`.
 - `ReplicatedStorage.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
-  `PetModels`, `FeedMachines`, `Food`, `UI`, `FeedMachineTool`, and `EditTool`.
+  `PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, `FeedMachineTool`, and `EditTool`.
 - Risky Studio/MCP asset edits have a matching `.rbxm` or `.rbxmx` checkpoint
   under `asset-backups/`.
 
@@ -34,8 +34,9 @@ Run this checklist before publishing a live build.
 ## Runtime Output
 
 - Join a clean session and confirm no infinite-yield warnings.
-- Confirm no missing template warnings for feed machines or food.
+- Confirm no missing template warnings for feed machines, food, crates, or roll-area assets.
 - Confirm no duplicate feed type warnings.
+- Confirm feed-machine roll templates have valid `RollChanceN`, `Price`, and display `Rarity` attributes.
 - Confirm any missing `ReplicatedStorage.UI` warnings are intentional; missing UI
   should skip the affected UI path and should never create fallback UI.
 - Confirm local prompts show correct per-player context.

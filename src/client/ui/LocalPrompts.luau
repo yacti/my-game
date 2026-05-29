@@ -516,6 +516,7 @@ local function tryBind(instance)
 	if instance:IsA("BasePart") and PlotGrid.IsUnlockableGridPart(instance) then
 		addPrompt(instance, "GridPartUnlock", Interactions.Actions.GridPartUnlock)
 	end
+
 end
 
 local function scanPlot()

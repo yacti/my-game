@@ -17,10 +17,11 @@ local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
-local MarketService     = require(Server:WaitForChild("MarketService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
+local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
+local RollService       = require(Server:WaitForChild("RollService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -42,7 +43,10 @@ PlotGridService.ResetVacantPlotsToStarter()
 PlotService.SyncVacantPlotVisibility()
 
 RebirthService.Start()
-MarketService.Start()
+ReceiptService.Start({
+	rebirthService = RebirthService,
+})
+RollService.Start()
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
 
@@ -495,7 +499,6 @@ Players.PlayerAdded:Connect(function(player)
 	startPetCollectionLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
-	MarketService.SendState(player)
 	RebirthService.SendState(player)
 
 	local toolsRestored = false

@@ -12,6 +12,7 @@ These live under `ReplicatedStorage` and are required by server/client code:
 - `PetModels`
 - `FeedMachines`
 - `Food`
+- `Crates`
 - `UI`
 - `FeedMachineTool`
 - `EditTool`
@@ -58,7 +59,9 @@ Avoid migrating everything at once. Complex models can break if pivots,
 ## Startup Validation
 
 `src/server/AssetValidator.luau` checks required asset roots, templates,
-attributes, remotes, tools, UI templates, and plot structure at server startup.
+attributes, remotes, crates, tools, UI templates, roll areas, and plot structure at server startup.
+Feed-machine templates used by crate rolls must include valid `RollChanceN` and
+`Price` attributes; `Rarity` is display-only when present.
 Critical gameplay assets still fail startup when they are missing or malformed.
 Studio-owned UI assets warn clearly and the affected UI path skips itself; the
 code should not generate fallback UI.

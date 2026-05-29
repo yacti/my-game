@@ -17,7 +17,8 @@ The current game loop is a plot-based pet/economy game:
 - players claim one plot, receive starter pets/feed-machine tools, and earn currency from pets
 - food tools feed pets; XP scales pets visually and evolves them through Studio-authored pet templates
 - feed machines create, process, or grow food; placed machines persist in floor-local coordinates
-- currency buys market feed machines, unlocks adjacent plot grid cells, and pays for rebirth
+- players roll crates from the plot roll area to earn feed-machine tools
+- currency unlocks adjacent plot grid cells and pays for rebirth
 - rebirth resets currency and pet lineup according to tier rewards while preserving the player's plot layout, placed machines, inventories, and unlocked grid cells
 
 `default.project.json` maps:
@@ -29,7 +30,7 @@ The current game loop is a plot-based pet/economy game:
 - `src/satchel.rbxm` -> `ReplicatedStorage.Satchel`
 - selected `Workspace`, `Lighting`, and `SoundService` property overrides
 
-`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `UI`, `FeedMachineTool`, `EditTool`, `Workspace.Plots`, and `Workspace.MarketPart`.
+`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, `FeedMachineTool`, `EditTool`, `Workspace.Plots`, and plot-local `RollArea` assets.
 
 ```mermaid
 flowchart TD
@@ -38,8 +39,8 @@ flowchart TD
   RojoSource --> ClientCode["StarterPlayerScripts.Client"]
   RojoSource --> RemoteFolder["ReplicatedStorage.Remotes"]
   RojoSource --> SatchelAsset["ReplicatedStorage.Satchel"]
-  StudioPlace["Studio Place Assets"] --> RuntimeTemplates["Pets, FeedMachines, Food, UI, Tools, Plots, MarketPart"]
-  ClientCode -->|"intent remotes and marketplace prompts"| ServerCode
+  StudioPlace["Studio Place Assets"] --> RuntimeTemplates["Pets, FeedMachines, Food, Crates, UI, Tools, Plots, RollArea"]
+  ClientCode -->|"intent remotes and presentation effects"| ServerCode
   ServerCode -->|"validates, mutates, persists"| RuntimeTemplates
   ServerCode -->|"attributes, result remotes, VFX remotes"| ClientCode
   SharedCode --> ServerCode
@@ -48,7 +49,7 @@ flowchart TD
 
 ## Studio And MCP Asset Policy
 
-Prefer Studio-authored assets for gameplay templates, UI layouts, tools, plot geometry, market anchors, and visual structure.
+Prefer Studio-authored assets for gameplay templates, UI layouts, tools, plot geometry, roll-area anchors, and visual structure.
 
 Studio is the source of truth for currently Studio-owned assets. MCP is the preferred agent access path for inspecting or editing those live Studio assets, but MCP is not rollback, source control, or a second source of truth.
 
@@ -57,11 +58,12 @@ Studio/MCP owns:
 - `ReplicatedStorage.PetModels`
 - `ReplicatedStorage.FeedMachines`
 - `ReplicatedStorage.Food`
+- `ReplicatedStorage.Crates`
 - `ReplicatedStorage.UI`
 - `ReplicatedStorage.FeedMachineTool`
 - `ReplicatedStorage.EditTool`
 - `Workspace.Plots`
-- `Workspace.MarketPart`
+- plot-local `RollArea` assets such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
 
 Do not migrate `ReplicatedStorage.UI` into Rojo. `src/client/ui` is controller and presentation logic, not UI asset source. Gradual Rojo migration is non-UI only and should follow `docs/asset-workflow.md`: tools first, then pet/feed/food templates.
 
@@ -70,8 +72,9 @@ Current Studio asset shape observed through MCP:
 - `ReplicatedStorage.PetModels` contains the active pet progression templates, keyed by `PetID` and ordered by `Order`; a previous Workspace duplicate cleanup is documented under `asset-backups/`.
 - `ReplicatedStorage.FeedMachines` contains `Clicker1`, `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
 - `ReplicatedStorage.Food` contains recursive food template folders. Food identity is `FoodId`; broad matching uses `FoodType`.
+- `ReplicatedStorage.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.
 - The inspected place currently has `Workspace.Plots.Plot1` with a starter cell and many `GridAreas`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
-- `Workspace.MarketPart` is the touch/proximity anchor for opening and validating the market.
+- The inspected place currently has a plot-local `RollArea` with a green roll button and `CrateFloor`.
 
 Before destructive, bulk, rename, restructure, or risky Studio/MCP edits, export the affected assets under `asset-backups/`.
 
@@ -100,7 +103,7 @@ Startup order is:
 1. `Remotes.validateAll()`
 2. `AssetValidator.validate()`
 3. `PlotGridService.ResetVacantPlotsToStarter()`
-4. `RebirthService.Start()` and `MarketService.Start()`
+4. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
 5. player lifecycle wiring
 6. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`
 
@@ -116,15 +119,15 @@ Key server modules:
 - `feedMachines/Spawner.luau`: helper for spawned feed-machine outputs.
 - `FeedPlacementService`: `PlaceFeedMachine` request handling.
 - `PromptInteractionService`: thin `PromptInteract` dispatcher.
-- `MarketService`: shop requests, purchases, receipt routing, state pushes, `MarketplaceService.ProcessReceipt`.
-- `MarketOfferStore`: global shop cycles, live `DataStore`/`MessagingService` sync, Studio memory fallback, server override offers.
+- `RollService`: server-authoritative crate/feed-machine rolls, roll cooldowns, pending roll offers, roll purchases, notifications, and roll VFX payloads.
+- `ReceiptService`: `MarketplaceService.ProcessReceipt` routing and processed receipt idempotency.
 - `RebirthService`: tiered rebirth transaction and receipt handling.
-- `FeedRewardService`: prepares/applies feed rewards for market/rebirth flows.
+- `FeedRewardService`: prepares/applies feed rewards for roll/rebirth flows.
 - `FeedMachineTools`: feed tool cloning and attributes.
 - `NotificationService`: `PlayerNotification` wrapper.
-- `AssetValidator`: startup contracts for remotes, templates, plots/grid structure, market, tools, UI, balance, and catalogs.
+- `AssetValidator`: startup contracts for remotes, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
-Gameplay authority is server-side. Clients may preview, render, and request. The server validates ownership, inventory, edit mode, state, currency, XP, evolution, placement, grid unlocks, market, rebirth, and persistence.
+Gameplay authority is server-side. Clients may preview, render, and request. The server validates ownership, inventory, edit mode, state, currency, XP, evolution, placement, grid unlocks, rolls, rebirth, and persistence.
 
 Security nuance: `PlaceFeedMachine` validates finite `CFrame`, plot, equipped tool, floor bounds, unlocked grid footprint, overlap, rate limits, and per-player locks, but it does not currently validate player distance to the placement location. `PromptInteractionService` validates action shape, rate limits, locks, and context; action handlers and feed-machine modules perform most ownership, target, distance, edit-mode, and state checks. Plot grid unlocks validate frontier state, price, currency, and player distance.
 
@@ -158,9 +161,9 @@ Current class behavior:
 
 Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. `PumpkinPatch` has an explicit patch balance module. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
-Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, `OrangeTree`, and `StarfruitTree`. Latest MCP inspection found templates for Banana/Fig/Orange, but not `StarfruitTree`; `AssetValidator` only requires `Clicker1`, `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory changes, align defaults, Studio templates, market catalog attributes, and validator requirements deliberately.
+Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, `OrangeTree`, and `StarfruitTree`. Latest MCP inspection found templates for Banana/Fig/Orange, but not `StarfruitTree`; `AssetValidator` only requires `Clicker1`, `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
 
-When touching feeds, foods, market catalog, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance chains, Studio template attributes, and `docs/publish-checklist.md`.
+When touching feeds, foods, roll odds, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance chains, Studio template attributes, and `docs/publish-checklist.md`.
 
 ## Client Architecture
 
@@ -168,10 +171,10 @@ When touching feeds, foods, market catalog, or rebirth rewards, cross-check `Ass
 
 Controller categories:
 
-- Remote-driven panels: `HudController`, `Notifications`, `MarketController`, `RebirthController`
+- Remote-driven panels: `HudController`, `Notifications`, `RebirthController`
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
 - Hybrid systems: `FeedPlacement`, `LocalPrompts`, `PlacementGrid`
-- VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals`
+- VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals`, `RollController`
 - shared helpers: `UiEffects`
 
 Clients clone Studio UI templates, watch replicated attributes, run local-only presentation, and send intent remotes. Client placement checks, prompt visibility, viewport previews, and button enablement are UX only; server validation remains definitive.
@@ -182,7 +185,7 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `FeedPlacement` uses the equipped feed-machine tool's `FeedType`, finds the Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. It prefers placement controls inside `HUD`; otherwise it clones `ReplicatedStorage.UI.FeedPlacementGui`.
 
-`MarketController` opens from `Workspace.MarketPart` touch/overlap, requests server state, renders shop cards from server catalog payloads, prompts Robux developer products locally, and refreshes state after purchase prompts. `RebirthController` opens from HUD UI and requests server state/result remotes.
+`RollController` listens for server roll result/effect payloads, clones crate/feed-machine templates locally, plays the crate fall/flicker/reveal presentation, and fires the local revealed-item buy prompt back to the server. `RebirthController` opens from HUD UI and requests server state/result remotes.
 
 Satchel is Rojo-mapped through `src/satchel.rbxm`; no game Luau in this repo starts it directly. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
 
@@ -194,14 +197,13 @@ Important shared modules:
 - `State.luau`: central replicated runtime attribute keys.
 - `Interactions.luau`: valid `PromptInteract` action names.
 - `Notifications.luau`: shared notification payload normalization.
-- `PetCatalog`, `Food`, `MarketCatalog`: runtime/catalog helpers that read Studio-owned templates.
+- `PetCatalog`, `Food`, `RollChances`: runtime/catalog helpers and odds config used by server/client code.
 - `PlotGrid`: grid folder names, grid attributes, coordinate keys, fence/corner naming, and legacy plot-size migration helpers.
 - `RebirthBalance`: rebirth economy.
-- `MarketProducts`: developer product IDs.
 - `Balance`: pet visual scaling only.
 - `ProfileStore.luau`: vendored dependency. Do not edit except for intentional library upgrades.
 
-Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, food `MaxXP`, and shop/template attributes may live directly on Studio instances.
+Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, food `MaxXP`, cosmetic feed rarity, `RollChanceN`, and roll `Price` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
 
 `FoodId` is the stable exact food template key. `FoodType` is the broad category used by processors and old-tool compatibility. Food templates may be nested recursively under `ReplicatedStorage.Food`.
 
@@ -223,28 +225,20 @@ Groups:
 - UI pushes: `PlayerNotification`, `CurrencyUpdated`
 - Placement: `PlaceFeedMachine`, `PlaceFeedMachineResult`
 - Interactions: `PromptInteract`
-- Market: `MarketStateRequest`, `MarketStateUpdated`, `MarketPurchaseRequest`, `MarketPurchaseResult`, `MarketRestockRequest`, `MarketRestockResult`
+- Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
 - Rebirth: `RebirthStateRequest`, `RebirthStateUpdated`, `RebirthRequest`, `RebirthResult`
 
 When adding a remote, update both `default.project.json` and `src/shared/Remotes.luau`, then intentionally wire server and client behavior.
 
-Do not assume every remote is symmetric or actively fired from both sides. Some are one-way pushes, some are request/result pairs, and some market/restock behavior is driven through `MarketplaceService` receipt handling.
+Do not assume every remote is symmetric or actively fired from both sides. Some are one-way pushes, some are request/result pairs, and receipt behavior is driven through `MarketplaceService` receipt handling.
 
-`MarketRestockRequest` exists but is currently stubbed/unused by the client. Real restock behavior is driven by `MarketplaceService` product purchase and server receipt processing, with `MarketRestockResult` used for result updates.
+## Rolls And Rebirth
 
-If `MarketRestockRequest` is fired manually, the server rate-limits it and replies `product-unconfigured`; the actual UI restock button calls `MarketplaceService:PromptProductPurchase` with `MarketProducts.RestockProductId`.
+`RollService` owns crate rolls from the plot-local roll button. The request path is a server-owned `ClickDetector` on the RollArea button; the result presentation is a `CrateRollEffect` payload to the rolling player. The server chooses the crate, computes per-feed-machine weights from `RollChanceN`, applies crate luck through `RollChances`, creates a short-lived pending offer priced from the template `Price`, and fires the client effect. The client renders the local revealed item and buy prompt, then `CrateRollPurchaseRequest` lets the server validate distance, currency, and offer freshness before spending currency and granting the feed tool through `FeedRewardService`.
 
-## Market And Rebirth
+`RollChances` currently configures crate drop weights and the `LuckyCrate` rule where non-donor feed machines are boosted and surplus weight is removed proportionally from the easiest donor machines. `RollConfig` owns shared roll presentation timing/counts used by both server cooldowns and client visuals. `Rarity` is cosmetic only and does not affect roll odds. For paid rolls, actual final odds must be disclosed before purchase and `PolicyService.ArePaidRandomItemsRestricted` must be respected.
 
-Market state is not only per-player UI data.
-
-`MarketService` owns market requests, purchases, receipt routing, state pushes, and `MarketplaceService.ProcessReceipt`. `MarketOfferStore` owns 15-minute global shop cycles, live `DataStore`/`MessagingService` synchronization, Studio memory fallback, and server-scoped override offers after Robux restocks.
-
-Player profile data stores per-cycle purchase counts and processed receipt ids. Market and rebirth receipt handling share receipt idempotency through profile data.
-
-Cash purchases are server-validated through remotes and proximity to `Workspace.MarketPart`. Robux purchases/restocks are receipt-driven and must not be modeled as trusted client state.
-
-The market catalog is generated from Studio feed templates with `InShop=true` and required shop attributes (`ShopPrice`, `ShopRarityRate`, `ShopStockRange`). `MarketProducts` currently configures the restock product and Robux feed products for `AppleTree` and `CherryTree`.
+`ReceiptService` owns processed receipt idempotency in `profile.Data.ProcessedReceipts` and routes `MarketplaceService.ProcessReceipt` to systems such as rebirth skips. Receipt-driven products must not be modeled as trusted client state.
 
 Rebirth is a specific economy transaction, not a generic wipe. Current behavior resets currency to zero, rebuilds pets according to tier rewards, increments rebirth state, grants tier feed rewards through feed reward logic, and explicitly saves on success. It preserves important player state such as placed feed machines, food inventory, plot layout, and unlocked grid cells unless another system changes them. Current `RebirthBalance` has three tiers at 1000, 5000, and 15000 currency; all skip product ids are `0`, so Robux skip is effectively disabled until configured.
 
@@ -260,14 +254,14 @@ Do not conflate a profile snapshot with a DataStore save. Snapshotting mutates `
 
 Profile data is server-only. Clients receive derived state through attributes and remotes.
 
-New player defaults include one `Pet1`, zero currency, zero rebirths, starter feed-machine inventory, empty food inventory, empty placements, per-cycle market counts, receipt ids, `UnlockedGridKeys`, and `LastSeen`.
+New player defaults include one `Pet1`, zero currency, zero rebirths, starter feed-machine inventory, empty food inventory, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`.
 
 Plot expansion is saved as coordinate-key strings in `profile.Data.UnlockedGridKeys`. `PlotGridService` also migrates old `UnlockedGridIds`/`PlotSize` data, but new code should use coordinate keys.
 
 Value-bearing data needs careful handling:
 
 - pet `money` is per-pet collectible value
-- player `Currency` is profile balance used for market purchases, plot grid unlocks, and rebirth
+- player `Currency` is profile balance used for plot grid unlocks and rebirth
 - server collection logic bridges pet `money` into player `Currency`
 
 ## Core Flows
@@ -279,7 +273,7 @@ Player join:
 3. reset plot grid state to starter visibility
 4. load profile
 5. apply saved grid state, then restore pets, feed machines, machine class state, tools, inventories, and offline pet earnings
-6. send initial currency, market, and rebirth state
+6. send initial currency and rebirth state
 
 Prompt interaction:
 
@@ -303,12 +297,12 @@ ClickDetector interaction:
 2. machine logic validates owner/rate/state
 3. server mutates machine state and optionally fires VFX remotes
 
-Market/rebirth:
+Roll/rebirth:
 
-1. client requests state or starts purchase/rebirth flow
-2. server validates currency, receipts, stock, proximity, or tier state
-3. profile/world state changes
-4. result/state remotes update UI
+1. server roll button `ClickDetector` fires, or client starts a rebirth flow
+2. server validates plot, distance, cooldown, profile, receipt, or tier state
+3. server mutates profile/world state and grants feed rewards when appropriate
+4. result/effect/state remotes update UI or client-side presentation
 
 Plot grid unlock:
 
@@ -331,7 +325,7 @@ Engineer for modular growth:
 
 Do not invent source-owned replacements for Studio templates. Do not create fallback UI or fallback gameplay templates in code when Studio assets are missing.
 
-Before implementation, read the relevant modules, docs, and Studio/MCP asset state. This matters most for gameplay, persistence, economy, remotes, UI templates, asset ownership, feeds, food, market, and rebirth.
+Before implementation, read the relevant modules, docs, and Studio/MCP asset state. This matters most for gameplay, persistence, economy, remotes, UI templates, asset ownership, feeds, food, rolls, and rebirth.
 
 When changing shipped behavior, consider data migration, player inventory, currency, profile saves, exploit surface, rollback path, and publish checklist impact.
 
@@ -343,7 +337,7 @@ Add new replicated runtime attributes through `State.luau` and update all reader
 
 When changing plot expansion, update `PlotGrid`, `PlotGridService`, Studio `StarterArea`/`GridAreas` attributes, client `LocalPrompts`/`FeedPlacement` expectations, persistence migration, and validator coverage together.
 
-When changing feeds, update Studio templates and attributes, server class/balance modules, `PlayerDataService` defaults if starters change, `MarketCatalog`/`MarketProducts` if shop behavior changes, and `AssetValidator` required feed/food coverage.
+When changing feeds or rolls, update Studio templates and attributes, server class/balance modules, `RollChances`, `PlayerDataService` defaults if starters change, and `AssetValidator` required feed/food/crate coverage.
 
 Treat `ProfileStore.luau` as third-party vendored code.
 

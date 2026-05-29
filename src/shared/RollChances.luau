@@ -1,0 +1,225 @@
+local RollChances = {}
+
+RollChances.Crates = {
+	CommonCrate = {
+		DisplayName = "Common Crate",
+		DropWeight = 70,
+		LuckMultiplier = 1,
+		TemplateName = "CommonCrate",
+	},
+	LuckyCrate = {
+		DisplayName = "Lucky Crate",
+		DropWeight = 30,
+		LuckMultiplier = 2,
+		TemplateName = "LuckyCrate",
+		DonorCount = 2,
+	},
+}
+
+local function totalWeight(weights, keys)
+	local total = 0
+	if keys then
+		for _, key in ipairs(keys) do
+			total += math.max(tonumber(weights[key]) or 0, 0)
+		end
+	else
+		for _, weight in pairs(weights or {}) do
+			total += math.max(tonumber(weight) or 0, 0)
+		end
+	end
+	return total
+end
+
+local function sortedKeys(weights)
+	local keys = {}
+	for key in pairs(weights or {}) do
+		keys[#keys + 1] = key
+	end
+	table.sort(keys)
+	return keys
+end
+
+local function removeSurplusFromDonors(weights, donorIds, surplus)
+	if surplus <= 0 then
+		return 0
+	end
+
+	local remainingSurplus = surplus
+	while remainingSurplus > 0 do
+		local donorTotal = totalWeight(weights, donorIds)
+		if donorTotal <= 0 then
+			return remainingSurplus
+		end
+
+		local removedThisPass = 0
+		for _, id in ipairs(donorIds) do
+			local current = math.max(tonumber(weights[id]) or 0, 0)
+			if current > 0 then
+				local reduction = remainingSurplus * (current / donorTotal)
+				reduction = math.min(reduction, current)
+				weights[id] = current - reduction
+				removedThisPass += reduction
+			end
+		end
+
+		if removedThisPass <= 0 then
+			return remainingSurplus
+		end
+		remainingSurplus -= removedThisPass
+	end
+
+	return 0
+end
+
+local function sortEntriesByChance(entries)
+	local sorted = table.clone(entries or {})
+	table.sort(sorted, function(a, b)
+		if a.chanceN ~= b.chanceN then
+			return a.chanceN < b.chanceN
+		end
+		return tostring(a.id) < tostring(b.id)
+	end)
+	return sorted
+end
+
+function RollChances.GetCrate(crateId)
+	return RollChances.Crates[crateId]
+end
+
+function RollChances.CrateIds()
+	local ids = {}
+	for crateId in pairs(RollChances.Crates) do
+		ids[#ids + 1] = crateId
+	end
+	table.sort(ids)
+	return ids
+end
+
+function RollChances.BaseWeightForChance(chanceN)
+	chanceN = tonumber(chanceN)
+	if type(chanceN) ~= "number" or chanceN ~= chanceN or math.abs(chanceN) == math.huge or chanceN <= 0 then
+		return nil
+	end
+	return 1 / chanceN
+end
+
+function RollChances.ComputeFeedWeights(crateId, entries)
+	local crate = RollChances.GetCrate(crateId)
+	if not crate then
+		return nil, "unknown-crate"
+	end
+	if type(entries) ~= "table" or #entries == 0 then
+		return nil, "empty-roll-pool"
+	end
+
+	local weights = {}
+	local baseWeights = {}
+	local sortedEntries = sortEntriesByChance(entries)
+	for _, entry in ipairs(sortedEntries) do
+		local id = entry.id
+		local baseWeight = RollChances.BaseWeightForChance(entry.chanceN)
+		if type(id) ~= "string" or id == "" or not baseWeight then
+			return nil, "invalid-roll-entry"
+		end
+		weights[id] = baseWeight
+		baseWeights[id] = baseWeight
+	end
+
+	local multiplier = tonumber(crate.LuckMultiplier) or 1
+	if multiplier <= 1 then
+		return weights
+	end
+
+	local donorIds = {}
+	local donorCount = math.max(math.floor(tonumber(crate.DonorCount) or 0), 0)
+	for index = 1, math.min(donorCount, #sortedEntries) do
+		donorIds[#donorIds + 1] = sortedEntries[index].id
+	end
+
+	local desiredSurplus = 0
+	for index, entry in ipairs(sortedEntries) do
+		if index > donorCount then
+			desiredSurplus += baseWeights[entry.id] * (multiplier - 1)
+		end
+	end
+
+	local donorTotal = totalWeight(baseWeights, donorIds)
+	local appliedSurplus = math.min(desiredSurplus, donorTotal)
+	local boostScale = desiredSurplus > 0 and appliedSurplus / desiredSurplus or 0
+
+	for index, entry in ipairs(sortedEntries) do
+		if index > donorCount then
+			local baseWeight = baseWeights[entry.id]
+			weights[entry.id] = baseWeight + baseWeight * (multiplier - 1) * boostScale
+		end
+	end
+	removeSurplusFromDonors(weights, donorIds, appliedSurplus)
+
+	return weights
+end
+
+function RollChances.ToPercentages(weights)
+	local total = totalWeight(weights)
+	local percentages = {}
+	if total <= 0 then
+		return percentages
+	end
+
+	for id, weight in pairs(weights or {}) do
+		percentages[id] = math.max(weight, 0) / total * 100
+	end
+	return percentages
+end
+
+function RollChances.WeightedChoice(weights, rng)
+	rng = rng or Random.new()
+	local total = totalWeight(weights)
+	if total <= 0 then
+		return nil
+	end
+
+	local roll = rng:NextNumber(0, total)
+	local running = 0
+	for _, id in ipairs(sortedKeys(weights)) do
+		local weight = math.max(tonumber(weights[id]) or 0, 0)
+		if weight > 0 then
+			running += weight
+			if roll <= running then
+				return id
+			end
+		end
+	end
+
+	return nil
+end
+
+function RollChances.RollCrate(rng)
+	local weights = {}
+	for crateId, crate in pairs(RollChances.Crates) do
+		weights[crateId] = crate.DropWeight
+	end
+	return RollChances.WeightedChoice(weights, rng)
+end
+
+function RollChances.Validate(errors)
+	errors = errors or {}
+
+	for crateId, crate in pairs(RollChances.Crates) do
+		if type(crate.TemplateName) ~= "string" or crate.TemplateName == "" then
+			errors[#errors + 1] = string.format("RollChances crate %s missing TemplateName", tostring(crateId))
+		end
+		if type(crate.DropWeight) ~= "number" or crate.DropWeight <= 0 then
+			errors[#errors + 1] = string.format("RollChances crate %s has invalid DropWeight", tostring(crateId))
+		end
+		if crate.DonorCount ~= nil and (type(crate.DonorCount) ~= "number" or crate.DonorCount < 0 or crate.DonorCount % 1 ~= 0) then
+			errors[#errors + 1] = string.format("RollChances crate %s has invalid DonorCount", tostring(crateId))
+		end
+		if crate.LuckMultiplier ~= nil and (type(crate.LuckMultiplier) ~= "number" or crate.LuckMultiplier < 1) then
+			errors[#errors + 1] = string.format("RollChances crate %s has invalid LuckMultiplier", tostring(crateId))
+		end
+	end
+
+	return #errors == 0
+end
+
+return RollChances

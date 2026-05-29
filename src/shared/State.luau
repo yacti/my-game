@@ -51,7 +51,9 @@ State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
 	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Patch, Processor, Tree
-	Rarity = "Rarity",
+	Rarity = "Rarity", -- display-only rarity; roll odds use RollChanceN
+	RollChanceN = "RollChanceN", -- roll odds denominator, e.g. 50 means base weight 1/50
+	Price = "Price",
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under
@@ -65,15 +67,6 @@ State.Feed = {
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
 	XPMultiplier    = "XPMultiplier",    -- Processor/AppleTree: multiplier on produced XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
-
-	-- Shop tunables. Templates with InShop=true and all three required shop
-	-- attributes are listed in the Market catalog.
-	InShop         = "InShop",
-	ShopPrice      = "ShopPrice",
-	ShopRarityRate = "ShopRarityRate", -- percent chance from 0..100
-	ShopStockRange = "ShopStockRange", -- NumberRange, per-player allowance per offer
-	ShopRobuxProductId = "ShopRobuxProductId",
-	ShopRobuxPrice     = "ShopRobuxPrice",
 
 	-- Server-published runtime state (clients can read for UI).
 	QueueCount = "QueueCount", -- Processor
