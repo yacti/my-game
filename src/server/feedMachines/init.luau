@@ -5,6 +5,7 @@
 -- PumpkinPatch). The template carries:
 --   FeedClass  (string, broad behavior class, e.g. "Clicker", "Patch", or "Tree")
 --   FeedType   (string, stable gameplay id; template/model Name is visual only)
+--   Rarity     (string, display rarity; see Shared.Rarities)
 --   FoodType   (string, foodType produced/accepted, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --

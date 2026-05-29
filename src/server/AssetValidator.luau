@@ -9,6 +9,7 @@ local Food = require(Shared:WaitForChild("Food"))
 local MarketCatalog = require(Shared:WaitForChild("MarketCatalog"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
+local Rarities = require(Shared:WaitForChild("Rarities"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
@@ -206,6 +207,11 @@ local function validateFeedTemplateIdentity(root, errors)
 			end
 			if not FeedMachines.IsClass(feedClass) then
 				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Class, tostring(feedClass)))
+			end
+
+			local rarity = template:GetAttribute(State.Feed.Rarity)
+			if rarity ~= nil and not Rarities.IsValid(rarity) then
+				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Rarity, tostring(rarity)))
 			end
 		end
 	end

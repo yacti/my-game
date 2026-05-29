@@ -1,0 +1,124 @@
+{
+  "note": "Rollback snapshot captured before adding feed machine Rarity attributes. A full clone was also created in Studio at ServerStorage.AgentAssetBackups.FeedMachines_before_rarity_2026_05_29.",
+  "backupClonePath": "ServerStorage.AgentAssetBackups.FeedMachines_before_rarity_2026_05_29",
+  "capturedAtUnix": 1780061861,
+  "templates": [
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "AppleTree",
+        "FoodDrop": "Apple",
+        "InShop": true,
+        "MaxClicksPerSecond": 5,
+        "ShopPrice": 100,
+        "ShopRarityRate": 100,
+        "ShopStockRange": "1 5",
+        "XPMultiplier": 10
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Banana Tree",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "BananaTree",
+        "FoodDrop": "Banana",
+        "InShop": true,
+        "MaxClicksPerSecond": 5,
+        "ShopPrice": 250,
+        "ShopRarityRate": 50,
+        "ShopStockRange": "1 2",
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "CherryTree",
+        "FoodDrop": "Cherry",
+        "InShop": true,
+        "MaxClicksPerSecond": 5,
+        "ShopPrice": 250,
+        "ShopRarityRate": 50,
+        "ShopStockRange": "1 2",
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1",
+      "className": "Part",
+      "attributes": {
+        "ClickCooldown": 0.5,
+        "FeedClass": "Clicker",
+        "FeedType": "Clicker1",
+        "FoodType": "Apple",
+        "InShop": false,
+        "MaxFood": 5
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.FigTree",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "FigTree",
+        "FoodDrop": "Fig",
+        "InShop": true,
+        "MaxClicksPerSecond": 5,
+        "ShopPrice": 250,
+        "ShopRarityRate": 50,
+        "ShopStockRange": "1 2",
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Orange Tree",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "OrangeTree",
+        "FoodDrop": "Orange",
+        "InShop": true,
+        "MaxClicksPerSecond": 5,
+        "ShopPrice": 250,
+        "ShopRarityRate": 50,
+        "ShopStockRange": "1 2",
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch",
+      "className": "Model",
+      "primaryPart": "Dirt",
+      "attributes": {
+        "FeedClass": "Patch",
+        "FeedType": "PumpkinPatch",
+        "GrowRate": 1,
+        "InShop": false
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Processor.Processor1",
+      "className": "Model",
+      "primaryPart": "PrimaryPart",
+      "attributes": {
+        "FeedClass": "Processor",
+        "FeedType": "Processor1",
+        "FoodType": "Fruit",
+        "InShop": false,
+        "MaxQueue": 5,
+        "ProcessDuration": 30,
+        "XPMultiplier": 2
+      }
+    }
+  ]
+}

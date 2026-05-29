@@ -51,6 +51,7 @@ State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
 	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Patch, Processor, Tree
+	Rarity = "Rarity",
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under
