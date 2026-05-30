@@ -254,7 +254,7 @@ local function feedPet(plot, player, profile, pet)
 	if type(maxXP) ~= "number" or maxXP <= 0 then return end
 	if (petData.xp or 0) >= maxXP and PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) == nil then return end
 
-	local food = Food.FindFirstInBackpack(player)
+	local food = Food.FindForPetFeed(player)
 	if not food then return end
 
 	local foodXP = Food.XPOf(food)

@@ -179,6 +179,43 @@ function Food.FindFirstInBackpack(player, foodType)
 	return nil
 end
 
+local function feedCandidateXP(item)
+	if not Food.IsFood(item) then return nil end
+	return Food.XPOf(item)
+end
+
+local function isBetterFeedCandidate(candidate, candidateXP, current, currentXP)
+	if current == nil then return true end
+	if candidateXP ~= currentXP then return candidateXP > currentXP end
+
+	local candidateId = Food.IdOf(candidate) or ""
+	local currentId = Food.IdOf(current) or ""
+	if candidateId ~= currentId then return candidateId < currentId end
+
+	return candidate.Name < current.Name
+end
+
+-- Pet feeding always spends the held food first. If no feedable food is held,
+-- choose the highest-XP food from the backpack so bulk feeding is predictable.
+function Food.FindForPetFeed(player)
+	local eq = equippedTool(player)
+	if feedCandidateXP(eq) ~= nil then
+		return eq
+	end
+
+	local best = nil
+	local bestXP = nil
+	for _, item in ipairs(player.Backpack:GetChildren()) do
+		local xp = feedCandidateXP(item)
+		if xp ~= nil and isBetterFeedCandidate(item, xp, best, bestXP) then
+			best = item
+			bestXP = xp
+		end
+	end
+
+	return best
+end
+
 -- Equipped-only variant: returns the player's currently held food Tool
 -- (optionally filtered by FoodType) or nil. Used by Processor deposit, which
 -- requires the player to be holding the food.
