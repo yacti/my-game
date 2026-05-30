@@ -136,7 +136,6 @@ local function isRollButton(instance)
 		and rollArea ~= nil
 		and rollArea:IsA("Folder")
 		and rollArea.Name == "RollArea"
-		and folder:FindFirstChild("CrateFloor") ~= nil
 end
 
 local function gridPartAt(plot, x, z)

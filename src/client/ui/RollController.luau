@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -31,14 +32,14 @@ local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
+local CRATE_ROLL_PROMPT_NAME = "__LocalPrompt_CrateRoll"
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 local POP_TWEEN = TweenInfo.new(RollConfig.Reveal.PopDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-local activeReveal = nil
-local activeOfferId = nil
 local activeRollToken = 0
-local activeRollEffects = {}
+local activeReveals = {}
+local activeRollEffectsByOfferId = {}
 local pressedButton = nil
 local buttonOriginalCFrames = setmetatable({}, { __mode = "k" })
 local buttonOriginalColors = setmetatable({}, { __mode = "k" })
@@ -49,8 +50,16 @@ local function isCurrentRoll(token)
 	return token == activeRollToken
 end
 
-local function trackRollEffect(instance)
-	activeRollEffects[#activeRollEffects + 1] = instance
+local function trackRollEffect(instance, offerId)
+	if offerId == nil then
+		return
+	end
+	local effects = activeRollEffectsByOfferId[offerId]
+	if not effects then
+		effects = {}
+		activeRollEffectsByOfferId[offerId] = effects
+	end
+	effects[#effects + 1] = instance
 end
 
 local function findFeedTemplate(feedType)
@@ -252,7 +261,6 @@ local function isRollButton(button)
 		and rollArea ~= nil
 		and rollArea:IsA("Folder")
 		and rollArea.Name == "RollArea"
-		and folder:FindFirstChild("CrateFloor") ~= nil
 end
 
 local function setButtonPressed(button, pressed)
@@ -287,6 +295,23 @@ local function releasePressedButton()
 	end
 end
 
+local function pressButton(button, autoRelease)
+	if not isRollButton(button) or unavailableButtons[button] then
+		return
+	end
+
+	releasePressedButton()
+	pressedButton = button
+	setButtonPressed(button, true)
+	if autoRelease then
+		task.delay(BUTTON_PRESS_DURATION + BUTTON_RELEASE_DURATION, function()
+			if pressedButton == button then
+				releasePressedButton()
+			end
+		end)
+	end
+end
+
 local function setButtonUnavailable(button, unavailable)
 	if not (button and button:IsA("BasePart") and button:IsDescendantOf(Workspace)) then
 		return
@@ -310,26 +335,46 @@ local function markButtonUnavailableForRoll(button)
 	end)
 end
 
+local function clearOfferEffects(offerId)
+	local effects = activeRollEffectsByOfferId[offerId]
+	if effects then
+		for _, instance in ipairs(effects) do
+			if instance and instance.Parent then
+				instance:Destroy()
+			end
+		end
+	end
+	activeRollEffectsByOfferId[offerId] = nil
+end
+
 local function clearActiveReveal(offerId)
-	if offerId ~= nil and activeOfferId ~= offerId then
+	if offerId ~= nil then
+		local reveal = activeReveals[offerId]
+		if reveal then
+			reveal:Destroy()
+			activeReveals[offerId] = nil
+		end
+		clearOfferEffects(offerId)
 		return
 	end
-	if activeReveal then
-		activeReveal:Destroy()
-		activeReveal = nil
+
+	local offerIds = {}
+	for activeOfferId in pairs(activeReveals) do
+		offerIds[#offerIds + 1] = activeOfferId
 	end
-	if offerId == nil or activeOfferId == offerId then
-		activeOfferId = nil
+	for _, activeOfferId in ipairs(offerIds) do
+		clearActiveReveal(activeOfferId)
+	end
+	local effectOfferIds = {}
+	for activeOfferId in pairs(activeRollEffectsByOfferId) do
+		effectOfferIds[#effectOfferIds + 1] = activeOfferId
+	end
+	for _, activeOfferId in ipairs(effectOfferIds) do
+		clearOfferEffects(activeOfferId)
 	end
 end
 
 local function clearRollEffects()
-	for _, instance in ipairs(activeRollEffects) do
-		if instance and instance.Parent then
-			instance:Destroy()
-		end
-	end
-	activeRollEffects = {}
 	clearActiveReveal()
 end
 
@@ -436,7 +481,7 @@ local function tweenScaleOnFloor(clone, crateFloor, fromScale, toScale, tweenInf
 	end
 end
 
-local function playImpactChunks(crateFloor)
+local function playImpactChunks(crateFloor, offerId)
 	local origin = crateFloor.Position + crateFloor.CFrame.UpVector * (crateFloor.Size.Y * 0.5 + 0.5)
 	for _ = 1, IMPACT_CHUNK_COUNT do
 		local angle = rng:NextNumber(0, math.pi * 2)
@@ -453,7 +498,7 @@ local function playImpactChunks(crateFloor)
 		chunk.CanQuery = false
 		chunk.CFrame = CFrame.new(origin + spawnOffset)
 		chunk.Parent = Workspace
-		trackRollEffect(chunk)
+		trackRollEffect(chunk, offerId)
 
 		local horizontal = outward * rng:NextNumber(5, 11)
 		local upward = crateFloor.CFrame.UpVector * rng:NextNumber(8, 16)
@@ -480,8 +525,8 @@ local function playImpactChunks(crateFloor)
 	end
 end
 
-local function breakCrate(crate, crateFloor)
-	playImpactChunks(crateFloor)
+local function breakCrate(crate, crateFloor, offerId)
+	playImpactChunks(crateFloor, offerId)
 end
 
 local function setBlackNeon(root)
@@ -551,7 +596,7 @@ local function addPurchasePrompt(model, payload)
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = anchor
 	prompt.Triggered:Connect(function()
-		if activeOfferId ~= payload.offerId then
+		if activeReveals[payload.offerId] == nil then
 			return
 		end
 		prompt.Enabled = false
@@ -593,7 +638,7 @@ local function playRollingPreview(payload, crateFloor, token)
 		local clone = makeFeedClone(feedType, "RollFlicker_" .. tostring(feedType), true, FLICKER_START_SCALE)
 		if clone then
 			clone.Parent = Workspace
-			trackRollEffect(clone)
+			trackRollEffect(clone, payload.offerId)
 			local base = floorLandingCFrame(clone, crateFloor, 0)
 			local angle = math.rad((index % 2 == 0) and -18 or 18)
 			pivotTo(clone, base * CFrame.Angles(0, angle, 0))
@@ -618,12 +663,12 @@ local function revealFeedMachine(payload, crateFloor, token)
 	if not isCurrentRoll(token) then
 		return
 	end
-	clearActiveReveal()
+	clearActiveReveal(payload.offerId)
 
 	local blackClone = makeFeedClone(payload.feedType, "RollFinalBlack_" .. tostring(payload.feedType), true, FLICKER_START_SCALE)
 	if blackClone then
 		blackClone.Parent = Workspace
-		trackRollEffect(blackClone)
+		trackRollEffect(blackClone, payload.offerId)
 		local base = floorLandingCFrame(blackClone, crateFloor, 0)
 		pivotTo(blackClone, base * CFrame.Angles(0, math.rad(-25), 0))
 		tweenScaleOnFloor(blackClone, crateFloor, FLICKER_START_SCALE, FLICKER_END_SCALE, TweenInfo.new(
@@ -650,8 +695,8 @@ local function revealFeedMachine(payload, crateFloor, token)
 	end
 
 	clone.Parent = Workspace
-	activeReveal = clone
-	activeOfferId = payload.offerId
+	activeReveals[payload.offerId] = clone
+	trackRollEffect(clone, payload.offerId)
 
 	local base = floorLandingCFrame(clone, crateFloor, 0)
 	pivotTo(clone, base)
@@ -691,7 +736,7 @@ local function playCrateFall(payload, token)
 	crate.Name = "RollCrate_" .. tostring(payload.crateId or template.Name)
 	prepareEffect(crate)
 	crate.Parent = Workspace
-	trackRollEffect(crate)
+	trackRollEffect(crate, payload.offerId)
 
 	local endCFrame = floorLandingCFrame(crate, crateFloor, 0)
 	local startCFrame = endCFrame + Vector3.new(0, CRATE_START_HEIGHT, 0)
@@ -702,7 +747,7 @@ local function playCrateFall(payload, token)
 		return
 	end
 
-	breakCrate(crate, crateFloor)
+	breakCrate(crate, crateFloor, payload.offerId)
 	if crate.Parent then
 		crate:Destroy()
 	end
@@ -722,27 +767,47 @@ function RollController.start()
 	mouse.Button1Down:Connect(function()
 		local target = mouse.Target
 		if isRollButton(target) then
-			if unavailableButtons[target] then
-				return
-			end
-			releasePressedButton()
-			pressedButton = target
-			setButtonPressed(target, true)
+			pressButton(target, false)
 		end
 	end)
 	mouse.Button1Up:Connect(releasePressedButton)
+
+	ProximityPromptService.PromptTriggered:Connect(function(prompt)
+		if prompt.Name == CRATE_ROLL_PROMPT_NAME and prompt.Parent and prompt.Parent:IsA("Attachment") then
+			pressButton(prompt.Parent.Parent, true)
+		end
+	end)
 
 	Remotes.get(Remotes.Names.CrateRollEffect).OnClientEvent:Connect(function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
+		local offers = {}
+		if type(payload.offers) == "table" then
+			for _, offer in ipairs(payload.offers) do
+				if type(offer) == "table" then
+					offers[#offers + 1] = offer
+				end
+			end
+		else
+			offers[1] = payload
+		end
+		if #offers == 0 then
+			return
+		end
+
 		activeRollToken += 1
 		local token = activeRollToken
 		clearRollEffects()
 		markButtonUnavailableForRoll(payload.button)
-		task.spawn(function()
-			playCrateFall(payload, token)
-		end)
+		for _, offer in ipairs(offers) do
+			if offer.button == nil then
+				offer.button = payload.button
+			end
+			task.spawn(function()
+				playCrateFall(offer, token)
+			end)
+		end
 	end)
 
 	Remotes.get(Remotes.Names.CrateRollPurchaseResult).OnClientEvent:Connect(function(payload)
@@ -754,7 +819,8 @@ function RollController.start()
 			return
 		end
 
-		local prompt = activeReveal and activeReveal:FindFirstChild("RollOfferBuyPrompt", true)
+		local reveal = activeReveals[payload.offerId]
+		local prompt = reveal and reveal:FindFirstChild("RollOfferBuyPrompt", true)
 		if prompt and prompt:IsA("ProximityPrompt") then
 			prompt.Enabled = true
 		end

@@ -36,6 +36,18 @@
         "RollLuckUpgradeResult": {
           "$className": "RemoteEvent"
         },
+        "RollDropAreaStateRequest": {
+          "$className": "RemoteEvent"
+        },
+        "RollDropAreaStateUpdated": {
+          "$className": "RemoteEvent"
+        },
+        "RollDropAreaUpgradeRequest": {
+          "$className": "RemoteEvent"
+        },
+        "RollDropAreaUpgradeResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

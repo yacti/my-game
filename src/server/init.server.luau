@@ -518,6 +518,7 @@ Players.PlayerAdded:Connect(function(player)
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, plot.Name)
 	PlotGridService.ResetPlotState(plot)
+	RollService.ApplyDropAreaVisibility(plot, 0)
 
 	local spawnLocation = plot:FindFirstChild("SpawnLocation")
 	if spawnLocation then player.RespawnLocation = spawnLocation end
@@ -535,6 +536,7 @@ Players.PlayerAdded:Connect(function(player)
 		warn(string.format("[init] Failed to apply %s plot grid state: %s", player.Name, tostring(applyReason)))
 		PlotGridService.ResetPlotState(plot)
 	end
+	RollService.ApplyDropAreaVisibility(plot, profile)
 
 	PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
 	PlotService.SpawnFeedsForPlot(plot, profile.Data.FeedPlacements)
@@ -563,6 +565,7 @@ Players.PlayerAdded:Connect(function(player)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
 	RebirthService.SendState(player)
 	RollService.SendLuckState(player, profile)
+	RollService.SendDropAreaState(player, profile)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)

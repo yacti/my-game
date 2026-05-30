@@ -12,6 +12,7 @@ local Rarities = require(Shared:WaitForChild("Rarities"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
+local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -392,6 +393,15 @@ local function validateRollLuckHud(hud, errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
 end
 
+local function validateRollDropAreaHud(hud, errors)
+	local frame = child(hud, "RollDropAreaFrame", "GuiObject", errors)
+	if not frame then return end
+
+	descendant(frame, "DropAreaLabel", "TextLabel", errors)
+	descendant(frame, "UpgradeButton", "GuiButton", errors)
+	descendant(frame, "ErrorLabel", "TextLabel", errors)
+end
+
 local function hasPlacementControls(root)
 	local controls = root and root:FindFirstChild("PlacementControls", true)
 	local confirm = controls and controls:FindFirstChild("ConfirmButton", true)
@@ -470,6 +480,10 @@ end
 
 local function validateRollLuckBalance(errors)
 	RollLuckBalance.Validate(errors)
+end
+
+local function validateRollDropAreaBalance(errors)
+	RollDropAreaBalance.Validate(errors)
 end
 
 local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
@@ -578,6 +592,7 @@ local function validateUi(errors)
 	if hud then
 		validateHudCurrency(hud, errors)
 		validateRollLuckHud(hud, errors)
+		validateRollDropAreaHud(hud, errors)
 		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
@@ -718,7 +733,12 @@ local function validatePlots(errors)
 		local buttonFolder = rollArea and child(rollArea, "Button", "Folder", errors)
 		if buttonFolder then
 			child(buttonFolder, "Button", "BasePart", errors)
-			child(buttonFolder, "CrateFloor", "BasePart", errors)
+			for index = 1, RollDropAreaBalance.TotalPads do
+				local dropArea = child(buttonFolder, "DropArea" .. tostring(index), "Model", errors)
+				if dropArea then
+					child(dropArea, "CrateFloor", "BasePart", errors)
+				end
+			end
 		end
 	end
 
@@ -756,6 +776,7 @@ function AssetValidator.validate()
 	validateCrates(errors)
 	validateRebirthBalance(errors)
 	validateRollLuckBalance(errors)
+	validateRollDropAreaBalance(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
 	validateRebirthUi(warnings)
