@@ -474,6 +474,9 @@ addPrompt = function(target, kind, action)
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
 	prompt.Triggered:Connect(function()
+		if kind == "PetFeed" and target:GetAttribute(State.Pet.EvolutionPaused) == true then
+			return
+		end
 		if kind == "TreeGroundPickup" then
 			prompt.Enabled = false
 		end
@@ -544,7 +547,10 @@ local function refreshPrompt(target, kind, prompt)
 
 	if kind == "PetFeed" then
 		prompt.ActionText = "Feed"
-		prompt.Enabled = not isEditMode() and hasFeedablePetFood() and petCanGainXP(target)
+		prompt.Enabled = target:GetAttribute(State.Pet.EvolutionPaused) ~= true
+			and not isEditMode()
+			and hasFeedablePetFood()
+			and petCanGainXP(target)
 	elseif kind == "FeedPickup" then
 		prompt.ActionText = "Pick Up"
 		prompt.Enabled = isEditMode()

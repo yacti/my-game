@@ -465,7 +465,7 @@ function PetMotionService.RefreshPet(pet)
 	beginWalk(state)
 end
 
-function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ)
+function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ, holdSeconds)
 	local state = registry[pet]
 	if not state then return end
 
@@ -473,7 +473,7 @@ function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ)
 	if not floor then return end
 
 	local now = workspace:GetServerTimeNow()
-	state.feedIdleUntil = now + POST_FEED_IDLE_SECONDS
+	state.feedIdleUntil = now + (holdSeconds or POST_FEED_IDLE_SECONDS)
 	clearRoute(state)
 
 	local lx, lz, lry = currentFloorLocal(state, floor)

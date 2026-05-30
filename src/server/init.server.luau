@@ -38,6 +38,7 @@ local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
 local PET_FEED_REACTION_SECONDS = 2
 local PET_FEED_PROMPT_DISTANCE = 8
+local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
 PlotGridService.ResetVacantPlotsToStarter()
@@ -141,6 +142,23 @@ local function publishPetState(pet, money, xp)
 	pet:SetAttribute(State.Pet.XP,    xp or 0)
 end
 
+local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq)
+	pet:SetAttribute(State.Pet.EvolutionOldPetId, oldPetId)
+	pet:SetAttribute(State.Pet.EvolutionOldScale, oldScale)
+	pet:SetAttribute(State.Pet.EvolutionPivot, pivot)
+	pet:SetAttribute(State.Pet.EvolutionSeq, seq)
+
+	task.delay(8, function()
+		if pet.Parent and pet:GetAttribute(State.Pet.EvolutionSeq) == seq then
+			-- Keep the sequence monotonic, but remove stale payload so late
+			-- clients do not replay an already-finished evolution.
+			pet:SetAttribute(State.Pet.EvolutionOldPetId, nil)
+			pet:SetAttribute(State.Pet.EvolutionOldScale, nil)
+			pet:SetAttribute(State.Pet.EvolutionPivot, nil)
+		end
+	end)
+end
+
 -- ── Pet feeding + evolution ──────────────────────────────────────────────────
 
 local function tryEvolvePet(plot, pet, player, profile)
@@ -169,20 +187,24 @@ local function tryEvolvePet(plot, pet, player, profile)
 	petData.petId = nextPetId
 	petData.xp = 0
 	-- money persists on evolution
+	local evolutionPivot = PetMotionService.GetLogicalPivot(pet)
+	local evolutionScale = pet:GetScale()
+	local evolutionSeq = (pet:GetAttribute(State.Pet.EvolutionSeq) or 0) + 1
 
 	local currentVisual = PetCatalog.VisualForPetId(petId)
 	local nextVisual = PetCatalog.VisualForPetId(nextPetId)
 	if currentVisual and nextVisual and currentVisual.ModelName == nextVisual.ModelName then
-		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
 		PlotService.ApplyPetIdAttributes(pet, nextPetId)
-		PlotService.RescalePet(pet, 0, logicalPivot)
+		PlotService.RescalePet(pet, 0, evolutionPivot)
 		publishPetState(pet, petData.money, 0)
+		publishPetEvolutionCue(pet, petId, evolutionScale, evolutionPivot, evolutionSeq)
 		return pet
 	end
 
-	local newPet = PlotService.ReplacePetAt(plot, pet, nextPetId, idx, 0, PetMotionService.GetLogicalPivot(pet))
+	local newPet = PlotService.ReplacePetAt(plot, pet, nextPetId, idx, 0, evolutionPivot)
 	if newPet then
 		publishPetState(newPet, petData.money, 0)
+		publishPetEvolutionCue(newPet, petId, evolutionScale, evolutionPivot, evolutionSeq)
 		PetMotionService.Register(plot, newPet)
 		return newPet
 	end
@@ -263,6 +285,7 @@ local function feedPet(plot, player, profile, pet)
 
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet
+	local previousPetId = pet:GetAttribute(State.Pet.Id)
 	if petData.xp >= maxXP then
 		activePet = tryEvolvePet(plot, pet, player, profile) or pet
 	else
@@ -271,7 +294,8 @@ local function feedPet(plot, player, profile, pet)
 		pet:SetAttribute(State.Pet.XP, petData.xp)
 	end
 	local faceLX, faceLZ = playerFloorLocal(plot, player)
-	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ)
+	local evolved = activePet:GetAttribute(State.Pet.Id) ~= previousPetId
+	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ, evolved and PET_EVOLUTION_IDLE_HOLD_SECONDS or nil)
 	triggerPetFeedReaction(activePet, faceLX, faceLZ)
 end
 

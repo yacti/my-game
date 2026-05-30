@@ -33,6 +33,11 @@ State.Pet = {
 	FeedReactionFaceLX = "PetFeedReactionFaceLX",
 	FeedReactionFaceLZ = "PetFeedReactionFaceLZ",
 	VisualBaseScale = "PetVisualBaseScale",
+	EvolutionSeq = "PetEvolutionSeq",
+	EvolutionOldPetId = "PetEvolutionOldPetId",
+	EvolutionOldScale = "PetEvolutionOldScale",
+	EvolutionPivot = "PetEvolutionPivot",
+	EvolutionPaused = "PetEvolutionPaused", -- client-local presentation pause
 }
 
 State.Player = {
