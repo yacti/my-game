@@ -24,6 +24,18 @@
         "CrateRollPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "RollLuckStateRequest": {
+          "$className": "RemoteEvent"
+        },
+        "RollLuckStateUpdated": {
+          "$className": "RemoteEvent"
+        },
+        "RollLuckUpgradeRequest": {
+          "$className": "RemoteEvent"
+        },
+        "RollLuckUpgradeResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore"))
 local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
+local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
@@ -33,6 +34,7 @@ local DATA_TEMPLATE = {
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
 	Currency = 0,
+	RollLuckLevel = 0,
 	Rebirths = 0,
 	UnlockedGridKeys = {},
 	LastSeen = 0,
@@ -246,6 +248,7 @@ local function ensureValidData(profile)
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = 0
 	end
+	profile.Data.RollLuckLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
 	local unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)
 	if #unlockedGridKeys == 0 then

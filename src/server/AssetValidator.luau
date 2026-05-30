@@ -12,6 +12,7 @@ local Rarities = require(Shared:WaitForChild("Rarities"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
+local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
@@ -47,6 +48,7 @@ local PROMPT_TEMPLATE_KINDS = {
 	"PatchHarvest",
 	"TreeGroundPickup",
 	"GridPartUnlock",
+	"CrateRoll",
 }
 
 local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
@@ -381,6 +383,15 @@ local function validateHudCurrency(hud, errors)
 	add(errors, string.format("Missing %s.Currency.Amount or descendant CurrencyLabel TextLabel", hud:GetFullName()))
 end
 
+local function validateRollLuckHud(hud, errors)
+	local frame = child(hud, "RollLuckFrame", "GuiObject", errors)
+	if not frame then return end
+
+	descendant(frame, "LuckLabel", "TextLabel", errors)
+	descendant(frame, "UpgradeButton", "GuiButton", errors)
+	descendant(frame, "ErrorLabel", "TextLabel", errors)
+end
+
 local function hasPlacementControls(root)
 	local controls = root and root:FindFirstChild("PlacementControls", true)
 	local confirm = controls and controls:FindFirstChild("ConfirmButton", true)
@@ -455,6 +466,10 @@ local function validateRebirthBalance(errors)
 			end
 		end
 	end
+end
+
+local function validateRollLuckBalance(errors)
+	RollLuckBalance.Validate(errors)
 end
 
 local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
@@ -562,6 +577,7 @@ local function validateUi(errors)
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
 		validateHudCurrency(hud, errors)
+		validateRollLuckHud(hud, errors)
 		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
@@ -739,6 +755,7 @@ function AssetValidator.validate()
 	validateFeedTemplates(errors)
 	validateCrates(errors)
 	validateRebirthBalance(errors)
+	validateRollLuckBalance(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
 	validateRebirthUi(warnings)

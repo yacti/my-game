@@ -1,5 +1,7 @@
 local RollChances = {}
 
+local DEFAULT_LUCK_DONOR_COUNT = 2
+
 RollChances.Crates = {
 	CommonCrate = {
 		DisplayName = "Common Crate",
@@ -103,7 +105,7 @@ function RollChances.BaseWeightForChance(chanceN)
 	return 1 / chanceN
 end
 
-function RollChances.ComputeFeedWeights(crateId, entries)
+function RollChances.ComputeFeedWeights(crateId, entries, playerLuckPercent)
 	local crate = RollChances.GetCrate(crateId)
 	if not crate then
 		return nil, "unknown-crate"
@@ -125,13 +127,24 @@ function RollChances.ComputeFeedWeights(crateId, entries)
 		baseWeights[id] = baseWeight
 	end
 
-	local multiplier = tonumber(crate.LuckMultiplier) or 1
+	playerLuckPercent = tonumber(playerLuckPercent) or 0
+	if type(playerLuckPercent) ~= "number" or playerLuckPercent ~= playerLuckPercent or math.abs(playerLuckPercent) == math.huge then
+		playerLuckPercent = 0
+	end
+	playerLuckPercent = math.max(playerLuckPercent, 0)
+
+	local crateMultiplier = math.max(tonumber(crate.LuckMultiplier) or 1, 1)
+	local multiplier = crateMultiplier * (1 + playerLuckPercent / 100)
 	if multiplier <= 1 then
 		return weights
 	end
 
 	local donorIds = {}
-	local donorCount = math.max(math.floor(tonumber(crate.DonorCount) or 0), 0)
+	local donorCount = tonumber(crate.DonorCount)
+	if type(donorCount) ~= "number" or donorCount ~= donorCount or math.abs(donorCount) == math.huge then
+		donorCount = DEFAULT_LUCK_DONOR_COUNT
+	end
+	donorCount = math.max(math.floor(donorCount), 0)
 	for index = 1, math.min(donorCount, #sortedEntries) do
 		donorIds[#donorIds + 1] = sortedEntries[index].id
 	end

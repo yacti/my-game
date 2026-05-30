@@ -33,6 +33,9 @@ local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local GRID_UNLOCK_PROMPT_DISTANCE = 5
+local CRATE_ROLL_PROMPT_DISTANCE = 14
+local CRATE_ROLL_PROMPT_Y_OFFSET = -3
+local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
 
@@ -119,6 +122,21 @@ local function isVisiblePromptTarget(instance)
 		end
 	end
 	return false
+end
+
+local function isRollButton(instance)
+	if not (instance and instance:IsA("BasePart") and instance.Name == "Button") then
+		return false
+	end
+	local folder = instance.Parent
+	local rollArea = folder and folder.Parent
+	return folder ~= nil
+		and folder:IsA("Folder")
+		and folder.Name == "Button"
+		and rollArea ~= nil
+		and rollArea:IsA("Folder")
+		and rollArea.Name == "RollArea"
+		and folder:FindFirstChild("CrateFloor") ~= nil
 end
 
 local function gridPartAt(plot, x, z)
@@ -210,6 +228,9 @@ local function promptAttachmentName(instance, kind)
 end
 
 local function promptAnchorWorldPosition(instance, kind)
+	if kind == "CrateRoll" and instance:IsA("BasePart") then
+		return instance.Position + Vector3.new(0, CRATE_ROLL_PROMPT_Y_OFFSET, 0)
+	end
 	local anchor = promptAnchorInstance(instance, kind)
 	return anchor and instanceWorldCenter(anchor) or nil
 end
@@ -342,6 +363,7 @@ local function promptActivationDistance(kind)
 	if kind == "PetFeed" then return PET_FEED_PROMPT_DISTANCE end
 	if kind == "TreeGroundPickup" then return FOOD_PICKUP_PROMPT_DISTANCE end
 	if kind == "GridPartUnlock" then return GRID_UNLOCK_PROMPT_DISTANCE end
+	if kind == "CrateRoll" then return CRATE_ROLL_PROMPT_DISTANCE end
 	return DEFAULT_PROMPT_DISTANCE
 end
 
@@ -520,6 +542,10 @@ local function tryBind(instance)
 		addPrompt(instance, "GridPartUnlock", Interactions.Actions.GridPartUnlock)
 	end
 
+	if isRollButton(instance) then
+		addPrompt(instance, "CrateRoll", Interactions.Actions.CrateRoll)
+	end
+
 end
 
 local function scanPlot()
@@ -585,6 +611,14 @@ local function refreshPrompt(target, kind, prompt)
 		prompt.ObjectText = "Plot Area"
 		prompt.ActionText = actionText
 		prompt.Enabled = not isEditMode() and canUnlock
+	elseif kind == "CrateRoll" then
+		if not isRollButton(target) then
+			removePrompt(target, kind)
+			return
+		end
+		prompt.ObjectText = "Crate"
+		prompt.ActionText = "Roll"
+		prompt.Enabled = not isEditMode() and target:GetAttribute(ROLL_BUTTON_UNAVAILABLE_ATTR) ~= true
 	end
 end
 

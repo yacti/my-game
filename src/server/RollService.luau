@@ -13,19 +13,25 @@ local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local RollService = {}
 
 local ROLL_DISTANCE = 14
+local LUCK_UPGRADE_DISTANCE = 7
 local PURCHASE_DISTANCE = 18
 local PURCHASE_REQUEST_RATE_SECONDS = 0.35
+local LUCK_REQUEST_RATE_SECONDS = 0.35
+local LUCK_STATE_RATE_SECONDS = 0.5
 local OFFER_EXPIRES_SECONDS = 45
 local PREVIEW_COUNT = 10
 
 local locks = {}
 local rollCooldownUntil = {}
 local lastPurchaseRequest = {}
+local lastLuckRequest = {}
+local lastLuckStateRequest = {}
 local pendingOffers = {}
 local nextOfferId = 0
 local nextTeaseRolls = {}
@@ -35,6 +41,10 @@ local rng = Random.new()
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
 local CrateRollPurchaseRequest = Remotes.get(Remotes.Names.CrateRollPurchaseRequest)
 local CrateRollPurchaseResult = Remotes.get(Remotes.Names.CrateRollPurchaseResult)
+local RollLuckStateRequest = Remotes.get(Remotes.Names.RollLuckStateRequest)
+local RollLuckStateUpdated = Remotes.get(Remotes.Names.RollLuckStateUpdated)
+local RollLuckUpgradeRequest = Remotes.get(Remotes.Names.RollLuckUpgradeRequest)
+local RollLuckUpgradeResult = Remotes.get(Remotes.Names.RollLuckUpgradeResult)
 
 local function rootPart(player)
 	local character = player.Character
@@ -71,6 +81,23 @@ local function resolveRollArea(target)
 	end
 
 	return target, crateFloor, nil
+end
+
+local function rollButtonForPlot(plot)
+	local rollArea = plot and plot:FindFirstChild("RollArea")
+	local buttonFolder = rollArea and rollArea:FindFirstChild("Button")
+	local buttonPart = buttonFolder and buttonFolder:FindFirstChild("Button")
+	local resolvedButton, _, code = resolveRollArea(buttonPart)
+	return resolvedButton, code
+end
+
+local function rollForButton(player, buttonPart, PlotService, PlayerDataService)
+	local plot = PlotService.GetPlayerPlot(player)
+	local profile = PlayerDataService.GetProfile(player)
+	local ok, code = RollService.Roll(player, buttonPart, plot, profile)
+	if not ok and code ~= "cooldown" and code ~= "busy" then
+		NotificationService.Error(player, "Could not roll that crate.")
+	end
 end
 
 local function collectRollPool()
@@ -177,13 +204,14 @@ local function shuffledPreviewFeedTypes(player, entries, rolledFeedType)
 	return preview
 end
 
-local function rollFeedForCrate(player, crateId)
+local function rollFeedForCrate(player, crateId, profile)
 	local entries = collectRollPool()
 	if #entries == 0 then
 		return nil, "empty-roll-pool"
 	end
 
-	local feedWeights, weightCode = RollChances.ComputeFeedWeights(crateId, entries)
+	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	local feedWeights, weightCode = RollChances.ComputeFeedWeights(crateId, entries, luckPercent)
 	if not feedWeights then
 		return nil, weightCode or "invalid-feed-weights"
 	end
@@ -238,6 +266,27 @@ local function sendPurchaseResult(player, offerId, success, code, extra)
 	CrateRollPurchaseResult:FireClient(player, payload)
 end
 
+local function buildLuckState(profile)
+	local level = profile and profile.Data and profile.Data.RollLuckLevel or 0
+	local currency = profile and profile.Data and profile.Data.Currency or 0
+	local state = RollLuckBalance.ToState(level, currency)
+	state.profileReady = profile ~= nil
+	return state
+end
+
+local function sendLuckState(player, profile)
+	RollLuckStateUpdated:FireClient(player, buildLuckState(profile))
+end
+
+local function sendLuckResult(player, requestId, success, code, profile)
+	RollLuckUpgradeResult:FireClient(player, {
+		requestId = requestId,
+		success = success,
+		code = code,
+		state = buildLuckState(profile),
+	})
+end
+
 local function activeOffer(player, offerId)
 	local offer = pendingOffers[player]
 	if not offer or offer.offerId ~= offerId then
@@ -250,14 +299,18 @@ local function activeOffer(player, offerId)
 	return offer
 end
 
-local function consumePurchaseRate(player)
+local function consumeRateLimit(map, player, interval)
 	local now = os.clock()
-	local previous = lastPurchaseRequest[player] or 0
-	if now - previous < PURCHASE_REQUEST_RATE_SECONDS then
+	local previous = map[player] or 0
+	if now - previous < interval then
 		return false
 	end
-	lastPurchaseRequest[player] = now
+	map[player] = now
 	return true
+end
+
+local function consumePurchaseRate(player)
+	return consumeRateLimit(lastPurchaseRequest, player, PURCHASE_REQUEST_RATE_SECONDS)
 end
 
 function RollService.Roll(player, target, plot, profile)
@@ -290,7 +343,7 @@ function RollService.Roll(player, target, plot, profile)
 			return false, "crate-roll-failed", nil
 		end
 
-		local rolled, rollCode = rollFeedForCrate(player, crateId)
+		local rolled, rollCode = rollFeedForCrate(player, crateId, profile)
 		if not rolled then
 			return false, rollCode or "feed-roll-failed", nil
 		end
@@ -452,6 +505,125 @@ function RollService.Purchase(player, offerId, profile)
 	return false, code
 end
 
+function RollService.SendLuckState(player, profile)
+	sendLuckState(player, profile)
+end
+
+function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
+	if type(requestId) ~= "number" then
+		requestId = nil
+	end
+	if not consumeRateLimit(lastLuckRequest, player, LUCK_REQUEST_RATE_SECONDS) then
+		sendLuckResult(player, requestId, false, "rate-limited", profile)
+		return false, "rate-limited"
+	end
+	if locks[player] then
+		sendLuckResult(player, requestId, false, "busy", profile)
+		return false, "busy"
+	end
+	if not profile then
+		NotificationService.Error(player, "Could not upgrade luck yet.")
+		sendLuckResult(player, requestId, false, "no-profile", profile)
+		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+			reason = "no-profile",
+		}))
+		return false, "no-profile"
+	end
+	if not plot then
+		NotificationService.Error(player, "Could not find your plot.")
+		sendLuckResult(player, requestId, false, "no-plot", profile)
+		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+			reason = "no-plot",
+		}))
+		return false, "no-plot"
+	end
+
+	local buttonPart, buttonCode = rollButtonForPlot(plot)
+	if not buttonPart then
+		sendLuckResult(player, requestId, false, buttonCode or "missing-roll-button", profile)
+		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+			reason = buttonCode or "missing-roll-button",
+		}))
+		return false, buttonCode or "missing-roll-button"
+	end
+	if not isPlayerNearPart(player, buttonPart, LUCK_UPGRADE_DISTANCE) then
+		NotificationService.Error(player, "Move closer to the roll button to upgrade luck.")
+		sendLuckResult(player, requestId, false, "too-far", profile)
+		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+			reason = "too-far",
+		}))
+		return false, "too-far"
+	end
+
+	local currentLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
+	local nextUpgrade, nextLevel = RollLuckBalance.NextUpgrade(currentLevel)
+	if not nextUpgrade then
+		NotificationService.Error(player, "Luck is already maxed.")
+		sendLuckResult(player, requestId, false, "max-level", profile)
+		return false, "max-level"
+	end
+
+	local price = math.max(math.floor(tonumber(nextUpgrade.price) or 0), 0)
+	locks[player] = true
+	local ok, success, code, currencyOrNil = pcall(function()
+		local freshLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
+		local freshUpgrade, freshNextLevel = RollLuckBalance.NextUpgrade(freshLevel)
+		if not freshUpgrade then
+			return false, "max-level", profile.Data.Currency
+		end
+
+		local freshPrice = math.max(math.floor(tonumber(freshUpgrade.price) or 0), 0)
+		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, freshPrice)
+		if not spent then
+			return false, spendCode or "insufficient-currency", currency
+		end
+
+		profile.Data.RollLuckLevel = freshNextLevel
+		return true, "ok", profile.Data.Currency
+	end)
+	locks[player] = nil
+
+	if not ok then
+		warn("[RollService] Luck upgrade failed: " .. tostring(success))
+		sendLuckResult(player, requestId, false, "server-error", profile)
+		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+			reason = "server-error",
+			level = currentLevel,
+			price = price,
+		}))
+		return false, "server-error"
+	end
+
+	if success then
+		local updatedLuck = RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel)
+		NotificationService.Success(player, string.format("Luck upgraded to +%d%%!", updatedLuck))
+		sendLuckResult(player, requestId, true, "ok", profile)
+		TelemetryService.Record("roll_luck_upgrade_succeeded", TelemetryService.ForPlayer(player, {
+			level = profile.Data.RollLuckLevel,
+			luckPercent = updatedLuck,
+			price = price,
+			currency = currencyOrNil,
+		}))
+		return true, "ok"
+	end
+
+	if code == "insufficient-currency" then
+		NotificationService.Error(player, "Not enough currency for this luck upgrade.")
+	elseif code == "max-level" then
+		NotificationService.Error(player, "Luck is already maxed.")
+	else
+		NotificationService.Error(player, "Could not upgrade luck.")
+	end
+	sendLuckResult(player, requestId, false, code, profile)
+	TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
+		reason = code,
+		level = currentLevel,
+		price = price,
+		currency = currencyOrNil,
+	}))
+	return false, code
+end
+
 local function bindRollButton(buttonPart, PlotService, PlayerDataService)
 	if boundRollButtons[buttonPart] then
 		return
@@ -472,19 +644,18 @@ local function bindRollButton(buttonPart, PlotService, PlayerDataService)
 	end
 	clickDetector.MaxActivationDistance = ROLL_DISTANCE
 
-	boundRollButtons[buttonPart] = clickDetector.MouseClick:Connect(function(player)
-		local plot = PlotService.GetPlayerPlot(player)
-		local profile = PlayerDataService.GetProfile(player)
-		local ok, code = RollService.Roll(player, buttonPart, plot, profile)
-		if not ok and code ~= "cooldown" and code ~= "busy" then
-			NotificationService.Error(player, "Could not roll that crate.")
-		end
+	local connections = {}
+	connections[#connections + 1] = clickDetector.MouseClick:Connect(function(player)
+		rollForButton(player, buttonPart, PlotService, PlayerDataService)
 	end)
+	boundRollButtons[buttonPart] = connections
 
-	buttonPart.Destroying:Connect(function()
-		local connection = boundRollButtons[buttonPart]
-		if connection then
-			connection:Disconnect()
+	connections[#connections + 1] = buttonPart.Destroying:Connect(function()
+		local activeConnections = boundRollButtons[buttonPart]
+		if activeConnections then
+			for _, connection in ipairs(activeConnections) do
+				connection:Disconnect()
+			end
 			boundRollButtons[buttonPart] = nil
 		end
 	end)
@@ -514,10 +685,25 @@ function RollService.Start()
 		RollService.Purchase(player, offerId, profile)
 	end)
 
+	RollLuckStateRequest.OnServerEvent:Connect(function(player)
+		if not consumeRateLimit(lastLuckStateRequest, player, LUCK_STATE_RATE_SECONDS) then
+			return
+		end
+		sendLuckState(player, PlayerDataService.GetProfile(player))
+	end)
+
+	RollLuckUpgradeRequest.OnServerEvent:Connect(function(player, requestId)
+		local profile = PlayerDataService.GetProfile(player)
+		local plot = PlotService.GetPlayerPlot(player)
+		RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
+	end)
+
 	Players.PlayerRemoving:Connect(function(player)
 		locks[player] = nil
 		rollCooldownUntil[player] = nil
 		lastPurchaseRequest[player] = nil
+		lastLuckRequest[player] = nil
+		lastLuckStateRequest[player] = nil
 		pendingOffers[player] = nil
 		nextTeaseRolls[player] = nil
 	end)

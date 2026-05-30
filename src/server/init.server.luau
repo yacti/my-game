@@ -562,6 +562,7 @@ Players.PlayerAdded:Connect(function(player)
 	startProfileSnapshotLoop(player, plot, profile)
 	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
 	RebirthService.SendState(player)
+	RollService.SendLuckState(player, profile)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
@@ -658,6 +659,12 @@ PromptInteractionService.Start({
 		end,
 		[Interactions.Actions.GridPartUnlock] = function(player, target, plot, profile)
 			unlockGridPart(target, plot, player, profile)
+		end,
+		[Interactions.Actions.CrateRoll] = function(player, target, plot, profile)
+			local ok, code = RollService.Roll(player, target, plot, profile)
+			if not ok and code ~= "cooldown" and code ~= "busy" then
+				NotificationService.Error(player, "Could not roll that crate.")
+			end
 		end,
 	},
 	afterInteraction = function(player, plot, profile)

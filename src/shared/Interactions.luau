@@ -7,6 +7,7 @@ Interactions.Actions = {
 	PatchHarvest = "PatchHarvest",
 	TreeGroundPickup = "TreeGroundPickup",
 	GridPartUnlock = "GridPartUnlock",
+	CrateRoll = "CrateRoll",
 }
 
 local validActions = {}

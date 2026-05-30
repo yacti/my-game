@@ -30,6 +30,7 @@ local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
 local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
+local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 local POP_TWEEN = TweenInfo.new(RollConfig.Reveal.PopDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -295,6 +296,7 @@ local function setButtonUnavailable(button, unavailable)
 	end
 
 	unavailableButtons[button] = unavailable == true or nil
+	button:SetAttribute(ROLL_BUTTON_UNAVAILABLE_ATTR, unavailable == true)
 	local targetColor = unavailable and BUTTON_UNAVAILABLE_COLOR or buttonOriginalColors[button]
 	TweenService:Create(button, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Color = targetColor,
@@ -714,7 +716,9 @@ local function playCrateFall(payload, token)
 end
 
 function RollController.start()
-	local mouse = Players.LocalPlayer:GetMouse()
+	local player = Players.LocalPlayer
+	local mouse = player:GetMouse()
+
 	mouse.Button1Down:Connect(function()
 		local target = mouse.Target
 		if isRollButton(target) then
