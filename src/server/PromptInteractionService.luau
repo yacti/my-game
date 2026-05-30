@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local TelemetryService = require(script.Parent:WaitForChild("TelemetryService"))
 
 local PromptInteractionService = {}
 
@@ -31,18 +32,34 @@ function PromptInteractionService.Start(config)
 	local handlers = config.handlers or {}
 	local getContext = config.getContext
 	local afterInteraction = config.afterInteraction
+	local requireTargetInPlot = config.requireTargetInPlot ~= false
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
 	local lastFire = {}
 	local locks = {}
 
 	Remotes.get(Remotes.Names.PromptInteract).OnServerEvent:Connect(function(player, action, target)
 		if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
-		if not Interactions.IsAction(action) then return end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then return end
+		if not Interactions.IsAction(action) then
+			TelemetryService.Warn("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "invalid-action",
+				action = action,
+			}))
+			return
+		end
 		if type(getContext) ~= "function" then return end
 
 		local plot, profile = getContext(player)
 		if not plot or not profile then return end
+		if requireTargetInPlot and not target:IsDescendantOf(plot) then
+			TelemetryService.Warn("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "wrong-plot",
+				action = action,
+				target = target,
+				plot = plot,
+			}))
+			return
+		end
 
 		withPlayerLock(locks, player, function()
 			local handler = handlers[action]

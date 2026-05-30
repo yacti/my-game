@@ -6,6 +6,7 @@ local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -222,6 +223,7 @@ local function sendRollEffect(player, buttonPart, crateFloor, crateId, rolled, o
 		price = rolled.price,
 		chanceN = rolled.chanceN,
 		rngChanceText = "1 in " .. tostring(rolled.chanceN),
+		feedOdds = rolled.feedOdds,
 		previewFeedTypes = rolled.previewFeedTypes,
 		flickerCount = rolled.flickerCount,
 		duration = 2.5,
@@ -312,15 +314,27 @@ function RollService.Roll(player, target, plot, profile)
 
 	if not ok then
 		warn("[RollService] Roll failed: " .. tostring(success))
+		TelemetryService.Warn("crate_roll_failed", TelemetryService.ForPlayer(player, {
+			reason = "server-error",
+		}))
 		return false, "server-error"
 	end
 	if not success then
+		TelemetryService.Warn("crate_roll_failed", TelemetryService.ForPlayer(player, {
+			reason = codeOrCrate,
+		}))
 		return false, codeOrCrate
 	end
 
 	local crateId = codeOrCrate
 	local rolled = rolledOrNil
 	sendRollEffect(player, buttonPart, crateFloor, crateId, rolled, offerIdOrNil)
+	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
+		crateId = crateId,
+		feedType = rolled.feedType,
+		price = rolled.price,
+		offerId = offerIdOrNil,
+	}))
 	return true, "ok"
 end
 
@@ -331,6 +345,10 @@ function RollService.Purchase(player, offerId, profile)
 	end
 	if type(offerId) ~= "number" then
 		sendPurchaseResult(player, offerId, false, "invalid-offer")
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = "invalid-offer",
+			offerId = tostring(offerId),
+		}))
 		return false, "invalid-offer"
 	end
 	if locks[player] then
@@ -342,16 +360,32 @@ function RollService.Purchase(player, offerId, profile)
 	if not offer then
 		NotificationService.Error(player, "This roll offer expired.")
 		sendPurchaseResult(player, offerId, false, offerCode)
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = offerCode,
+			offerId = offerId,
+		}))
 		return false, offerCode
 	end
 	if not profile then
 		NotificationService.Error(player, "Could not buy this roll yet.")
 		sendPurchaseResult(player, offerId, false, "no-profile")
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = "no-profile",
+			offerId = offerId,
+			feedType = offer.feedType,
+			price = offer.price,
+		}))
 		return false, "no-profile"
 	end
 	if not isPlayerNearPart(player, offer.crateFloor, PURCHASE_DISTANCE) then
 		NotificationService.Error(player, "Move closer to the rolled item to buy it.")
 		sendPurchaseResult(player, offerId, false, "too-far")
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = "too-far",
+			offerId = offerId,
+			feedType = offer.feedType,
+			price = offer.price,
+		}))
 		return false, "too-far"
 	end
 
@@ -376,6 +410,12 @@ function RollService.Purchase(player, offerId, profile)
 	if not ok then
 		warn("[RollService] Purchase failed: " .. tostring(success))
 		sendPurchaseResult(player, offerId, false, "server-error")
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = "server-error",
+			offerId = offerId,
+			feedType = offer.feedType,
+			price = offer.price,
+		}))
 		return false, "server-error"
 	end
 
@@ -385,6 +425,12 @@ function RollService.Purchase(player, offerId, profile)
 			feedType = offer.feedType,
 			currency = currencyOrNil,
 		})
+		TelemetryService.Record("crate_roll_purchase_succeeded", TelemetryService.ForPlayer(player, {
+			offerId = offerId,
+			feedType = offer.feedType,
+			price = offer.price,
+			currency = currencyOrNil,
+		}))
 		return true, "ok"
 	end
 
@@ -396,6 +442,13 @@ function RollService.Purchase(player, offerId, profile)
 		NotificationService.Error(player, "Could not buy this roll.")
 	end
 	sendPurchaseResult(player, offerId, false, code)
+	TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+		reason = code,
+		offerId = offerId,
+		feedType = offer.feedType,
+		price = offer.price,
+		currency = currencyOrNil,
+	}))
 	return false, code
 end
 

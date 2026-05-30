@@ -9,6 +9,7 @@ local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
+local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -420,6 +421,11 @@ local function runTransaction(player, options)
 	CurrencyService.Publish(player, profile)
 	sendState(player)
 	NotificationService.Success(player, string.format("Rebirth %d complete!", tierNumber))
+	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
+		tier = tierNumber,
+		skip = options.skip == true,
+		purchaseId = options.purchaseId,
+	}))
 	return true, "ok"
 end
 
@@ -434,7 +440,19 @@ local function performRebirth(player, options)
 
 	if not ok then
 		warn("[RebirthService] Transaction failed: " .. tostring(success))
+		TelemetryService.Warn("rebirth_failed", TelemetryService.ForPlayer(player, {
+			reason = "server-error",
+			skip = options and options.skip == true,
+			purchaseId = options and options.purchaseId,
+		}))
 		return false, "server-error"
+	end
+	if not success then
+		TelemetryService.Warn("rebirth_failed", TelemetryService.ForPlayer(player, {
+			reason = code,
+			skip = options and options.skip == true,
+			purchaseId = options and options.purchaseId,
+		}))
 	end
 	return success, code
 end
@@ -446,6 +464,11 @@ local function markReceiptNoOp(profile, purchaseId, reason)
 		ReceiptService.ClearProcessed(profile, purchaseId)
 	end
 	warn("[RebirthService] Rebirth skip receipt no-op: " .. tostring(reason))
+	TelemetryService.Warn("rebirth_receipt_noop", {
+		purchaseId = purchaseId,
+		reason = reason,
+		saved = saved,
+	})
 	return saved
 end
 
@@ -465,6 +488,10 @@ function RebirthService.ProcessSkipReceipt(receiptInfo, player)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 	if ReceiptService.HasProcessed(profile, purchaseId) then
+		TelemetryService.Record("rebirth_receipt_duplicate", TelemetryService.ForPlayer(player, {
+			purchaseId = purchaseId,
+			productId = receiptInfo.ProductId,
+		}))
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
@@ -491,10 +518,21 @@ function RebirthService.ProcessSkipReceipt(receiptInfo, player)
 		purchaseId = purchaseId,
 	})
 	if success then
+		TelemetryService.Record("rebirth_receipt_granted", TelemetryService.ForPlayer(player, {
+			purchaseId = purchaseId,
+			productId = receiptInfo.ProductId,
+			tier = productTier,
+		}))
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
 	warn(string.format("[RebirthService] Skip receipt could not be granted: %s", tostring(code)))
+	TelemetryService.Warn("rebirth_receipt_failed", TelemetryService.ForPlayer(player, {
+		purchaseId = purchaseId,
+		productId = receiptInfo.ProductId,
+		tier = productTier,
+		reason = code,
+	}))
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end
 

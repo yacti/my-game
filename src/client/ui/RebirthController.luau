@@ -10,6 +10,7 @@ local RebirthController = {}
 
 local GENERATED_REWARD_ATTR = "RebirthGeneratedReward"
 local STATE_RETRY_SECONDS = 2
+local TEMPLATE_WAIT_SECONDS = 10
 
 local function findDescendant(root, name, className)
 	if not root then
@@ -36,8 +37,13 @@ local function rewardText(reward)
 end
 
 local function cloneTemplate()
-	local uiFolder = ReplicatedStorage:WaitForChild("UI")
-	local template = uiFolder:WaitForChild("Rebirth", 10)
+	local uiFolder = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
+	if not uiFolder then
+		warn("[RebirthController] Missing ReplicatedStorage.UI; rebirth UI disabled")
+		return nil
+	end
+
+	local template = uiFolder:WaitForChild("Rebirth", TEMPLATE_WAIT_SECONDS)
 	if template and template:IsA("ScreenGui") then
 		return template:Clone()
 	end

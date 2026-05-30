@@ -4,6 +4,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 
+local TelemetryService = require(script.Parent:WaitForChild("TelemetryService"))
+
 local ReceiptService = {}
 
 local started = false
@@ -55,6 +57,11 @@ local function processReceipt(receiptInfo)
 		return rebirthService.ProcessSkipReceipt(receiptInfo)
 	end
 
+	TelemetryService.Warn("receipt_unhandled", {
+		playerId = receiptInfo.PlayerId,
+		productId = receiptInfo.ProductId,
+		purchaseId = tostring(receiptInfo.PurchaseId),
+	})
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end
 

@@ -7,6 +7,7 @@ local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
+local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -15,6 +16,7 @@ local State = require(Shared:WaitForChild("State"))
 local FeedPlacementService = {}
 
 local DEFAULT_RATE_SECONDS = 0.25
+local DEFAULT_PLACE_DISTANCE = 24
 
 local function consumeRateLimit(map, player, interval)
 	local now = os.clock()
@@ -47,10 +49,24 @@ local function isValidCFrame(value)
 	return true
 end
 
+local function rootPart(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root:IsA("BasePart") and root or nil
+end
+
+local function isPlayerNearPosition(player, position, maxDistance)
+	local root = rootPart(player)
+	return root ~= nil
+		and typeof(position) == "Vector3"
+		and (root.Position - position).Magnitude <= maxDistance
+end
+
 function FeedPlacementService.Start(config)
 	config = config or {}
 	local snapshotProfileState = config.snapshotProfileState
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
+	local placeDistance = tonumber(config.placeDistance) or DEFAULT_PLACE_DISTANCE
 	local lastFire = {}
 	local locks = {}
 
@@ -62,17 +78,25 @@ function FeedPlacementService.Start(config)
 		PlaceFeedMachineResult:FireClient(player, requestId, success, reason)
 	end
 
+	local function recordPlacementReject(player, reason, extra)
+		local fields = TelemetryService.ForPlayer(player, extra or {})
+		fields.reason = reason
+		TelemetryService.Warn("feed_placement_rejected", fields)
+	end
+
 	PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
-		if not isValidCFrame(cframe) then
-			sendPlaceResult(player, requestId, false, "invalid-cframe")
-			return
-		end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendPlaceResult(player, requestId, false, "rate-limited")
 			return
 		end
+		if not isValidCFrame(cframe) then
+			recordPlacementReject(player, "invalid-cframe")
+			sendPlaceResult(player, requestId, false, "invalid-cframe")
+			return
+		end
 		local plot = PlotService.GetPlayerPlot(player)
 		if not plot then
+			recordPlacementReject(player, "no-plot")
 			sendPlaceResult(player, requestId, false, "no-plot")
 			return
 		end
@@ -84,6 +108,7 @@ function FeedPlacementService.Start(config)
 		withPlayerLock(locks, player, function()
 			local character = player.Character
 			if not character then
+				recordPlacementReject(player, "no-character")
 				sendPlaceResult(player, requestId, false, "no-character")
 				return
 			end
@@ -123,6 +148,16 @@ function FeedPlacementService.Start(config)
 			local snappedLZ  = math.round(localCF.Z)
 			local _, lry, _  = localCF:ToEulerAnglesXYZ()
 			local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
+			local snappedWorldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(snappedLX, 0, snappedLZ))
+			if not isPlayerNearPosition(player, snappedWorldPosition, placeDistance) then
+				recordPlacementReject(player, "too-far", {
+					feedType = feedType,
+					plot = plot,
+					position = snappedWorldPosition,
+				})
+				sendPlaceResult(player, requestId, false, "too-far")
+				return
+			end
 			if not PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
 				sendPlaceResult(player, requestId, false, "out-of-bounds")
 				return
@@ -146,6 +181,10 @@ function FeedPlacementService.Start(config)
 				snapshotProfileState(player, plot, profile)
 			end
 			sendPlaceResult(player, requestId, true)
+			TelemetryService.Record("feed_placement_succeeded", TelemetryService.ForPlayer(player, {
+				feedType = feedType,
+				plot = plot,
+			}))
 			NotificationService.Success(player, feedPart.Name .. " placed!")
 		end)
 	end)

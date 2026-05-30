@@ -7,9 +7,15 @@ local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
+local CURRENT_DATA_VERSION = 2
+
+local DEPRECATED_FEED_TYPES = {
+	StarfruitTree = true,
+}
 
 -- Fresh ProfileStore-backed schema for the active PlayerData store.
 local DATA_TEMPLATE = {
+	DataVersion = CURRENT_DATA_VERSION,
 	Pets = {
 		{ petId = "Pet1", xp = 0, money = 0 },
 	},
@@ -22,7 +28,6 @@ local DATA_TEMPLATE = {
 		FigTree = 1,
 		OrangeTree = 1,
 		PumpkinPatch = 1,
-		StarfruitTree = 1,
 	},
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
@@ -54,8 +59,78 @@ ProfileStore.OnCriticalToggle:Connect(function(isCritical)
 	end
 end)
 
+local function normalizeDataVersion(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return 0
+	end
+	return math.max(math.floor(value), 0)
+end
+
+local function removeDeprecatedFeedTypesFromMap(map)
+	if type(map) ~= "table" then
+		return
+	end
+	for feedType in pairs(DEPRECATED_FEED_TYPES) do
+		map[feedType] = nil
+	end
+end
+
+local function removeDeprecatedFeedPlacements(data)
+	if type(data.FeedPlacements) ~= "table" then
+		return
+	end
+
+	local placements = {}
+	for _, placement in ipairs(data.FeedPlacements) do
+		local feedType = type(placement) == "table" and placement.type or nil
+		if type(feedType) == "string" and not DEPRECATED_FEED_TYPES[feedType] then
+			placements[#placements + 1] = placement
+		end
+	end
+	data.FeedPlacements = placements
+end
+
+local function migrateData(data)
+	if type(data) ~= "table" then
+		return
+	end
+
+	local version = normalizeDataVersion(data.DataVersion)
+	if version > CURRENT_DATA_VERSION then
+		warn(string.format(
+			"[PlayerDataService] Profile data version %d is newer than server version %d",
+			version,
+			CURRENT_DATA_VERSION
+		))
+		return
+	end
+
+	while version < CURRENT_DATA_VERSION do
+		local nextVersion = version + 1
+		if nextVersion == 1 then
+			-- Baseline version marker for profiles created before explicit
+			-- migrations existed.
+		elseif nextVersion == 2 then
+			removeDeprecatedFeedTypesFromMap(data.FeedInventory)
+			removeDeprecatedFeedPlacements(data)
+		end
+
+		version = nextVersion
+		data.DataVersion = version
+	end
+end
+
 local function ensureValidData(profile)
+	migrateData(profile.Data)
 	profile:Reconcile()
+
+	local dataVersion = normalizeDataVersion(profile.Data.DataVersion)
+	if dataVersion < CURRENT_DATA_VERSION then
+		profile.Data.DataVersion = CURRENT_DATA_VERSION
+	else
+		profile.Data.DataVersion = dataVersion
+	end
 
 	local pets = {}
 	if type(profile.Data.Pets) == "table" then
@@ -84,7 +159,9 @@ local function ensureValidData(profile)
 	local placements = {}
 	if type(profile.Data.FeedPlacements) == "table" then
 		for _, placement in ipairs(profile.Data.FeedPlacements) do
-			if type(placement) == "table" and type(placement.type) == "string" then
+			if type(placement) == "table"
+				and type(placement.type) == "string"
+				and not DEPRECATED_FEED_TYPES[placement.type] then
 				local clean = {
 					type = placement.type,
 					lx = tonumber(placement.lx) or 0,
@@ -135,7 +212,10 @@ local function ensureValidData(profile)
 	local feedInventory = {}
 	if type(profile.Data.FeedInventory) == "table" then
 		for feedType, count in pairs(profile.Data.FeedInventory) do
-			if type(feedType) == "string" and type(count) == "number" and count > 0 then
+			if type(feedType) == "string"
+				and type(count) == "number"
+				and count > 0
+				and not DEPRECATED_FEED_TYPES[feedType] then
 				feedInventory[feedType] = math.floor(count)
 			end
 		end

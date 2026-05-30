@@ -87,6 +87,7 @@ local PLACEMENT_FAILURE_MESSAGES = {
 	["out-of-bounds"] = "Place feed machines inside your plot.",
 	["overlap"] = "That spot is already occupied.",
 	["rate-limited"] = "Please wait before placing again.",
+	["too-far"] = "Move closer to place that feed machine.",
 }
 
 local function placementFailureMessage(reason)

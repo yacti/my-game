@@ -90,7 +90,7 @@ Allowed local presentation helpers include:
 - viewport preview rigs
 - placement preview helpers
 
-Non-UI gameplay assets validated by `src/server/AssetValidator.luau` can hard-fail server startup. UI issues generally warn and degrade experience. One current exception to watch: `src/client/ui/PetBillboards.luau` uses unbounded `WaitForChild` for its billboard templates, unlike most warn-and-skip UI paths.
+Non-UI gameplay assets validated by `src/server/AssetValidator.luau` can hard-fail server startup. UI issues generally warn and degrade experience. `src/client/ui/PetBillboards.luau` now follows the warn-and-skip UI policy with bounded waits for billboard templates.
 
 ## Server Architecture
 
@@ -129,7 +129,7 @@ Key server modules:
 
 Gameplay authority is server-side. Clients may preview, render, and request. The server validates ownership, inventory, edit mode, state, currency, XP, evolution, placement, grid unlocks, rolls, rebirth, and persistence.
 
-Security nuance: `PlaceFeedMachine` validates finite `CFrame`, plot, equipped tool, floor bounds, unlocked grid footprint, overlap, rate limits, and per-player locks, but it does not currently validate player distance to the placement location. `PromptInteractionService` validates action shape, rate limits, locks, and context; action handlers and feed-machine modules perform most ownership, target, distance, edit-mode, and state checks. Plot grid unlocks validate frontier state, price, currency, and player distance.
+Security nuance: `PlaceFeedMachine` validates finite `CFrame`, plot, equipped tool, floor bounds, unlocked grid footprint, overlap, player distance to the snapped placement location, rate limits, and per-player locks. `PromptInteractionService` validates action shape, rate limits, locks, context, and plot ancestry for targets by default; action handlers and feed-machine modules still perform detailed ownership, distance, edit-mode, and state checks. Plot grid unlocks validate frontier state, price, currency, and player distance.
 
 ## Feed Machine Architecture
 
@@ -161,7 +161,7 @@ Current class behavior:
 
 Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. `PumpkinPatch` has an explicit patch balance module. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
-Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, `OrangeTree`, and `StarfruitTree`. Latest MCP inspection found templates for Banana/Fig/Orange, but not `StarfruitTree`; `AssetValidator` only requires `Clicker1`, `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
+Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` was removed from starter defaults because latest MCP inspection found no matching template. `PlayerDataService` treats `StarfruitTree` as a deprecated feed type and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Clicker1`, `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
 
 When touching feeds, foods, roll odds, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance chains, Studio template attributes, and `docs/publish-checklist.md`.
 

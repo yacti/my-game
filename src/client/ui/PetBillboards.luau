@@ -11,12 +11,42 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local State   = require(Shared:WaitForChild("State"))
 
-local UIFolder      = ReplicatedStorage:WaitForChild("UI")
-local MoneyTemplate = UIFolder:WaitForChild("PetMoneyBillboard")
-local XPTemplate    = UIFolder:WaitForChild("PetXPBillboard")
-
 local PetBillboards = {}
 local attached = {}
+local templates
+
+local TEMPLATE_WAIT_SECONDS = 8
+
+local function loadTemplates()
+	if templates then return templates end
+	if templates == false then return nil end
+
+	local uiFolder = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
+	if not uiFolder then
+		warn("[PetBillboards] Missing ReplicatedStorage.UI; pet billboards disabled")
+		templates = false
+		return nil
+	end
+
+	local moneyTemplate = uiFolder:WaitForChild("PetMoneyBillboard", TEMPLATE_WAIT_SECONDS)
+	local xpTemplate = uiFolder:WaitForChild("PetXPBillboard", TEMPLATE_WAIT_SECONDS)
+	if not moneyTemplate or not moneyTemplate:IsA("BillboardGui") then
+		warn("[PetBillboards] Missing UI.PetMoneyBillboard BillboardGui; pet money billboards disabled")
+		templates = false
+		return nil
+	end
+	if not xpTemplate or not xpTemplate:IsA("BillboardGui") then
+		warn("[PetBillboards] Missing UI.PetXPBillboard BillboardGui; pet XP billboards disabled")
+		templates = false
+		return nil
+	end
+
+	templates = {
+		Money = moneyTemplate,
+		XP = xpTemplate,
+	}
+	return templates
+end
 
 local function formatMoney(amount)
 	return "$" .. math.floor(amount or 0)
@@ -24,6 +54,8 @@ end
 
 local function attach(pet)
 	if attached[pet] then return end
+	local activeTemplates = loadTemplates()
+	if not activeTemplates then return end
 
 	local primary = pet.PrimaryPart
 	if not primary then
@@ -36,11 +68,11 @@ local function attach(pet)
 
 	attached[pet] = true
 
-	local moneyBB = MoneyTemplate:Clone()
+	local moneyBB = activeTemplates.Money:Clone()
 	moneyBB.Parent = primary
 	local moneyLbl = moneyBB:FindFirstChild("MoneyLabel")
 
-	local xpBB = XPTemplate:Clone()
+	local xpBB = activeTemplates.XP:Clone()
 	xpBB.Parent = primary
 	local bg   = xpBB:FindFirstChild("Background")
 	local fill = bg and bg:FindFirstChild("Fill")

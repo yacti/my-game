@@ -22,6 +22,7 @@ local PromptInteractionService = require(Server:WaitForChild("PromptInteractionS
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
 local RollService       = require(Server:WaitForChild("RollService"))
+local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -409,6 +410,13 @@ local function unlockGridPart(target, plot, player, profile)
 	local gridPart = PlotGridService.ResolveGridPart(target)
 	local ok, code, _, price = PlotGridService.TryPurchaseCell(player, plot, profile, target)
 	if not ok then
+		if code ~= "already-unlocked" and code ~= "busy" then
+			TelemetryService.Warn("grid_unlock_failed", TelemetryService.ForPlayer(player, {
+				reason = code,
+				target = target,
+				plot = plot,
+			}))
+		end
 		if code == "already-unlocked" then
 			NotificationService.Info(player, "That plot area is already unlocked.")
 		elseif code == "insufficient-currency" then
@@ -423,6 +431,12 @@ local function unlockGridPart(target, plot, player, profile)
 	if gridPart then
 		GridUnlockEffect:FireAllClients(gridPart)
 	end
+	TelemetryService.Record("grid_unlock_succeeded", TelemetryService.ForPlayer(player, {
+		price = price,
+		gridPart = gridPart,
+		plot = plot,
+		currency = profile.Data.Currency,
+	}))
 	NotificationService.Success(player, "Plot area unlocked for $" .. tostring(price) .. "!")
 end
 
