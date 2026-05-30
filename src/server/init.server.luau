@@ -161,54 +161,78 @@ end
 
 -- ── Pet feeding + evolution ──────────────────────────────────────────────────
 
-local function tryEvolvePet(plot, pet, player, profile)
+local function tryEvolvePet(plot, pet, profile)
 	local idx = pet:GetAttribute(State.Pet.Index)
-	local petId = pet:GetAttribute(State.Pet.Id)
 	local petData = profile.Data.Pets[idx]
 	if not petData then return end
 
-	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
-	if type(maxXP) ~= "number" or maxXP <= 0 then
-		petData.xp = 0
-		return
+	local activePet = pet
+	local evolved = false
+	local firstPetId = nil
+	local firstScale = nil
+	local firstPivot = nil
+	local evolutionSeq = nil
+
+	while activePet and activePet.Parent do
+		local petId = activePet:GetAttribute(State.Pet.Id)
+		local maxXP = activePet:GetAttribute(State.Pet.MaxXP)
+		local currentXP = petData.xp or 0
+		if type(maxXP) ~= "number" or maxXP <= 0 then
+			petData.xp = 0
+			break
+		end
+
+		if currentXP < maxXP then
+			break
+		end
+
+		local nextPetId = PetCatalog.NextPetId(petId)
+		if not nextPetId then
+			petData.xp = math.min(currentXP, maxXP)
+			break
+		end
+
+		if not firstPetId then
+			firstPetId = petId
+			firstScale = activePet:GetScale()
+			firstPivot = PetMotionService.GetLogicalPivot(activePet)
+			evolutionSeq = (activePet:GetAttribute(State.Pet.EvolutionSeq) or 0) + 1
+		end
+
+		local evolutionPivot = PetMotionService.GetLogicalPivot(activePet)
+		local currentVisual = PetCatalog.VisualForPetId(petId)
+		local nextVisual = PetCatalog.VisualForPetId(nextPetId)
+		local nextXP = math.max(currentXP - maxXP, 0)
+
+		if currentVisual and nextVisual and currentVisual.ModelName == nextVisual.ModelName then
+			if not PlotService.ApplyPetIdAttributes(activePet, nextPetId) then
+				break
+			end
+		else
+			local newPet = PlotService.ReplacePetAt(plot, activePet, nextPetId, idx, nextXP, evolutionPivot)
+			if not newPet then
+				return nil, evolved
+			end
+			activePet = newPet
+			PetMotionService.Register(plot, activePet)
+		end
+
+		petData.petId = nextPetId
+		petData.xp = nextXP
+		evolved = true
 	end
 
-	if petData.xp < maxXP then return end
+	if not activePet or not activePet.Parent then return nil, evolved end
 
-	local nextPetId = PetCatalog.NextPetId(petId)
-	if not nextPetId then
-		petData.xp = math.min(petData.xp, maxXP)
-		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
-		PlotService.RescalePet(pet, petData.xp, logicalPivot)
-		pet:SetAttribute(State.Pet.XP, petData.xp)
-		return pet
+	local logicalPivot = PetMotionService.GetLogicalPivot(activePet)
+	PlotService.RescalePet(activePet, petData.xp, logicalPivot)
+	publishPetState(activePet, petData.money, petData.xp)
+
+	if evolved then
+		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq)
 	end
 
-	petData.petId = nextPetId
-	petData.xp = 0
-	-- money persists on evolution
-	local evolutionPivot = PetMotionService.GetLogicalPivot(pet)
-	local evolutionScale = pet:GetScale()
-	local evolutionSeq = (pet:GetAttribute(State.Pet.EvolutionSeq) or 0) + 1
-
-	local currentVisual = PetCatalog.VisualForPetId(petId)
-	local nextVisual = PetCatalog.VisualForPetId(nextPetId)
-	if currentVisual and nextVisual and currentVisual.ModelName == nextVisual.ModelName then
-		PlotService.ApplyPetIdAttributes(pet, nextPetId)
-		PlotService.RescalePet(pet, 0, evolutionPivot)
-		publishPetState(pet, petData.money, 0)
-		publishPetEvolutionCue(pet, petId, evolutionScale, evolutionPivot, evolutionSeq)
-		return pet
-	end
-
-	local newPet = PlotService.ReplacePetAt(plot, pet, nextPetId, idx, 0, evolutionPivot)
-	if newPet then
-		publishPetState(newPet, petData.money, 0)
-		publishPetEvolutionCue(newPet, petId, evolutionScale, evolutionPivot, evolutionSeq)
-		PetMotionService.Register(plot, newPet)
-		return newPet
-	end
-	return pet
+	return activePet, evolved
 end
 
 local function primaryPartOf(instance)
@@ -285,16 +309,16 @@ local function feedPet(plot, player, profile, pet)
 
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet
-	local previousPetId = pet:GetAttribute(State.Pet.Id)
+	local evolved = false
 	if petData.xp >= maxXP then
-		activePet = tryEvolvePet(plot, pet, player, profile) or pet
+		activePet, evolved = tryEvolvePet(plot, pet, profile)
+		if not activePet or not activePet.Parent then return end
 	else
 		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
 		PlotService.RescalePet(pet, petData.xp, logicalPivot)
 		pet:SetAttribute(State.Pet.XP, petData.xp)
 	end
 	local faceLX, faceLZ = playerFloorLocal(plot, player)
-	local evolved = activePet:GetAttribute(State.Pet.Id) ~= previousPetId
 	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ, evolved and PET_EVOLUTION_IDLE_HOLD_SECONDS or nil)
 	triggerPetFeedReaction(activePet, faceLX, faceLZ)
 end

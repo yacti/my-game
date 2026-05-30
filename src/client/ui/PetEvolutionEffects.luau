@@ -39,6 +39,9 @@ local player = Players.LocalPlayer
 local watchedPlots = setmetatable({}, { __mode = "k" })
 local watchedPets = setmetatable({}, { __mode = "k" })
 local playedSeqByPet = setmetatable({}, { __mode = "k" })
+local activeCameraZooms = 0
+local cameraBaseFov = nil
+local cameraZoomTween = nil
 
 local function assignedPlot()
 	local plotName = player:GetAttribute(State.Player.AssignedPlotName)
@@ -81,19 +84,38 @@ local function playCameraZoom()
 	local camera = Workspace.CurrentCamera
 	if not camera then return function() end end
 
-	local baseFov = camera.FieldOfView
-	local tween = TweenService:Create(camera, CAMERA_IN_TWEEN, {
-		FieldOfView = math.max(baseFov - CAMERA_ZOOM_FOV, 40),
-	})
-	tween:Play()
+	if activeCameraZooms == 0 then
+		cameraBaseFov = camera.FieldOfView
+	end
+	activeCameraZooms += 1
 
+	if cameraZoomTween and cameraZoomTween.PlaybackState == Enum.PlaybackState.Playing then
+		cameraZoomTween:Cancel()
+	end
+	cameraZoomTween = TweenService:Create(camera, CAMERA_IN_TWEEN, {
+		FieldOfView = math.max((cameraBaseFov or camera.FieldOfView) - CAMERA_ZOOM_FOV, 40),
+	})
+	cameraZoomTween:Play()
+
+	local restored = false
 	return function()
-		if tween.PlaybackState == Enum.PlaybackState.Playing then
-			tween:Cancel()
+		if restored then return end
+		restored = true
+
+		activeCameraZooms = math.max(activeCameraZooms - 1, 0)
+		if activeCameraZooms > 0 then
+			return
+		end
+
+		if cameraZoomTween and cameraZoomTween.PlaybackState == Enum.PlaybackState.Playing then
+			cameraZoomTween:Cancel()
+			cameraZoomTween = nil
 		end
 		local currentCamera = Workspace.CurrentCamera
+		local targetFov = cameraBaseFov
+		cameraBaseFov = nil
 		if currentCamera then
-			TweenService:Create(currentCamera, CAMERA_OUT_TWEEN, { FieldOfView = baseFov }):Play()
+			TweenService:Create(currentCamera, CAMERA_OUT_TWEEN, { FieldOfView = targetFov or 70 }):Play()
 		end
 	end
 end
@@ -278,7 +300,6 @@ local function hidePet(pet, pivot)
 		targetScale = pet:GetScale(),
 	}
 	pet:SetAttribute(State.Pet.EvolutionPaused, true)
-	pet:PivotTo(pivot)
 
 	for _, descendant in ipairs(pet:GetDescendants()) do
 		hideInstance(descendant, hidden)
@@ -364,11 +385,16 @@ local function playForPet(pet)
 	effect:PivotTo(pivot)
 
 	task.spawn(function()
-		local highlight = playCharge(effect, pivot, oldScale)
-		morphEffectToNewPet(effect, pet, pivot, highlight)
+		local ok, err = pcall(function()
+			local highlight = playCharge(effect, pivot, oldScale)
+			morphEffectToNewPet(effect, pet, pivot, highlight)
+		end)
 		restoreCamera()
 		if effect.Parent then effect:Destroy() end
 		restorePet(pet, hiddenPet)
+		if not ok then
+			warn("[PetEvolutionEffects] Evolution effect failed: " .. tostring(err))
+		end
 	end)
 end
 

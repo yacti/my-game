@@ -459,6 +459,8 @@ function PlotGridService.IsWalkablePoint(plot, lx, lz)
 end
 
 function PlotGridService.IsWalkableFootprint(plot, lx, lz, paddingX, paddingZ)
+	if type(lx) ~= "number" or type(lz) ~= "number" then return false end
+
 	local state = stateForPlot(plot)
 	if not state then return false end
 
@@ -519,6 +521,8 @@ function PlotGridService.GetUnlockedLocalBounds(plot, paddingX, paddingZ)
 end
 
 function PlotGridService.NearestUnlockedPoint(plot, lx, lz, paddingX, paddingZ)
+	if type(lx) ~= "number" or type(lz) ~= "number" then return nil, nil end
+
 	local state = stateForPlot(plot)
 	if not state then return lx, lz end
 	paddingX = math.max(tonumber(paddingX) or 0, 0)

@@ -563,9 +563,9 @@ function PlotService.ReplacePetAt(plot, oldPet, newPetId, petIndex, xp, worldPiv
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
 	local lx, lz, lry = worldPivotToFloorLocal(floor, worldPivot or oldPet:GetPivot())
-	oldPet:Destroy()
 	local clone = PlotService.CreatePet(newPetId, petIndex, xp or 0, floor, lx, lz, lry)
 	if clone then
+		oldPet:Destroy()
 		clone.Parent = plot
 	end
 	return clone

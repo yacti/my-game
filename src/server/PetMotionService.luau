@@ -76,14 +76,26 @@ end
 
 local function nearestPetFit(state, floor, lx, lz)
 	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
-	local fitLX, fitLZ = PlotGridService.NearestUnlockedPoint(state.plot, lx, lz, paddingX, paddingZ)
-	if not PlotGridService.IsWalkableFootprint(state.plot, fitLX, fitLZ, paddingX, paddingZ) then
+	local fitLX, fitLZ
+	if type(lx) == "number" and type(lz) == "number" then
+		fitLX, fitLZ = PlotGridService.NearestUnlockedPoint(state.plot, lx, lz, paddingX, paddingZ)
+	end
+	if type(fitLX) ~= "number" or type(fitLZ) ~= "number"
+		or not PlotGridService.IsWalkableFootprint(state.plot, fitLX, fitLZ, paddingX, paddingZ) then
 		fitLX, fitLZ = PlotGridService.FirstUnlockedPoint(state.plot, paddingX, paddingZ)
 	end
 	if PlotGridService.IsWalkableFootprint(state.plot, fitLX, fitLZ, paddingX, paddingZ) then
 		return fitLX, fitLZ
 	end
-	return lx, lz
+	if type(lx) == "number" and type(lz) == "number" then
+		return lx, lz
+	end
+
+	fitLX, fitLZ = PlotGridService.FirstUnlockedPoint(state.plot, 0, 0)
+	if type(fitLX) == "number" and type(fitLZ) == "number" then
+		return fitLX, fitLZ
+	end
+	return 0, 0
 end
 
 local function durationFor(state, minKey, maxKey)
