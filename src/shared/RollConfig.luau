@@ -20,8 +20,8 @@ RollConfig.Reveal = {
 	FlickerStartScale = 0.08,
 	FlickerEndScale = 0.22,
 	PopDuration = 0.45,
-	OfferVisibleSeconds = 45,
 	BuyPromptDistance = 10,
+	BillboardMaxDistance = 25,
 	OfferAnchorTopOffset = 0.55,
 }
 

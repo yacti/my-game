@@ -25,20 +25,26 @@ local REVEAL_FINAL_SCALE = RollConfig.Reveal.FinalScale
 local FLICKER_COUNT = RollConfig.Reveal.FlickerCount
 local FLICKER_START_SCALE = RollConfig.Reveal.FlickerStartScale
 local FLICKER_END_SCALE = RollConfig.Reveal.FlickerEndScale
-local OFFER_VISIBLE_SECONDS = RollConfig.Reveal.OfferVisibleSeconds
 local BUY_PROMPT_DISTANCE = RollConfig.Reveal.BuyPromptDistance
+local BILLBOARD_MAX_DISTANCE = RollConfig.Reveal.BillboardMaxDistance
 local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
 local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local CRATE_ROLL_PROMPT_NAME = "__LocalPrompt_CrateRoll"
+local ACTION_ROLL = "roll"
+local ACTION_SHOW_OFFERS = "showOffers"
+local ACTION_CLEAR_OFFER = "clearOffer"
+local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 local POP_TWEEN = TweenInfo.new(RollConfig.Reveal.PopDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 local activeRollToken = 0
 local activeReveals = {}
+local activeRevealOwnerByOfferId = {}
+local activeOfferIdsByOwner = {}
 local activeRollEffectsByOfferId = {}
 local pressedButton = nil
 local buttonOriginalCFrames = setmetatable({}, { __mode = "k" })
@@ -60,6 +66,32 @@ local function trackRollEffect(instance, offerId)
 		activeRollEffectsByOfferId[offerId] = effects
 	end
 	effects[#effects + 1] = instance
+end
+
+local function trackActiveReveal(instance, offerId, ownerUserId)
+	if offerId == nil then
+		return
+	end
+
+	activeReveals[offerId] = instance
+	if type(ownerUserId) ~= "number" then
+		return
+	end
+
+	activeRevealOwnerByOfferId[offerId] = ownerUserId
+	local ownerOffers = activeOfferIdsByOwner[ownerUserId]
+	if not ownerOffers then
+		ownerOffers = {}
+		activeOfferIdsByOwner[ownerUserId] = ownerOffers
+	end
+	ownerOffers[offerId] = true
+end
+
+local function ownerUserIdFromPayload(payload)
+	if type(payload) == "table" and type(payload.ownerUserId) == "number" then
+		return payload.ownerUserId
+	end
+	return Players.LocalPlayer.UserId
 end
 
 local function findFeedTemplate(feedType)
@@ -349,6 +381,18 @@ end
 
 local function clearActiveReveal(offerId)
 	if offerId ~= nil then
+		local ownerUserId = activeRevealOwnerByOfferId[offerId]
+		if ownerUserId ~= nil then
+			local ownerOffers = activeOfferIdsByOwner[ownerUserId]
+			if ownerOffers then
+				ownerOffers[offerId] = nil
+				if next(ownerOffers) == nil then
+					activeOfferIdsByOwner[ownerUserId] = nil
+				end
+			end
+			activeRevealOwnerByOfferId[offerId] = nil
+		end
+
 		local reveal = activeReveals[offerId]
 		if reveal then
 			reveal:Destroy()
@@ -372,10 +416,27 @@ local function clearActiveReveal(offerId)
 	for _, activeOfferId in ipairs(effectOfferIds) do
 		clearOfferEffects(activeOfferId)
 	end
+	activeRevealOwnerByOfferId = {}
+	activeOfferIdsByOwner = {}
 end
 
-local function clearRollEffects()
-	clearActiveReveal()
+local function clearOwnerReveals(ownerUserId)
+	if type(ownerUserId) ~= "number" then
+		return
+	end
+
+	local ownerOffers = activeOfferIdsByOwner[ownerUserId]
+	if not ownerOffers then
+		return
+	end
+
+	local offerIds = {}
+	for offerId in pairs(ownerOffers) do
+		offerIds[#offerIds + 1] = offerId
+	end
+	for _, offerId in ipairs(offerIds) do
+		clearActiveReveal(offerId)
+	end
 end
 
 local function formatPrice(price)
@@ -408,6 +469,7 @@ local function addRevealBillboard(model, payload)
 	billboard.Name = "RollRevealBillboard"
 	billboard.Adornee = anchor
 	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = BILLBOARD_MAX_DISTANCE
 	billboard.Size = UDim2.fromOffset(200, 86)
 	billboard.StudsOffsetWorldSpace = Vector3.zero
 
@@ -695,7 +757,7 @@ local function revealFeedMachine(payload, crateFloor, token)
 	end
 
 	clone.Parent = Workspace
-	activeReveals[payload.offerId] = clone
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
 	trackRollEffect(clone, payload.offerId)
 
 	local base = floorLandingCFrame(clone, crateFloor, 0)
@@ -709,11 +771,29 @@ local function revealFeedMachine(payload, crateFloor, token)
 		return
 	end
 	addRevealBillboard(clone, payload)
-	addPurchasePrompt(clone, payload)
+	if ownerUserIdFromPayload(payload) == Players.LocalPlayer.UserId then
+		addPurchasePrompt(clone, payload)
+	end
+end
 
-	task.delay(OFFER_VISIBLE_SECONDS, function()
-		clearActiveReveal(payload.offerId)
-	end)
+local function showPublicOffer(payload)
+	local crateFloor = payload.crateFloor
+	if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
+		return
+	end
+
+	clearActiveReveal(payload.offerId)
+	local clone = makeFeedClone(payload.feedType, "RollPublicReveal_" .. tostring(payload.feedType), false, REVEAL_FINAL_SCALE)
+	if not clone then
+		return
+	end
+
+	clone.Parent = Workspace
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
+	trackRollEffect(clone, payload.offerId)
+	pivotTo(clone, floorLandingCFrame(clone, crateFloor, 0))
+	fadeIn(clone)
+	addRevealBillboard(clone, payload)
 end
 
 local function playCrateFall(payload, token)
@@ -760,6 +840,20 @@ local function playCrateFall(payload, token)
 	end
 end
 
+local function collectPayloadOffers(payload)
+	local offers = {}
+	if type(payload.offers) == "table" then
+		for _, offer in ipairs(payload.offers) do
+			if type(offer) == "table" then
+				offers[#offers + 1] = offer
+			end
+		end
+	else
+		offers[1] = payload
+	end
+	return offers
+end
+
 function RollController.start()
 	local player = Players.LocalPlayer
 	local mouse = player:GetMouse()
@@ -782,25 +876,45 @@ function RollController.start()
 		if type(payload) ~= "table" then
 			return
 		end
-		local offers = {}
-		if type(payload.offers) == "table" then
-			for _, offer in ipairs(payload.offers) do
-				if type(offer) == "table" then
-					offers[#offers + 1] = offer
-				end
-			end
-		else
-			offers[1] = payload
+
+		local action = payload.action or ACTION_ROLL
+		if action == ACTION_CLEAR_OFFER then
+			clearActiveReveal(payload.offerId)
+			return
 		end
+		if action == ACTION_CLEAR_OWNER_OFFERS then
+			clearOwnerReveals(payload.ownerUserId)
+			return
+		end
+		if action == ACTION_SHOW_OFFERS then
+			local ownerUserId = payload.ownerUserId
+			if ownerUserId == player.UserId then
+				return
+			end
+			clearOwnerReveals(ownerUserId)
+			for _, offer in ipairs(collectPayloadOffers(payload)) do
+				offer.ownerUserId = ownerUserId
+				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
+				task.spawn(showPublicOffer, offer)
+			end
+			return
+		end
+		if action ~= ACTION_ROLL then
+			return
+		end
+
+		local offers = collectPayloadOffers(payload)
 		if #offers == 0 then
 			return
 		end
 
 		activeRollToken += 1
 		local token = activeRollToken
-		clearRollEffects()
+		local ownerUserId = ownerUserIdFromPayload(payload)
+		clearOwnerReveals(ownerUserId)
 		markButtonUnavailableForRoll(payload.button)
 		for _, offer in ipairs(offers) do
+			offer.ownerUserId = ownerUserId
 			if offer.button == nil then
 				offer.button = payload.button
 			end

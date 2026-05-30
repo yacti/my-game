@@ -29,8 +29,11 @@ local LUCK_REQUEST_RATE_SECONDS = 0.35
 local LUCK_STATE_RATE_SECONDS = 0.5
 local DROP_AREA_REQUEST_RATE_SECONDS = 0.35
 local DROP_AREA_STATE_RATE_SECONDS = 0.5
-local OFFER_EXPIRES_SECONDS = 45
 local PREVIEW_COUNT = 10
+local ACTION_ROLL = "roll"
+local ACTION_SHOW_OFFERS = "showOffers"
+local ACTION_CLEAR_OFFER = "clearOffer"
+local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 
 local DROP_AREA_VISIBILITY_OPTIONS = {
 	RuntimeHiddenAsVisible = true,
@@ -292,10 +295,51 @@ end
 
 local function sendRollEffect(player, buttonPart, rollBatchId, offers)
 	CrateRollEffect:FireClient(player, {
+		action = ACTION_ROLL,
 		rollBatchId = rollBatchId,
+		ownerUserId = player.UserId,
 		button = buttonPart,
 		offers = offers,
 		duration = 2.5,
+	})
+end
+
+local function sendClearOwnerOffers(player)
+	CrateRollEffect:FireAllClients({
+		action = ACTION_CLEAR_OWNER_OFFERS,
+		ownerUserId = player.UserId,
+	})
+end
+
+local function sendPublicRollOffers(player, rollBatchId, offers)
+	local currentOffers = pendingOffers[player]
+	if not currentOffers then
+		return
+	end
+
+	local activeOffers = {}
+	for _, offer in ipairs(offers) do
+		if currentOffers[offer.offerId] then
+			activeOffers[#activeOffers + 1] = offer
+		end
+	end
+	if #activeOffers == 0 then
+		return
+	end
+
+	CrateRollEffect:FireAllClients({
+		action = ACTION_SHOW_OFFERS,
+		rollBatchId = rollBatchId,
+		ownerUserId = player.UserId,
+		offers = activeOffers,
+	})
+end
+
+local function sendClearOffer(player, offerId)
+	CrateRollEffect:FireAllClients({
+		action = ACTION_CLEAR_OFFER,
+		ownerUserId = player.UserId,
+		offerId = offerId,
 	})
 end
 
@@ -368,11 +412,7 @@ local function activeOffer(player, offerId)
 	local offers = pendingOffers[player]
 	local offer = offers and offers[offerId]
 	if not offer then
-		return nil, "offer-expired"
-	end
-	if os.clock() > offer.expiresAt then
-		removePendingOffer(player, offerId)
-		return nil, "offer-expired"
+		return nil, "offer-unavailable"
 	end
 	return offer
 end
@@ -437,10 +477,10 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	locks[player] = true
-	local ok, success, codeOrOffers, batchIdOrNil = pcall(function()
+	local ok, success, codeOrOffers, batchIdOrNil, publicOffersOrNil = pcall(function()
 		local offerMap = {}
 		local effectOffers = {}
-		local expiresAt = os.clock() + OFFER_EXPIRES_SECONDS
+		local publicOffers = {}
 		local flickerCount = RollConfig.Reveal.FlickerCount
 
 		for _, dropArea in ipairs(dropAreas) do
@@ -464,11 +504,11 @@ function RollService.Roll(player, target, plot, profile)
 				price = rolled.price,
 				crateFloor = dropArea.crateFloor,
 				dropAreaIndex = dropArea.index,
-				expiresAt = expiresAt,
 			}
 			effectOffers[#effectOffers + 1] = {
 				offerId = offerId,
 				rollBatchId = nil,
+				ownerUserId = player.UserId,
 				dropAreaIndex = dropArea.index,
 				crateId = crateId,
 				crateTemplateName = crate and crate.TemplateName or crateId,
@@ -484,6 +524,19 @@ function RollService.Roll(player, target, plot, profile)
 				flickerCount = flickerCount,
 				duration = 2.5,
 			}
+			publicOffers[#publicOffers + 1] = {
+				offerId = offerId,
+				rollBatchId = nil,
+				ownerUserId = player.UserId,
+				dropAreaIndex = dropArea.index,
+				crateFloor = dropArea.crateFloor,
+				feedType = rolled.feedType,
+				displayName = rolled.displayName,
+				rarity = rolled.rarity,
+				price = rolled.price,
+				chanceN = rolled.chanceN,
+				rngChanceText = "1 in " .. tostring(rolled.chanceN),
+			}
 		end
 
 		nextRollBatchId += 1
@@ -491,11 +544,14 @@ function RollService.Roll(player, target, plot, profile)
 		for _, offer in ipairs(effectOffers) do
 			offer.rollBatchId = rollBatchId
 		end
+		for _, offer in ipairs(publicOffers) do
+			offer.rollBatchId = rollBatchId
+		end
 
 		clearPendingOffers(player)
 		pendingOffers[player] = offerMap
 		rollCooldownUntil[player] = os.clock() + RollConfig.RollVisualDuration()
-		return true, effectOffers, rollBatchId
+		return true, effectOffers, rollBatchId, publicOffers
 	end)
 	locks[player] = nil
 
@@ -514,7 +570,11 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	local effectOffers = codeOrOffers
+	sendClearOwnerOffers(player)
 	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers)
+	task.delay(RollConfig.RollVisualDuration(), function()
+		sendPublicRollOffers(player, batchIdOrNil, publicOffersOrNil or {})
+	end)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
 		batchId = batchIdOrNil,
 		offerCount = #effectOffers,
@@ -543,7 +603,7 @@ function RollService.Purchase(player, offerId, profile)
 
 	local offer, offerCode = activeOffer(player, offerId)
 	if not offer then
-		NotificationService.Error(player, "This roll offer expired.")
+		NotificationService.Error(player, "This roll offer is no longer available.")
 		sendPurchaseResult(player, offerId, false, offerCode)
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = offerCode,
@@ -610,6 +670,7 @@ function RollService.Purchase(player, offerId, profile)
 			feedType = offer.feedType,
 			currency = currencyOrNil,
 		})
+		sendClearOffer(player, offerId)
 		TelemetryService.Record("crate_roll_purchase_succeeded", TelemetryService.ForPlayer(player, {
 			offerId = offerId,
 			feedType = offer.feedType,
@@ -970,6 +1031,7 @@ function RollService.Start()
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
+		sendClearOwnerOffers(player)
 		locks[player] = nil
 		rollCooldownUntil[player] = nil
 		lastPurchaseRequest[player] = nil
