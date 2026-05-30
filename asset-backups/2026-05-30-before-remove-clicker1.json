@@ -1,0 +1,42 @@
+{
+  "note": "Rollback snapshot captured before removing the legacy Clicker1 feed machine, moving tree templates out of the legacy Clicker folder, and removing MaxClicksPerSecond Studio attributes. A full clone was also created in Studio at ServerStorage.AgentAssetBackups.RemoveClicker1_2026_05_30.",
+  "backupClonePath": "ServerStorage.AgentAssetBackups.RemoveClicker1_2026_05_30",
+  "capturedAtDate": "2026-05-30",
+  "affectedAssets": [
+    "ReplicatedStorage.FeedMachines",
+    "ReplicatedStorage.Food"
+  ],
+  "studioChanges": [
+    {
+      "action": "moveAttribute",
+      "attribute": "XP",
+      "from": "ReplicatedStorage.Food.Patch.Pumpkin1",
+      "to": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch"
+    },
+    {
+      "action": "destroy",
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1"
+    },
+    {
+      "action": "rename",
+      "from": "ReplicatedStorage.FeedMachines.Clicker",
+      "to": "ReplicatedStorage.FeedMachines.Tree"
+    },
+    {
+      "action": "rename",
+      "from": "ReplicatedStorage.Food.Clicker",
+      "to": "ReplicatedStorage.Food.Fruit"
+    },
+    {
+      "action": "removeAttribute",
+      "attribute": "MaxClicksPerSecond",
+      "paths": [
+        "ReplicatedStorage.FeedMachines.Tree.Apple Tree",
+        "ReplicatedStorage.FeedMachines.Tree.Banana Tree",
+        "ReplicatedStorage.FeedMachines.Tree.Cherry Tree",
+        "ReplicatedStorage.FeedMachines.Tree.FigTree",
+        "ReplicatedStorage.FeedMachines.Tree.Orange Tree"
+      ]
+    }
+  ]
+}

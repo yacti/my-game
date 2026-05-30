@@ -1,11 +1,9 @@
--- Renders an xp (and optional multiplier) badge above any equipped food
--- Tool. Built per-viewer locally under the Tool's Handle, so the billboard
--- isn't replicated and can be restyled or hidden without touching the
--- server.
+-- Renders an xp badge above any equipped food Tool. Built per-viewer locally
+-- under the Tool's Handle, so the billboard isn't replicated and can be
+-- restyled or hidden without touching the server.
 --
--- Server owns the data (XP, optional XPMultiplier attributes set on the
--- Tool); this module only reads them and rebuilds the label when they
--- change. The multiplier is only shown when it's strictly greater than 1.
+-- Server owns the XP data; this module only reads it and rebuilds the label
+-- when it changes.
 --
 -- We watch Workspace descendants — a Tool only reaches Workspace when it's
 -- equipped (parented to a Character), which is exactly when the badge
@@ -71,17 +69,11 @@ local function build(tool)
 	gui.StudsOffset = Vector3.new(0, handle.Size.Y / 2 + 1, 0)
 
 	local function render()
-		local xp   = tool:GetAttribute("XP") or 0
-		local mult = tool:GetAttribute("XPMultiplier") or 1
-		if mult > 1 then
-			label.Text = string.format("%sx, %dxp", tostring(mult), xp)
-		else
-			label.Text = string.format("%dxp", xp)
-		end
+		local xp = tool:GetAttribute(State.Food.XP) or 0
+		label.Text = string.format("%dxp", math.floor(xp))
 	end
 	render()
-	tool:GetAttributeChangedSignal("XP"):Connect(render)
-	tool:GetAttributeChangedSignal("XPMultiplier"):Connect(render)
+	tool:GetAttributeChangedSignal(State.Food.XP):Connect(render)
 
 	gui.Parent = handle
 end

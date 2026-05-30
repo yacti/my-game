@@ -1,12 +1,12 @@
 -- Registry + dispatcher for FeedMachine templates.
 --
 -- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>.
--- A template can be a BasePart (e.g. Clicker1) or a Model (e.g.
--- PumpkinPatch). The template carries:
---   FeedClass  (string, broad behavior class, e.g. "Clicker", "Patch", or "Tree")
+-- A template can be a BasePart or a Model. The template carries:
+--   FeedClass  (string, broad behavior class, e.g. "Patch", "Processor", or "Tree")
 --   FeedType   (string, stable gameplay id; template/model Name is visual only)
 --   Rarity     (string, display rarity; see Shared.Rarities)
---   FoodType   (string, foodType produced/accepted, see Shared.Food)
+--   FoodType   (string, accepted food category, see Shared.Food)
+--   FoodDrop   (string, exact produced food id, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --
 -- Dispatch starts from FeedType. The registry maps that stable id to the
@@ -26,13 +26,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Trees = require(script:WaitForChild("Trees"))
-local Clicker   = require(script:WaitForChild("Clicker"))
 local Patches   = require(script:WaitForChild("Patches"))
 local Processor = require(script:WaitForChild("Processor"))
 
 -- Class-level implementations.
 local CLASSES = {
-	Clicker   = Clicker,
 	Patch     = Patches,
 	Processor = Processor,
 	Tree      = Trees,

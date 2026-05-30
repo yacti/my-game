@@ -18,7 +18,6 @@ local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Food = require(Shared:WaitForChild("Food"))
 local State = require(Shared:WaitForChild("State"))
 
 local RANGE = 10
@@ -84,19 +83,6 @@ local function foodHeight(food)
 	return 1
 end
 
-local function foodIdFor(food)
-	local foodId = food:GetAttribute(State.Food.Id)
-	if type(foodId) == "string" and foodId ~= "" then return foodId end
-	local oldFoodType = food:GetAttribute(State.Food.Type)
-	if type(oldFoodType) == "string" and Food.GetTemplate(oldFoodType) then return oldFoodType end
-	return nil
-end
-
-local function maxXPFor(foodId)
-	local t = foodId and Food.GetTemplate(foodId)
-	return t and (t:GetAttribute("MaxXP") or 5) or 5
-end
-
 local function build(food)
 	if tracked[food] then return end
 	local adornee = adorneeFor(food)
@@ -115,14 +101,11 @@ local function build(food)
 	gui.Enabled = false  -- gated by Heartbeat below
 
 	local function render()
-		local xp       = food:GetAttribute("XP") or 0
-		local maxXP    = maxXPFor(foodIdFor(food))
-		label.Text = string.format("%d/%d xp", xp, maxXP)
+		local xp = food:GetAttribute(State.Food.XP) or 0
+		label.Text = string.format("%dxp", math.floor(xp))
 	end
 	render()
-	food:GetAttributeChangedSignal("XP"):Connect(render)
-	food:GetAttributeChangedSignal("FoodType"):Connect(render)
-	food:GetAttributeChangedSignal(State.Food.Id):Connect(render)
+	food:GetAttributeChangedSignal(State.Food.XP):Connect(render)
 
 	gui.Parent = food
 	tracked[food] = gui

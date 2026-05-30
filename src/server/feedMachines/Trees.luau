@@ -18,10 +18,9 @@
 -- Clients render XP billboards from those attributes. Pickup gives a Tool with
 -- the pile's current foodId + accumulated XP and clears that slot only.
 --
--- Tunable attribute on the template:
---   MaxClicksPerSecond (number, default 5; capped at 5 to limit autoclickers)
+-- Tunable attributes on the template:
 --   FoodDrop           (string, food id dropped by each accepted click)
---   XPMultiplier       (number, default 1; multiplies XP added per drop)
+--   XP                 (number, default 1; multiplier applied to each drop's XP)
 -- Timing tunables come from per-tree balance modules.
 
 local PhysicsService    = game:GetService("PhysicsService")
@@ -39,8 +38,9 @@ local CherryTreeBalance = require(TreeBalance:WaitForChild("CherryTreeBalance"))
 
 local TreeClickerEffect = Remotes.get(Remotes.Names.TreeClickerEffect)
 
+local MAX_CLICKS_PER_SECOND = 5
+
 local DEFAULT_BALANCE = {
-	DefaultMaxClicksPerSecond = 5,
 	SlotRespawn = 1,
 	DropEffectDuration = 0.45,
 	EffectRadius = 75,
@@ -98,7 +98,6 @@ local function balanceFor(machine)
 	return {
 		FeedType = feedType,
 		WarnPrefix = feedType,
-		DefaultMaxClicksPerSecond = DEFAULT_BALANCE.DefaultMaxClicksPerSecond,
 		SlotRespawn = DEFAULT_BALANCE.SlotRespawn,
 		DropEffectDuration = DEFAULT_BALANCE.DropEffectDuration,
 		EffectRadius = DEFAULT_BALANCE.EffectRadius,
@@ -124,21 +123,15 @@ local function dropXPFor(foodId)
 end
 
 local function xpMultiplierFor(machine)
-	local multiplier = machine:GetAttribute(State.Feed.XPMultiplier)
+	local multiplier = machine:GetAttribute(State.Feed.XP)
 	if type(multiplier) ~= "number" or multiplier <= 0 then
 		return 1
 	end
 	return multiplier
 end
 
-local function clickIntervalFor(machine, s)
-	local maxClicksPerSecond = machine:GetAttribute(State.Feed.MaxClicksPerSecond)
-	if type(maxClicksPerSecond) ~= "number" or maxClicksPerSecond <= 0 then
-		maxClicksPerSecond = s.balance.DefaultMaxClicksPerSecond
-	else
-		maxClicksPerSecond = math.min(maxClicksPerSecond, s.balance.DefaultMaxClicksPerSecond)
-	end
-	return 1 / maxClicksPerSecond
+local function clickIntervalFor()
+	return 1 / MAX_CLICKS_PER_SECOND
 end
 
 local function groundFolder(machine)
@@ -384,7 +377,7 @@ local function onTreeClicked(machine, s, player)
 	if player ~= s.owner then return end
 	if s.owner:GetAttribute("EditMode") == true then return end
 
-	local clickInterval = clickIntervalFor(machine, s)
+	local clickInterval = clickIntervalFor()
 	local now = os.clock()
 	if now - s.lastClick < clickInterval then return end
 

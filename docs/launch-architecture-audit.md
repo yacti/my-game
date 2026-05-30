@@ -77,7 +77,7 @@ Follow-up:
 
 ### Resolved: Starter Feed Inventory Referenced Missing `StarfruitTree`
 
-Earlier review found that `src/server/PlayerDataService.luau` gave fresh profiles `StarfruitTree = 1`. MCP found `AppleTree`, `BananaTree`, `CherryTree`, `FigTree`, `OrangeTree`, `PumpkinPatch`, `Processor1`, and `Clicker1`, but no Starfruit template. `AssetValidator` does not require `StarfruitTree`.
+Earlier review found that `src/server/PlayerDataService.luau` gave fresh profiles `StarfruitTree = 1`. MCP found `AppleTree`, `BananaTree`, `CherryTree`, `FigTree`, `OrangeTree`, `PumpkinPatch`, and `Processor1`, but no Starfruit template. `AssetValidator` does not require `StarfruitTree`.
 
 Status: `StarfruitTree` has been removed from starter defaults. `PlayerDataService` also treats it as a deprecated feed type and removes stale `StarfruitTree` feed inventory entries or saved placements during profile migration/sanitization.
 

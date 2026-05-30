@@ -29,7 +29,6 @@ local REQUIRED_ROOTS = {
 -- Stable FeedType values that must exist somewhere under FeedMachines.
 -- Template/model names are visual only and are intentionally not validated here.
 local REQUIRED_FEEDS = {
-	"Clicker1",
 	"Processor1",
 	"AppleTree",
 	"CherryTree",
@@ -55,6 +54,14 @@ local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
 	"ShopRobuxPrice",
 	"RollPrice",
 	"PurchasePrice",
+}
+
+local DEPRECATED_FEED_ATTRIBUTES = {
+	XPMultiplier = State.Feed.XP,
+}
+
+local DEPRECATED_FOOD_ATTRIBUTES = {
+	MaxXP = State.Food.XP,
 }
 
 local function add(errors, message)
@@ -240,6 +247,30 @@ local function validateFeedTemplateIdentity(root, errors)
 						State.Feed.Price
 					))
 				end
+			end
+
+			for attributeName, replacement in pairs(DEPRECATED_FEED_ATTRIBUTES) do
+				if template:GetAttribute(attributeName) ~= nil then
+					add(errors, string.format(
+						"%s has deprecated feed attribute %s; use %s",
+						template:GetFullName(),
+						attributeName,
+						replacement
+					))
+				end
+			end
+
+			local feedXP = template:GetAttribute(State.Feed.XP)
+			if feedXP ~= nil and (type(feedXP) ~= "number" or feedXP <= 0) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.XP, tostring(feedXP)))
+			end
+			if feedClass == "Patch" and feedXP == nil then
+				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XP))
+			end
+
+			local growRate = template:GetAttribute(State.Feed.GrowRate)
+			if growRate ~= nil and (type(growRate) ~= "number" or growRate <= 0) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.GrowRate, tostring(growRate)))
 			end
 		end
 	end
@@ -439,67 +470,10 @@ local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, sourc
 	table.insert(sourcesByFoodId[foodId], source)
 end
 
-local function collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, errors)
-	local feedMachinesFolder = Server:FindFirstChild("feedMachines")
-	if not feedMachinesFolder then return end
-
-	for _, module in ipairs(feedMachinesFolder:GetDescendants()) do
-		if module:IsA("ModuleScript") and module.Name:match("Balance$") then
-			local ok, balance = pcall(require, module)
-			if not ok then
-				add(errors, string.format("Failed to load balance module %s: %s", module:GetFullName(), tostring(balance)))
-				continue
-			end
-
-			if type(balance) == "table" and balance.Chain ~= nil then
-				local feedType = balance.FeedType
-				if type(feedType) ~= "string" or feedType == "" then
-					add(errors, module:GetFullName() .. " missing FeedType")
-					continue
-				end
-				if type(balance.Chain) ~= "table" or #balance.Chain == 0 then
-					add(errors, string.format("%s has empty or invalid Chain", module:GetFullName()))
-					continue
-				end
-
-				for index, foodId in ipairs(balance.Chain) do
-					addRequiredFoodId(
-						requiredFoodIds,
-						sourcesByFoodId,
-						foodId,
-						string.format("%s Chain[%d]", feedType, index),
-						errors
-					)
-				end
-			end
-		end
-	end
-end
-
-local function collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
+local function collectFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
 	for _, feedType in ipairs(FeedMachines.AllFeedTypes()) do
-		if FeedMachines.GetClass(feedType) == "Clicker" then
-			local template = FeedMachines.GetTemplate(feedType)
-			if not template then continue end
-
-			local foodId = template:GetAttribute(State.Feed.FoodType)
-			if type(foodId) ~= "string" or foodId == "" then
-				foodId = "Apple"
-			end
-			addRequiredFoodId(
-				requiredFoodIds,
-				sourcesByFoodId,
-				foodId,
-				string.format("%s clicker output", feedType),
-				errors
-			)
-		end
-	end
-end
-
-local function collectTreeFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
-	for _, feedType in ipairs(FeedMachines.AllFeedTypes()) do
-		if FeedMachines.GetClass(feedType) == "Tree" then
+		local feedClass = FeedMachines.GetClass(feedType)
+		if feedClass == "Tree" or feedClass == "Patch" then
 			local template = FeedMachines.GetTemplate(feedType)
 			if not template then continue end
 
@@ -518,9 +492,7 @@ local function collectRequiredFoodIds(errors)
 	local requiredFoodIds = {}
 	local sourcesByFoodId = {}
 
-	collectBalanceChainFoodIds(requiredFoodIds, sourcesByFoodId, errors)
-	collectClickerFoodIds(requiredFoodIds, sourcesByFoodId, errors)
-	collectTreeFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
+	collectFoodDropIds(requiredFoodIds, sourcesByFoodId, errors)
 
 	table.sort(requiredFoodIds)
 	return requiredFoodIds, sourcesByFoodId
@@ -531,7 +503,7 @@ local function sourceList(sources)
 end
 
 local function validateFoodTemplates(errors)
-	child(ReplicatedStorage, "Food", "Folder", errors)
+	local foodRoot = child(ReplicatedStorage, "Food", "Folder", errors)
 
 	local requiredFoodIds, sourcesByFoodId = collectRequiredFoodIds(errors)
 
@@ -561,6 +533,24 @@ local function validateFoodTemplates(errors)
 		end
 		if template and type(template:GetAttribute(State.Food.Type)) ~= "string" then
 			add(errors, template:GetFullName() .. " missing " .. State.Food.Type .. " attribute")
+		end
+	end
+
+	if foodRoot then
+		for _, template in ipairs(foodRoot:GetDescendants()) do
+			if not (template:IsA("BasePart") or template:IsA("Model")) then
+				continue
+			end
+			for attributeName, replacement in pairs(DEPRECATED_FOOD_ATTRIBUTES) do
+				if template:GetAttribute(attributeName) ~= nil then
+					add(errors, string.format(
+						"%s has deprecated food attribute %s; use %s",
+						template:GetFullName(),
+						attributeName,
+						replacement
+					))
+				end
+			end
 		end
 	end
 end

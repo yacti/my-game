@@ -1,8 +1,9 @@
 -- Food registry. Templates live at ReplicatedStorage.Food (recursively;
--- per-machine subfolders are supported, e.g. Food/Patch/Pumpkin1) and
--- must carry an XP attribute. A template may be either a BasePart (legacy)
--- or a Model (preferred — supports multi-part visuals and Model:ScaleTo).
--- Food tools carry both FoodId (exact template key, e.g. Food1_Clicker) and
+-- per-machine subfolders are supported, e.g. Food/Patch/Pumpkin1). A
+-- template may be either a BasePart (legacy) or a Model (preferred —
+-- supports multi-part visuals and Model:ScaleTo). Templates may carry a base
+-- XP attribute, but producers such as patches can override tool XP.
+-- Food tools carry both FoodId (exact template key, e.g. Pumpkin1) and
 -- FoodType (broad group/category, e.g. Fruit). Every system that consumes
 -- food identifies food by attributes, never by name.
 
@@ -22,8 +23,8 @@ local function isFoodTemplate(obj)
 	return obj and (obj:IsA("BasePart") or obj:IsA("Model"))
 end
 
--- Foods are organized into per-machine subfolders (Food/Clicker, Food/Patch,
--- Food/Processor, etc.) so the lookup recurses. FoodId is the stable key;
+-- Foods may be organized into visual/category subfolders (Food/Fruit,
+-- Food/Patch, Food/Processor, etc.) so the lookup recurses. FoodId is the stable key;
 -- template.Name is allowed to be a player-facing alias.
 function Food.GetTemplate(foodId)
 	local direct = getFolder():FindFirstChild(foodId, true)
@@ -39,7 +40,7 @@ end
 
 function Food.BaseXP(foodId)
 	local t = Food.GetTemplate(foodId)
-	return t and (t:GetAttribute("XP") or 1) or 1
+	return t and (t:GetAttribute(State.Food.XP) or 1) or 1
 end
 
 function Food.TypeFor(foodId)
@@ -83,14 +84,7 @@ function Food.XPOf(food)
 
 	local baseXP = tonumber(template:GetAttribute(State.Food.XP)) or 1
 	local xp = tonumber(food:GetAttribute(State.Food.XP)) or baseXP
-	local maxXP = tonumber(template:GetAttribute("MaxXP"))
-	if not maxXP then
-		return math.max(xp, 0)
-	end
-
-	local multiplier = tonumber(food:GetAttribute("XPMultiplier")) or 1
-	if multiplier < 1 then multiplier = 1 end
-	return math.clamp(xp, 0, math.max(baseXP, maxXP * multiplier))
+	return math.max(xp, 0)
 end
 
 local function configureBodyPart(part, isHandle)
@@ -151,7 +145,7 @@ function Food.MakeTool(foodId, xpOverride)
 
 	tool:SetAttribute(State.Food.Id, foodId)
 	tool:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
-	tool:SetAttribute("XP", xpOverride or (template:GetAttribute("XP") or 1))
+	tool:SetAttribute(State.Food.XP, xpOverride or (template:GetAttribute(State.Food.XP) or 1))
 	return tool
 end
 

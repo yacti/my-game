@@ -10,6 +10,7 @@ local USE_MOCK_STORE_IN_STUDIO = true
 local CURRENT_DATA_VERSION = 2
 
 local DEPRECATED_FEED_TYPES = {
+	Clicker1 = true,
 	StarfruitTree = true,
 }
 
@@ -184,8 +185,8 @@ local function ensureValidData(profile)
 					for _, slot in ipairs(placement.slots) do
 						if type(slot) == "table" then
 							clean.slots[#clean.slots + 1] = {
-								stage = math.max(math.floor(tonumber(slot.stage) or 1), 1),
 								xp = math.max(tonumber(slot.xp) or 0, 0),
+								growthElapsed = math.max(tonumber(slot.growthElapsed) or 0, 0),
 								respawnAt = tonumber(slot.respawnAt),
 							}
 						end

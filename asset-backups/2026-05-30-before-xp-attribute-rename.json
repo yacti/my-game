@@ -1,0 +1,158 @@
+{
+  "note": "Rollback snapshot captured before removing food MaxXP attributes and renaming feed-machine XPMultiplier attributes to XP. A full clone was also created in Studio at ServerStorage.AgentAssetBackups.XPAttributeRename_2026_05_30.",
+  "backupClonePath": "ServerStorage.AgentAssetBackups.XPAttributeRename_2026_05_30",
+  "capturedAtDate": "2026-05-30",
+  "feedMachines": [
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Apple Tree",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "AppleTree",
+        "FoodDrop": "Apple",
+        "Price": 100,
+        "RollChanceN": 16,
+        "XPMultiplier": 15
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Banana Tree",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "BananaTree",
+        "FoodDrop": "Banana",
+        "Price": 250,
+        "RollChanceN": 50,
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Cherry Tree",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "CherryTree",
+        "FoodDrop": "Cherry",
+        "Price": 250,
+        "RollChanceN": 200,
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Clicker1",
+      "className": "Part",
+      "attributes": {
+        "FeedClass": "Clicker",
+        "FeedType": "Clicker1",
+        "FoodType": "Apple",
+        "Price": 25,
+        "RollChanceN": 2
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.FigTree",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "FigTree",
+        "FoodDrop": "Fig",
+        "Price": 250,
+        "RollChanceN": 1000,
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Clicker.Orange Tree",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "OrangeTree",
+        "FoodDrop": "Orange",
+        "Price": 250,
+        "RollChanceN": 1000,
+        "XPMultiplier": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Patch.PumpkinPatch",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Patch",
+        "FeedType": "PumpkinPatch",
+        "Price": 75,
+        "RollChanceN": 8
+      }
+    },
+    {
+      "path": "ReplicatedStorage.FeedMachines.Processor.Processor1",
+      "className": "Model",
+      "attributes": {
+        "FeedClass": "Processor",
+        "FeedType": "Processor1",
+        "FoodType": "Fruit",
+        "Price": 50,
+        "RollChanceN": 4,
+        "XPMultiplier": 2
+      }
+    }
+  ],
+  "foods": [
+    {
+      "path": "ReplicatedStorage.Food.Clicker.Apple",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit",
+        "MaxXP": 100
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Clicker.Banana",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit",
+        "MaxXP": 100
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Clicker.Cherry",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Clicker.Fig",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit",
+        "MaxXP": 100
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Clicker.Orange",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit",
+        "MaxXP": 100
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Patch.Pumpkin1",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Pumpkin",
+        "MaxXP": 5,
+        "XP": 1
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Food.Processor.Food1_Processor",
+      "className": "Model",
+      "attributes": {
+        "FoodType": "Fruit",
+        "MaxXP": 5
+      }
+    }
+  ]
+}

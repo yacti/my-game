@@ -55,7 +55,7 @@ State.Grid = {
 State.Feed = {
 	Type  = "FeedType",
 	Index = "FeedIndex",
-	Class = "FeedClass", -- broad behavior class, e.g. Clicker, Patch, Processor, Tree
+	Class = "FeedClass", -- broad behavior class, e.g. Patch, Processor, Tree
 	Rarity = "Rarity", -- display-only rarity; roll odds use RollChanceN
 	RollChanceN = "RollChanceN", -- roll odds denominator, e.g. 50 means base weight 1/50
 	Price = "Price",
@@ -64,13 +64,11 @@ State.Feed = {
 	-- Per-template tunables. Each FeedMachine template under
 	-- ReplicatedStorage.FeedMachines.<Class>.<DisplayName> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
-	FoodType        = "FoodType",        -- class-specific: produced food id or accepted food group
-	FoodDrop        = "FoodDrop",        -- Tree: food id dropped by each accepted click
-	MaxFood         = "MaxFood",         -- Clicker: cap of unpicked food on the floor
-	ClickCooldown   = "ClickCooldown",   -- Clicker: seconds between clicks
-	MaxClicksPerSecond = "MaxClicksPerSecond", -- AppleTree: accepted clicks per second cap
+	FoodType        = "FoodType",        -- Processor: accepted food group/category
+	FoodDrop        = "FoodDrop",        -- Tree/Patch: exact food id produced by the machine
+	GrowRate        = "GrowRate",        -- Patch: seconds per XP interval
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
-	XPMultiplier    = "XPMultiplier",    -- Processor/AppleTree: multiplier on produced XP
+	XP              = "XP",              -- Processor/Tree multiplier; Patch XP per growth interval
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
 
 	-- Server-published runtime state (clients can read for UI).
@@ -79,9 +77,9 @@ State.Feed = {
 }
 
 State.Food = {
-	Id   = "FoodId",   -- exact template key, e.g. Food1_Clicker
-	Type = "FoodType", -- broad group/category, e.g. Fruit
-	XP   = "XP",
+	Id      = "FoodId",   -- exact template key, e.g. Pumpkin1
+	Type    = "FoodType", -- broad group/category, e.g. Fruit
+	XP      = "XP",
 }
 
 State.TreeClicker = {

@@ -1,78 +1,68 @@
 -- Shared timed-growth FeedMachine implementation.
 --
--- Each BaseFood slot in the model grows independently along a chain of
--- food ids, accumulating XP at GrowRate per second. MaxXP attributes on
--- the food templates are *cumulative* milestones — Food1=5, Food2=10,
--- Food3=15, … — so the slot's XP just keeps counting up and the stage
--- advances each time it crosses the next threshold. XP is never reset on
--- evolution; harvest gives a Tool whose XP equals the slot's accumulated
--- value. The slot caps at the terminal stage's final threshold.
---
--- A client-local per-slot prompt lets the player harvest at any growth
--- stage; the server dispenses a Tool whose XP equals the slot's accumulated XP for
--- the current stage. Harvesting empties the slot for HARVEST_RESPAWN_DELAY
--- seconds, then it materializes fresh first-stage food and starts growing again.
+-- Patch templates produce one exact FoodDrop food id. Each BaseFood slot
+-- earns the patch's XP value every GrowRate seconds and harvest grants the
+-- accumulated XP on the produced food tool. Harvesting empties the slot for a
+-- short respawn delay, then the same food starts accumulating from zero again.
 --
 -- Picking the *machine* up via the F prompt (handled in init.server.luau)
 -- collects every slot's current food into the player's backpack via
 -- Patches.PrePickup, then destroys the machine.
 --
 -- Tunable attribute on the model:
---   GrowRate (number, default 1)  xp per second per slot
---
--- Per-stage MaxXP is read from each food template's MaxXP attribute.
--- Chain/timing/scale tuning comes from per-feed balance modules.
+--   FoodDrop (string, required) exact food id produced by each slot
+--   XP       (number, default 1) XP gained per growth interval
+--   GrowRate (number, default 1) seconds per growth interval
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
-local PatchBalance = script.Parent:WaitForChild("Patch")
-local PumpkinPatchBalance = require(PatchBalance:WaitForChild("PumpkinPatchBalance"))
-
 local Patches = {}
 
-local BALANCES = {
-	[PumpkinPatchBalance.FeedType] = PumpkinPatchBalance,
-}
+local DEFAULT_XP = 1
+local DEFAULT_GROW_RATE = 1
+local HARVEST_RESPAWN_DELAY = 3
+local OFFLINE_GROW_FRACTION = 0.001
+local SCALE_MIN = 0.3
+local SCALE_MAX = 2
+local SCALE_MAX_BASE_XP_MULTIPLIER = 200
 
--- Offline progress runs at this fraction of the online rate. With the
--- default GrowRate=1 xp/sec, 0.001 means a slot earns ~1 xp per 1000s
--- (~17 min) while the player is away — roughly 14 hours offline to fully
--- evolve a slot. Tunable in one place; not on the machine attribute since
--- it's an economy-wide knob per feed type, not per-instance.
+-- Offline progress runs at this fraction of the online rate. With default
+-- XP=1 and GrowRate=1, 0.001 means a slot earns ~1 xp per 1000s (~17 min)
+-- while the player is away. Tunable in one place; not on the machine
+-- attribute since it's an economy-wide knob for patch machines.
 
--- Per-stage scale: every freshly-spawned slot food starts at SCALE_MIN
--- and grows linearly to SCALE_MAX as its xp climbs from the previous
--- stage's threshold to the current stage's threshold. Resets each
--- evolution. Only applies to Model templates (Model:ScaleTo).
+-- Every freshly-spawned slot food starts at SCALE_MIN and grows linearly to
+-- SCALE_MAX as its XP climbs from the patch's XP to patchXP * 200. Only
+-- applies to Model templates (Model:ScaleTo).
 
 -- [machine] = {
---   owner, plot, balance, lastTick,
---   slots = { [i] = { stage, xp, anchor, foodPart } },
---   conns = {},
+--   owner, plot, foodId, patchXP, lastTick,
+--   slots = { [i] = { xp, growthElapsed, anchor, foodPart, respawnAt } },
 -- }
 local state = {}
 
-local function feedTypeOf(machine)
-	local feedType = machine:GetAttribute(State.Feed.Type)
-	if type(feedType) == "string" and feedType ~= "" then
-		return feedType
+local function foodDropFor(machine)
+	local foodId = machine:GetAttribute(State.Feed.FoodDrop)
+	if type(foodId) ~= "string" or foodId == "" then
+		warn(string.format("[Patches] missing %s attribute on %s", State.Feed.FoodDrop, machine:GetFullName()))
+		return nil
 	end
-	return nil
+	if not Food.GetTemplate(foodId) then
+		warn(string.format("[Patches] unknown %s %q on %s", State.Feed.FoodDrop, foodId, machine:GetFullName()))
+		return nil
+	end
+	return foodId
 end
 
-local function balanceFor(machine)
-	local feedType = feedTypeOf(machine)
-	return feedType and BALANCES[feedType] or nil
-end
-
-local function maxXPFor(balance, stageIndex)
-	local foodId = balance.Chain[stageIndex]
-	if not foodId then return math.huge end
-	local t = Food.GetTemplate(foodId)
-	return t and (t:GetAttribute("MaxXP") or 5) or 5
+local function patchXPFor(machine)
+	local patchXP = machine:GetAttribute(State.Feed.XP)
+	if type(patchXP) ~= "number" or patchXP <= 0 then
+		return DEFAULT_XP
+	end
+	return patchXP
 end
 
 local function configureSlotPart(part)
@@ -97,14 +87,14 @@ local function slotAlignedCFrame(slot, visual)
 	end
 end
 
-local function spawnFoodAtSlot(slot, stageIndex)
-	local foodId = slot.balance.Chain[stageIndex]
+local function spawnFoodAtSlot(slot)
+	local foodId = slot.foodId
 	local template = Food.GetTemplate(foodId)
 	if not template then return nil end
 	local clone = template:Clone()
 	clone:SetAttribute(State.Food.Id, foodId)
 	clone:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
-	clone:SetAttribute("XP", slot.xp or 0)
+	clone:SetAttribute(State.Food.XP, slot.xp or 0)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
 		clone.CFrame = slotAlignedCFrame(slot, clone)
@@ -118,29 +108,18 @@ local function spawnFoodAtSlot(slot, stageIndex)
 	return clone
 end
 
--- Returns the slot's normalized progress (0..1) within its current stage.
--- xp is cumulative, so we lerp between the previous stage's threshold and
--- the current stage's threshold.
-local function stageProgress(slot)
-	local prev = slot.stage > 1 and maxXPFor(slot.balance, slot.stage - 1) or 0
-	local curr = maxXPFor(slot.balance, slot.stage)
-	local range = curr - prev
+local function scaleProgress(slot)
+	local minXP = slot.patchXP
+	local maxXP = slot.patchXP * SCALE_MAX_BASE_XP_MULTIPLIER
+	local range = maxXP - minXP
 	if range <= 0 then return 1 end
-	return math.clamp((slot.xp - prev) / range, 0, 1)
+	return math.clamp((slot.xp - minXP) / range, 0, 1)
 end
 
 local function applySlotScale(slot)
 	if not slot.foodPart or not slot.foodPart:IsA("Model") then return end
-	local scale = slot.balance.ScaleMin + (slot.balance.ScaleMax - slot.balance.ScaleMin) * stageProgress(slot)
+	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * scaleProgress(slot)
 	slot.foodPart:ScaleTo(scale)
-end
-
-local function setSlotStage(slot, stageIndex, xp)
-	if slot.foodPart then slot.foodPart:Destroy() end
-	slot.stage    = stageIndex
-	slot.xp       = xp or 0
-	slot.foodPart = spawnFoodAtSlot(slot, stageIndex)
-	applySlotScale(slot)
 end
 
 local function refreshSlotXP(slot)
@@ -152,36 +131,33 @@ end
 
 local function materializeRespawn(slot)
 	slot.respawnAt = nil
-	slot.stage     = 1
 	slot.xp        = 0
-	slot.foodPart  = spawnFoodAtSlot(slot, 1)
+	slot.growthElapsed = 0
+	slot.foodPart  = spawnFoodAtSlot(slot)
 	applySlotScale(slot)
 end
 
 local function applyGrowth(machine, s, seconds)
 	if seconds <= 0 then return end
-	local growRate = machine:GetAttribute("GrowRate") or s.balance.DefaultGrowRate
+	local growRate = machine:GetAttribute(State.Feed.GrowRate)
+	if type(growRate) ~= "number" or growRate <= 0 then
+		growRate = DEFAULT_GROW_RATE
+	end
+	local xpPerInterval = s.patchXP
 	local now      = os.time()
 	for _, slot in ipairs(s.slots) do
 		if slot.respawnAt then
-			-- Slot is empty post-harvest. Materialize chain[1] once the
+			-- Slot is empty post-harvest. Materialize food once the
 			-- delay has elapsed; growth starts on the next tick.
 			if now >= slot.respawnAt then materializeRespawn(slot) end
 		else
-			-- Terminal stage still ticks xp toward its own cap (e.g. Food10
-			-- climbs from 45 to 50), so keep growing regardless of stage.
-			slot.xp += seconds * growRate
-			-- Cumulative thresholds: advance while xp has crossed the
-			-- current stage's MaxXP. Don't subtract — xp is the running
-			-- total across stages.
-			while slot.stage < #s.balance.Chain and slot.xp >= maxXPFor(s.balance, slot.stage) do
-				setSlotStage(slot, slot.stage + 1, slot.xp)
+			slot.growthElapsed = (slot.growthElapsed or 0) + seconds
+			local intervals = math.floor(slot.growthElapsed / growRate)
+			if intervals > 0 then
+				slot.growthElapsed -= intervals * growRate
+				slot.xp += intervals * xpPerInterval
+				refreshSlotXP(slot)
 			end
-			if slot.stage == #s.balance.Chain then
-				local cap = maxXPFor(s.balance, slot.stage)
-				if slot.xp > cap then slot.xp = cap end
-			end
-			refreshSlotXP(slot)
 		end
 	end
 end
@@ -202,7 +178,7 @@ end)
 local function scaleToolToSlot(tool, slot)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
 	-- handle + welded sub-parts scale together.
-	local scale = slot.balance.ScaleMin + (slot.balance.ScaleMax - slot.balance.ScaleMin) * stageProgress(slot)
+	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * scaleProgress(slot)
 	tool:ScaleTo(scale)
 end
 
@@ -211,7 +187,7 @@ local function harvest(machine, s, slotIndex, player)
 	if player:GetAttribute("EditMode") == true then return end
 	local slot = s.slots[slotIndex]
 	if not slot or slot.respawnAt then return end  -- empty during respawn delay
-	local foodId = slot.balance.Chain[slot.stage]
+	local foodId = s.foodId
 	if not foodId then return end
 	local tool = Food.MakeTool(foodId, slot.xp)
 	if not tool then return end
@@ -221,9 +197,9 @@ local function harvest(machine, s, slotIndex, player)
 	-- Empty the slot, start respawn timer; materializeRespawn restores it.
 	if slot.foodPart then slot.foodPart:Destroy() end
 	slot.foodPart  = nil
-	slot.stage     = 1
 	slot.xp        = 0
-	slot.respawnAt = os.time() + s.balance.HarvestRespawnDelay
+	slot.growthElapsed = 0
+	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
 end
 
 -- Anchor the slot at the BaseFood's bottom face so the food clone grows from
@@ -243,17 +219,23 @@ local function makeSlotAnchor(machine, baseFoodPart)
 end
 
 function Patches.Setup(machine, plot, owner)
-	local balance = balanceFor(machine)
-	if not balance then
-		warn(string.format("[Patches] unknown %s %q", State.Feed.Type, tostring(feedTypeOf(machine))))
+	if not machine:IsA("Model") then
+		warn(string.format("[Patches] expected Model, got %s", machine.ClassName))
 		return
 	end
-	if not machine:IsA("Model") then
-		warn(string.format("[%s] expected Model, got %s", balance.WarnPrefix, machine.ClassName))
+	local foodId = foodDropFor(machine)
+	if not foodId then
 		return
 	end
 
-	local s = { owner = owner, plot = plot, balance = balance, slots = {}, lastTick = os.time(), conns = {} }
+	local s = {
+		owner = owner,
+		plot = plot,
+		foodId = foodId,
+		patchXP = patchXPFor(machine),
+		slots = {},
+		lastTick = os.time(),
+	}
 	state[machine] = s
 
 	for _, child in ipairs(machine:GetChildren()) do
@@ -261,8 +243,16 @@ function Patches.Setup(machine, plot, owner)
 			local anchor = makeSlotAnchor(machine, child)
 			child:Destroy()
 
-			local slot = { balance = s.balance, stage = 1, xp = 0, anchor = anchor, foodPart = nil, respawnAt = nil }
-			slot.foodPart = spawnFoodAtSlot(slot, 1)
+			local slot = {
+				foodId = s.foodId,
+				patchXP = s.patchXP,
+				xp = 0,
+				growthElapsed = 0,
+				anchor = anchor,
+				foodPart = nil,
+				respawnAt = nil,
+			}
+			slot.foodPart = spawnFoodAtSlot(slot)
 			applySlotScale(slot)
 			table.insert(s.slots, slot)
 		end
@@ -270,9 +260,6 @@ function Patches.Setup(machine, plot, owner)
 end
 
 function Patches.Teardown(machine)
-	local s = state[machine]
-	if not s then return end
-	for _, c in ipairs(s.conns) do c:Disconnect() end
 	state[machine] = nil
 end
 
@@ -281,7 +268,11 @@ function Patches.Serialize(machine)
 	if not s then return nil end
 	local slots = table.create(#s.slots)
 	for _, slot in ipairs(s.slots) do
-		slots[#slots+1] = { stage = slot.stage, xp = slot.xp, respawnAt = slot.respawnAt }
+		slots[#slots+1] = {
+			xp = slot.xp,
+			growthElapsed = slot.growthElapsed,
+			respawnAt = slot.respawnAt,
+		}
 	end
 	return { slots = slots, lastTick = s.lastTick }
 end
@@ -300,13 +291,17 @@ function Patches.Apply(machine, placement)
 				-- Still in the post-harvest delay; keep slot empty.
 				if slot.foodPart then slot.foodPart:Destroy() end
 				slot.foodPart  = nil
-				slot.stage     = 1
 				slot.xp        = 0
+				slot.growthElapsed = 0
 				slot.respawnAt = respawnAt
 			else
-				local stage = math.clamp(savedSlot.stage or 1, 1, #s.balance.Chain)
-				local xp    = math.max(savedSlot.xp or 0, 0)
-				setSlotStage(slot, stage, xp)
+				local xp = math.max(tonumber(savedSlot.xp) or 0, 0)
+				slot.respawnAt = nil
+				slot.xp = xp
+				slot.growthElapsed = math.max(tonumber(savedSlot.growthElapsed) or 0, 0)
+				if not slot.foodPart then
+					slot.foodPart = spawnFoodAtSlot(slot)
+				end
 				refreshSlotXP(slot)
 			end
 		end
@@ -315,9 +310,9 @@ function Patches.Apply(machine, placement)
 	local lastTick = tonumber(placement.lastTick) or now
 	local elapsed  = now - lastTick
 	-- Offline credit runs at OFFLINE_GROW_FRACTION of the online rate.
-	-- applyGrowth treats `seconds` as multiplier on growRate, so scaling
-	-- here is equivalent to scaling growRate for this single call.
-	applyGrowth(machine, s, elapsed * s.balance.OfflineGrowFraction)
+-- applyGrowth receives effective online seconds, so scaling here is
+-- equivalent to scaling the amount of interval progress for this single call.
+	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
 	s.lastTick = os.time()
 end
 
@@ -330,7 +325,7 @@ function Patches.PrePickup(machine, player)
 	for _, slot in ipairs(s.slots) do
 		-- Slots in the respawn delay are empty; nothing to give back.
 		if not slot.respawnAt then
-			local foodId = slot.balance.Chain[slot.stage]
+			local foodId = s.foodId
 			if foodId then
 				local tool = Food.MakeTool(foodId, slot.xp)
 				if tool then

@@ -7,12 +7,13 @@
 --   neither                                → prompt disabled
 --
 -- Each item processes for ProcessDuration wall-clock seconds (so progress
--- accrues offline). Dispensed Tools have XP boosted by XPMultiplier.
+-- accrues offline). Dispensed Tools have XP boosted by the machine's XP
+-- attribute.
 --
 -- Tunable attributes on the template (see Shared.State.Feed):
 --   FoodType         (string,  default "Fruit")     accepted food group; "Any" accepts all food
 --   ProcessDuration  (number,  default 30 seconds)  per item
---   XPMultiplier     (number,  default 2)           applied to dispensed XP
+--   XP               (number,  default 2)           multiplier applied to dispensed XP
 --   MaxQueue         (number,  default 5)
 --
 -- Persistence: the queue (foodId + depositedAt as os.time() Unix seconds)
@@ -73,7 +74,7 @@ end)
 local function dispenseAllReady(machine, s, player)
 	local now      = os.time()
 	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
-	local mult     = machine:GetAttribute(State.Feed.XPMultiplier) or 2
+	local mult     = machine:GetAttribute(State.Feed.XP) or 2
 
 	local i = 1
 	while i <= #s.queue do
@@ -84,7 +85,6 @@ local function dispenseAllReady(machine, s, player)
 			local boostXP = Food.BaseXP(foodId) * mult
 			local tool    = Food.MakeTool(foodId, boostXP)
 			if tool then
-				tool:SetAttribute("XPMultiplier", mult)
 				tool.Parent = player.Backpack
 			end
 		else

@@ -70,7 +70,7 @@ Do not migrate `ReplicatedStorage.UI` into Rojo. `src/client/ui` is controller a
 Current Studio asset shape observed through MCP:
 
 - `ReplicatedStorage.PetModels` contains the active pet progression templates, keyed by `PetID` and ordered by `Order`; a previous Workspace duplicate cleanup is documented under `asset-backups/`.
-- `ReplicatedStorage.FeedMachines` contains `Clicker1`, `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
+- `ReplicatedStorage.FeedMachines` contains `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
 - `ReplicatedStorage.Food` contains recursive food template folders. Food identity is `FoodId`; broad matching uses `FoodType`.
 - `ReplicatedStorage.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.
 - The inspected place currently has `Workspace.Plots.Plot1` with a starter cell and many `GridAreas`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
@@ -147,23 +147,21 @@ Stable gameplay identity is `FeedType`. Broad behavior is `FeedClass`. Template/
 
 Interaction paths differ by class:
 
-- Clicker: server-created `ClickDetector`, not `PromptInteract`.
 - Processor: local prompt -> `PromptInteract` -> server deposit logic.
 - Patch: local prompt action for harvest.
 - Tree: server click behavior plus local prompt for ground pickup.
 
 Current class behavior:
 
-- Clicker templates spawn floor food tools on owner click, with server cooldown and max unpicked food caps.
 - Processor templates accept equipped food by `FoodType`, process queue entries by wall-clock `depositedAt`, persist queues, and block pickup while queued items remain.
-- Patch templates use slot anchors, cumulative XP growth chains, offline growth fractions, per-slot harvest respawn, and `PrePickup` grants current slot food back to the player.
+- Patch templates use slot anchors, a `FoodDrop` exact food id, template `XP` gained every `GrowRate` seconds, uncapped XP growth with a shared offline fraction, per-slot harvest respawn, and `PrePickup` grants current slot food back to the player.
 - Tree templates use server click validation and per-slot ground piles. Clients render tree shake, falling-food visuals, respawn polish, and ground XP billboards from replicated attributes/remotes.
 
-Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. `PumpkinPatch` has an explicit patch balance module. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
+Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. Patches use generic server defaults plus Studio template attributes such as `FoodDrop`, `XP`, and `GrowRate`. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
-Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` was removed from starter defaults because latest MCP inspection found no matching template. `PlayerDataService` treats `StarfruitTree` as a deprecated feed type and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Clicker1`, `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
+Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` and legacy `Clicker1` were removed from active defaults/templates. `PlayerDataService` treats those feed types as deprecated and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
 
-When touching feeds, foods, roll odds, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance chains, Studio template attributes, and `docs/publish-checklist.md`.
+When touching feeds, foods, roll odds, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance modules, Studio template attributes, and `docs/publish-checklist.md`.
 
 ## Client Architecture
 
@@ -203,7 +201,7 @@ Important shared modules:
 - `Balance`: pet visual scaling only.
 - `ProfileStore.luau`: vendored dependency. Do not edit except for intentional library upgrades.
 
-Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, food `MaxXP`, cosmetic feed rarity, `RollChanceN`, and roll `Price` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
+Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, feed-machine `XP`, patch `FoodDrop`, patch `GrowRate`, cosmetic feed rarity, `RollChanceN`, and roll `Price` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
 
 `FoodId` is the stable exact food template key. `FoodType` is the broad category used by processors and old-tool compatibility. Food templates may be nested recursively under `ReplicatedStorage.Food`.
 
