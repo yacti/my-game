@@ -13,6 +13,8 @@ local PlotGridService = {}
 local DEFAULT_PURCHASE_DISTANCE = 14
 local POINT_EPSILON = 0.001
 local RUNTIME_FLOOR_NAME = "Floor"
+-- Testing shortcut: set false to restore normal purchased plot expansion.
+local UNLOCK_ALL_GRID_CELLS_BY_DEFAULT = true
 
 local indexesByPlot = setmetatable({}, { __mode = "k" })
 local statesByPlot = setmetatable({}, { __mode = "k" })
@@ -119,6 +121,19 @@ end
 
 local function isUnlocked(unlockedKeys, cell)
 	return cell ~= nil and (cell.starter == true or unlockedKeys[cell.coordKey] == true)
+end
+
+local function defaultUnlockSet(index)
+	local unlockedKeys = {}
+	for _, key in ipairs(index.starterKeys) do
+		unlockedKeys[key] = true
+	end
+	if UNLOCK_ALL_GRID_CELLS_BY_DEFAULT then
+		for _, cell in ipairs(index.unlockableCells) do
+			unlockedKeys[cell.coordKey] = true
+		end
+	end
+	return unlockedKeys
 end
 
 local function positionOf(instance)
@@ -240,13 +255,9 @@ local function stateForPlot(plot)
 	local index = PlotGridService.BuildIndex(plot)
 	if not index then return nil end
 
-	local unlockedKeys = {}
-	for _, key in ipairs(index.starterKeys) do
-		unlockedKeys[key] = true
-	end
 	state = {
 		index = index,
-		unlockedKeys = unlockedKeys,
+		unlockedKeys = defaultUnlockSet(index),
 	}
 	statesByPlot[plot] = state
 	return state
@@ -326,9 +337,9 @@ local function applyCellVisibility(index, unlockedKeys)
 end
 
 local function profileUnlockSet(index, profile)
-	local unlockedKeys = {}
-	for _, key in ipairs(index.starterKeys) do
-		unlockedKeys[key] = true
+	local unlockedKeys = defaultUnlockSet(index)
+	if UNLOCK_ALL_GRID_CELLS_BY_DEFAULT then
+		return unlockedKeys
 	end
 
 	local savedKeys = PlotGrid.SanitizeUnlockedKeys(profile and profile.Data and profile.Data.UnlockedGridKeys)
@@ -388,15 +399,11 @@ function PlotGridService.ResetPlotState(plot)
 	local index = PlotGridService.BuildIndex(plot)
 	if not index then return false, "no-index" end
 
-	local unlockedKeys = {}
-	for _, key in ipairs(index.starterKeys) do
-		unlockedKeys[key] = true
-	end
 	statesByPlot[plot] = {
 		index = index,
-		unlockedKeys = unlockedKeys,
+		unlockedKeys = defaultUnlockSet(index),
 	}
-	applyCellVisibility(index, unlockedKeys)
+	applyCellVisibility(index, statesByPlot[plot].unlockedKeys)
 	return true
 end
 
