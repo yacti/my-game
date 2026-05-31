@@ -12,7 +12,6 @@ local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local BOX_CORNER_SIGNS = { -1, 1 }
-local VACANT_PLOT_NAME = "VacantPlot"
 local ROLL_AREA_NAME = "RollArea"
 
 local ROLL_AREA_VISIBILITY_OPTIONS = {
@@ -30,33 +29,6 @@ local ROLL_AREA_VISIBILITY_OPTIONS = {
 	end,
 }
 
-local function isInVacantPlot(instance, vacantPlot)
-	return vacantPlot ~= nil and (instance == vacantPlot or instance:IsDescendantOf(vacantPlot))
-end
-
-local function isGridPresentationDescendant(plot, instance)
-	local current = instance
-	while current and current ~= plot do
-		if current.Parent == plot
-			and (current.Name == "StarterArea" or current.Name == "GridAreas") then
-			return true
-		end
-		current = current.Parent
-	end
-	return false
-end
-
-local function isRollAreaDescendant(plot, instance)
-	local current = instance
-	while current and current ~= plot do
-		if current.Name == ROLL_AREA_NAME then
-			return true
-		end
-		current = current.Parent
-	end
-	return false
-end
-
 local function restoreRollAreaPresentation(plot)
 	local rollArea = plot and plot:FindFirstChild(ROLL_AREA_NAME)
 	if not rollArea then
@@ -68,23 +40,13 @@ local function restoreRollAreaPresentation(plot)
 end
 
 local function setPlotVacantPresentation(plot, vacant)
-	local vacantPlot = plot and plot:FindFirstChild(VACANT_PLOT_NAME)
 	if not plot then return end
+	local rollArea = plot:FindFirstChild(ROLL_AREA_NAME)
+	if not rollArea then return end
 
-	for _, descendant in ipairs(plot:GetDescendants()) do
-		if descendant ~= vacantPlot then
-			if not vacant and isRollAreaDescendant(plot, descendant) then
-				InstanceVisibility.SetActive(descendant, true)
-			elseif isInVacantPlot(descendant, vacantPlot) then
-				InstanceVisibility.SetActive(descendant, vacant)
-			elseif vacant then
-				InstanceVisibility.SetActive(descendant, false)
-			elseif not isGridPresentationDescendant(plot, descendant) then
-				InstanceVisibility.SetActive(descendant, true)
-			end
-		end
-	end
-	if not vacant then
+	if vacant then
+		InstanceVisibility.SetTreeActive(rollArea, false, ROLL_AREA_VISIBILITY_OPTIONS)
+	else
 		restoreRollAreaPresentation(plot)
 	end
 end

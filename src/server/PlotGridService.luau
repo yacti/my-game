@@ -14,6 +14,7 @@ local DEFAULT_PURCHASE_DISTANCE = 14
 local POINT_EPSILON = 0.001
 local RUNTIME_FLOOR_NAME = "Floor"
 local UNLOCK_ALL_GRID_CELLS_BY_DEFAULT = false
+local VACANT_UNLOCKED_ROW_COUNT = 3
 
 local indexesByPlot = setmetatable({}, { __mode = "k" })
 local statesByPlot = setmetatable({}, { __mode = "k" })
@@ -131,6 +132,30 @@ local function defaultUnlockSet(index)
 		for _, cell in ipairs(index.unlockableCells) do
 			unlockedKeys[cell.coordKey] = true
 		end
+	end
+	return unlockedKeys
+end
+
+local function vacantUnlockSet(index)
+	local unlockedKeys = defaultUnlockSet(index)
+	local rowsSeen = {}
+	local rowCount = 0
+	local cells = table.clone(index.cells)
+	table.sort(cells, function(a, b)
+		if a.z ~= b.z then return a.z < b.z end
+		if a.x ~= b.x then return a.x < b.x end
+		return a.coordKey < b.coordKey
+	end)
+
+	for _, cell in ipairs(cells) do
+		if rowsSeen[cell.z] ~= true then
+			rowCount += 1
+			rowsSeen[cell.z] = true
+		end
+		if rowCount > VACANT_UNLOCKED_ROW_COUNT then
+			break
+		end
+		unlockedKeys[cell.coordKey] = true
 	end
 	return unlockedKeys
 end
@@ -406,7 +431,20 @@ function PlotGridService.ResetPlotState(plot)
 	return true
 end
 
-function PlotGridService.ResetVacantPlotsToStarter(plots, plotOwners)
+function PlotGridService.ResetVacantPlotState(plot)
+	indexesByPlot[plot] = nil
+	local index = PlotGridService.BuildIndex(plot)
+	if not index then return false, "no-index" end
+
+	statesByPlot[plot] = {
+		index = index,
+		unlockedKeys = vacantUnlockSet(index),
+	}
+	applyCellVisibility(index, statesByPlot[plot].unlockedKeys)
+	return true
+end
+
+function PlotGridService.ResetVacantPlotsToPreviewRows(plots, plotOwners)
 	if not plots then
 		plots = {}
 		local plotsFolder = Workspace:FindFirstChild("Plots")
@@ -426,7 +464,7 @@ function PlotGridService.ResetVacantPlotsToStarter(plots, plotOwners)
 	end
 	for indexNumber, plot in ipairs(plots or {}) do
 		if not plotOwners or not plotOwners[indexNumber] then
-			PlotGridService.ResetPlotState(plot)
+			PlotGridService.ResetVacantPlotState(plot)
 		end
 	end
 end

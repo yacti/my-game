@@ -102,7 +102,7 @@ Startup order is:
 
 1. `Remotes.validateAll()`
 2. `AssetValidator.validate()`
-3. `PlotGridService.ResetVacantPlotsToStarter()`
+3. `PlotGridService.ResetVacantPlotsToPreviewRows()`
 4. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
 5. player lifecycle wiring
 6. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`

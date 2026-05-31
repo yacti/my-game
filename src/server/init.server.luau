@@ -41,7 +41,7 @@ local PET_FEED_PROMPT_DISTANCE = 8
 local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 
-PlotGridService.ResetVacantPlotsToStarter()
+PlotGridService.ResetVacantPlotsToPreviewRows()
 PlotService.SyncVacantPlotVisibility()
 
 RebirthService.Start()
@@ -526,7 +526,7 @@ Players.PlayerAdded:Connect(function(player)
 	local profile = PlayerDataService.LoadPlayerAsync(player)
 	if not profile then
 		player:SetAttribute(State.Player.AssignedPlotName, nil)
-		PlotGridService.ResetPlotState(plot)
+		PlotGridService.ResetVacantPlotState(plot)
 		PlotService.FreePlot(player)
 		return
 	end
@@ -608,7 +608,7 @@ Players.PlayerRemoving:Connect(function(player)
 		-- FeedMachines registry relies on to tear down per-class state
 		-- (and to despawn any food the machine spawned on the floor).
 		PlotService.DestroyFeeds(plot)
-		PlotGridService.ResetPlotState(plot)
+		PlotGridService.ResetVacantPlotState(plot)
 		PlotService.FreePlot(player)
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, nil)
