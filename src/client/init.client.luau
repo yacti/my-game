@@ -4,6 +4,7 @@ StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 
 local ui = script:WaitForChild("ui")
 
+require(ui:WaitForChild("LocalPrompts")).start()
 require(ui:WaitForChild("HudController")).start()
 require(ui:WaitForChild("RollLuckController")).start()
 require(ui:WaitForChild("RollDropAreaController")).start()
@@ -21,4 +22,3 @@ require(ui:WaitForChild("FeedPlacement")).start()
 require(ui:WaitForChild("RebirthController")).start()
 require(ui:WaitForChild("GridUnlockEffects")).start()
 require(ui:WaitForChild("RollController")).start()
-require(ui:WaitForChild("LocalPrompts")).start()

@@ -14,6 +14,7 @@ local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
+local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
@@ -382,17 +383,15 @@ function FeedPlacement.start()
 		setConfirmEnabled(false)
 	end
 
-	-- The player's plot Floor — used to snap the preview in floor-local
-	-- axes so the grid + rotation align with a rotated plot rather than
-	-- world axes. RespawnLocation is set server-side to the plot's
-	-- SpawnLocation, so its parent is the plot.
+	-- The player's plot Floor is used to snap the preview in plot-local axes,
+	-- so the grid and rotation align with rotated plots.
 	local function getPlayerFloor()
-		local plot = player.RespawnLocation and player.RespawnLocation.Parent
+		local plot = PlotResolver.ResolveForPlayer(player)
 		return plot and plot:FindFirstChild("Floor") or nil
 	end
 
 	local function getPlayerPlot()
-		return player.RespawnLocation and player.RespawnLocation.Parent or nil
+		return PlotResolver.ResolveForPlayer(player)
 	end
 
 	placementGrid = PlacementGrid.new(getPlayerFloor)

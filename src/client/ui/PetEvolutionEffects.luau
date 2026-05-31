@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State = require(Shared:WaitForChild("State"))
 local PetModels = ReplicatedStorage:WaitForChild("PetModels")
+local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PetEvolutionEffects = {}
 
@@ -44,10 +45,7 @@ local cameraBaseFov = nil
 local cameraZoomTween = nil
 
 local function assignedPlot()
-	local plotName = player:GetAttribute(State.Player.AssignedPlotName)
-	if type(plotName) ~= "string" or plotName == "" then return nil end
-	local plots = Workspace:FindFirstChild("Plots")
-	return (plots and plots:FindFirstChild(plotName)) or Workspace:FindFirstChild(plotName)
+	return PlotResolver.ResolveForPlayer(player)
 end
 
 local function isOwnPet(pet)
@@ -440,11 +438,13 @@ end
 
 function PetEvolutionEffects.start()
 	watchWorkspace()
-	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function()
+	local function replayOwnedPets()
 		for pet in pairs(watchedPets) do
 			if pet.Parent then playForPet(pet) end
 		end
-	end)
+	end
+	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(replayOwnedPets)
+	player:GetPropertyChangedSignal("RespawnLocation"):Connect(replayOwnedPets)
 end
 
 return PetEvolutionEffects

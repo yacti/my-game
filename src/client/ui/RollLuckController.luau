@@ -1,11 +1,10 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
-local State = require(Shared:WaitForChild("State"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
+local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local RollLuckController = {}
 
@@ -26,17 +25,8 @@ local function findDescendant(root, name, className)
 	return nil
 end
 
-local function findPlotByName(plotName)
-	if type(plotName) ~= "string" or plotName == "" then
-		return nil
-	end
-	local plotsFolder = Workspace:FindFirstChild("Plots")
-	local plot = plotsFolder and plotsFolder:FindFirstChild(plotName) or nil
-	return plot or Workspace:FindFirstChild(plotName)
-end
-
 local function getAssignedPlot(player)
-	return findPlotByName(player:GetAttribute(State.Player.AssignedPlotName))
+	return PlotResolver.ResolveForPlayer(player)
 end
 
 local function rollButtonForPlot(plot)

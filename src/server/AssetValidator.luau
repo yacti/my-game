@@ -628,6 +628,18 @@ end
 local function validatePlots(errors)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
+	local rootPlots = {}
+
+	for _, instance in ipairs(Workspace:GetChildren()) do
+		if instance.Name:match("^Plot%d+$") then
+			rootPlots[#rootPlots + 1] = instance
+		end
+	end
+
+	if plotsFolder and not plotsFolder:IsA("Folder") then
+		add(errors, string.format("%s is %s, expected Folder", plotsFolder:GetFullName(), plotsFolder.ClassName))
+		plotsFolder = nil
+	end
 
 	local function validateGridPart(plot, floor, part, folderName, seenCoords)
 		if not part:IsA("BasePart") then
@@ -742,16 +754,33 @@ local function validatePlots(errors)
 		end
 	end
 
-	if plotsFolder then
-		for _, plot in ipairs(plotsFolder:GetChildren()) do
+	local function validatePlotList(plots, sourceName)
+		local seenNames = {}
+		for _, plot in ipairs(plots) do
+			if not plot:IsA("Model") then
+				add(errors, string.format("%s is %s, expected Model plot", plot:GetFullName(), plot.ClassName))
+				continue
+			end
+			if not plot.Name:match("^Plot%d+$") then
+				add(errors, string.format("%s has invalid plot name; expected Plot<number>", plot:GetFullName()))
+			end
+			local previous = seenNames[plot.Name]
+			if previous then
+				add(errors, string.format("Duplicate plot name %s in %s: %s and %s", plot.Name, sourceName, previous:GetFullName(), plot:GetFullName()))
+			else
+				seenNames[plot.Name] = plot
+			end
 			validatePlot(plot)
 		end
-	else
-		for _, instance in ipairs(Workspace:GetChildren()) do
-			if instance.Name:match("^Plot%d") then
-				validatePlot(instance)
-			end
+	end
+
+	if plotsFolder then
+		if #rootPlots > 0 then
+			add(errors, "Found both Workspace.Plots and root Workspace.Plot# models; use one plot layout so client plot resolution is unambiguous")
 		end
+		validatePlotList(plotsFolder:GetChildren(), "Workspace.Plots")
+	else
+		validatePlotList(rootPlots, "Workspace")
 	end
 
 	if not foundPlot then

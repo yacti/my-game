@@ -13,8 +13,7 @@ local PlotGridService = {}
 local DEFAULT_PURCHASE_DISTANCE = 14
 local POINT_EPSILON = 0.001
 local RUNTIME_FLOOR_NAME = "Floor"
--- Testing shortcut: set false to restore normal purchased plot expansion.
-local UNLOCK_ALL_GRID_CELLS_BY_DEFAULT = true
+local UNLOCK_ALL_GRID_CELLS_BY_DEFAULT = false
 
 local indexesByPlot = setmetatable({}, { __mode = "k" })
 local statesByPlot = setmetatable({}, { __mode = "k" })

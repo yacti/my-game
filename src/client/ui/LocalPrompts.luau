@@ -16,6 +16,7 @@ local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
+local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
 
@@ -43,20 +44,8 @@ local function isLocalPromptAttachment(instance)
 	return instance:IsA("Attachment") and instance.Name:sub(1, #PROMPT_ATTACHMENT_PREFIX) == PROMPT_ATTACHMENT_PREFIX
 end
 
-local function findPlotByName(plotName)
-	if type(plotName) ~= "string" or plotName == "" then return nil end
-	local plotsFolder = Workspace:FindFirstChild("Plots")
-	local plot = plotsFolder and plotsFolder:FindFirstChild(plotName) or nil
-	return plot or Workspace:FindFirstChild(plotName)
-end
-
 local function getPlot()
-	local assignedPlotName = player:GetAttribute(State.Player.AssignedPlotName)
-	local assignedPlot = findPlotByName(assignedPlotName)
-	if assignedPlot then return assignedPlot end
-
-	local spawnLocation = player.RespawnLocation
-	return spawnLocation and spawnLocation.Parent or nil
+	return PlotResolver.ResolveForPlayer(player)
 end
 
 local function isInOwnPlot(instance)
