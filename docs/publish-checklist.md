@@ -11,7 +11,8 @@ Run this checklist before publishing a live build.
 - `ReplicatedStorage.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
   `PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, `FeedMachineTool`,
-  `SeedTool`, `EditTool`, `Seeds`, and `Misc.Sapling`.
+  `SeedTool`, `EditTool`, `Seeds`, `Misc.Sapling`, `Misc.Brick`, and
+  `VFX.RarityParticle`.
 - Risky Studio/MCP asset edits have a matching `.rbxm` or `.rbxmx` checkpoint
   under `asset-backups/`.
 
@@ -40,8 +41,12 @@ Run this checklist before publishing a live build.
 - Confirm no duplicate feed type warnings.
 - Confirm seed roll templates have valid `FeedType`, `GrowTime`, `RollChanceN`,
   `Price`, and display `Rarity` attributes.
+- Confirm Misc roll templates with `MiscID` have valid `RollChanceN`, `Price`,
+  and display `Rarity` attributes.
 - Confirm feed-machine templates do not duplicate seed-owned `GrowTime`,
   `RollChanceN`, `Price`, or `Rarity` attributes.
 - Confirm any missing `ReplicatedStorage.UI` warnings are intentional; missing UI
   should skip the affected UI path and should never create fallback UI.
+- Confirm `ReplicatedStorage.UI.RollBillboardGUI` has `Seed` and `Misc`
+  billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.

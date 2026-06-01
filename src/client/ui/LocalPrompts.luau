@@ -26,6 +26,7 @@ local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
+local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = function(): boolean
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
@@ -411,6 +412,31 @@ local function clonePrompt(kind)
 	return template and template:Clone() or nil
 end
 
+function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable)
+	if not (prompt and prompt:IsA("ProximityPrompt")) then
+		return function() end
+	end
+	prompt.Enabled = false
+	externalPrompts[prompt] = type(isAvailable) == "function" and isAvailable or function()
+		return true
+	end
+	local destroyingConnection
+	destroyingConnection = prompt.Destroying:Connect(function()
+		externalPrompts[prompt] = nil
+		if destroyingConnection then
+			destroyingConnection:Disconnect()
+			destroyingConnection = nil
+		end
+	end)
+	return function()
+		externalPrompts[prompt] = nil
+		if destroyingConnection then
+			destroyingConnection:Disconnect()
+			destroyingConnection = nil
+		end
+	end
+end
+
 local function removePrompt(target, kind)
 	local pendingBucket = pendingPromptParents[target]
 	local pendingConnections = pendingBucket and pendingBucket[kind]
@@ -640,11 +666,37 @@ local function refreshAll(shouldScan)
 		end
 	end
 
+	for prompt, isAvailable in pairs(externalPrompts) do
+		if prompt.Parent == nil then
+			externalPrompts[prompt] = nil
+			continue
+		end
+
+		prompt.Enabled = isAvailable(prompt) == true
+		if prompt.Enabled then
+			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+			if distance and distance <= prompt.MaxActivationDistance then
+				if distance < closestDistance then
+					closestPrompt = prompt
+					closestDistance = distance
+				end
+			else
+				prompt.Enabled = false
+			end
+		end
+	end
+
 	for _, bucket in pairs(byTarget) do
 		for _, prompt in pairs(bucket) do
 			if prompt.Parent ~= nil and prompt.Enabled and prompt ~= closestPrompt then
 				prompt.Enabled = false
 			end
+		end
+	end
+
+	for prompt in pairs(externalPrompts) do
+		if prompt.Parent ~= nil and prompt.Enabled and prompt ~= closestPrompt then
+			prompt.Enabled = false
 		end
 	end
 end

@@ -88,7 +88,7 @@ Follow-up:
 
 ### High If Monetized: Roll Policy And Odds Disclosure Are Incomplete
 
-Rolls are currently server-authoritative and purchased with in-game currency after a server-selected offer. `RollService` computes `feedOdds` and now includes that odds table in the `CrateRollEffect` payload, but there is still no paid-random-item UI disclosure flow because rolls are not currently Robux-paid. Code does not reference `PolicyService.ArePaidRandomItemsRestricted`.
+Rolls are currently server-authoritative and purchased with in-game currency after a server-selected offer. `RollService` now sends server-computed effective chance text for each selected reward, but there is still no paid-random-item UI disclosure flow because rolls are not currently Robux-paid. Code does not reference `PolicyService.ArePaidRandomItemsRestricted`.
 
 Impact: if this roll flow becomes Robux-paid, paid-random-item restricted regions or odds disclosure requirements can block launch compliance. Today this is less severe if the roll is strictly soft-currency and the player is buying a revealed result, not buying the random roll itself.
 

@@ -18,7 +18,8 @@ These live under `ReplicatedStorage` and are required by server/client code:
 - `SeedTool`
 - `EditTool`
 - `Seeds`
-- `Misc` (`Sapling`, `Clouds`)
+- `Misc` (`Sapling`, `Clouds`, roll rewards such as `Brick`)
+- `VFX` (`RarityParticle`)
 
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
@@ -40,6 +41,7 @@ asset-backups/
     SeedTool.rbxm
     Seeds.rbxm
     Misc.rbxm
+    VFX.rbxm
     EditTool.rbxm
 ```
 
@@ -68,8 +70,12 @@ Avoid migrating everything at once. Complex models can break if pivots,
 attributes, remotes, crates, tools, UI templates, roll areas, and plot structure at server startup.
 Seed templates used by crate rolls must include valid `RollChanceN`, `Price`,
 `GrowTime`, and `FeedType` attributes; `Rarity` is display-only when present.
+Misc templates enter the roll pool only when they carry `MiscID`, and must then
+also include valid `RollChanceN`, `Price`, and optional display `Rarity`.
 Feed-machine templates should not duplicate seed-owned roll/economy/growth
 attributes.
 Critical gameplay assets still fail startup when they are missing or malformed.
 Studio-owned UI assets warn clearly and the affected UI path skips itself; the
 code should not generate fallback UI.
+Roll reveal billboards are Studio-owned under `ReplicatedStorage.UI.RollBillboardGUI`
+with `Seed` and `Misc` `BillboardGui` templates.

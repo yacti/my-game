@@ -14,6 +14,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
+local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -29,6 +30,7 @@ local REQUIRED_ROOTS = {
 	"SeedTool",
 	"EditTool",
 	"Misc",
+	"VFX",
 	"Remotes",
 }
 
@@ -391,18 +393,102 @@ local function validateMisc(errors)
 	local misc = child(ReplicatedStorage, "Misc", "Folder", errors)
 	if not misc then return end
 
-	local sapling = child(misc, "Sapling", "Model", errors)
-	if sapling then
-		local hasPart = false
-		for _, descendant in ipairs(sapling:GetDescendants()) do
+	local function hasBasePart(template)
+		if template:IsA("BasePart") then
+			return true
+		end
+		for _, descendant in ipairs(template:GetDescendants()) do
 			if descendant:IsA("BasePart") then
-				hasPart = true
-				break
+				return true
 			end
 		end
-		if not hasPart then
+		return false
+	end
+
+	local function validateMiscRollTemplate(template, expectedId)
+		if not RollRewards.IsTemplate(template) then
+			add(errors, string.format("%s is %s, expected BasePart or Model", template:GetFullName(), template.ClassName))
+			return
+		end
+		if not hasBasePart(template) then
+			add(errors, template:GetFullName() .. " has no BasePart descendants")
+		end
+
+		local miscId = template:GetAttribute(RollRewards.Attributes.MiscId)
+		if type(miscId) ~= "string" or miscId == "" then
+			add(errors, template:GetFullName() .. " missing " .. RollRewards.Attributes.MiscId .. " attribute")
+		elseif expectedId and miscId ~= expectedId then
+			add(errors, string.format("%s has %s=%q, expected %q", template:GetFullName(), RollRewards.Attributes.MiscId, miscId, expectedId))
+		end
+
+		local rollChanceN = template:GetAttribute(RollRewards.Attributes.RollChanceN)
+		if not RollChances.BaseWeightForChance(rollChanceN) then
+			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), RollRewards.Attributes.RollChanceN, tostring(rollChanceN)))
+		end
+
+		local price = template:GetAttribute(RollRewards.Attributes.Price)
+		if type(price) ~= "number" or price < 0 or price ~= math.floor(price) then
+			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), RollRewards.Attributes.Price, tostring(price)))
+		end
+
+		local rarity = template:GetAttribute(RollRewards.Attributes.Rarity)
+		if rarity ~= nil and not Rarities.IsValid(rarity) then
+			add(errors, string.format("%s has unknown %s %q", template:GetFullName(), RollRewards.Attributes.Rarity, tostring(rarity)))
+		end
+	end
+
+	local sapling = child(misc, "Sapling", "Model", errors)
+	if sapling then
+		if not hasBasePart(sapling) then
 			add(errors, sapling:GetFullName() .. " has no BasePart descendants")
 		end
+	end
+
+	local brick = child(misc, "Brick", nil, errors)
+	if brick then
+		validateMiscRollTemplate(brick, "Brick")
+	end
+
+	local seenByMiscId = {}
+	for _, template in ipairs(misc:GetDescendants()) do
+		if not RollRewards.IsTemplate(template) or RollRewards.HasTemplateAncestor(misc, template) then
+			continue
+		end
+		if template == brick then
+			local miscId = template:GetAttribute(RollRewards.Attributes.MiscId)
+			if type(miscId) == "string" and miscId ~= "" then
+				seenByMiscId[miscId] = template
+			end
+			continue
+		end
+		local miscId = template:GetAttribute(RollRewards.Attributes.MiscId)
+		if miscId == nil then
+			continue
+		end
+		validateMiscRollTemplate(template, nil)
+		if type(miscId) == "string" and miscId ~= "" then
+			if seenByMiscId[miscId] then
+				add(errors, string.format(
+					"Duplicate %s %q on %s and %s",
+					RollRewards.Attributes.MiscId,
+					miscId,
+					seenByMiscId[miscId]:GetFullName(),
+					template:GetFullName()
+				))
+			else
+				seenByMiscId[miscId] = template
+			end
+		end
+	end
+end
+
+local function validateVfx(errors)
+	local vfx = child(ReplicatedStorage, "VFX", "Folder", errors)
+	if not vfx then return end
+
+	local rarityParticle = child(vfx, "RarityParticle", nil, errors)
+	if rarityParticle and not rarityParticle:IsA("ParticleEmitter") and not rarityParticle:FindFirstChildWhichIsA("ParticleEmitter", true) then
+		add(errors, rarityParticle:GetFullName() .. " must be a ParticleEmitter or contain one")
 	end
 end
 
@@ -511,6 +597,25 @@ local function validateRollDropAreaHud(hud, errors)
 	descendant(frame, "DropAreaLabel", "TextLabel", errors)
 	descendant(frame, "UpgradeButton", "GuiButton", errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
+end
+
+local function validateRollBillboards(ui, errors)
+	local folder = child(ui, "RollBillboardGUI", "Folder", errors)
+	if not folder then return end
+
+	local seed = child(folder, "Seed", "BillboardGui", errors)
+	if seed then
+		descendant(seed, "NameLabel", "TextLabel", errors)
+		descendant(seed, "PriceLabel", "TextLabel", errors)
+		descendant(seed, "ChanceLabel", "TextLabel", errors)
+		descendant(seed, "RarityLabel", "TextLabel", errors)
+	end
+
+	local misc = child(folder, "Misc", "BillboardGui", errors)
+	if misc then
+		descendant(misc, "NameLabel", "TextLabel", errors)
+		descendant(misc, "PriceLabel", "TextLabel", errors)
+	end
 end
 
 local function hasPlacementControls(root)
@@ -727,6 +832,7 @@ local function validateUi(errors)
 	if growingSeed then
 		descendant(growingSeed, "TimeLabel", "TextLabel", errors)
 	end
+	validateRollBillboards(ui, errors)
 
 	validatePlacementControls(ui, hud, errors)
 
@@ -918,6 +1024,7 @@ function AssetValidator.validate()
 	validateFeedTemplates(errors)
 	validateSeeds(errors)
 	validateMisc(errors)
+	validateVfx(errors)
 	validateCrates(errors)
 	validateRebirthBalance(errors)
 	validateRollLuckBalance(errors)

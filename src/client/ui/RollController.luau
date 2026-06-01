@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -8,7 +9,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
+local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
 
 local RollController = {}
 
@@ -20,11 +23,30 @@ local IMPACT_CHUNK_COUNT = RollConfig.Crate.ImpactChunkCount
 local IMPACT_CHUNK_SIZE = RollConfig.Crate.ImpactChunkSize
 local IMPACT_CHUNK_LIFETIME = RollConfig.Crate.ImpactChunkLifetime
 local IMPACT_CHUNK_FADE_DURATION = RollConfig.Crate.ImpactChunkFadeDuration
-local REVEAL_SCALE = RollConfig.Reveal.InitialScale
-local REVEAL_FINAL_SCALE = RollConfig.Reveal.FinalScale
-local FLICKER_COUNT = RollConfig.Reveal.FlickerCount
-local FLICKER_START_SCALE = RollConfig.Reveal.FlickerStartScale
-local FLICKER_END_SCALE = RollConfig.Reveal.FlickerEndScale
+local IMPACT_CHUNK_MIN_SPREAD = RollConfig.Crate.ImpactChunkMinSpread
+local IMPACT_CHUNK_MAX_SPREAD = RollConfig.Crate.ImpactChunkMaxSpread
+local IMPACT_CHUNK_MIN_SPEED = RollConfig.Crate.ImpactChunkMinSpeed
+local IMPACT_CHUNK_MAX_SPEED = RollConfig.Crate.ImpactChunkMaxSpeed
+local CRATE_BREAK_FADE_DURATION = RollConfig.Crate.BreakFadeDuration
+local SEED_DEFAULT_SCALE = RollConfig.Reveal.SeedDefaultScale
+local SEED_LIFT_HEIGHT = RollConfig.Reveal.SeedLiftHeight
+local SEED_LIFT_DURATION = RollConfig.Reveal.SeedLiftDuration
+local SEED_SHAKE_DURATION = RollConfig.Reveal.SeedShakeDuration
+local SEED_SHAKE_DEGREES = RollConfig.Reveal.SeedShakeDegrees
+local SEED_EXPANDED_SCALE = SEED_DEFAULT_SCALE * RollConfig.Reveal.SeedExpandedScaleMultiplier
+local SEED_POP_IN_SCALE = SEED_DEFAULT_SCALE * RollConfig.Reveal.SeedPopInScaleMultiplier
+local SEED_POP_IN_DURATION = RollConfig.Reveal.SeedPopInDuration
+local SEED_POP_OUT_DURATION = RollConfig.Reveal.SeedPopOutDuration
+local MISC_START_SCALE = RollConfig.Reveal.MiscStartScale
+local MISC_DEFAULT_SCALE = RollConfig.Reveal.MiscDefaultScale
+local MISC_FADE_IN_DURATION = RollConfig.Reveal.MiscFadeInDuration
+local MISC_LIFT_HEIGHT = RollConfig.Reveal.MiscLiftHeight
+local MISC_LIFT_DURATION = RollConfig.Reveal.MiscLiftDuration
+local IDLE_BOB_HEIGHT = RollConfig.Reveal.IdleBobHeight
+local IDLE_BOB_PERIOD = RollConfig.Reveal.IdleBobPeriod
+local IDLE_ROTATION_DEGREES_PER_SECOND = RollConfig.Reveal.IdleRotationDegreesPerSecond
+local ACTIVE_VFX_DISTANCE = RollConfig.Reveal.ActiveVfxDistance
+local LOCAL_PARTICLE_LIFETIME = RollConfig.Reveal.LocalParticleLifetime
 local BUY_PROMPT_DISTANCE = RollConfig.Reveal.BuyPromptDistance
 local BILLBOARD_MAX_DISTANCE = RollConfig.Reveal.BillboardMaxDistance
 local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
@@ -33,13 +55,15 @@ local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local CRATE_ROLL_PROMPT_NAME = "__LocalPrompt_CrateRoll"
+local ROLL_OFFER_PENDING_ATTR = "RollOfferPending"
 local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
-local POP_TWEEN = TweenInfo.new(RollConfig.Reveal.PopDuration, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local SEED_POP_IN_TWEEN = TweenInfo.new(SEED_POP_IN_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+local SEED_POP_OUT_TWEEN = TweenInfo.new(SEED_POP_OUT_DURATION, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 local activeRollToken = 0
 local activeReveals = {}
@@ -50,6 +74,7 @@ local pressedButton = nil
 local buttonOriginalCFrames = setmetatable({}, { __mode = "k" })
 local buttonOriginalColors = setmetatable({}, { __mode = "k" })
 local unavailableButtons = setmetatable({}, { __mode = "k" })
+local warnedMissingBillboardTemplates = {}
 local rng = Random.new()
 
 local function isCurrentRoll(token)
@@ -94,8 +119,32 @@ local function ownerUserIdFromPayload(payload)
 	return Players.LocalPlayer.UserId
 end
 
+local function playerRootPosition()
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root:IsA("BasePart") and root.Position or nil
+end
+
 local function findSeedTemplate(seedId)
 	return Seeds.GetTemplate(seedId)
+end
+
+local function findMiscTemplate(miscId)
+	return RollRewards.GetMiscTemplate(miscId)
+end
+
+local function rewardTemplate(payload)
+	if payload.category == RollRewards.Categories.Seed then
+		return findSeedTemplate(payload.seedId or payload.rewardId)
+	end
+	if payload.category == RollRewards.Categories.Misc then
+		return findMiscTemplate(payload.miscId or payload.rewardId)
+	end
+	return nil
+end
+
+local function isKnownRewardCategory(category)
+	return category == RollRewards.Categories.Seed or category == RollRewards.Categories.Misc
 end
 
 local function crateTemplate(name)
@@ -105,6 +154,15 @@ local function crateTemplate(name)
 		return template
 	end
 	return nil
+end
+
+local function rarityParticleTemplate()
+	local vfx = ReplicatedStorage:FindFirstChild("VFX")
+	local template = vfx and vfx:FindFirstChild("RarityParticle")
+	if template and template:IsA("ParticleEmitter") then
+		return template
+	end
+	return template and template:FindFirstChildWhichIsA("ParticleEmitter", true) or nil
 end
 
 local function effectParts(root)
@@ -137,6 +195,15 @@ local function fadeIn(root)
 			Transparency = targetTransparency,
 		}):Play()
 	end
+end
+
+local function fadeOut(root, duration)
+	for _, part in ipairs(effectParts(root)) do
+		TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+		}):Play()
+	end
+	task.wait(duration)
 end
 
 local function pivotRotation(instance)
@@ -435,19 +502,40 @@ local function formatPrice(price)
 	return "$" .. tostring(math.max(math.floor(amount), 0))
 end
 
-local function addLine(parent, order, text, color, heightScale)
-	local label = Instance.new("TextLabel")
-	label.Name = "Line" .. tostring(order)
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(1, 0, heightScale or 0.25, 0)
-	label.LayoutOrder = order
-	label.Font = Enum.Font.GothamBold
+local function rollBillboardTemplate(category)
+	if not isKnownRewardCategory(category) then
+		warn("[RollController] Unsupported roll billboard category " .. tostring(category))
+		return nil
+	end
+
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	local folder = ui and ui:FindFirstChild("RollBillboardGUI")
+	local templateName = category == RollRewards.Categories.Misc and "Misc" or "Seed"
+	local template = folder and folder:FindFirstChild(templateName)
+	if template and template:IsA("BillboardGui") then
+		return template
+	end
+	if not warnedMissingBillboardTemplates[templateName] then
+		warn("[RollController] Missing ReplicatedStorage.UI.RollBillboardGUI." .. templateName .. " BillboardGui")
+		warnedMissingBillboardTemplates[templateName] = true
+	end
+	return nil
+end
+
+local function textLabel(root, name)
+	local label = root:FindFirstChild(name, true)
+	return label and label:IsA("TextLabel") and label or nil
+end
+
+local function setLabel(root, name, text, color)
+	local label = textLabel(root, name)
+	if not label then
+		return
+	end
 	label.Text = text
-	label.TextColor3 = color or Color3.new(1, 1, 1)
-	label.TextScaled = true
-	label.TextStrokeTransparency = 0.35
-	label.Parent = parent
-	return label
+	if color then
+		label.TextColor3 = color
+	end
 end
 
 local function addRevealBillboard(model, payload)
@@ -456,38 +544,32 @@ local function addRevealBillboard(model, payload)
 		return
 	end
 
-	local billboard = Instance.new("BillboardGui")
+	local isMisc = payload.category == RollRewards.Categories.Misc
+	local template = rollBillboardTemplate(payload.category)
+	if not template then
+		return
+	end
+
+	local billboard = template:Clone()
 	billboard.Name = "RollRevealBillboard"
 	billboard.Adornee = anchor
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = BILLBOARD_MAX_DISTANCE
-	billboard.Size = UDim2.fromOffset(200, 86)
 	billboard.StudsOffsetWorldSpace = Vector3.zero
 
-	local frame = Instance.new("Frame")
-	frame.Name = "Card"
-	frame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
-	frame.BackgroundTransparency = 0.2
-	frame.BorderSizePixel = 0
-	frame.Size = UDim2.fromScale(1, 1)
-	frame.Parent = billboard
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = frame
-
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Vertical
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 1)
-	layout.Parent = frame
+	local name = tostring(payload.displayName or payload.rewardId or payload.feedType or "Reward")
+	if isMisc then
+		setLabel(billboard, "NameLabel", name, Color3.new(1, 1, 1))
+		setLabel(billboard, "PriceLabel", formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+		billboard.Parent = anchor
+		return
+	end
 
 	local rarityColor = Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
-	addLine(frame, 1, tostring(payload.displayName or payload.feedType or "Feed Machine"), Color3.new(1, 1, 1), 0.26)
-	addLine(frame, 2, "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120), 0.24)
-	addLine(frame, 3, "Chance: " .. tostring(payload.rngChanceText or ("1 in " .. tostring(payload.chanceN or "?"))), Color3.fromRGB(210, 230, 255), 0.24)
-	addLine(frame, 4, "Rarity: " .. tostring(payload.rarity or "Unknown"), rarityColor, 0.24)
+	setLabel(billboard, "NameLabel", name, Color3.new(1, 1, 1))
+	setLabel(billboard, "PriceLabel", "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+	setLabel(billboard, "ChanceLabel", "Chance: " .. tostring(payload.rngChanceText or ("1 in " .. tostring(payload.chanceN or "?"))), Color3.fromRGB(210, 230, 255))
+	setLabel(billboard, "RarityLabel", "Rarity: " .. tostring(payload.rarity or "Unknown"), rarityColor)
 
 	billboard.Parent = anchor
 end
@@ -507,21 +589,21 @@ local function scaleClone(clone, scale)
 	end
 end
 
-local function scaleOnFloor(clone, scale, crateFloor)
+local function setScaleAtCFrame(clone, scale, cframe)
 	scaleClone(clone, scale)
-	pivotTo(clone, floorLandingCFrame(clone, crateFloor, 0))
+	pivotTo(clone, cframe)
 end
 
-local function tweenScaleOnFloor(clone, crateFloor, fromScale, toScale, tweenInfo)
-	scaleOnFloor(clone, fromScale, crateFloor)
-
+local function tweenScaleAtCFrame(clone, baseCFrame, fromScale, toScale, tweenInfo, onStep)
 	local scaleValue = Instance.new("NumberValue")
 	scaleValue.Value = fromScale
 	local connection = scaleValue:GetPropertyChangedSignal("Value"):Connect(function()
 		if clone.Parent then
-			scaleOnFloor(clone, scaleValue.Value, crateFloor)
+			local cframe = onStep and onStep(scaleValue.Value) or baseCFrame
+			setScaleAtCFrame(clone, scaleValue.Value, cframe)
 		end
 	end)
+	setScaleAtCFrame(clone, fromScale, baseCFrame)
 	local tween = TweenService:Create(scaleValue, tweenInfo, {
 		Value = toScale,
 	})
@@ -530,16 +612,17 @@ local function tweenScaleOnFloor(clone, crateFloor, fromScale, toScale, tweenInf
 	connection:Disconnect()
 	scaleValue:Destroy()
 	if clone.Parent then
-		scaleOnFloor(clone, toScale, crateFloor)
+		local cframe = onStep and onStep(toScale) or baseCFrame
+		setScaleAtCFrame(clone, toScale, cframe)
 	end
 end
 
-local function playImpactChunks(crateFloor, offerId)
+local function playImpactChunks(crateFloor)
 	local origin = crateFloor.Position + crateFloor.CFrame.UpVector * (crateFloor.Size.Y * 0.5 + 0.5)
 	for _ = 1, IMPACT_CHUNK_COUNT do
 		local angle = rng:NextNumber(0, math.pi * 2)
 		local outward = crateFloor.CFrame.RightVector * math.cos(angle) + crateFloor.CFrame.LookVector * math.sin(angle)
-		local spawnOffset = outward * rng:NextNumber(0.5, 3.5)
+		local spawnOffset = outward * rng:NextNumber(IMPACT_CHUNK_MIN_SPREAD, IMPACT_CHUNK_MAX_SPREAD)
 		local chunk = Instance.new("Part")
 		chunk.Name = "RollCrateImpactChunk"
 		chunk.Size = IMPACT_CHUNK_SIZE
@@ -551,9 +634,8 @@ local function playImpactChunks(crateFloor, offerId)
 		chunk.CanQuery = false
 		chunk.CFrame = CFrame.new(origin + spawnOffset)
 		chunk.Parent = Workspace
-		trackRollEffect(chunk, offerId)
 
-		local horizontal = outward * rng:NextNumber(5, 11)
+		local horizontal = outward * rng:NextNumber(IMPACT_CHUNK_MIN_SPEED, IMPACT_CHUNK_MAX_SPEED)
 		local upward = crateFloor.CFrame.UpVector * rng:NextNumber(8, 16)
 		chunk.AssemblyLinearVelocity = horizontal + upward
 		chunk.AssemblyAngularVelocity = Vector3.new(
@@ -578,8 +660,9 @@ local function playImpactChunks(crateFloor, offerId)
 	end
 end
 
-local function breakCrate(crate, crateFloor, offerId)
-	playImpactChunks(crateFloor, offerId)
+local function breakCrate(crate, crateFloor)
+	playImpactChunks(crateFloor)
+	fadeOut(crate, CRATE_BREAK_FADE_DURATION)
 end
 
 local function setBlackNeon(root)
@@ -617,20 +700,140 @@ local function setBlackNeon(root)
 	end
 end
 
-local function makeSeedClone(seedId, name, blackNeon, scale)
-	local template = findSeedTemplate(seedId)
+local function makeRewardClone(payload, name, scale, blackNeon)
+	local template = rewardTemplate(payload)
 	if not template then
 		return nil
 	end
 
 	local clone = template:Clone()
-	clone.Name = name or ("RollPreview_" .. tostring(seedId))
+	clone.Name = name or ("RollReveal_" .. tostring(payload.rewardId or payload.seedId or payload.miscId or "Reward"))
 	prepareEffect(clone)
-	scaleClone(clone, scale or REVEAL_SCALE)
+	scaleClone(clone, scale or 1)
 	if blackNeon then
 		setBlackNeon(clone)
 	end
 	return clone
+end
+
+local function setParticleColor(emitter, color)
+	if emitter and emitter:IsA("ParticleEmitter") and typeof(color) == "Color3" then
+		emitter.Color = ColorSequence.new(color)
+	end
+end
+
+local function attachRarityParticle(model, color)
+	local template = rarityParticleTemplate()
+	local primary = primaryPart(model)
+	if not (template and primary) then
+		return nil
+	end
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "RollRarityParticleAttachment"
+	attachment.Position = Vector3.zero
+	attachment.Parent = primary
+
+	local emitter = template:Clone()
+	emitter.Name = "RollRarityParticle"
+	setParticleColor(emitter, color or Color3.new(1, 1, 1))
+	emitter.Enabled = true
+	emitter.Parent = attachment
+	return emitter
+end
+
+local function tweenParticleColor(emitter, fromColor, toColor, duration)
+	if not emitter then
+		task.wait(duration)
+		return
+	end
+
+	local alphaValue = Instance.new("NumberValue")
+	alphaValue.Value = 0
+	local connection = alphaValue:GetPropertyChangedSignal("Value"):Connect(function()
+		if emitter.Parent then
+			setParticleColor(emitter, fromColor:Lerp(toColor, alphaValue.Value))
+		end
+	end)
+	local tween = TweenService:Create(alphaValue, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Value = 1,
+	})
+	tween:Play()
+	tween.Completed:Wait()
+	connection:Disconnect()
+	alphaValue:Destroy()
+	if emitter.Parent then
+		setParticleColor(emitter, toColor)
+	end
+end
+
+local function startRainbowParticle(emitter, particleExpiresAt)
+	if not emitter then
+		return
+	end
+
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		if not emitter.Parent or (particleExpiresAt ~= nil and os.clock() >= particleExpiresAt) then
+			connection:Disconnect()
+			return
+		end
+		setParticleColor(emitter, Rarities.RainbowColorAt(os.clock()))
+	end)
+end
+
+local function isWithinActiveVfxDistance(baseCFrame)
+	local rootPosition = playerRootPosition()
+	return rootPosition ~= nil and (rootPosition - baseCFrame.Position).Magnitude <= ACTIVE_VFX_DISTANCE
+end
+
+local function setRevealParticlesEnabled(instance, enabled)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("ParticleEmitter") then
+			descendant.Enabled = enabled
+		end
+	end
+end
+
+local function startIdleAnimation(instance, baseCFrame, token, particleExpiresAt)
+	local startTime = os.clock()
+	local rotationSpeed = math.rad(IDLE_ROTATION_DEGREES_PER_SECOND)
+	local bobPeriod = math.max(IDLE_BOB_PERIOD, 0.01)
+	local wasActive = nil
+	local wereParticlesEnabled = nil
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		if not instance.Parent or (token ~= nil and not isCurrentRoll(token)) then
+			connection:Disconnect()
+			return
+		end
+
+		local isActive = isWithinActiveVfxDistance(baseCFrame)
+		local particlesEnabled = isActive and (particleExpiresAt == nil or os.clock() < particleExpiresAt)
+		if particlesEnabled ~= wereParticlesEnabled then
+			setRevealParticlesEnabled(instance, particlesEnabled)
+			wereParticlesEnabled = particlesEnabled
+		end
+		if isActive ~= wasActive then
+			if not isActive then
+				pivotTo(instance, baseCFrame)
+			end
+			wasActive = isActive
+		end
+		if not isActive then
+			return
+		end
+
+		local elapsed = os.clock() - startTime
+		local bob = math.sin((elapsed / bobPeriod) * math.pi * 2) * IDLE_BOB_HEIGHT
+		local rotation = CFrame.Angles(0, elapsed * rotationSpeed, 0)
+		pivotTo(instance, (baseCFrame + Vector3.new(0, bob, 0)) * rotation)
+	end)
+	instance.Destroying:Connect(function()
+		if connection.Connected then
+			connection:Disconnect()
+		end
+	end)
 end
 
 local function addPurchasePrompt(model, payload)
@@ -642,107 +845,85 @@ local function addPurchasePrompt(model, payload)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "RollOfferBuyPrompt"
 	prompt.ActionText = "Buy " .. formatPrice(payload.price)
-	prompt.ObjectText = tostring(payload.displayName or payload.feedType or "Feed Machine")
+	prompt.ObjectText = tostring(payload.displayName or payload.rewardId or payload.feedType or "Reward")
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = BUY_PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false
+	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 	prompt.Parent = anchor
+	LocalPrompts.RegisterExternalPrompt(prompt, function()
+		return activeReveals[payload.offerId] ~= nil and prompt:GetAttribute(ROLL_OFFER_PENDING_ATTR) ~= true
+	end)
 	prompt.Triggered:Connect(function()
 		if activeReveals[payload.offerId] == nil then
 			return
 		end
+		prompt:SetAttribute(ROLL_OFFER_PENDING_ATTR, true)
 		prompt.Enabled = false
 		Remotes.get(Remotes.Names.CrateRollPurchaseRequest):FireServer(payload.offerId)
 	end)
 end
 
-local function previewSeedIds(payload)
-	local seedIds = {}
-	if type(payload.previewSeedIds) == "table" then
-		for _, seedId in ipairs(payload.previewSeedIds) do
-			if type(seedId) == "string" and seedId ~= "" then
-				seedIds[#seedIds + 1] = seedId
-			end
-		end
-	end
-	if #seedIds == 0 and type(payload.seedId) == "string" then
-		seedIds[1] = payload.seedId
-	end
-	return seedIds
+local function seedRarityColor(payload)
+	return Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
 end
 
-local function flickerStepDuration(index, count)
-	return RollConfig.FlickerStepDuration(index, count)
-end
-
-local function playRollingPreview(payload, crateFloor, token)
-	local seedIds = previewSeedIds(payload)
-	if #seedIds == 0 then
-		return isCurrentRoll(token)
-	end
-	local count = FLICKER_COUNT
-	for index = 1, count - 1 do
-		if not isCurrentRoll(token) then
-			return false
-		end
-		local duration = flickerStepDuration(index, count)
-		local seedId = seedIds[((index - 1) % #seedIds) + 1]
-		local clone = makeSeedClone(seedId, "RollFlicker_" .. tostring(seedId), true, FLICKER_START_SCALE)
-		if clone then
-			clone.Parent = Workspace
-			trackRollEffect(clone, payload.offerId)
-			local base = floorLandingCFrame(clone, crateFloor, 0)
-			local angle = math.rad((index % 2 == 0) and -18 or 18)
-			pivotTo(clone, base * CFrame.Angles(0, angle, 0))
-			tweenScaleOnFloor(clone, crateFloor, FLICKER_START_SCALE, FLICKER_END_SCALE, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out))
-			if clone.Parent then
-				clone:Destroy()
-			end
-			if not isCurrentRoll(token) then
-				return false
-			end
-		else
-			task.wait(duration)
-			if not isCurrentRoll(token) then
-				return false
-			end
-		end
-	end
-	return true
-end
-
-local function revealFeedMachine(payload, crateFloor, token)
+local function playSeedReveal(payload, crateFloor, token)
 	if not isCurrentRoll(token) then
 		return
 	end
 	clearActiveReveal(payload.offerId)
 
-	local blackClone = makeSeedClone(payload.seedId, "RollFinalBlack_" .. tostring(payload.seedId), true, FLICKER_START_SCALE)
-	if blackClone then
-		blackClone.Parent = Workspace
-		trackRollEffect(blackClone, payload.offerId)
-		local base = floorLandingCFrame(blackClone, crateFloor, 0)
-		pivotTo(blackClone, base * CFrame.Angles(0, math.rad(-25), 0))
-		tweenScaleOnFloor(blackClone, crateFloor, FLICKER_START_SCALE, FLICKER_END_SCALE, TweenInfo.new(
-			flickerStepDuration(FLICKER_COUNT, FLICKER_COUNT),
-			Enum.EasingStyle.Quad,
-			Enum.EasingDirection.Out
-		))
-		if blackClone.Parent then
-			blackClone:Destroy()
-		end
-		if not isCurrentRoll(token) then
-			return
-		end
-	else
-		task.wait(flickerStepDuration(FLICKER_COUNT, FLICKER_COUNT))
-		if not isCurrentRoll(token) then
-			return
-		end
+	local blackClone = makeRewardClone(payload, "RollFinalBlack_" .. tostring(payload.rewardId or payload.seedId), SEED_DEFAULT_SCALE, true)
+	if not blackClone then
+		return
 	end
 
-	local clone = makeSeedClone(payload.seedId, "RollReveal_" .. tostring(payload.seedId), false, FLICKER_END_SCALE)
+	blackClone.Parent = Workspace
+	trackRollEffect(blackClone, payload.offerId)
+	local floorCFrame = floorLandingCFrame(blackClone, crateFloor, 0)
+	local liftedCFrame = floorCFrame + Vector3.new(0, SEED_LIFT_HEIGHT, 0)
+	pivotTo(blackClone, floorCFrame)
+	attachRarityParticle(blackClone, Color3.new(1, 1, 1))
+
+	local liftAlpha = Instance.new("NumberValue")
+	liftAlpha.Value = 0
+	local liftTween = nil
+	local liftConnection = liftAlpha:GetPropertyChangedSignal("Value"):Connect(function()
+		if not blackClone.Parent then
+			return
+		end
+		if not isCurrentRoll(token) then
+			blackClone:Destroy()
+			if liftTween then
+				liftTween:Cancel()
+			end
+			return
+		end
+		local alpha = liftAlpha.Value
+		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local currentScale = SEED_DEFAULT_SCALE + (SEED_EXPANDED_SCALE - SEED_DEFAULT_SCALE) * eased
+		local basePosition = floorCFrame.Position:Lerp(liftedCFrame.Position, eased)
+		local shake = math.sin(alpha * math.pi * 10) * math.rad(SEED_SHAKE_DEGREES)
+		local currentCFrame = CFrame.new(basePosition) * (floorCFrame - floorCFrame.Position) * CFrame.Angles(0, shake, shake * 0.35)
+		setScaleAtCFrame(blackClone, currentScale, currentCFrame)
+	end)
+	liftTween = TweenService:Create(liftAlpha, TweenInfo.new(SEED_LIFT_DURATION + SEED_SHAKE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Value = 1,
+	})
+	liftTween:Play()
+	liftTween.Completed:Wait()
+	liftConnection:Disconnect()
+	liftAlpha:Destroy()
+	if blackClone.Parent then
+		blackClone:Destroy()
+	end
+	if not isCurrentRoll(token) then
+		return
+	end
+
+	local clone = makeRewardClone(payload, "RollReveal_" .. tostring(payload.rewardId or payload.seedId), SEED_EXPANDED_SCALE, false)
 	if not clone then
 		return
 	end
@@ -750,31 +931,40 @@ local function revealFeedMachine(payload, crateFloor, token)
 	clone.Parent = Workspace
 	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
 	trackRollEffect(clone, payload.offerId)
-
-	local base = floorLandingCFrame(clone, crateFloor, 0)
-	pivotTo(clone, base)
+	pivotTo(clone, liftedCFrame)
 	fadeIn(clone)
-	tweenScaleOnFloor(clone, crateFloor, FLICKER_END_SCALE, REVEAL_FINAL_SCALE, POP_TWEEN)
+
+	local emitter = attachRarityParticle(clone, Color3.new(1, 1, 1))
+	local particleExpiresAt = os.clock() + LOCAL_PARTICLE_LIFETIME
+	local targetColor = seedRarityColor(payload)
+	task.spawn(tweenParticleColor, emitter, Color3.new(1, 1, 1), targetColor, SEED_POP_IN_DURATION + SEED_POP_OUT_DURATION)
+	tweenScaleAtCFrame(clone, liftedCFrame, SEED_EXPANDED_SCALE, SEED_POP_IN_SCALE, SEED_POP_IN_TWEEN)
+	tweenScaleAtCFrame(clone, liftedCFrame, SEED_POP_IN_SCALE, SEED_DEFAULT_SCALE, SEED_POP_OUT_TWEEN)
 	if not isCurrentRoll(token) then
 		if clone.Parent then
 			clone:Destroy()
 		end
 		return
 	end
+	if Rarities.Get(payload.rarity) and Rarities.Get(payload.rarity).Animated then
+		startRainbowParticle(emitter, particleExpiresAt)
+	else
+		setParticleColor(emitter, targetColor)
+	end
 	addRevealBillboard(clone, payload)
 	if ownerUserIdFromPayload(payload) == Players.LocalPlayer.UserId then
 		addPurchasePrompt(clone, payload)
 	end
+	startIdleAnimation(clone, liftedCFrame, token, particleExpiresAt)
 end
 
-local function showPublicOffer(payload)
-	local crateFloor = payload.crateFloor
-	if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
+local function playMiscReveal(payload, crateFloor, token)
+	if not isCurrentRoll(token) then
 		return
 	end
-
 	clearActiveReveal(payload.offerId)
-	local clone = makeSeedClone(payload.seedId, "RollPublicReveal_" .. tostring(payload.seedId), false, REVEAL_FINAL_SCALE)
+
+	local clone = makeRewardClone(payload, "RollReveal_" .. tostring(payload.rewardId or payload.miscId), MISC_DEFAULT_SCALE, false)
 	if not clone then
 		return
 	end
@@ -782,9 +972,73 @@ local function showPublicOffer(payload)
 	clone.Parent = Workspace
 	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
 	trackRollEffect(clone, payload.offerId)
-	pivotTo(clone, floorLandingCFrame(clone, crateFloor, 0))
+	local floorCFrame = floorLandingCFrame(clone, crateFloor, 0)
+	local liftedCFrame = floorCFrame + Vector3.new(0, MISC_LIFT_HEIGHT, 0)
+	setScaleAtCFrame(clone, MISC_START_SCALE, floorCFrame)
 	fadeIn(clone)
+
+	tweenScaleAtCFrame(clone, floorCFrame, MISC_START_SCALE, MISC_DEFAULT_SCALE, TweenInfo.new(MISC_FADE_IN_DURATION, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
+	local alphaValue = Instance.new("NumberValue")
+	alphaValue.Value = 0
+	local connection = alphaValue:GetPropertyChangedSignal("Value"):Connect(function()
+		if clone.Parent then
+			local eased = TweenService:GetValue(alphaValue.Value, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			pivotTo(clone, floorCFrame:Lerp(liftedCFrame, eased))
+		end
+	end)
+	local liftTween = TweenService:Create(alphaValue, TweenInfo.new(MISC_LIFT_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Value = 1,
+	})
+	liftTween:Play()
+	liftTween.Completed:Wait()
+	connection:Disconnect()
+	alphaValue:Destroy()
+	if not isCurrentRoll(token) then
+		if clone.Parent then
+			clone:Destroy()
+		end
+		return
+	end
+
 	addRevealBillboard(clone, payload)
+	if ownerUserIdFromPayload(payload) == Players.LocalPlayer.UserId then
+		addPurchasePrompt(clone, payload)
+	end
+	startIdleAnimation(clone, liftedCFrame, token)
+end
+
+local revealHandlers = {
+	[RollRewards.Categories.Seed] = playSeedReveal,
+	[RollRewards.Categories.Misc] = playMiscReveal,
+}
+
+local function showPublicOffer(payload)
+	local crateFloor = payload.crateFloor
+	if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
+		return
+	end
+	if not isKnownRewardCategory(payload.category) then
+		warn("[RollController] Unsupported public roll reward category " .. tostring(payload.category))
+		return
+	end
+
+	clearActiveReveal(payload.offerId)
+	local scale = payload.category == RollRewards.Categories.Seed and SEED_DEFAULT_SCALE or MISC_DEFAULT_SCALE
+	local clone = makeRewardClone(payload, "RollPublicReveal_" .. tostring(payload.rewardId or payload.seedId or payload.miscId), scale, false)
+	if not clone then
+		return
+	end
+
+	clone.Parent = Workspace
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
+	trackRollEffect(clone, payload.offerId)
+	local liftHeight = payload.category == RollRewards.Categories.Seed and SEED_LIFT_HEIGHT or MISC_LIFT_HEIGHT
+	local baseCFrame = floorLandingCFrame(clone, crateFloor, liftHeight)
+	pivotTo(clone, baseCFrame)
+	fadeIn(clone)
+	setRevealParticlesEnabled(clone, false)
+	addRevealBillboard(clone, payload)
+	startIdleAnimation(clone, baseCFrame, nil, 0)
 end
 
 local function playCrateFall(payload, token)
@@ -818,7 +1072,7 @@ local function playCrateFall(payload, token)
 		return
 	end
 
-	breakCrate(crate, crateFloor, payload.offerId)
+	breakCrate(crate, crateFloor)
 	if crate.Parent then
 		crate:Destroy()
 	end
@@ -826,8 +1080,11 @@ local function playCrateFall(payload, token)
 		return
 	end
 
-	if playRollingPreview(payload, crateFloor, token) then
-		revealFeedMachine(payload, crateFloor, token)
+	local handler = revealHandlers[payload.category]
+	if handler then
+		handler(payload, crateFloor, token)
+	else
+		warn("[RollController] Unsupported roll reward category " .. tostring(payload.category))
 	end
 end
 
@@ -927,7 +1184,8 @@ function RollController.start()
 		local reveal = activeReveals[payload.offerId]
 		local prompt = reveal and reveal:FindFirstChild("RollOfferBuyPrompt", true)
 		if prompt and prompt:IsA("ProximityPrompt") then
-			prompt.Enabled = true
+			prompt:SetAttribute(ROLL_OFFER_PENDING_ATTR, false)
+			prompt.Enabled = false
 		end
 	end)
 end

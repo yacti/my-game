@@ -105,7 +105,7 @@ function RollChances.BaseWeightForChance(chanceN)
 	return 1 / chanceN
 end
 
-function RollChances.ComputeFeedWeights(crateId, entries, playerLuckPercent)
+function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent)
 	local crate = RollChances.GetCrate(crateId)
 	if not crate then
 		return nil, "unknown-crate"

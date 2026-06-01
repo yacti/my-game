@@ -9,17 +9,33 @@ RollConfig.Crate = {
 	ImpactChunkSize = Vector3.new(1, 1, 1),
 	ImpactChunkLifetime = 0.75,
 	ImpactChunkFadeDuration = 0.25,
+	ImpactChunkMinSpread = 1.5,
+	ImpactChunkMaxSpread = 6.5,
+	ImpactChunkMinSpeed = 10,
+	ImpactChunkMaxSpeed = 18,
+	BreakFadeDuration = 0.12,
 }
 
 RollConfig.Reveal = {
-	InitialScale = 0.2,
-	FinalScale = 0.34,
-	FlickerCount = 7,
-	FlickerStartDuration = 0.2,
-	FlickerEndDuration = 0.4,
-	FlickerStartScale = 0.08,
-	FlickerEndScale = 0.22,
-	PopDuration = 0.45,
+	SeedDefaultScale = 1.02,
+	SeedLiftHeight = 4,
+	SeedLiftDuration = 0.5,
+	SeedShakeDuration = 0.55,
+	SeedShakeDegrees = 12,
+	SeedExpandedScaleMultiplier = 2,
+	SeedPopInScaleMultiplier = 0.82,
+	SeedPopInDuration = 0.12,
+	SeedPopOutDuration = 0.32,
+	MiscStartScale = 0.1,
+	MiscDefaultScale = 1,
+	MiscFadeInDuration = 0.25,
+	MiscLiftHeight = 4,
+	MiscLiftDuration = 0.45,
+	IdleBobHeight = 0.35,
+	IdleBobPeriod = 2,
+	IdleRotationDegreesPerSecond = 35,
+	ActiveVfxDistance = 60,
+	LocalParticleLifetime = 15,
 	BuyPromptDistance = 10,
 	BillboardMaxDistance = 25,
 	OfferAnchorTopOffset = 0.55,
@@ -31,22 +47,13 @@ RollConfig.Button = {
 	UnavailableColor = Color3.fromRGB(220, 45, 45),
 }
 
-function RollConfig.FlickerStepDuration(index, count)
-	count = math.max(math.floor(tonumber(count) or RollConfig.Reveal.FlickerCount), 1)
-	index = math.clamp(math.floor(tonumber(index) or 1), 1, count)
-
-	local progress = count > 1 and (index - 1) / (count - 1) or 1
-	return RollConfig.Reveal.FlickerStartDuration
-		+ (RollConfig.Reveal.FlickerEndDuration - RollConfig.Reveal.FlickerStartDuration) * (progress ^ 1.7)
-end
-
 function RollConfig.RollVisualDuration()
-	local duration = RollConfig.Crate.FallDuration
-	for index = 1, RollConfig.Reveal.FlickerCount do
-		duration += RollConfig.FlickerStepDuration(index, RollConfig.Reveal.FlickerCount)
-	end
-	duration += RollConfig.Reveal.PopDuration
-	return duration
+	local seedDuration = RollConfig.Reveal.SeedLiftDuration
+		+ RollConfig.Reveal.SeedShakeDuration
+		+ RollConfig.Reveal.SeedPopInDuration
+		+ RollConfig.Reveal.SeedPopOutDuration
+	local miscDuration = RollConfig.Reveal.MiscFadeInDuration + RollConfig.Reveal.MiscLiftDuration
+	return RollConfig.Crate.FallDuration + math.max(seedDuration, miscDuration)
 end
 
 return RollConfig

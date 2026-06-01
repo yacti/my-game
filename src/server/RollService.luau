@@ -16,6 +16,7 @@ local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
+local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 
 local RollService = {}
@@ -29,7 +30,6 @@ local LUCK_REQUEST_RATE_SECONDS = 0.35
 local LUCK_STATE_RATE_SECONDS = 0.5
 local DROP_AREA_REQUEST_RATE_SECONDS = 0.35
 local DROP_AREA_STATE_RATE_SECONDS = 0.5
-local PREVIEW_COUNT = 10
 local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
@@ -50,7 +50,6 @@ local lastDropAreaStateRequest = {}
 local pendingOffers = {}
 local nextOfferId = 0
 local nextRollBatchId = 0
-local nextTeaseRolls = {}
 local boundRollButtons = setmetatable({}, { __mode = "k" })
 local rng = Random.new()
 
@@ -168,7 +167,9 @@ local function collectRollPool()
 		if RollChances.BaseWeightForChance(chanceN) and type(price) == "number" and price >= 0 then
 			if feedClass == "Patch" or feedClass == "Tree" then
 				entries[#entries + 1] = {
-					id = seedId,
+					id = RollRewards.RewardKey(RollRewards.Categories.Seed, seedId),
+					category = RollRewards.Categories.Seed,
+					rewardId = seedId,
 					seedId = seedId,
 					feedType = feedType,
 					displayName = Seeds.DisplayNameFor(seedId),
@@ -180,110 +181,70 @@ local function collectRollPool()
 		end
 	end
 
+	for _, miscId in ipairs(RollRewards.AllMiscRewardIds()) do
+		local entry = RollRewards.MiscEntryFor(miscId)
+		if entry then
+			local chanceN = entry.chanceN
+			local price = entry.price
+			local rarity = entry.rarity
+			if RollChances.BaseWeightForChance(chanceN) and type(price) == "number" and price >= 0 then
+				entry.rarity = type(rarity) == "string" and Rarities.IsValid(rarity) and rarity or nil
+				entry.price = math.floor(price)
+				entries[#entries + 1] = entry
+			end
+		end
+	end
+
 	table.sort(entries, function(a, b)
 		if a.chanceN ~= b.chanceN then
 			return a.chanceN < b.chanceN
 		end
-		return a.seedId < b.seedId
+		return tostring(a.id) < tostring(b.id)
 	end)
 
 	return entries
 end
 
-local function seedIdsFromEntries(entries)
-	local seedIds = {}
-	for _, entry in ipairs(entries) do
-		seedIds[#seedIds + 1] = entry.seedId
+local function chanceTextForReward(weights, rewardKey)
+	local selectedWeight = weights and weights[rewardKey]
+	if type(selectedWeight) ~= "number" or selectedWeight <= 0 then
+		return nil
 	end
-	return seedIds
-end
 
-local function rarestSeedId(entries, excludedSeedId)
-	local rarest = nil
-	for _, entry in ipairs(entries) do
-		if entry.seedId ~= excludedSeedId and (not rarest or entry.chanceN > rarest.chanceN) then
-			rarest = entry
+	local totalWeight = 0
+	for _, weight in pairs(weights) do
+		if type(weight) == "number" and weight > 0 then
+			totalWeight += weight
 		end
 	end
-	return rarest and rarest.seedId or nil
+	if totalWeight <= 0 then
+		return nil
+	end
+
+	local oddsN = totalWeight / selectedWeight
+	return "1 in " .. tostring(math.max(math.floor(oddsN + 0.5), 1))
 end
 
-local function shouldTeaseRare(player)
-	local remaining = nextTeaseRolls[player]
-	if type(remaining) ~= "number" or remaining <= 0 then
-		remaining = rng:NextInteger(1, 3)
-	end
-	remaining -= 1
-	if remaining <= 0 then
-		nextTeaseRolls[player] = rng:NextInteger(1, 3)
-		return true
-	end
-	nextTeaseRolls[player] = remaining
-	return false
-end
-
-local function shuffledPreviewSeedIds(player, entries, rolledSeedId)
-	local allSeedIds = seedIdsFromEntries(entries)
-	local pool = {}
-	for _, seedId in ipairs(allSeedIds) do
-		if seedId ~= rolledSeedId then
-			pool[#pool + 1] = seedId
-		end
-	end
-
-	for index = #pool, 2, -1 do
-		local swapIndex = rng:NextInteger(1, index)
-		pool[index], pool[swapIndex] = pool[swapIndex], pool[index]
-	end
-
-	local preview = {}
-	local rareTease = shouldTeaseRare(player) and rarestSeedId(entries, rolledSeedId) or nil
-	if rareTease then
-		preview[#preview + 1] = rareTease
-	end
-	for index = 1, math.min(PREVIEW_COUNT - 1 - #preview, #pool) do
-		if pool[index] ~= rareTease then
-			preview[#preview + 1] = pool[index]
-		end
-	end
-	while #preview < math.min(PREVIEW_COUNT - 1, #pool) do
-		for _, seedId in ipairs(pool) do
-			if seedId ~= rareTease then
-				preview[#preview + 1] = seedId
-				if #preview >= PREVIEW_COUNT - 1 then
-					break
-				end
-			end
-		end
-		break
-	end
-	if #preview == 0 and #pool > 0 then
-		preview[#preview + 1] = pool[1]
-	end
-	preview[#preview + 1] = rolledSeedId
-	return preview
-end
-
-local function rollFeedForCrate(player, crateId, profile)
+local function rollRewardForCrate(crateId, profile)
 	local entries = collectRollPool()
 	if #entries == 0 then
 		return nil, "empty-roll-pool"
 	end
 
 	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
-	local feedWeights, weightCode = RollChances.ComputeFeedWeights(crateId, entries, luckPercent)
-	if not feedWeights then
-		return nil, weightCode or "invalid-feed-weights"
+	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, entries, luckPercent)
+	if not rewardWeights then
+		return nil, weightCode or "invalid-reward-weights"
 	end
 
-	local seedId = RollChances.WeightedChoice(feedWeights, rng)
-	if not seedId then
+	local rewardKey = RollChances.WeightedChoice(rewardWeights, rng)
+	if not rewardKey then
 		return nil, "empty-roll-pool"
 	end
 
 	local entry = nil
 	for _, candidate in ipairs(entries) do
-		if candidate.seedId == seedId then
+		if candidate.id == rewardKey then
 			entry = candidate
 			break
 		end
@@ -292,9 +253,9 @@ local function rollFeedForCrate(player, crateId, profile)
 		return nil, "missing-roll-entry"
 	end
 
-	entry.previewSeedIds = shuffledPreviewSeedIds(player, entries, entry.seedId)
-	entry.feedOdds = RollChances.ToPercentages(feedWeights)
-	return entry
+	local rolled = table.clone(entry)
+	rolled.rngChanceText = chanceTextForReward(rewardWeights, rewardKey) or ("1 in " .. tostring(entry.chanceN))
+	return rolled
 end
 
 local function sendRollEffect(player, buttonPart, rollBatchId, offers)
@@ -304,7 +265,6 @@ local function sendRollEffect(player, buttonPart, rollBatchId, offers)
 		ownerUserId = player.UserId,
 		button = buttonPart,
 		offers = offers,
-		duration = 2.5,
 	})
 end
 
@@ -435,6 +395,31 @@ local function consumePurchaseRate(player)
 	return consumeRateLimit(lastPurchaseRequest, player, PURCHASE_REQUEST_RATE_SECONDS)
 end
 
+local function applySeedReward(player, profile, offer)
+	local prepared, prepareCode = SeedTools.PrepareGrant(offer.seedId, 1)
+	if not prepared then
+		return false, prepareCode or "grant-failed"
+	end
+
+	local granted, grantCode = SeedTools.ApplyPrepared(player, profile, prepared)
+	if not granted then
+		SeedTools.DestroyPrepared(prepared)
+		return false, grantCode or "grant-failed"
+	end
+
+	return true, "ok"
+end
+
+local function applyMiscReward(_player, _profile, _offer)
+	-- Misc rewards are visual-only purchases until a concrete item behavior exists.
+	return true, "ok"
+end
+
+local rewardPurchaseHandlers = {
+	[RollRewards.Categories.Seed] = applySeedReward,
+	[RollRewards.Categories.Misc] = applyMiscReward,
+}
+
 function RollService.ApplyDropAreaVisibility(plot, profileOrLevel)
 	local level = profileOrLevel
 	if type(profileOrLevel) == "table" and profileOrLevel.Data then
@@ -485,7 +470,6 @@ function RollService.Roll(player, target, plot, profile)
 		local offerMap = {}
 		local effectOffers = {}
 		local publicOffers = {}
-		local flickerCount = RollConfig.Reveal.FlickerCount
 
 		for _, dropArea in ipairs(dropAreas) do
 			local crateId = RollChances.RollCrate(rng)
@@ -493,9 +477,9 @@ function RollService.Roll(player, target, plot, profile)
 				return false, "crate-roll-failed"
 			end
 
-			local rolled, rollCode = rollFeedForCrate(player, crateId, profile)
+			local rolled, rollCode = rollRewardForCrate(crateId, profile)
 			if not rolled then
-				return false, rollCode or "feed-roll-failed"
+				return false, rollCode or "reward-roll-failed"
 			end
 
 			nextOfferId += 1
@@ -503,8 +487,11 @@ function RollService.Roll(player, target, plot, profile)
 			local crate = RollChances.GetCrate(crateId)
 			offerMap[offerId] = {
 				offerId = offerId,
+				category = rolled.category,
+				rewardId = rolled.rewardId,
 				seedId = rolled.seedId,
 				feedType = rolled.feedType,
+				miscId = rolled.miscId,
 				displayName = rolled.displayName,
 				price = rolled.price,
 				crateFloor = dropArea.crateFloor,
@@ -518,17 +505,16 @@ function RollService.Roll(player, target, plot, profile)
 				crateId = crateId,
 				crateTemplateName = crate and crate.TemplateName or crateId,
 				crateFloor = dropArea.crateFloor,
+				category = rolled.category,
+				rewardId = rolled.rewardId,
 				seedId = rolled.seedId,
 				feedType = rolled.feedType,
+				miscId = rolled.miscId,
 				displayName = rolled.displayName,
 				rarity = rolled.rarity,
 				price = rolled.price,
 				chanceN = rolled.chanceN,
-				rngChanceText = "1 in " .. tostring(rolled.chanceN),
-				feedOdds = rolled.feedOdds,
-				previewSeedIds = rolled.previewSeedIds,
-				flickerCount = flickerCount,
-				duration = 2.5,
+				rngChanceText = rolled.rngChanceText,
 			}
 			publicOffers[#publicOffers + 1] = {
 				offerId = offerId,
@@ -536,13 +522,16 @@ function RollService.Roll(player, target, plot, profile)
 				ownerUserId = player.UserId,
 				dropAreaIndex = dropArea.index,
 				crateFloor = dropArea.crateFloor,
+				category = rolled.category,
+				rewardId = rolled.rewardId,
 				seedId = rolled.seedId,
 				feedType = rolled.feedType,
+				miscId = rolled.miscId,
 				displayName = rolled.displayName,
 				rarity = rolled.rarity,
 				price = rolled.price,
 				chanceN = rolled.chanceN,
-				rngChanceText = "1 in " .. tostring(rolled.chanceN),
+				rngChanceText = rolled.rngChanceText,
 			}
 		end
 
@@ -624,6 +613,8 @@ function RollService.Purchase(player, offerId, profile)
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-profile",
 			offerId = offerId,
+			category = offer.category,
+			rewardId = offer.rewardId,
 			seedId = offer.seedId,
 			feedType = offer.feedType,
 			price = offer.price,
@@ -636,6 +627,8 @@ function RollService.Purchase(player, offerId, profile)
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = "too-far",
 			offerId = offerId,
+			category = offer.category,
+			rewardId = offer.rewardId,
 			seedId = offer.seedId,
 			feedType = offer.feedType,
 			price = offer.price,
@@ -650,15 +643,14 @@ function RollService.Purchase(player, offerId, profile)
 			return false, spendCode or "insufficient-currency", currency
 		end
 
-		local prepared, prepareCode = SeedTools.PrepareGrant(offer.seedId, 1)
-		if not prepared then
+		local handler = rewardPurchaseHandlers[offer.category]
+		if not handler then
 			CurrencyService.Add(player, profile, offer.price)
-			return false, prepareCode or "grant-failed"
+			return false, "unsupported-reward", currency
 		end
 
-		local granted, grantCode = SeedTools.ApplyPrepared(player, profile, prepared)
+		local granted, grantCode = handler(player, profile, offer)
 		if not granted then
-			SeedTools.DestroyPrepared(prepared)
 			CurrencyService.Add(player, profile, offer.price)
 			return false, grantCode or "grant-failed"
 		end
@@ -674,6 +666,8 @@ function RollService.Purchase(player, offerId, profile)
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = "server-error",
 			offerId = offerId,
+			category = offer.category,
+			rewardId = offer.rewardId,
 			seedId = offer.seedId,
 			feedType = offer.feedType,
 			price = offer.price,
@@ -682,15 +676,20 @@ function RollService.Purchase(player, offerId, profile)
 	end
 
 	if success then
-		NotificationService.Success(player, string.format("Purchased %s!", offer.displayName or offer.feedType))
+		NotificationService.Success(player, string.format("Purchased %s!", offer.displayName or offer.rewardId or offer.feedType))
 		sendPurchaseResult(player, offerId, true, "ok", {
+			category = offer.category,
+			rewardId = offer.rewardId,
 			seedId = offer.seedId,
 			feedType = offer.feedType,
+			miscId = offer.miscId,
 			currency = currencyOrNil,
 		})
 		sendClearOffer(player, offerId)
 		TelemetryService.Record("crate_roll_purchase_succeeded", TelemetryService.ForPlayer(player, {
 			offerId = offerId,
+			category = offer.category,
+			rewardId = offer.rewardId,
 			seedId = offer.seedId,
 			feedType = offer.feedType,
 			price = offer.price,
@@ -710,6 +709,8 @@ function RollService.Purchase(player, offerId, profile)
 	TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 		reason = code,
 		offerId = offerId,
+		category = offer.category,
+		rewardId = offer.rewardId,
 		seedId = offer.seedId,
 		feedType = offer.feedType,
 		price = offer.price,
@@ -1060,7 +1061,6 @@ function RollService.Start()
 		lastDropAreaRequest[player] = nil
 		lastDropAreaStateRequest[player] = nil
 		pendingOffers[player] = nil
-		nextTeaseRolls[player] = nil
 	end)
 end
 
