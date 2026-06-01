@@ -1,0 +1,79 @@
+{
+  "capturedAt": "2026-06-01T10:09:20Z",
+  "root": "ReplicatedStorage.Seeds.Patches",
+  "reason": "Before replacing patch seed FoodID/FoodId attributes with FeedType attributes.",
+  "seeds": [
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Cabbage Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "CabbageSeed",
+        "FoodID": "Cabbage"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Corn Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "CornSeed",
+        "FoodID": "Corn"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Glowshroom Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "GlowshroomSeed",
+        "FoodID": "Glowshroom"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Mushroom Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "MushroomSeed",
+        "FoodID": "Mushroom"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Pineapple Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "PineappleSeed",
+        "FoodID": "Pineapple"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Potato Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "PotatoSeed",
+        "FoodID": "Potato"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Pumpkin Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "PumpkinSeed",
+        "FoodID": "Pumpkin"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Purple Shroom Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "PurpleShroomSeed",
+        "FoodID": "PurpleShroom"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Patches.Watermelon Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "WatermelonSeed",
+        "FoodID": "Watermelon"
+      }
+    }
+  ]
+}

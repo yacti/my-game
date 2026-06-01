@@ -1,0 +1,95 @@
+{
+  "capturedAt": "2026-06-01T10:11:20Z",
+  "root": "ReplicatedStorage.Seeds.Trees",
+  "reason": "Before correcting tree seed FeedType links to tree feed-machine templates.",
+  "seeds": [
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Apple Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "AppleTreeSeed",
+        "FeedType": "AppleTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Banana Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "BananaTreeSeed",
+        "FeedType": "BananaTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Blood Orange Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "BloodOrangeTreeSeed",
+        "FeedType": "BloodOrangeTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Cactus Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "CactusSeed",
+        "FeedType": "Cactus"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Cherry Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "CherryTreeSeed",
+        "FeedType": "CherryTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Dragonfruit Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "DragonfruitTreeSeed",
+        "FeedType": "Dragonfruit Tree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Durian Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "DurianTreeSeed",
+        "FeedType": "DurianTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Fig Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "FigTreeSeed",
+        "FeedType": "FigTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Golden Apple Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "GoldenAppleTreeSeed",
+        "FeedType": "GoldenAppleTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Orange Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "OrangeTreeSeed",
+        "FeedType": "OrangeTree"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Seeds.Trees.Plum Tree Seed",
+      "className": "UnionOperation",
+      "attributes": {
+        "SeedID": "PlumTreeSeed",
+        "FeedType": "PlumTree"
+      }
+    }
+  ]
+}

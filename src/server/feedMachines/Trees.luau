@@ -402,45 +402,51 @@ local function suffixNumber(name: string, prefix: string)
 	return suffix and tonumber(suffix) or nil
 end
 
-local function setupSlots(machine, s)
-	-- Index the ground markers by their numeric suffix.
-	local markers = {}
-	for _, child in ipairs(machine:GetChildren()) do
-		if child:IsA("BasePart") then
-			local n = suffixNumber(child.Name, "BaseFoodGround")
+local function slotParts(machine, prefix)
+	local parts = {}
+	for _, descendant in ipairs(machine:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local n = suffixNumber(descendant.Name, prefix)
 			if n then
-				markers[n] = child
-				configureMarker(child)
+				table.insert(parts, { n = n, part = descendant })
 			end
 		end
 	end
+	table.sort(parts, function(a, b) return a.n < b.n end)
+	return parts
+end
+
+local function setupSlots(machine, s)
+	-- Index the ground markers by their numeric suffix.
+	local markers = {}
+	for _, entry in ipairs(slotParts(machine, "BaseFoodGround")) do
+		markers[entry.n] = entry.part
+		configureMarker(entry.part)
+	end
 
 	-- Then walk BaseFoodN slots and pair each with its same-numbered marker.
-	for _, child in ipairs(machine:GetChildren()) do
-		if child:IsA("BasePart") then
-			local n = suffixNumber(child.Name, "BaseFood")
-			if n then
-				local marker = markers[n]
-				if not marker then
-					warn(string.format(
-						"[%s] BaseFood%d has no matching BaseFoodGround%d on %s",
-						s.balance.WarnPrefix, n, n, machine:GetFullName()
-					))
-				else
-					local anchor = makeSlotAnchor(machine, child)
-					child:Destroy()
-					local slot = {
-						n         = n,
-						anchor    = anchor,
-						marker    = marker,
-						foodPart  = nil,
-						respawnAt = nil,
-						ground    = nil,
-					}
-					slot.foodPart = spawnSlotVisual(slot, s.foodDrop)
-					table.insert(s.slots, slot)
-				end
-			end
+	for _, entry in ipairs(slotParts(machine, "BaseFood")) do
+		local n = entry.n
+		local child = entry.part
+		local marker = markers[n]
+		if not marker then
+			warn(string.format(
+				"[%s] BaseFood%d has no matching BaseFoodGround%d on %s",
+				s.balance.WarnPrefix, n, n, machine:GetFullName()
+			))
+		else
+			local anchor = makeSlotAnchor(machine, child)
+			child:Destroy()
+			local slot = {
+				n         = n,
+				anchor    = anchor,
+				marker    = marker,
+				foodPart  = nil,
+				respawnAt = nil,
+				ground    = nil,
+			}
+			slot.foodPart = spawnSlotVisual(slot, s.foodDrop)
+			table.insert(s.slots, slot)
 		end
 	end
 
