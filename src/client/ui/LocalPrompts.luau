@@ -278,6 +278,10 @@ local function isFeedMachine(instance)
 		and instance:GetAttribute(State.Feed.Index) ~= nil
 end
 
+local function isGrowingSeedFeed(instance)
+	return instance ~= nil and instance:GetAttribute(State.Seed.Phase) == "GrowingSeed"
+end
+
 local function owningGridPart(instance)
 	return PlotGrid.GridPartFromInstance(instance)
 end
@@ -567,14 +571,16 @@ local function refreshPrompt(target, kind, prompt)
 			and petCanGainXP(target)
 	elseif kind == "FeedPickup" then
 		prompt.ActionText = "Pick Up"
-		prompt.Enabled = isEditMode()
+		prompt.Enabled = isEditMode() and not isGrowingSeedFeed(target)
 	elseif kind == "FeedMachine" then
 		local enabled, actionText = processorContext(target)
 		prompt.ActionText = actionText
 		prompt.Enabled = enabled
 	elseif kind == "PatchHarvest" then
 		prompt.ActionText = "Harvest"
-		prompt.Enabled = not isEditMode() and hasSlotFood(target)
+		prompt.Enabled = not isEditMode()
+			and not isGrowingSeedFeed(target.Parent)
+			and hasSlotFood(target)
 	elseif kind == "TreeGroundPickup" then
 		if not isTreeGroundPickupTarget(target) then
 			removePrompt(target, kind)

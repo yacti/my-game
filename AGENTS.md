@@ -122,7 +122,7 @@ Key server modules:
 - `RollService`: server-authoritative crate/feed-machine rolls, roll cooldowns, pending roll offers, roll purchases, notifications, and roll VFX payloads.
 - `ReceiptService`: `MarketplaceService.ProcessReceipt` routing and processed receipt idempotency.
 - `RebirthService`: tiered rebirth transaction and receipt handling.
-- `FeedRewardService`: prepares/applies feed rewards for roll/rebirth flows.
+- `FeedRewardService`: prepares/applies mature feed-machine rewards for rebirth and other non-seed grants.
 - `FeedMachineTools`: feed tool cloning and attributes.
 - `NotificationService`: `PlayerNotification` wrapper.
 - `AssetValidator`: startup contracts for remotes, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
@@ -136,6 +136,8 @@ Security nuance: `PlaceFeedMachine` validates finite `CFrame`, plot, equipped to
 Templates live under Studio-owned `ReplicatedStorage.FeedMachines/<Class>/<Template>`.
 
 Stable gameplay identity is `FeedType`. Broad behavior is `FeedClass`. Template/model names and containing folders are visual/organizational only; the folder is only the default when `FeedClass` is omitted.
+
+Roll-purchased growables are Studio-owned seed templates under `ReplicatedStorage.Seeds`. Seed templates own `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`; feed-machine templates own mature behavior attributes only. Placed seeds persist as growing feed placements until `GrowTime` elapses, then mature into the existing patch/tree class behavior. Mature feed-machine tools from pickup or starter/rebirth rewards still place directly.
 
 `src/server/feedMachines/init.luau` indexes templates and dispatches by feed type/class. Class modules implement:
 
@@ -159,7 +161,7 @@ Current class behavior:
 
 Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. Patches use generic server defaults plus Studio template attributes such as `FoodDrop`, `XP`, and `GrowRate`. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
-Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` and legacy `Clicker1` were removed from active defaults/templates. `PlayerDataService` treats those feed types as deprecated and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
+Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` and legacy `Clicker1` were removed from active defaults/templates. `PlayerDataService` treats those feed types as deprecated and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, seed `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
 
 When touching feeds, foods, roll odds, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance modules, Studio template attributes, and `docs/publish-checklist.md`.
 
@@ -181,9 +183,9 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `LocalPrompts` creates client-only `ProximityPrompt`s for pet feeding, feed pickup, processor interaction, patch harvest, tree ground pickup, and grid unlocks. It only binds prompts inside the player's assigned plot and refreshes context every 0.1 seconds, but every trigger still goes through `PromptInteract`.
 
-`FeedPlacement` uses the equipped feed-machine tool's `FeedType`, finds the Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. It prefers placement controls inside `HUD`; otherwise it clones `ReplicatedStorage.UI.FeedPlacementGui`.
+`FeedPlacement` uses the equipped mature feed-machine tool's `FeedType`, or a seed tool's `SeedID` resolved through `Seeds.luau`, finds the target Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. It prefers placement controls inside `HUD`; otherwise it clones `ReplicatedStorage.UI.FeedPlacementGui`.
 
-`RollController` listens for server roll result/effect payloads, clones crate/feed-machine templates locally, plays the crate fall/flicker/reveal presentation, and fires the local revealed-item buy prompt back to the server. `RebirthController` opens from HUD UI and requests server state/result remotes.
+`RollController` listens for server roll result/effect payloads, clones crate/seed templates locally, plays the crate fall/flicker/reveal presentation, and fires the local revealed-item buy prompt back to the server. `RebirthController` opens from HUD UI and requests server state/result remotes.
 
 Satchel is Rojo-mapped through `src/satchel.rbxm`; no game Luau in this repo starts it directly. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
 
@@ -195,13 +197,13 @@ Important shared modules:
 - `State.luau`: central replicated runtime attribute keys.
 - `Interactions.luau`: valid `PromptInteract` action names.
 - `Notifications.luau`: shared notification payload normalization.
-- `PetCatalog`, `Food`, `RollChances`: runtime/catalog helpers and odds config used by server/client code.
+- `PetCatalog`, `Food`, `Seeds`, `RollChances`: runtime/catalog helpers and odds config used by server/client code.
 - `PlotGrid`: grid folder names, grid attributes, coordinate keys, fence/corner naming, and legacy plot-size migration helpers.
 - `RebirthBalance`: rebirth economy.
 - `Balance`: pet visual scaling only.
 - `ProfileStore.luau`: vendored dependency. Do not edit except for intentional library upgrades.
 
-Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, feed-machine `XP`, patch `FoodDrop`, patch `GrowRate`, cosmetic feed rarity, `RollChanceN`, and roll `Price` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
+Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, feed-machine `XP`, patch `FoodDrop`, patch `GrowRate`, seed `GrowTime`, seed cosmetic `Rarity`, seed `RollChanceN`, and seed roll `Price` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
 
 `FoodId` is the stable exact food template key. `FoodType` is the broad category used by processors and old-tool compatibility. Food templates may be nested recursively under `ReplicatedStorage.Food`.
 
@@ -232,7 +234,7 @@ Do not assume every remote is symmetric or actively fired from both sides. Some 
 
 ## Rolls And Rebirth
 
-`RollService` owns crate rolls from the plot-local roll button. The request path is a server-owned `ClickDetector` on the RollArea button; the result presentation is a `CrateRollEffect` payload to the rolling player. The server chooses the crate, computes per-feed-machine weights from `RollChanceN`, applies crate luck through `RollChances`, creates a short-lived pending offer priced from the template `Price`, and fires the client effect. The client renders the local revealed item and buy prompt, then `CrateRollPurchaseRequest` lets the server validate distance, currency, and offer freshness before spending currency and granting the feed tool through `FeedRewardService`.
+`RollService` owns crate rolls from the plot-local roll button. The request path is a server-owned `ClickDetector` on the RollArea button; the result presentation is a `CrateRollEffect` payload to the rolling player. The server chooses the crate, computes per-seed weights from seed `RollChanceN`, applies crate luck through `RollChances`, creates a short-lived pending offer priced from the seed template `Price`, and fires the client effect. The client renders the local revealed seed and buy prompt, then `CrateRollPurchaseRequest` lets the server validate distance, currency, and offer freshness before spending currency and granting the seed tool through `SeedTools`.
 
 `RollChances` currently configures crate drop weights and the `LuckyCrate` rule where non-donor feed machines are boosted and surplus weight is removed proportionally from the easiest donor machines. `RollConfig` owns shared roll presentation timing/counts used by both server cooldowns and client visuals. `Rarity` is cosmetic only and does not affect roll odds. For paid rolls, actual final odds must be disclosed before purchase and `PolicyService.ArePaidRandomItemsRestricted` must be respected.
 
@@ -244,7 +246,7 @@ Rebirth is a specific economy transaction, not a generic wipe. Current behavior 
 
 `PlayerDataService` uses ProfileStore with `STORE_NAME = "PlayerData"` and mock mode in Studio by default.
 
-During a session, live plot Instances are the runtime source of truth for pets, feed placements, food inventory, feed inventory, and runtime extras. Profile tables are the persistence boundary after snapshot.
+During a session, live plot Instances are the runtime source of truth for pets, feed placements, growing seed placements, food inventory, seed inventory, feed inventory, and runtime extras. Profile tables are the persistence boundary after snapshot.
 
 `init.server.luau` snapshots plot state back into `profile.Data` every 60 seconds, after prompt interactions, after successful placement, on leave, and during shutdown.
 

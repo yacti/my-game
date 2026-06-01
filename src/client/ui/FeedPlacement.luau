@@ -11,6 +11,7 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
 local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
@@ -778,7 +779,13 @@ function FeedPlacement.start()
 
 	local function bindTool(tool)
 		if not tool:IsA("Tool") then return end
-		local toolFeedType = tool:GetAttribute(State.Feed.Type)
+		local seedId = tool:GetAttribute(State.Seed.Id)
+		local toolFeedType = nil
+		if type(seedId) == "string" and seedId ~= "" then
+			toolFeedType = Seeds.FeedTypeFor(seedId)
+		else
+			toolFeedType = tool:GetAttribute(State.Feed.Type)
+		end
 		if type(toolFeedType) ~= "string" or toolFeedType == "" then return end
 		tool.Equipped:Connect(function()
 			activeFeedType  = toolFeedType

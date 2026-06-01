@@ -6,10 +6,12 @@ local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore
 local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
 local RollDropAreaBalance = require(ReplicatedStorage.Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
+local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 2
+local CURRENT_DATA_VERSION = 3
+local GROWING_SEED_PHASE = "GrowingSeed"
 
 local DEPRECATED_FEED_TYPES = {
 	Clicker1 = true,
@@ -32,6 +34,7 @@ local DATA_TEMPLATE = {
 		OrangeTree = 1,
 		PumpkinPatch = 1,
 	},
+	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
 	Currency = 0,
@@ -119,6 +122,10 @@ local function migrateData(data)
 		elseif nextVersion == 2 then
 			removeDeprecatedFeedTypesFromMap(data.FeedInventory)
 			removeDeprecatedFeedPlacements(data)
+		elseif nextVersion == 3 then
+			if type(data.SeedInventory) ~= "table" then
+				data.SeedInventory = {}
+			end
 		end
 
 		version = nextVersion
@@ -173,6 +180,19 @@ local function ensureValidData(profile)
 					lz = tonumber(placement.lz) or 0,
 					lry = tonumber(placement.lry) or 0,
 				}
+				if placement.phase == GROWING_SEED_PHASE then
+					local seedId = type(placement.seedId) == "string" and placement.seedId or nil
+					local seedFeedType = seedId and Seeds.FeedTypeFor(seedId) or nil
+					local growTime = math.max(tonumber(placement.growTime) or Seeds.GrowTimeFor(seedId) or 0, 0)
+					if not (seedId and seedFeedType and growTime > 0) then
+						continue
+					end
+					clean.type = seedFeedType
+					clean.phase = GROWING_SEED_PHASE
+					clean.seedId = seedId
+					clean.plantedAt = tonumber(placement.plantedAt) or os.time()
+					clean.growTime = growTime
+				end
 				if type(placement.queue) == "table" then
 					clean.queue = {}
 					for _, item in ipairs(placement.queue) do
@@ -227,6 +247,19 @@ local function ensureValidData(profile)
 	end
 	profile.Data.FeedInventory = feedInventory
 
+	local seedInventory = {}
+	if type(profile.Data.SeedInventory) == "table" then
+		for seedId, count in pairs(profile.Data.SeedInventory) do
+			if type(seedId) == "string"
+				and type(count) == "number"
+				and count > 0
+				and Seeds.GetTemplate(seedId) then
+				seedInventory[seedId] = math.floor(count)
+			end
+		end
+	end
+	profile.Data.SeedInventory = seedInventory
+
 	local foodInventory = {}
 	if type(profile.Data.FoodInventory) == "table" then
 		for foodId, count in pairs(profile.Data.FoodInventory) do
@@ -266,6 +299,9 @@ local function ensureValidData(profile)
 
 	local totalFeeds = #profile.Data.FeedPlacements
 	for _, count in pairs(profile.Data.FeedInventory) do
+		totalFeeds += count
+	end
+	for _, count in pairs(profile.Data.SeedInventory) do
 		totalFeeds += count
 	end
 	if totalFeeds == 0 then

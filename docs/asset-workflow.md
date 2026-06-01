@@ -15,7 +15,10 @@ These live under `ReplicatedStorage` and are required by server/client code:
 - `Crates`
 - `UI`
 - `FeedMachineTool`
+- `SeedTool`
 - `EditTool`
+- `Seeds`
+- `Misc` (`Sapling`, `Clouds`)
 
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
@@ -34,6 +37,9 @@ asset-backups/
     FeedMachines.rbxm
     Food.rbxm
     FeedMachineTool.rbxm
+    SeedTool.rbxm
+    Seeds.rbxm
+    Misc.rbxm
     EditTool.rbxm
 ```
 
@@ -60,8 +66,10 @@ Avoid migrating everything at once. Complex models can break if pivots,
 
 `src/server/AssetValidator.luau` checks required asset roots, templates,
 attributes, remotes, crates, tools, UI templates, roll areas, and plot structure at server startup.
-Feed-machine templates used by crate rolls must include valid `RollChanceN` and
-`Price` attributes; `Rarity` is display-only when present.
+Seed templates used by crate rolls must include valid `RollChanceN`, `Price`,
+`GrowTime`, and `FeedType` attributes; `Rarity` is display-only when present.
+Feed-machine templates should not duplicate seed-owned roll/economy/growth
+attributes.
 Critical gameplay assets still fail startup when they are missing or malformed.
 Studio-owned UI assets warn clearly and the affected UI path skips itself; the
 code should not generate fallback UI.

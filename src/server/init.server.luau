@@ -16,12 +16,14 @@ local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
+local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
 local RollService       = require(Server:WaitForChild("RollService"))
+local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
@@ -100,8 +102,10 @@ local function saveFeedState(plot, player, profile)
 				lz   = lz,
 				lry  = lry,
 			}
-			-- Per-class extras (e.g. Processor queue). Merged shallow.
-			local extras = FeedMachines.Serialize(f)
+			-- Per-class extras (or growing-seed state). Merged shallow.
+			local extras = FeedGrowthService.IsGrowing(f)
+				and FeedGrowthService.Serialize(f)
+				or FeedMachines.Serialize(f)
 			if type(extras) == "table" then
 				for k, v in pairs(extras) do rec[k] = v end
 			end
@@ -121,6 +125,7 @@ local function saveFeedState(plot, player, profile)
 		captureTool(player.Character:FindFirstChildWhichIsA("Tool"))
 	end
 	profile.Data.FeedInventory = feedInventory
+	profile.Data.SeedInventory = SeedTools.CountBySeed(player)
 
 	profile.Data.FoodInventory = Food.CountByType(player)
 end
@@ -131,6 +136,22 @@ local function snapshotProfileState(player, plot, profile)
 	saveFeedState(plot, player, profile)
 	profile.Data.LastSeen = os.time()
 end
+
+local function notifyGrown(player, feed)
+	if not (player and feed) then return end
+	NotificationService.Success(player, string.format("%s has grown!", feed.Name))
+end
+
+FeedGrowthService.Start({
+	onMature = function(player, plot, matureFeed)
+		notifyGrown(player, matureFeed)
+		PetMotionService.RefreshPlotRoutes(plot)
+		local profile = PlayerDataService.GetProfile(player)
+		if profile then
+			snapshotProfileState(player, plot, profile)
+		end
+	end,
+})
 
 -- ── Pet state replication ────────────────────────────────────────────────────
 -- Per-pet state is published as attributes on the pet Model. Clients subscribe
@@ -443,6 +464,7 @@ local function pickupFeed(feed, plot, player)
 	if not (feed:IsA("BasePart") or feed:IsA("Model")) then return end
 	local feedType = feed:GetAttribute(State.Feed.Type)
 	if type(feedType) ~= "string" or feedType == "" then return end
+	if FeedGrowthService.IsGrowing(feed) then return end
 	if player:GetAttribute("EditMode") ~= true then return end
 	if not isPlayerNearInstance(player, feed, 14) then return end
 	if not FeedMachines.PrePickup(feed, player) then return end
@@ -539,13 +561,31 @@ Players.PlayerAdded:Connect(function(player)
 	RollService.ApplyDropAreaVisibility(plot, profile)
 
 	PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
-	PlotService.SpawnFeedsForPlot(plot, profile.Data.FeedPlacements)
+	local maturedOnLoad = {}
+	for index, placement in ipairs(profile.Data.FeedPlacements or {}) do
+		if type(placement) == "table" and placement.phase == FeedGrowthService.Phase then
+			local restored, status = FeedGrowthService.RestorePlacement(plot, player, placement, index)
+			if restored and status == "mature" then
+				maturedOnLoad[#maturedOnLoad + 1] = restored
+			end
+		else
+			PlotService.PlaceFeedWithIndex(plot, placement.type, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
+		end
+	end
 
 	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+		if FeedGrowthService.IsGrowing(feed) then
+			continue
+		end
 		FeedMachines.Setup(feed, plot, player)
 		local idx   = feed:GetAttribute(State.Feed.Index)
 		local saved = idx and profile.Data.FeedPlacements[idx] or nil
-		if saved then FeedMachines.Apply(feed, saved) end
+		if saved and saved.phase ~= FeedGrowthService.Phase then FeedMachines.Apply(feed, saved) end
+	end
+	for _, feed in ipairs(maturedOnLoad) do
+		task.defer(function()
+			notifyGrown(player, feed)
+		end)
 	end
 
 	applyOfflineEarnings(plot, profile)
@@ -582,6 +622,14 @@ Players.PlayerAdded:Connect(function(player)
 				if type(count) == "number" then
 					for _ = 1, count do
 						local tool = FeedMachineTools.MakeFeedTool(feedType)
+						if tool then tool.Parent = player.Backpack end
+					end
+				end
+			end
+			for seedId, count in pairs(profile.Data.SeedInventory or {}) do
+				if type(count) == "number" then
+					for _ = 1, count do
+						local tool = SeedTools.MakeSeedTool(seedId)
 						if tool then tool.Parent = player.Backpack end
 					end
 				end

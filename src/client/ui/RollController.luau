@@ -8,7 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
-local State = require(Shared:WaitForChild("State"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
 
 local RollController = {}
 
@@ -94,17 +94,8 @@ local function ownerUserIdFromPayload(payload)
 	return Players.LocalPlayer.UserId
 end
 
-local function findFeedTemplate(feedType)
-	local root = ReplicatedStorage:FindFirstChild("FeedMachines")
-	if not root then
-		return nil
-	end
-	for _, instance in ipairs(root:GetDescendants()) do
-		if (instance:IsA("BasePart") or instance:IsA("Model")) and instance:GetAttribute(State.Feed.Type) == feedType then
-			return instance
-		end
-	end
-	return nil
+local function findSeedTemplate(seedId)
+	return Seeds.GetTemplate(seedId)
 end
 
 local function crateTemplate(name)
@@ -626,14 +617,14 @@ local function setBlackNeon(root)
 	end
 end
 
-local function makeFeedClone(feedType, name, blackNeon, scale)
-	local template = findFeedTemplate(feedType)
+local function makeSeedClone(seedId, name, blackNeon, scale)
+	local template = findSeedTemplate(seedId)
 	if not template then
 		return nil
 	end
 
 	local clone = template:Clone()
-	clone.Name = name or ("RollPreview_" .. tostring(feedType))
+	clone.Name = name or ("RollPreview_" .. tostring(seedId))
 	prepareEffect(clone)
 	scaleClone(clone, scale or REVEAL_SCALE)
 	if blackNeon then
@@ -666,19 +657,19 @@ local function addPurchasePrompt(model, payload)
 	end)
 end
 
-local function previewFeedTypes(payload)
-	local types = {}
-	if type(payload.previewFeedTypes) == "table" then
-		for _, feedType in ipairs(payload.previewFeedTypes) do
-			if type(feedType) == "string" and feedType ~= "" then
-				types[#types + 1] = feedType
+local function previewSeedIds(payload)
+	local seedIds = {}
+	if type(payload.previewSeedIds) == "table" then
+		for _, seedId in ipairs(payload.previewSeedIds) do
+			if type(seedId) == "string" and seedId ~= "" then
+				seedIds[#seedIds + 1] = seedId
 			end
 		end
 	end
-	if #types == 0 and type(payload.feedType) == "string" then
-		types[1] = payload.feedType
+	if #seedIds == 0 and type(payload.seedId) == "string" then
+		seedIds[1] = payload.seedId
 	end
-	return types
+	return seedIds
 end
 
 local function flickerStepDuration(index, count)
@@ -686,8 +677,8 @@ local function flickerStepDuration(index, count)
 end
 
 local function playRollingPreview(payload, crateFloor, token)
-	local types = previewFeedTypes(payload)
-	if #types == 0 then
+	local seedIds = previewSeedIds(payload)
+	if #seedIds == 0 then
 		return isCurrentRoll(token)
 	end
 	local count = FLICKER_COUNT
@@ -696,8 +687,8 @@ local function playRollingPreview(payload, crateFloor, token)
 			return false
 		end
 		local duration = flickerStepDuration(index, count)
-		local feedType = types[((index - 1) % #types) + 1]
-		local clone = makeFeedClone(feedType, "RollFlicker_" .. tostring(feedType), true, FLICKER_START_SCALE)
+		local seedId = seedIds[((index - 1) % #seedIds) + 1]
+		local clone = makeSeedClone(seedId, "RollFlicker_" .. tostring(seedId), true, FLICKER_START_SCALE)
 		if clone then
 			clone.Parent = Workspace
 			trackRollEffect(clone, payload.offerId)
@@ -727,7 +718,7 @@ local function revealFeedMachine(payload, crateFloor, token)
 	end
 	clearActiveReveal(payload.offerId)
 
-	local blackClone = makeFeedClone(payload.feedType, "RollFinalBlack_" .. tostring(payload.feedType), true, FLICKER_START_SCALE)
+	local blackClone = makeSeedClone(payload.seedId, "RollFinalBlack_" .. tostring(payload.seedId), true, FLICKER_START_SCALE)
 	if blackClone then
 		blackClone.Parent = Workspace
 		trackRollEffect(blackClone, payload.offerId)
@@ -751,7 +742,7 @@ local function revealFeedMachine(payload, crateFloor, token)
 		end
 	end
 
-	local clone = makeFeedClone(payload.feedType, "RollReveal_" .. tostring(payload.feedType), false, FLICKER_END_SCALE)
+	local clone = makeSeedClone(payload.seedId, "RollReveal_" .. tostring(payload.seedId), false, FLICKER_END_SCALE)
 	if not clone then
 		return
 	end
@@ -783,7 +774,7 @@ local function showPublicOffer(payload)
 	end
 
 	clearActiveReveal(payload.offerId)
-	local clone = makeFeedClone(payload.feedType, "RollPublicReveal_" .. tostring(payload.feedType), false, REVEAL_FINAL_SCALE)
+	local clone = makeSeedClone(payload.seedId, "RollPublicReveal_" .. tostring(payload.seedId), false, REVEAL_FINAL_SCALE)
 	if not clone then
 		return
 	end

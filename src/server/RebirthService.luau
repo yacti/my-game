@@ -257,6 +257,7 @@ local function snapshotProfile(profile)
 		Rebirths = integer(profile.Data.Rebirths, 0),
 		Pets = deepCopyArray(profile.Data.Pets),
 		FeedInventory = copyMap(profile.Data.FeedInventory),
+		SeedInventory = copyMap(profile.Data.SeedInventory),
 		ProcessedReceipts = copyMap(profile.Data.ProcessedReceipts),
 	}
 end
@@ -266,6 +267,7 @@ local function restoreProfile(player, profile, snapshot)
 	profile.Data.Rebirths = snapshot.Rebirths or 0
 	profile.Data.Pets = deepCopyArray(snapshot.Pets)
 	profile.Data.FeedInventory = copyMap(snapshot.FeedInventory)
+	profile.Data.SeedInventory = copyMap(snapshot.SeedInventory)
 	profile.Data.ProcessedReceipts = copyMap(snapshot.ProcessedReceipts)
 end
 

@@ -14,6 +14,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
@@ -23,8 +24,11 @@ local REQUIRED_ROOTS = {
 	"FeedMachines",
 	"Food",
 	"Crates",
+	"Seeds",
 	"FeedMachineTool",
+	"SeedTool",
 	"EditTool",
+	"Misc",
 	"Remotes",
 }
 
@@ -39,6 +43,7 @@ local REQUIRED_FEEDS = {
 
 local REQUIRED_TOOLS = {
 	"FeedMachineTool",
+	"SeedTool",
 	"EditTool",
 }
 
@@ -61,6 +66,13 @@ local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
 
 local DEPRECATED_FEED_ATTRIBUTES = {
 	XPMultiplier = State.Feed.XP,
+}
+
+local SEED_OWNED_FEED_ATTRIBUTES = {
+	Seeds.Attributes.RollChanceN,
+	Seeds.Attributes.Price,
+	Seeds.Attributes.Rarity,
+	Seeds.Attributes.GrowTime,
 }
 
 local DEPRECATED_FOOD_ATTRIBUTES = {
@@ -227,27 +239,23 @@ local function validateFeedTemplateIdentity(root, errors)
 				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Class, tostring(feedClass)))
 			end
 
-			local rarity = template:GetAttribute(State.Feed.Rarity)
-			if rarity ~= nil and not Rarities.IsValid(rarity) then
-				add(errors, string.format("%s has unknown %s %q", template:GetFullName(), State.Feed.Rarity, tostring(rarity)))
+			for _, attributeName in ipairs(SEED_OWNED_FEED_ATTRIBUTES) do
+				if template:GetAttribute(attributeName) ~= nil then
+					add(errors, string.format(
+						"%s has seed-owned attribute %s; move it to the matching seed template",
+						template:GetFullName(),
+						attributeName
+					))
+				end
 			end
 
-			local rollChanceN = template:GetAttribute(State.Feed.RollChanceN)
-			if not RollChances.BaseWeightForChance(rollChanceN) then
-				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.RollChanceN, tostring(rollChanceN)))
-			end
-
-			local price = template:GetAttribute(State.Feed.Price)
-			if type(price) ~= "number" or price < 0 or price ~= math.floor(price) then
-				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.Price, tostring(price)))
-			end
 			for _, attributeName in ipairs(DISALLOWED_FEED_PRICE_ATTRIBUTES) do
 				if template:GetAttribute(attributeName) ~= nil then
 					add(errors, string.format(
-						"%s has deprecated price attribute %s; use %s only",
+						"%s has deprecated price attribute %s; use seed %s only",
 						template:GetFullName(),
 						attributeName,
-						State.Feed.Price
+						Seeds.Attributes.Price
 					))
 				end
 			end
@@ -291,6 +299,109 @@ local function validateFeedTemplates(errors)
 			add(errors, "Missing feed machine template " .. feedType)
 		elseif template:IsA("Model") and not template.PrimaryPart then
 			add(errors, template:GetFullName() .. " missing PrimaryPart")
+		end
+	end
+end
+
+local function validateSeeds(errors)
+	local root = child(ReplicatedStorage, "Seeds", "Folder", errors)
+	if not root then return end
+
+	local function hasSeedTemplateAncestor(instance)
+		local parent = instance.Parent
+		while parent and parent ~= root do
+			if parent:IsA("BasePart") or parent:IsA("Model") then
+				return true
+			end
+			parent = parent.Parent
+		end
+		return false
+	end
+
+	local seenBySeedId = {}
+	local count = 0
+	for _, template in ipairs(root:GetDescendants()) do
+		if not (template:IsA("BasePart") or template:IsA("Model")) or hasSeedTemplateAncestor(template) then
+			continue
+		end
+		count += 1
+
+		local seedId = template:GetAttribute(Seeds.Attributes.Id)
+		if type(seedId) ~= "string" or seedId == "" then
+			add(errors, template:GetFullName() .. " missing " .. Seeds.Attributes.Id .. " attribute")
+		elseif seenBySeedId[seedId] then
+			add(errors, string.format(
+				"Duplicate %s %q on %s and %s",
+				Seeds.Attributes.Id,
+				seedId,
+				seenBySeedId[seedId]:GetFullName(),
+				template:GetFullName()
+			))
+		else
+			seenBySeedId[seedId] = template
+		end
+
+		for _, deprecated in ipairs({ "FoodID", "FoodId" }) do
+			if template:GetAttribute(deprecated) ~= nil then
+				add(errors, string.format("%s has deprecated seed attribute %s; use %s", template:GetFullName(), deprecated, Seeds.Attributes.FeedType))
+			end
+		end
+
+		local feedType = template:GetAttribute(Seeds.Attributes.FeedType)
+		local feedClass = type(feedType) == "string" and FeedMachines.GetClass(feedType) or nil
+		if type(feedType) ~= "string" or feedType == "" then
+			add(errors, template:GetFullName() .. " missing " .. Seeds.Attributes.FeedType .. " attribute")
+		elseif not FeedMachines.GetTemplate(feedType) then
+			add(errors, string.format("%s has unknown %s %q", template:GetFullName(), Seeds.Attributes.FeedType, tostring(feedType)))
+		elseif feedClass ~= "Patch" and feedClass ~= "Tree" then
+			add(errors, string.format("%s resolves to unsupported roll seed class %q", template:GetFullName(), tostring(feedClass)))
+		end
+
+		local growTime = template:GetAttribute(Seeds.Attributes.GrowTime)
+		if type(growTime) ~= "number" or growTime <= 0 then
+			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.GrowTime, tostring(growTime)))
+		end
+
+		local rollChanceN = template:GetAttribute(Seeds.Attributes.RollChanceN)
+		if not RollChances.BaseWeightForChance(rollChanceN) then
+			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.RollChanceN, tostring(rollChanceN)))
+		end
+
+		local price = template:GetAttribute(Seeds.Attributes.Price)
+		if type(price) ~= "number" or price < 0 or price ~= math.floor(price) then
+			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.Price, tostring(price)))
+		end
+
+		local rarity = template:GetAttribute(Seeds.Attributes.Rarity)
+		if rarity ~= nil and not Rarities.IsValid(rarity) then
+			add(errors, string.format("%s has unknown %s %q", template:GetFullName(), Seeds.Attributes.Rarity, tostring(rarity)))
+		end
+
+		if template:IsA("Model") and not template.PrimaryPart then
+			add(errors, template:GetFullName() .. " missing PrimaryPart")
+		end
+	end
+
+	if count == 0 then
+		add(errors, "ReplicatedStorage.Seeds must contain at least one seed template")
+	end
+end
+
+local function validateMisc(errors)
+	local misc = child(ReplicatedStorage, "Misc", "Folder", errors)
+	if not misc then return end
+
+	local sapling = child(misc, "Sapling", "Model", errors)
+	if sapling then
+		local hasPart = false
+		for _, descendant in ipairs(sapling:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				hasPart = true
+				break
+			end
+		end
+		if not hasPart then
+			add(errors, sapling:GetFullName() .. " has no BasePart descendants")
 		end
 	end
 end
@@ -612,6 +723,10 @@ local function validateUi(errors)
 	validateBillboardTemplate(ui, "ToolStatsBillboard", "StatsLabel", errors)
 	validateBillboardTemplate(ui, "SlotXPBillboard", "XPLabel", errors)
 	validateBillboardTemplate(ui, "TreeGroundXPBillboard", "XPLabel", errors)
+	local growingSeed = validateBillboardTemplate(ui, "GrowingSeedBillboard", "TitleLabel", errors)
+	if growingSeed then
+		descendant(growingSeed, "TimeLabel", "TextLabel", errors)
+	end
 
 	validatePlacementControls(ui, hud, errors)
 
@@ -801,6 +916,8 @@ function AssetValidator.validate()
 	validateRemotes(errors)
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
+	validateSeeds(errors)
+	validateMisc(errors)
 	validateCrates(errors)
 	validateRebirthBalance(errors)
 	validateRollLuckBalance(errors)

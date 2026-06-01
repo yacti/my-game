@@ -570,30 +570,27 @@ function PlotService.SpawnFeedsForPlot(plot, placements)
 			warn("[PlotService] Skipping feed placement with no feed type")
 			continue
 		end
-		local template = FeedMachines.GetTemplate(feedType)
-		if not template then
-			warn("[PlotService] No feed template: " .. feedType)
-			continue
-		end
-		local clone = template:Clone()
-		stripPromptTemplates(clone)
-		applyFeedIdentity(clone, feedType, i)
-
-		local height = templateHeight(clone)
 		local lx, lz = PlotGridService.NearestUnlockedPoint(plot, rec.lx or 0, rec.lz or 0)
-		anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, rec.lry or 0))
-		clone.Parent = plot
+		PlotService.PlaceFeedWithIndex(plot, feedType, i, lx, lz, rec.lry or 0)
 	end
 end
 
--- Spawns a single FeedMachine at floor-local (lx, lz, lry). Returns the
--- new instance (BasePart or Model) with FeedType and FeedIndex set,
--- parented to the plot.
-function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
+function PlotService.NextFeedIndex(plot)
+	local maxIndex = 0
+	for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
+		local idx = f:GetAttribute(State.Feed.Index) or 0
+		if idx > maxIndex then maxIndex = idx end
+	end
+	return maxIndex + 1
+end
+
+-- Spawns a feed/growing instance at a specific floor-local placement index.
+-- The optional template override is used for growing visuals such as saplings.
+function PlotService.PlaceFeedWithIndex(plot, feedType, feedIndex, lx, lz, lry, templateOverride)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
 
-	local template = FeedMachines.GetTemplate(feedType)
+	local template = templateOverride or FeedMachines.GetTemplate(feedType)
 	if not template then
 		warn("[PlotService] No feed template: " .. tostring(feedType))
 		return nil
@@ -601,18 +598,19 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 
 	local clone = template:Clone()
 	stripPromptTemplates(clone)
-
-	local maxIndex = 0
-	for _, f in ipairs(PlotService.GetSortedFeeds(plot)) do
-		local idx = f:GetAttribute(State.Feed.Index) or 0
-		if idx > maxIndex then maxIndex = idx end
-	end
-	applyFeedIdentity(clone, feedType, maxIndex + 1)
+	applyFeedIdentity(clone, feedType, feedIndex)
 
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
 	return clone
+end
+
+-- Spawns a single mature FeedMachine at floor-local (lx, lz, lry). Returns the
+-- new instance (BasePart or Model) with FeedType and FeedIndex set,
+-- parented to the plot.
+function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
+	return PlotService.PlaceFeedWithIndex(plot, feedType, PlotService.NextFeedIndex(plot), lx, lz, lry)
 end
 
 function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)

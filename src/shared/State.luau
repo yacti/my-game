@@ -82,6 +82,13 @@ State.Food = {
 	XP      = "XP",
 }
 
+State.Seed = {
+	Id = "SeedID",
+	Phase = "SeedPhase",
+	GrowEndAt = "SeedGrowEndAt",
+	TargetDisplayName = "SeedTargetDisplayName",
+}
+
 State.TreeClicker = {
 	GroundFolder = "TreeClickerGroundPiles",
 	GroundPile = "TreeClickerGroundPile",

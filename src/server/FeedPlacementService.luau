@@ -1,16 +1,19 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
+local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
 local FeedPlacementService = {}
@@ -113,12 +116,19 @@ function FeedPlacementService.Start(config)
 				return
 			end
 			local tool = character:FindFirstChildWhichIsA("Tool")
-			if not FeedMachineTools.IsFeedTool(tool) then
+			local seedId = nil
+			local placingSeed = SeedTools.IsSeedTool(tool)
+			local feedType = nil
+			if placingSeed then
+				seedId = SeedTools.SeedIdOf(tool)
+				feedType = seedId and Seeds.FeedTypeFor(seedId) or nil
+			elseif FeedMachineTools.IsFeedTool(tool) then
+				feedType = tool:GetAttribute(State.Feed.Type)
+			else
 				sendPlaceResult(player, requestId, false, "no-feed-tool")
 				return
 			end
 
-			local feedType = tool:GetAttribute(State.Feed.Type)
 			if type(feedType) ~= "string" or feedType == "" then
 				sendPlaceResult(player, requestId, false, "no-feed-tool")
 				return
@@ -167,14 +177,22 @@ function FeedPlacementService.Start(config)
 				return
 			end
 
-			local feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+			local feedPart
+			local placeCode
+			if placingSeed then
+				feedPart, placeCode = FeedGrowthService.PlaceSeed(plot, player, seedId, snappedLX, snappedLZ, snappedLRY)
+			else
+				feedPart = PlotService.PlaceFeed(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+			end
 			if not feedPart then
-				sendPlaceResult(player, requestId, false, "place-failed")
+				sendPlaceResult(player, requestId, false, placeCode or "place-failed")
 				return
 			end
 
 			tool:Destroy()
-			FeedMachines.Setup(feedPart, plot, player)
+			if not placingSeed then
+				FeedMachines.Setup(feedPart, plot, player)
+			end
 			PetMotionService.RefreshPlotRoutes(plot)
 			local profile = PlayerDataService.GetProfile(player)
 			if profile and type(snapshotProfileState) == "function" then
@@ -184,8 +202,9 @@ function FeedPlacementService.Start(config)
 			TelemetryService.Record("feed_placement_succeeded", TelemetryService.ForPlayer(player, {
 				feedType = feedType,
 				plot = plot,
+				seedId = seedId,
 			}))
-			NotificationService.Success(player, feedPart.Name .. " placed!")
+			NotificationService.Success(player, placingSeed and "Seed planted!" or (feedPart.Name .. " placed!"))
 		end)
 	end)
 end
