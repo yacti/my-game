@@ -11,8 +11,10 @@ Run this checklist before publishing a live build.
 - `ReplicatedStorage.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
   `PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, `FeedMachineTool`,
-  `SeedTool`, `EditTool`, `Seeds`, `Misc.Sapling`, `Misc.Brick`, and
+  `SeedTool`, `Shovel`, `Seeds`, `Misc.Sapling`, `Misc.Brick`, and
   `VFX.RarityParticle`.
+- `ReplicatedStorage.UI.YesNoWarning` has `Description`, `Item`, `Yes`,
+  `No`, and `CloseButton` descendants.
 - Risky Studio/MCP asset edits have a matching `.rbxm` or `.rbxmx` checkpoint
   under `asset-backups/`.
 
@@ -20,7 +22,7 @@ Run this checklist before publishing a live build.
 
 - `src/server/PlayerDataService.luau` store policy is intentional:
   `STORE_NAME = "PlayerData"` and Studio uses ProfileStore mock mode by default.
-- Fresh ProfileStore profile receives expected default pets/feed tools/currency.
+- Fresh ProfileStore profile receives expected default pet, no persisted feed/seed/food inventory tools, utility shovel, and starting currency.
 - Server output shows ProfileStore has DataStore access in production test
   environments.
 - Leave/rejoin preserves pets, feed machines, growing seed placements, seed
@@ -50,3 +52,5 @@ Run this checklist before publishing a live build.
 - Confirm `ReplicatedStorage.UI.RollBillboardGUI` has `Seed` and `Misc`
   billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.
+- Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and
+  verify the plant deletes, saves, and does not delete processors or other plots.

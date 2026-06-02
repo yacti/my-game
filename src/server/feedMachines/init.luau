@@ -148,7 +148,7 @@ function FeedMachines.Setup(machine, plot, owner)
 	end
 	machine:SetAttribute(State.Feed.Class, name)
 	mod.Setup(machine, plot, owner)
-	-- Auto-cleanup when the part dies (player picks it up, plot resets, etc.).
+	-- Auto-cleanup when the part dies during plot resets or lifecycle teardown.
 	machine.Destroying:Connect(function() FeedMachines.Teardown(machine) end)
 end
 
@@ -167,15 +167,6 @@ function FeedMachines.Apply(machine, placement)
 	if not placement then return end
 	local mod = impl(machine)
 	if mod and mod.Apply then mod.Apply(machine, placement) end
-end
-
--- Optional hook a module can implement to vet (and react to) pickup of
--- the machine. Return true to allow the pickup to proceed, false to
--- block. Defaults to true if no module implements it.
-function FeedMachines.PrePickup(machine, player)
-	local mod = impl(machine)
-	if mod and mod.PrePickup then return mod.PrePickup(machine, player) end
-	return true
 end
 
 function FeedMachines.Interact(machine, player)

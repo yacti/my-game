@@ -25,15 +25,7 @@ local DATA_TEMPLATE = {
 		{ petId = "Pet1", xp = 0, money = 0 },
 	},
 	FeedPlacements = {},
-	FeedInventory = {
-		Processor1 = 1,
-		AppleTree = 1,
-		BananaTree = 1,
-		CherryTree = 1,
-		FigTree = 1,
-		OrangeTree = 1,
-		PumpkinPatch = 1,
-	},
+	FeedInventory = {},
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
@@ -297,16 +289,6 @@ local function ensureValidData(profile)
 		profile.Data.LastSeen = 0
 	end
 
-	local totalFeeds = #profile.Data.FeedPlacements
-	for _, count in pairs(profile.Data.FeedInventory) do
-		totalFeeds += count
-	end
-	for _, count in pairs(profile.Data.SeedInventory) do
-		totalFeeds += count
-	end
-	if totalFeeds == 0 then
-		profile.Data.FeedInventory = table.clone(DATA_TEMPLATE.FeedInventory)
-	end
 end
 
 function PlayerDataService.GetProfile(player)

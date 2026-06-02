@@ -12,7 +12,7 @@ The game is directionally sound for launch architecture: gameplay truth is serve
 
 The remaining launch gaps are targeted hardening and operational items:
 
-- Keep starter/default feed inventory aligned with live Studio templates.
+- Keep inventory grants and roll/rebirth rewards aligned with live Studio templates.
 - Decide and document roll purchase compliance before any paid random item flow ships.
 - Reduce broad client/server scans and all-plot render loops before increasing server size or plot count.
 - Run focused Studio playtests for placement, prompt targeting, profile migration, and max-plot performance.
@@ -75,16 +75,16 @@ Follow-up:
 
 - Add a targeted playtest: fire placement requests at far corners, outside plot, locked grid, overlap, malformed CFrame, and during respawn.
 
-### Resolved: Starter Feed Inventory Referenced Missing `StarfruitTree`
+### Resolved: Starter Feed Inventory Removed
 
-Earlier review found that `src/server/PlayerDataService.luau` gave fresh profiles `StarfruitTree = 1`. MCP found `AppleTree`, `BananaTree`, `CherryTree`, `FigTree`, `OrangeTree`, `PumpkinPatch`, and `Processor1`, but no Starfruit template. `AssetValidator` does not require `StarfruitTree`.
+Earlier review found that `src/server/PlayerDataService.luau` gave fresh profiles starter feed-machine tools, including stale defaults at various points. Fresh profiles now start with empty feed, seed, and food inventories.
 
-Status: `StarfruitTree` has been removed from starter defaults. `PlayerDataService` also treats it as a deprecated feed type and removes stale `StarfruitTree` feed inventory entries or saved placements during profile migration/sanitization.
+Status: starter feed inventory defaults have been removed. `PlayerDataService` still treats `StarfruitTree` as a deprecated feed type and removes stale `StarfruitTree` feed inventory entries or saved placements during profile migration/sanitization.
 
 Follow-up:
 
 - If `StarfruitTree` returns later, add the full Studio template, food, roll attributes, balance, and validator coverage deliberately.
-- Keep roll pool, rebirth rewards, starter inventory, feed templates, food drops, and required validator feeds aligned.
+- Keep roll pool, rebirth rewards, inventory grants, feed templates, food drops, and required validator feeds aligned.
 
 ### High If Monetized: Roll Policy And Odds Disclosure Are Incomplete
 
@@ -112,7 +112,7 @@ Follow-up:
 
 ### Medium: `init.server.luau` Is The Main Maintainability Pressure Point
 
-`init.server.luau` is the composition root, but it also owns pet feeding/evolution, pet money accrual, collection, offline earnings, edit-mode tracking, feed pickup, grid unlock dispatch, and snapshot helpers.
+`init.server.luau` is the composition root, but it also owns pet feeding/evolution, pet money accrual, collection, offline earnings, grid unlock dispatch, and snapshot helpers.
 
 Impact: launch fixes can remain local, but expanding gameplay here will make security review and regression testing harder.
 
@@ -235,7 +235,7 @@ Recommendation:
 - Rebirth uses transactional preparation and rollback-style snapshots.
 - Grid unlocks validate target, frontier, distance, price, and currency.
 - Feed placement already validates many critical invariants besides distance.
-- MCP confirms required core Studio asset roots exist: `PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, `FeedMachineTool`, and `EditTool`.
+- MCP confirms required core Studio asset roots exist: `PetModels`, `FeedMachines`, `Food`, `Crates`, `UI`, and `FeedMachineTool`.
 - MCP confirms roll area shape exists under `Workspace.Plot1.RollArea.Button` with `Button` and `CrateFloor`.
 
 ## Studio/Rojo Alignment Notes
@@ -245,13 +245,13 @@ Recommendation:
 - Feed-machine folder names are organizational. `FeedType` and `FeedClass` attributes are the stable source of truth.
 - Roll/economy/growth tuning for roll-purchased growables now lives on `ReplicatedStorage.Seeds` templates (`SeedID`, `FeedType`, `GrowTime`, `RollChanceN`, `Price`, optional `Rarity`); feed templates keep mature behavior attributes such as `FeedType`, `FeedClass`, `FoodDrop`, `GrowRate`, and `XP`.
 - `ReplicatedStorage.SeedTool`, `ReplicatedStorage.Misc.Sapling`, and `ReplicatedStorage.UI.GrowingSeedBillboard` are Studio-owned runtime assets required by the seed growth flow.
-- `ReplicatedStorage.UI` contains billboard/HUD/rebirth/tool/slot prompt templates; `StarterGui` also contains a `ScreenGui`, which should be reviewed for duplicate or stale UI.
+- `ReplicatedStorage.UI` contains billboard/HUD/rebirth/tool/slot prompt templates, including `YesNoWarning` for reusable confirmation prompts.
 
 ## Launch Test Checklist
 
 Run these in Studio before publishing:
 
-- Fresh profile: joins, claims plot, gets expected starter pets/tools, and receives no deprecated `StarfruitTree` entry.
+- Fresh profile: joins, claims plot, gets expected starter pet and utility shovel, starts with no persisted feed/seed/food inventory tools, and receives no deprecated `StarfruitTree` entry.
 - Migrated profile: old `StarfruitTree` feed inventory or placement data is removed without disturbing valid feed inventory, placements, pets, currency, receipts, or grid state.
 - Rejoin profile: pets, feed placements, feed inventory, food inventory, currency, unlocked grid cells, processor queues, patch/tree states, and last seen behavior persist.
 - Placement rejects malformed CFrame, far-away placement, locked grid, overlap, missing tool, wrong plot, and rapid duplicate requests; too-far rejects produce telemetry.

@@ -60,6 +60,21 @@
         "PlaceFeedMachineResult": {
           "$className": "RemoteEvent"
         },
+        "FeedEditModeRequest": {
+          "$className": "RemoteEvent"
+        },
+        "FeedMoveRequest": {
+          "$className": "RemoteEvent"
+        },
+        "FeedMoveResult": {
+          "$className": "RemoteEvent"
+        },
+        "ShovelDeleteRequest": {
+          "$className": "RemoteEvent"
+        },
+        "ShovelDeleteResult": {
+          "$className": "RemoteEvent"
+        },
         "PromptInteract": {
           "$className": "RemoteEvent"
         },

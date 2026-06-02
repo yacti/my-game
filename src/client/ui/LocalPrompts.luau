@@ -61,8 +61,7 @@ local function equippedTool()
 end
 
 local function isEditMode()
-	local tool = equippedTool()
-	return (tool ~= nil and tool.Name == "EditTool") or player:GetAttribute("EditMode") == true
+	return player:GetAttribute("EditMode") == true
 end
 
 local function firstBasePartDescendant(instance)
@@ -366,10 +365,7 @@ local function configurePrompt(prompt, kind)
 	prompt.MaxActivationDistance = promptActivationDistance(kind)
 	prompt.RequiresLineOfSight = false
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
-	if kind == "FeedPickup" then
-		prompt.KeyboardKeyCode = Enum.KeyCode.F
-		prompt.HoldDuration = 0.5
-	elseif kind == "GridPartUnlock" then
+	if kind == "GridPartUnlock" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.HoldDuration = 0.25
 	else
@@ -539,7 +535,6 @@ local function tryBind(instance)
 	end
 
 	if isFeedMachine(instance) then
-		addPrompt(instance, "FeedPickup", Interactions.Actions.FeedPickup)
 		if isProcessor(instance) then
 			addPrompt(instance, "FeedMachine", Interactions.Actions.FeedMachine)
 		end
@@ -595,9 +590,6 @@ local function refreshPrompt(target, kind, prompt)
 			and not isEditMode()
 			and hasFeedablePetFood()
 			and petCanGainXP(target)
-	elseif kind == "FeedPickup" then
-		prompt.ActionText = "Pick Up"
-		prompt.Enabled = isEditMode() and not isGrowingSeedFeed(target)
 	elseif kind == "FeedMachine" then
 		local enabled, actionText = processorContext(target)
 		prompt.ActionText = actionText

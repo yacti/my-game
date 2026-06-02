@@ -16,6 +16,7 @@ local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
+local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
@@ -24,6 +25,8 @@ local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
 local RollService       = require(Server:WaitForChild("RollService"))
 local SeedTools         = require(Server:WaitForChild("SeedTools"))
+local ShovelService     = require(Server:WaitForChild("ShovelService"))
+local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
@@ -42,6 +45,7 @@ local PET_FEED_REACTION_SECONDS = 2
 local PET_FEED_PROMPT_DISTANCE = 8
 local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
+local EDIT_MODE_ATTR = "EditMode"
 
 PlotGridService.ResetVacantPlotsToPreviewRows()
 PlotService.SyncVacantPlotVisibility()
@@ -423,59 +427,6 @@ local function startProfileSnapshotLoop(player, plot, profile)
 	end)
 end
 
--- ── Feed machine pickup ───────────────────────────────────────────────────────
--- F-hold to retrieve a placed FeedMachine back into the inventory. Refuses
--- pickup while a Processor still has items queued so they aren't silently
--- destroyed (player must drain the queue first).
---
--- Pickup prompts are gated on the owner currently holding an EditTool —
--- they're invisible during normal play and only appear in "edit mode"
--- when the player explicitly equips the tool from their inventory.
-
-local EDIT_TOOL_NAME = "EditTool"
-
-local function isEditTool(tool)
-	return tool ~= nil and tool:IsA("Tool") and tool.Name == EDIT_TOOL_NAME
-end
-
--- Single source of truth for "is this player in edit mode": a boolean
--- attribute on the Player instance. Every prompt that wants to react to
--- edit mode reads this attribute (and listens for changes via
--- GetAttributeChangedSignal) — no per-prompt character watchers needed.
-local function watchPlayerEditMode(player)
-	local function refresh()
-		local char = player.Character
-		local equipped = char and char:FindFirstChildWhichIsA("Tool") or nil
-		player:SetAttribute("EditMode", isEditTool(equipped))
-	end
-	local function watchCharacter(char)
-		if not char then return end
-		char.ChildAdded:Connect(function(c) if c:IsA("Tool") then refresh() end end)
-		char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then refresh() end end)
-		refresh()
-	end
-	watchCharacter(player.Character)
-	player.CharacterAdded:Connect(watchCharacter)
-	refresh()
-end
-
-local function pickupFeed(feed, plot, player)
-	if not feed or not feed:IsDescendantOf(plot) then return end
-	if not (feed:IsA("BasePart") or feed:IsA("Model")) then return end
-	local feedType = feed:GetAttribute(State.Feed.Type)
-	if type(feedType) ~= "string" or feedType == "" then return end
-	if FeedGrowthService.IsGrowing(feed) then return end
-	if player:GetAttribute("EditMode") ~= true then return end
-	if not isPlayerNearInstance(player, feed, 14) then return end
-	if not FeedMachines.PrePickup(feed, player) then return end
-
-	local tool = FeedMachineTools.MakeFeedTool(feedType)
-	if not tool then return end
-	tool.Parent = player.Backpack
-	feed:Destroy()
-	PetMotionService.RefreshPlotRoutes(plot)
-end
-
 local function unlockGridPart(target, plot, player, profile)
 	local gridPart = PlotGridService.ResolveGridPart(target)
 	local ok, code, _, price = PlotGridService.TryPurchaseCell(player, plot, profile, target)
@@ -510,28 +461,10 @@ local function unlockGridPart(target, plot, player, profile)
 	NotificationService.Success(player, "Plot area unlocked for $" .. tostring(price) .. "!")
 end
 
--- Always-present inventory tool that players use to enter "edit mode".
--- Re-checked every CharacterAdded so a lost or destroyed tool comes back.
-local function ensureEditTool(player)
-	local template = ReplicatedStorage:FindFirstChild(EDIT_TOOL_NAME)
-	if not template or not template:IsA("Tool") then return end
-	-- Already in inventory or equipped?
-	for _, container in ipairs({ player.Backpack, player.Character }) do
-		if container then
-			for _, c in ipairs(container:GetChildren()) do
-				if c:IsA("Tool") and c.Name == EDIT_TOOL_NAME then return end
-			end
-		end
-	end
-	template:Clone().Parent = player.Backpack
-end
-
 -- ── Player lifecycle ──────────────────────────────────────────────────────────
 
 Players.PlayerAdded:Connect(function(player)
-	-- Wire up edit-mode tracking before any prompts get created so the
-	-- "EditMode" attribute is already there when prompts read it.
-	watchPlayerEditMode(player)
+	player:SetAttribute(EDIT_MODE_ATTR, false)
 
 	local plot, _ = PlotService.AssignPlot(player)
 	if not plot then
@@ -609,6 +542,7 @@ Players.PlayerAdded:Connect(function(player)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
+		ShovelTools.EnsureUtilityTool(player)
 		if not toolsRestored then
 			toolsRestored = true
 			task.wait(0.5)
@@ -635,7 +569,6 @@ Players.PlayerAdded:Connect(function(player)
 				end
 			end
 		end
-		ensureEditTool(player)
 	end
 
 	if player.Character then onCharacterAdded(player.Character) end
@@ -660,6 +593,7 @@ Players.PlayerRemoving:Connect(function(player)
 		PlotService.FreePlot(player)
 	end
 	player:SetAttribute(State.Player.AssignedPlotName, nil)
+	player:SetAttribute(EDIT_MODE_ATTR, false)
 
 	PlayerDataService.UnloadPlayer(player)
 end)
@@ -690,9 +624,6 @@ PromptInteractionService.Start({
 		[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
 			feedPet(plot, player, profile, target)
 		end,
-		[Interactions.Actions.FeedPickup] = function(player, target, plot)
-			pickupFeed(target, plot, player)
-		end,
 		[Interactions.Actions.FeedMachine] = function(player, target, plot)
 			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
 				FeedMachines.Interact(target, player)
@@ -721,6 +652,14 @@ PromptInteractionService.Start({
 	afterInteraction = function(player, plot, profile)
 		snapshotProfileState(player, plot, profile)
 	end,
+})
+
+FeedEditService.Start({
+	snapshotProfileState = snapshotProfileState,
+})
+
+ShovelService.Start({
+	snapshotProfileState = snapshotProfileState,
 })
 
 FeedPlacementService.Start({

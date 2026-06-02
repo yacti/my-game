@@ -2,7 +2,6 @@ local Interactions = {}
 
 Interactions.Actions = {
 	PetFeed = "PetFeed",
-	FeedPickup = "FeedPickup",
 	FeedMachine = "FeedMachine",
 	PatchHarvest = "PatchHarvest",
 	TreeGroundPickup = "TreeGroundPickup",

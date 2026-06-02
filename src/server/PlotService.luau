@@ -11,6 +11,7 @@ local InstanceVisibility = require(script.Parent:WaitForChild("InstanceVisibilit
 local PetModels = ReplicatedStorage:WaitForChild("PetModels")
 
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
+local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local ROLL_AREA_NAME = "RollArea"
 
@@ -57,7 +58,7 @@ local function feedHitboxRootFromPart(plot, part)
 		local feedType = current:GetAttribute(State.Feed.Type)
 		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
 			if current:IsA("BasePart") then return current end
-			if current:IsA("Model") and current.PrimaryPart == part then return current end
+			if current:IsA("Model") then return current end
 			return nil
 		end
 		current = current.Parent
@@ -624,23 +625,48 @@ function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
 		and PlotGridService.CanPlaceFootprint(plot, boundsCF, boundsSize)
 end
 
-function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
+local function feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return true end
 
 	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
 	if not boundsCF or not boundsSize then return true end
+	local querySize = Vector3.new(
+		math.max(boundsSize.X - OVERLAP_QUERY_INSET, 0.05),
+		boundsSize.Y,
+		math.max(boundsSize.Z - OVERLAP_QUERY_INSET, 0.05)
+	)
 
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { plot }
 
-	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, boundsSize, params)) do
-		if feedHitboxRootFromPart(plot, part) then
+	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
+		local hitFeed = feedHitboxRootFromPart(plot, part)
+		if hitFeed and hitFeed ~= excludedFeed then
 			return true
 		end
 	end
 	return false
+end
+
+function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
+	return feedPlacementOverlaps(plot, feedType, lx, lz, lry)
+end
+
+function PlotService.FeedPlacementOverlapsExcept(plot, feedType, lx, lz, lry, excludedFeed)
+	return feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
+end
+
+function PlotService.RepositionFeed(plot, feed, lx, lz, lry)
+	local floor = PlotService.GetFloor(plot)
+	if not floor or not feed or not feed:IsDescendantOf(plot) then return nil end
+	if not (feed:IsA("BasePart") or feed:IsA("Model")) then return nil end
+
+	local height = templateHeight(feed)
+	local cframe = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
+	anchorAndPlace(feed, cframe)
+	return cframe
 end
 
 -- Exposed for callers (init.server.luau saveFeedState / savePetsFromPlot,

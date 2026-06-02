@@ -21,10 +21,6 @@
 -- on plot load via Apply(). Because depositedAt is wall-clock, items
 -- finish processing while the player is offline.
 --
--- Note: picking up the machine while items are queued loses them. The
--- inventory pickup logic in init.server.luau refuses pickup when
--- QueueCount > 0.
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
@@ -143,14 +139,6 @@ function Processor.Interact(machine, player)
 	else
 		dispenseAllReady(machine, s, player)
 	end
-end
-
--- Block pickup while items are still in the queue so the player isn't
--- silently robbed of food they deposited.
-function Processor.PrePickup(machine, player)
-	local s = state[machine]
-	if not s or s.owner ~= player then return false end
-	return #s.queue == 0
 end
 
 function Processor.Serialize(machine)

@@ -14,7 +14,7 @@ This is a hybrid Rojo + Studio game. Rojo owns code and selected source-declared
 
 The current game loop is a plot-based pet/economy game:
 
-- players claim one plot, receive starter pets/feed-machine tools, and earn currency from pets
+- players claim one plot, receive starter pets with no starter inventory tools, and earn currency from pets
 - food tools feed pets; XP scales pets visually and evolves them through Studio-authored pet templates
 - feed machines create, process, or grow food; placed machines persist in floor-local coordinates
 - players roll crates from the plot roll area to reveal purchasable rewards such as growable seeds and misc rewards
@@ -30,7 +30,7 @@ The current game loop is a plot-based pet/economy game:
 - `src/satchel.rbxm` -> `ReplicatedStorage.Satchel`
 - selected `Workspace`, `Lighting`, and `SoundService` property overrides
 
-`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `EditTool`, `Workspace.Plots`, and plot-local `RollArea` assets.
+`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `Shovel`, `Workspace.Plots`, and plot-local `RollArea` assets.
 
 ```mermaid
 flowchart TD
@@ -64,7 +64,7 @@ Studio/MCP owns:
 - `ReplicatedStorage.VFX`
 - `ReplicatedStorage.UI`
 - `ReplicatedStorage.FeedMachineTool`
-- `ReplicatedStorage.EditTool`
+- `ReplicatedStorage.Shovel`
 - `Workspace.Plots`
 - plot-local `RollArea` assets such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
 
@@ -80,6 +80,7 @@ Current Studio asset shape observed through MCP:
 - `ReplicatedStorage.Misc` contains non-seed runtime templates. Rollable misc rewards use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
 - `ReplicatedStorage.VFX.RarityParticle` owns the roll reveal rarity particle emitter or a container that contains it.
 - `ReplicatedStorage.UI.RollBillboardGUI` owns the `Seed` and `Misc` roll reveal `BillboardGui` templates.
+- `ReplicatedStorage.UI.YesNoWarning` owns the reusable yes/no warning prompt UI.
 - The inspected place currently has `Workspace.Plots.Plot1` with a starter cell and many `GridAreas`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
 - The inspected place currently has a plot-local `RollArea` with a green roll button and `CrateFloor`.
 
@@ -101,7 +102,7 @@ Non-UI gameplay assets validated by `src/server/AssetValidator.luau` can hard-fa
 
 ## Server Architecture
 
-`src/server/init.server.luau` is the server composition root, but it is more than glue today. It also owns pet feeding/evolution, pet money accrual and collection, offline earnings, edit-mode tracking, feed pickup, plot grid unlock handling, and profile snapshot helpers.
+`src/server/init.server.luau` is the server composition root, but it is more than glue today. It also owns pet feeding/evolution, pet money accrual and collection, offline earnings, plot grid unlock handling, and profile snapshot helpers.
 
 Avoid adding more major gameplay to `init.server.luau` by default. If a change adds a new subsystem or expands pet, economy, or plot behavior, consider whether a focused server module is the clearer home.
 
@@ -125,12 +126,15 @@ Key server modules:
 - `feedMachines/init.luau`: registry and dispatcher for feed-machine classes.
 - `feedMachines/Spawner.luau`: helper for spawned feed-machine outputs.
 - `FeedPlacementService`: `PlaceFeedMachine` request handling.
+- `FeedEditService`: HUD-driven edit-mode toggles and authoritative in-place mature feed-machine movement.
+- `ShovelService`: server-authoritative shovel deletion for placed plant feeds.
 - `PromptInteractionService`: thin `PromptInteract` dispatcher.
 - `RollService`: server-authoritative crate reward rolls, roll cooldowns, pending roll offers, roll purchases, notifications, and roll VFX payloads.
 - `ReceiptService`: `MarketplaceService.ProcessReceipt` routing and processed receipt idempotency.
 - `RebirthService`: tiered rebirth transaction and receipt handling.
 - `FeedRewardService`: prepares/applies mature feed-machine rewards for rebirth and other non-seed grants.
 - `FeedMachineTools`: feed tool cloning and attributes.
+- `ShovelTools`: non-persisted utility shovel cloning and identity.
 - `NotificationService`: `PlayerNotification` wrapper.
 - `AssetValidator`: startup contracts for remotes, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
@@ -144,7 +148,7 @@ Templates live under Studio-owned `ReplicatedStorage.FeedMachines/<Class>/<Templ
 
 Stable gameplay identity is `FeedType`. Broad behavior is `FeedClass`. Template/model names and containing folders are visual/organizational only; the folder is only the default when `FeedClass` is omitted.
 
-Roll-purchased growables are Studio-owned seed templates under `ReplicatedStorage.Seeds`. Seed templates own `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`; feed-machine templates own mature behavior attributes only. Placed seeds persist as growing feed placements until `GrowTime` elapses, then mature into the existing patch/tree class behavior. Mature feed-machine tools from pickup or starter/rebirth rewards still place directly.
+Roll-purchased growables are Studio-owned seed templates under `ReplicatedStorage.Seeds`. Seed templates own `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`; feed-machine templates own mature behavior attributes only. Placed seeds persist as growing feed placements until `GrowTime` elapses, then mature into the existing patch/tree class behavior. Mature feed-machine tools from inventory grants or rebirth rewards still place directly.
 
 Roll rewards are category-based. `src/shared/RollRewards.luau` owns category constants and misc reward catalog helpers. The current categories are `Seed` and `Misc`; seeds grant seed tools on purchase, while misc rewards can define future purchase behavior through server-side category handlers. Misc roll templates live under `ReplicatedStorage.Misc` and use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
 
@@ -154,8 +158,6 @@ Roll rewards are category-based. `src/shared/RollRewards.luau` owns category con
 - optional `Teardown(machine)`
 - optional `Serialize(machine)`
 - optional `Apply(machine, placement)`
-- optional `PrePickup(machine, player)`
-
 Interaction paths differ by class:
 
 - Processor: local prompt -> `PromptInteract` -> server deposit logic.
@@ -164,13 +166,13 @@ Interaction paths differ by class:
 
 Current class behavior:
 
-- Processor templates accept equipped food by `FoodType`, process queue entries by wall-clock `depositedAt`, persist queues, and block pickup while queued items remain.
-- Patch templates use slot anchors, a `FoodDrop` exact food id, template `XP` gained every `GrowRate` seconds, uncapped XP growth with a shared offline fraction, per-slot harvest respawn, and `PrePickup` grants current slot food back to the player.
+- Processor templates accept equipped food by `FoodType`, process queue entries by wall-clock `depositedAt`, and persist queues.
+- Patch templates use slot anchors, a `FoodDrop` exact food id, template `XP` gained every `GrowRate` seconds, uncapped XP growth with a shared offline fraction, and per-slot harvest respawn.
 - Tree templates use server click validation and per-slot ground piles. Clients render tree shake, falling-food visuals, respawn polish, and ground XP billboards from replicated attributes/remotes.
 
 Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. Patches use generic server defaults plus Studio template attributes such as `FoodDrop`, `XP`, and `GrowRate`. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
-Important current caveat: `PlayerDataService` starter defaults include `BananaTree`, `FigTree`, and `OrangeTree`; `StarfruitTree` and legacy `Clicker1` were removed from active defaults/templates. `PlayerDataService` treats those feed types as deprecated and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If starter inventory or roll pool changes, align defaults, Studio templates, seed `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
+Important current caveat: `PlayerDataService` fresh profiles start with empty feed, seed, and food inventories. `StarfruitTree` and legacy `Clicker1` were removed from active defaults/templates. `PlayerDataService` treats those feed types as deprecated and cleans stale profile entries through its data migration/sanitization path. `AssetValidator` only requires `Processor1`, `AppleTree`, `CherryTree`, and `PumpkinPatch`. If inventory grants or the roll pool changes, align defaults, Studio templates, seed `RollChanceN`/rarity attributes, `RollChances`, and validator requirements deliberately.
 
 When touching feeds, foods, roll odds, misc rewards, or rebirth rewards, cross-check `AssetValidator`, required feed types, server balance modules, `RollRewards`, Studio template attributes, and `docs/publish-checklist.md`.
 
@@ -182,7 +184,7 @@ Controller categories:
 
 - Remote-driven panels: `HudController`, `Notifications`, `RebirthController`
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
-- Hybrid systems: `FeedPlacement`, `LocalPrompts`, `PlacementGrid`
+- Hybrid systems: `FeedPlacement`, `FeedEditController`, `ShovelController`, `LocalPrompts`, `PlacementGrid`
 - VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals`, `RollController`
 - shared helpers: `UiEffects`
 
@@ -190,9 +192,15 @@ Clients clone Studio UI templates, watch replicated attributes, run local-only p
 
 Pet motion is visually interpolated on the client from server-published segment attributes. `PetAnimations` reads packed `PetSegmentData`, handles corner blending, feed-reaction tilt, collect jumps, and animation speed. `PetPreloader` preloads the next pet template/animations to reduce evolution hitches. Pet billboards, slot billboards, tree visuals, and placement previews are per-client presentation, not authority.
 
-`LocalPrompts` creates client-only `ProximityPrompt`s for pet feeding, feed pickup, processor interaction, patch harvest, tree ground pickup, grid unlocks, and plot roll buttons. It only binds prompts inside the player's assigned plot and refreshes context every 0.1 seconds, arbitrating all registered prompts so only the nearest eligible prompt is enabled. Dynamic prompts from other controllers should register through `LocalPrompts.RegisterExternalPrompt`; every gameplay trigger still goes through server validation.
+`LocalPrompts` creates client-only `ProximityPrompt`s for pet feeding, processor interaction, patch harvest, tree ground pickup, grid unlocks, and plot roll buttons. It only binds prompts inside the player's assigned plot and refreshes context every 0.1 seconds, arbitrating all registered prompts so only the nearest eligible prompt is enabled. Dynamic prompts from other controllers should register through `LocalPrompts.RegisterExternalPrompt`; every gameplay trigger still goes through server validation.
 
-`FeedPlacement` uses the equipped mature feed-machine tool's `FeedType`, or a seed tool's `SeedID` resolved through `Seeds.luau`, finds the target Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. It prefers placement controls inside `HUD`; otherwise it clones `ReplicatedStorage.UI.FeedPlacementGui`.
+`FeedPlacement` uses the equipped mature feed-machine tool's `FeedType`, or a seed tool's `SeedID` resolved through `Seeds.luau`, finds the target Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. First-time placement uses the Studio-owned `ReplicatedStorage.UI.PlacementEdit` billboard: players click an unlocked grid cell, optionally drag/rotate the preview, then confirm with the billboard button or click elsewhere to commit.
+
+`FeedEditController` uses the Studio-owned `HUD.EditModeButton` and `ReplicatedStorage.UI.PlacementEdit` billboard to enter edit mode, show the local `GridEffect`, select mature placed feed machines, preview move/rotate changes, and send target-instance move intents to the server. Growing seed placements are not selectable/movable. The server remains authoritative through `FeedEditService`; client checks are UX only.
+
+`YesNoWarning` is a reusable client module for Studio-authored yes/no prompts backed by `ReplicatedStorage.UI.YesNoWarning`. Feature controllers provide prompt text, item text, and optional rarity data; the module clones the template into the runtime HUD and owns button effects and panel show/hide behavior.
+
+`ShovelController` lets players equip the Studio-owned `ReplicatedStorage.Shovel` utility tool, click placed plants, show `YesNoWarning`, and send confirmed delete intents. `ShovelService` validates the equipped shovel, plot ownership, plant class, distance, rate limits, and profile state before deleting. The shovel is not persisted as feed/seed/food inventory.
 
 `RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.RollBillboardGUI`; rarity particles use `ReplicatedStorage.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
 
@@ -206,6 +214,7 @@ Important shared modules:
 - `State.luau`: central replicated runtime attribute keys.
 - `Interactions.luau`: valid `PromptInteract` action names.
 - `Notifications.luau`: shared notification payload normalization.
+- `Shovel.luau`: shared shovel tool identity constants.
 - `PetCatalog`, `Food`, `Seeds`, `RollRewards`, `RollChances`, `RollConfig`: runtime/catalog helpers, reward category contracts, odds config, and roll presentation timing used by server/client code.
 - `PlotGrid`: grid folder names, grid attributes, coordinate keys, fence/corner naming, and legacy plot-size migration helpers.
 - `RebirthBalance`: rebirth economy.
@@ -233,6 +242,8 @@ Groups:
 - VFX: `ProcessorDepositEffect`, `TreeClickerEffect`
 - UI pushes: `PlayerNotification`, `CurrencyUpdated`
 - Placement: `PlaceFeedMachine`, `PlaceFeedMachineResult`
+- Feed editing: `FeedEditModeRequest`, `FeedMoveRequest`, `FeedMoveResult`
+- Shovel deletion: `ShovelDeleteRequest`, `ShovelDeleteResult`
 - Interactions: `PromptInteract`
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
 - Rebirth: `RebirthStateRequest`, `RebirthStateUpdated`, `RebirthRequest`, `RebirthResult`
@@ -263,7 +274,7 @@ Do not conflate a profile snapshot with a DataStore save. Snapshotting mutates `
 
 Profile data is server-only. Clients receive derived state through attributes and remotes.
 
-New player defaults include one `Pet1`, zero currency, zero rebirths, starter feed-machine inventory, empty food inventory, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`.
+New player defaults include one `Pet1`, zero currency, zero rebirths, empty feed/seed/food inventories, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`. The shovel is a non-persisted utility tool granted by `ShovelTools`, not saved inventory.
 
 Plot expansion is saved as coordinate-key strings in `profile.Data.UnlockedGridKeys`. `PlotGridService` also migrates old `UnlockedGridIds`/`PlotSize` data, but new code should use coordinate keys.
 

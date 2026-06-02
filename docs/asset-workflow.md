@@ -16,7 +16,7 @@ These live under `ReplicatedStorage` and are required by server/client code:
 - `UI`
 - `FeedMachineTool`
 - `SeedTool`
-- `EditTool`
+- `Shovel`
 - `Seeds`
 - `Misc` (`Sapling`, `Clouds`, roll rewards such as `Brick`)
 - `VFX` (`RarityParticle`)
@@ -39,10 +39,10 @@ asset-backups/
     Food.rbxm
     FeedMachineTool.rbxm
     SeedTool.rbxm
+    Shovel.rbxm
     Seeds.rbxm
     Misc.rbxm
     VFX.rbxm
-    EditTool.rbxm
 ```
 
 Use `.rbxm` for compact rollback backups. Use `.rbxmx` when human-readable diffs
@@ -56,10 +56,9 @@ of truth.
 Move non-UI assets into Rojo/source ownership in small, tested commits:
 
 1. `ReplicatedStorage.FeedMachineTool`
-2. `ReplicatedStorage.EditTool`
-3. `ReplicatedStorage.PetModels`
-4. `ReplicatedStorage.FeedMachines`
-5. `ReplicatedStorage.Food`
+2. `ReplicatedStorage.PetModels`
+3. `ReplicatedStorage.FeedMachines`
+4. `ReplicatedStorage.Food`
 
 Avoid migrating everything at once. Complex models can break if pivots,
 `PrimaryPart`s, welds, attributes, or tool handles are not preserved.

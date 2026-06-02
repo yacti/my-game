@@ -5,10 +5,6 @@
 -- accumulated XP on the produced food tool. Harvesting empties the slot for a
 -- short respawn delay, then the same food starts accumulating from zero again.
 --
--- Picking the *machine* up via the F prompt (handled in init.server.luau)
--- collects every slot's current food into the player's backpack via
--- Patches.PrePickup, then destroys the machine.
---
 -- Tunable attribute on the model:
 --   FoodDrop (string, required) exact food id produced by each slot
 --   XP       (number, default 1) XP gained per growth interval
@@ -314,28 +310,6 @@ function Patches.Apply(machine, placement)
 -- equivalent to scaling the amount of interval progress for this single call.
 	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
 	s.lastTick = os.time()
-end
-
--- Hook called before the machine is picked up. We hand
--- every slot's current food (foodId + accumulated XP) to the player as
--- a Tool, then return true to permit the pickup.
-function Patches.PrePickup(machine, player)
-	local s = state[machine]
-	if not s or s.owner ~= player then return false end
-	for _, slot in ipairs(s.slots) do
-		-- Slots in the respawn delay are empty; nothing to give back.
-		if not slot.respawnAt then
-			local foodId = s.foodId
-			if foodId then
-				local tool = Food.MakeTool(foodId, slot.xp)
-				if tool then
-					scaleToolToSlot(tool, slot)
-					tool.Parent = player.Backpack
-				end
-			end
-		end
-	end
-	return true
 end
 
 function Patches.HarvestAnchor(anchor, player)

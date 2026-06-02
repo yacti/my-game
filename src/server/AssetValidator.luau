@@ -16,6 +16,7 @@ local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
+local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
@@ -28,7 +29,7 @@ local REQUIRED_ROOTS = {
 	"Seeds",
 	"FeedMachineTool",
 	"SeedTool",
-	"EditTool",
+	"Shovel",
 	"Misc",
 	"VFX",
 	"Remotes",
@@ -46,12 +47,11 @@ local REQUIRED_FEEDS = {
 local REQUIRED_TOOLS = {
 	"FeedMachineTool",
 	"SeedTool",
-	"EditTool",
+	"Shovel",
 }
 
 local PROMPT_TEMPLATE_KINDS = {
 	"PetFeed",
-	"FeedPickup",
 	"FeedMachine",
 	"PatchHarvest",
 	"TreeGroundPickup",
@@ -112,6 +112,12 @@ end
 local function validateTool(tool, errors)
 	if not tool then return end
 	child(tool, "Handle", "BasePart", errors)
+	if tool.Name == Shovel.ToolName then
+		local toolKind = tool:GetAttribute(Shovel.ToolKindAttribute)
+		if toolKind ~= Shovel.ToolKind then
+			add(errors, string.format("%s missing %s=%q", tool:GetFullName(), Shovel.ToolKindAttribute, Shovel.ToolKind))
+		end
+	end
 end
 
 local function validateAnimationId(source, key, animationId, errors)
@@ -618,21 +624,32 @@ local function validateRollBillboards(ui, errors)
 	end
 end
 
-local function hasPlacementControls(root)
-	local controls = root and root:FindFirstChild("PlacementControls", true)
-	local confirm = controls and controls:FindFirstChild("ConfirmButton", true)
-	return confirm and confirm:IsA("TextButton")
+local function validateFeedEditUi(ui, hud, errors)
+	if hud then
+		descendant(hud, "EditModeButton", "GuiButton", errors)
+	end
+
+	local placementEdit = child(ui, "PlacementEdit", "BillboardGui", errors)
+	if not placementEdit then return end
+
+	local options = child(placementEdit, "options", "GuiObject", errors)
+	if options then
+		child(options, "confirm", "GuiButton", errors)
+		child(options, "move", "GuiButton", errors)
+		child(options, "rotate", "GuiButton", errors)
+	end
+	child(placementEdit, "tip", "TextLabel", errors)
 end
 
-local function validatePlacementControls(ui, hud, errors)
-	if hasPlacementControls(hud) then
-		return
-	end
+local function validateYesNoWarningUi(ui, errors)
+	local warning = child(ui, "YesNoWarning", "GuiObject", errors)
+	if not warning then return end
 
-	local placement = child(ui, "FeedPlacementGui", "ScreenGui", errors)
-	if placement then
-		descendant(placement, "ConfirmButton", "TextButton", errors)
-	end
+	descendant(warning, "Description", "TextLabel", errors)
+	descendant(warning, "Item", "TextLabel", errors)
+	descendant(warning, "Yes", "GuiButton", errors)
+	descendant(warning, "No", "GuiButton", errors)
+	descendant(warning, "CloseButton", "GuiButton", errors)
 end
 
 local function validateRebirthBalance(errors)
@@ -834,7 +851,8 @@ local function validateUi(errors)
 	end
 	validateRollBillboards(ui, errors)
 
-	validatePlacementControls(ui, hud, errors)
+	validateFeedEditUi(ui, hud, errors)
+	validateYesNoWarningUi(ui, errors)
 
 	validatePromptTemplates(ui, errors)
 end
