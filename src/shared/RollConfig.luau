@@ -37,11 +37,12 @@ RollConfig.Reveal = {
 	ActiveVfxDistance = 60,
 	LocalParticleLifetime = 15,
 	BuyPromptDistance = 10,
-	BillboardMaxDistance = 25,
+	BillboardMaxDistance = 32,
 	OfferAnchorTopOffset = 0.55,
 }
 
 RollConfig.Button = {
+	InteractionDistance = 8,
 	PressDuration = 0.08,
 	ReleaseDuration = 0.16,
 	UnavailableColor = Color3.fromRGB(220, 45, 45),

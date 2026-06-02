@@ -22,8 +22,8 @@ local DEFAULT_GROW_RATE = 1
 local HARVEST_RESPAWN_DELAY = 3
 local OFFLINE_GROW_FRACTION = 0.001
 local SCALE_MIN = 0.3
-local SCALE_MAX = 2
-local SCALE_MAX_BASE_XP_MULTIPLIER = 200
+local SCALE_MAX = 2.75
+local SCALE_MAX_BASE_XP_MULTIPLIER = 500
 
 -- Offline progress runs at this fraction of the online rate. With default
 -- XP=1 and GrowRate=1, 0.001 means a slot earns ~1 xp per 1000s (~17 min)
@@ -31,7 +31,7 @@ local SCALE_MAX_BASE_XP_MULTIPLIER = 200
 -- attribute since it's an economy-wide knob for patch machines.
 
 -- Every freshly-spawned slot food starts at SCALE_MIN and grows linearly to
--- SCALE_MAX as its XP climbs from the patch's XP to patchXP * 200. Only
+-- SCALE_MAX as its XP climbs from the patch's XP to patchXP * 500. Only
 -- applies to Model templates (Model:ScaleTo).
 
 -- [machine] = {

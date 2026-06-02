@@ -21,9 +21,9 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 
 local RollService = {}
 
-local ROLL_DISTANCE = 14
-local LUCK_UPGRADE_DISTANCE = 7
-local DROP_AREA_UPGRADE_DISTANCE = 7
+local ROLL_DISTANCE = RollConfig.Button.InteractionDistance
+local LUCK_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
+local DROP_AREA_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
 local PURCHASE_DISTANCE = 18
 local PURCHASE_REQUEST_RATE_SECONDS = 0.35
 local LUCK_REQUEST_RATE_SECONDS = 0.35

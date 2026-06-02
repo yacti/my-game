@@ -3,12 +3,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local RollLuckController = {}
 
-local PROXIMITY_DISTANCE = 7
+local PROXIMITY_DISTANCE = RollConfig.Button.InteractionDistance
 local PROXIMITY_CHECK_SECONDS = 0.1
 local STATE_RETRY_SECONDS = 2
 local HUD_WAIT_SECONDS = 10
