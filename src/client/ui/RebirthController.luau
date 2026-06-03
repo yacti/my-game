@@ -237,12 +237,12 @@ function RebirthController.start()
 		end)
 	end
 
-	closeButton.Activated:Connect(closePanel)
+	RuntimeGuard.Connect(closeButton.Activated, "RebirthController.CloseActivated", closePanel)
 	if openButton then
-		openButton.Activated:Connect(openPanel)
+		RuntimeGuard.Connect(openButton.Activated, "RebirthController.OpenActivated", openPanel)
 	end
 
-	rebirthButton.Activated:Connect(function()
+	RuntimeGuard.Connect(rebirthButton.Activated, "RebirthController.RebirthActivated", function()
 		if pendingRequest or currentCurrency < nextPrice or nextPrice <= 0 then
 			return
 		end
@@ -253,7 +253,7 @@ function RebirthController.start()
 		RebirthRequest:FireServer(nextRequestId)
 	end)
 
-	skipButton.Activated:Connect(function()
+	RuntimeGuard.Connect(skipButton.Activated, "RebirthController.SkipActivated", function()
 		if pendingRequest or type(skipProductId) ~= "number" or skipProductId <= 0 then
 			return
 		end

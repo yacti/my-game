@@ -122,14 +122,14 @@ function ShovelService.Start(config)
 		TelemetryService.Warn("shovel_delete_rejected", fields)
 	end
 
-	Players.PlayerRemoving:Connect(function(player)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "ShovelService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key == nil then return end
 		lastFire[key] = nil
 		locks[key] = nil
 	end)
 
-	ShovelDeleteRequest.OnServerEvent:Connect(function(player, requestId, target)
+	RuntimeGuard.Connect(ShovelDeleteRequest.OnServerEvent, "ShovelService.DeleteRequest", function(player, requestId, target)
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendResult(player, requestId, false, "rate-limited")
 			return

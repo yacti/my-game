@@ -177,11 +177,17 @@ function SeedTools.ApplyPrepared(player, profile, prepared)
 		return false, "invalid-grant"
 	end
 
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not backpack then
+		destroyPrepared(prepared)
+		return false, "no-backpack"
+	end
+
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
 	profile.Data.SeedInventory[seedId] = (profile.Data.SeedInventory[seedId] or 0) + amount
 
 	for _, tool in ipairs(prepared.tools or {}) do
-		tool.Parent = player.Backpack
+		tool.Parent = backpack
 	end
 	return true
 end

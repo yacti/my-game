@@ -183,13 +183,13 @@ function YesNoWarning.start()
 	panelState = UiEffects.PreparePanel(frame)
 	frame.Visible = false
 
-	yesButton.Activated:Connect(function()
+	RuntimeGuard.Connect(yesButton.Activated, "YesNoWarning.YesActivated", function()
 		finish(true, "yes")
 	end)
-	noButton.Activated:Connect(function()
+	RuntimeGuard.Connect(noButton.Activated, "YesNoWarning.NoActivated", function()
 		finish(false, "no")
 	end)
-	closeButton.Activated:Connect(function()
+	RuntimeGuard.Connect(closeButton.Activated, "YesNoWarning.CloseActivated", function()
 		finish(false, "closed")
 	end)
 

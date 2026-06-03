@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local PetModels = Assets.WaitFor(Assets.Names.PetModels)
@@ -148,11 +149,11 @@ local function watchPet(pet)
 
 	preloadNextForPet(pet)
 
-	local idConnection = pet:GetAttributeChangedSignal(State.Pet.Id):Connect(function()
+	local idConnection = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetPreloader.PetIdChanged", function()
 		preloadNextForPet(pet)
 	end)
 
-	pet.Destroying:Connect(function()
+	RuntimeGuard.Connect(pet.Destroying, "PetPreloader.PetDestroying", function()
 		watchedPets[pet] = nil
 		idConnection:Disconnect()
 	end)
@@ -168,13 +169,13 @@ local function watchPlot(plot)
 		end
 	end
 
-	plot.ChildAdded:Connect(function(child)
+	RuntimeGuard.Connect(plot.ChildAdded, "PetPreloader.PlotChildAdded", function(child)
 		if isPet(child) then
 			watchPet(child)
 		end
 	end)
 
-	plot.Destroying:Connect(function()
+	RuntimeGuard.Connect(plot.Destroying, "PetPreloader.PlotDestroying", function()
 		watchedPlots[plot] = nil
 	end)
 end
@@ -191,14 +192,14 @@ local function watchWorkspace()
 			for _, plot in ipairs(child:GetChildren()) do
 				watchPlot(plot)
 			end
-			child.ChildAdded:Connect(watchPlot)
+			RuntimeGuard.Connect(child.ChildAdded, "PetPreloader.PlotsChildAdded", watchPlot)
 		end
 	end
 
 	for _, child in ipairs(Workspace:GetChildren()) do
 		onWorkspaceChild(child)
 	end
-	Workspace.ChildAdded:Connect(onWorkspaceChild)
+	RuntimeGuard.Connect(Workspace.ChildAdded, "PetPreloader.WorkspaceChildAdded", onWorkspaceChild)
 end
 
 function PetPreloader.start()

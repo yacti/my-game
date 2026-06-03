@@ -419,7 +419,7 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable)
 		return true
 	end
 	local destroyingConnection
-	destroyingConnection = prompt.Destroying:Connect(function()
+	destroyingConnection = RuntimeGuard.Connect(prompt.Destroying, "LocalPrompts.ExternalPromptDestroying", function()
 		externalPrompts[prompt] = nil
 		if destroyingConnection then
 			destroyingConnection:Disconnect()
@@ -491,8 +491,8 @@ local function waitForPromptParent(target, kind, action)
 		end
 	end
 
-	connections[#connections + 1] = target:GetPropertyChangedSignal("PrimaryPart"):Connect(retry)
-	connections[#connections + 1] = target.AncestryChanged:Connect(retry)
+	connections[#connections + 1] = RuntimeGuard.Connect(target:GetPropertyChangedSignal("PrimaryPart"), "LocalPrompts.RetryPrimaryPart", retry)
+	connections[#connections + 1] = RuntimeGuard.Connect(target.AncestryChanged, "LocalPrompts.RetryAncestryChanged", retry)
 	pendingPromptParents[target][kind] = connections
 	task.defer(retry)
 end
@@ -511,7 +511,7 @@ addPrompt = function(target, kind, action)
 	if not prompt then return end
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
-	prompt.Triggered:Connect(function()
+	RuntimeGuard.Connect(prompt.Triggered, "LocalPrompts.PromptTriggered." .. tostring(kind), function()
 		if kind == "PetFeed" and target:GetAttribute(State.Pet.EvolutionPaused) == true then
 			return
 		end
@@ -520,7 +520,7 @@ addPrompt = function(target, kind, action)
 		end
 		PromptInteract:FireServer(action, target)
 	end)
-	target.AncestryChanged:Connect(function()
+	RuntimeGuard.Connect(target.AncestryChanged, "LocalPrompts.TargetAncestryChanged." .. tostring(kind), function()
 		if not target:IsDescendantOf(Workspace) then
 			removePrompt(target, kind)
 		end

@@ -187,7 +187,7 @@ function RollLuckController.start()
 		end)
 	end
 
-	upgradeButton.Activated:Connect(function()
+	RuntimeGuard.Connect(upgradeButton.Activated, "RollLuckController.UpgradeActivated", function()
 		if not canUpgrade() then
 			return
 		end

@@ -191,7 +191,7 @@ function RollDropAreaController.start()
 		end)
 	end
 
-	upgradeButton.Activated:Connect(function()
+	RuntimeGuard.Connect(upgradeButton.Activated, "RollDropAreaController.UpgradeActivated", function()
 		if not canUpgrade() then
 			return
 		end

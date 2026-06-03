@@ -1,5 +1,8 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+
+local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RuntimeGuard"))
 
 local UiEffects = {}
 
@@ -52,7 +55,7 @@ local function ensureInputEndedConnection()
 		return
 	end
 
-	inputEndedConnection = UserInputService.InputEnded:Connect(function(input)
+	inputEndedConnection = RuntimeGuard.Connect(UserInputService.InputEnded, "UiEffects.InputEnded", function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
@@ -113,27 +116,27 @@ function UiEffects.BindButton(button)
 		end
 	end
 
-	button.MouseEnter:Connect(function()
+	RuntimeGuard.Connect(button.MouseEnter, "UiEffects.MouseEnter", function()
 		setHover(true)
 	end)
 
-	button.MouseLeave:Connect(function()
+	RuntimeGuard.Connect(button.MouseLeave, "UiEffects.MouseLeave", function()
 		setHover(false)
 		releasePress()
 	end)
 
-	button.MouseButton1Down:Connect(function()
+	RuntimeGuard.Connect(button.MouseButton1Down, "UiEffects.MouseButton1Down", function()
 		setPressed(true)
 		if pressing then
 			pressedButtons[button] = releasePress
 		end
 	end)
 
-	button.MouseButton1Up:Connect(function()
+	RuntimeGuard.Connect(button.MouseButton1Up, "UiEffects.MouseButton1Up", function()
 		releasePress()
 	end)
 
-	button.Destroying:Connect(function()
+	RuntimeGuard.Connect(button.Destroying, "UiEffects.ButtonDestroying", function()
 		pressedButtons[button] = nil
 	end)
 end
@@ -229,7 +232,7 @@ function UiEffects.PlayClose(panel, state, onComplete)
 		Position = state.closedPosition,
 		Size = state.closedSize,
 	})
-	closeTween.Completed:Connect(function()
+	RuntimeGuard.Connect(closeTween.Completed, "UiEffects.PlayCloseCompleted", function()
 		panel.Visible = false
 		if onComplete then
 			onComplete()

@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
@@ -95,7 +96,14 @@ function FeedPlacementService.Start(config)
 		TelemetryService.Warn("feed_placement_rejected", fields)
 	end
 
-	PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe, toolGuid)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "FeedPlacementService.PlayerRemoving", function(player)
+		local key = userKey(player)
+		if key == nil then return end
+		lastFire[key] = nil
+		locks[key] = nil
+	end)
+
+	RuntimeGuard.Connect(PlaceFeedMachine.OnServerEvent, "FeedPlacementService.PlaceFeedMachine", function(player, requestId, cframe, toolGuid)
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendPlaceResult(player, requestId, false, "rate-limited")
 			return

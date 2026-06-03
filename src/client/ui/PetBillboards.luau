@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 
 local PetBillboards = {}
@@ -87,12 +88,12 @@ local function attach(pet)
 	end
 
 	render()
-	pet:GetAttributeChangedSignal(State.Pet.XP):Connect(render)
-	pet:GetAttributeChangedSignal(State.Pet.MaxXP):Connect(render)
-	pet:GetAttributeChangedSignal(State.Pet.Money):Connect(render)
-	pet:GetAttributeChangedSignal(State.Pet.Id):Connect(render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.XP), "PetBillboards.XPChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MaxXP), "PetBillboards.MaxXPChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetBillboards.IdChanged", render)
 
-	pet.Destroying:Connect(function()
+	RuntimeGuard.Connect(pet.Destroying, "PetBillboards.PetDestroying", function()
 		attached[pet] = nil
 	end)
 end
@@ -105,7 +106,7 @@ local function watchPlot(plot)
 	for _, obj in ipairs(plot:GetChildren()) do
 		if isPet(obj) then attach(obj) end
 	end
-	plot.ChildAdded:Connect(function(obj)
+	RuntimeGuard.Connect(plot.ChildAdded, "PetBillboards.PlotChildAdded", function(obj)
 		if isPet(obj) then attach(obj) end
 	end)
 end
@@ -120,11 +121,11 @@ local function watchWorkspace()
 			watchPlot(obj)
 		elseif obj.Name == "Plots" then
 			for _, plot in ipairs(obj:GetChildren()) do watchPlot(plot) end
-			obj.ChildAdded:Connect(watchPlot)
+			RuntimeGuard.Connect(obj.ChildAdded, "PetBillboards.PlotsChildAdded", watchPlot)
 		end
 	end
 	for _, obj in ipairs(Workspace:GetChildren()) do onWsChild(obj) end
-	Workspace.ChildAdded:Connect(onWsChild)
+	RuntimeGuard.Connect(Workspace.ChildAdded, "PetBillboards.WorkspaceChildAdded", onWsChild)
 end
 
 function PetBillboards.start()

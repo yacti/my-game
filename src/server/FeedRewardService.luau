@@ -58,11 +58,17 @@ function FeedRewardService.ApplyPrepared(player, profile, prepared)
 		return false, "invalid-grant"
 	end
 
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not backpack then
+		destroyPrepared(prepared)
+		return false, "no-backpack"
+	end
+
 	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 	profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + amount
 
 	for _, tool in ipairs(prepared.tools or {}) do
-		tool.Parent = player.Backpack
+		tool.Parent = backpack
 	end
 	return true
 end

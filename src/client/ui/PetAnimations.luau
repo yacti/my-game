@@ -485,20 +485,20 @@ local function bindPet(pet)
 			record.animations.Walk = walkAnimation
 		end
 
-		record.connections[#record.connections + 1] = pet:GetAttributeChangedSignal(State.Pet.MotionState):Connect(function()
+		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MotionState), "PetAnimations.MotionStateChanged", function()
 			playState(record, pet:GetAttribute(State.Pet.MotionState))
 		end)
-		record.connections[#record.connections + 1] = pet:GetAttributeChangedSignal(State.Pet.SegmentWalkSpeed):Connect(function()
+		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.SegmentWalkSpeed), "PetAnimations.WalkSpeedChanged", function()
 			updateWalkAnimationSpeed(record)
 		end)
-		record.connections[#record.connections + 1] = pet:GetAttributeChangedSignal(State.Pet.Money):Connect(function()
+		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetAnimations.MoneyChanged", function()
 			local money = pet:GetAttribute(State.Pet.Money) or 0
 			if record.lastMoney >= 1 and money < 1 then
 				triggerCollectJump(record)
 			end
 			record.lastMoney = money
 		end)
-		record.connections[#record.connections + 1] = pet.Destroying:Connect(function()
+		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.Destroying, "PetAnimations.PetDestroying", function()
 			cleanup(pet)
 		end)
 
@@ -511,7 +511,7 @@ local function watchPlot(plot)
 	for _, child in ipairs(plot:GetChildren()) do
 		if isPet(child) then bindPet(child) end
 	end
-	plot.ChildAdded:Connect(function(child)
+	RuntimeGuard.Connect(plot.ChildAdded, "PetAnimations.PlotChildAdded", function(child)
 		if isPet(child) then bindPet(child) end
 	end)
 end
@@ -528,14 +528,14 @@ local function watchWorkspace()
 			for _, plot in ipairs(child:GetChildren()) do
 				watchPlot(plot)
 			end
-			child.ChildAdded:Connect(watchPlot)
+			RuntimeGuard.Connect(child.ChildAdded, "PetAnimations.PlotsChildAdded", watchPlot)
 		end
 	end
 
 	for _, child in ipairs(Workspace:GetChildren()) do
 		onWorkspaceChild(child)
 	end
-	Workspace.ChildAdded:Connect(onWorkspaceChild)
+	RuntimeGuard.Connect(Workspace.ChildAdded, "PetAnimations.WorkspaceChildAdded", onWorkspaceChild)
 end
 
 function PetAnimations.start()

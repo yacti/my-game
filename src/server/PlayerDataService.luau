@@ -300,25 +300,32 @@ function PlayerDataService.GetProfile(player)
 	return key and profiles[key] or nil
 end
 
+local function startSession(store, key, player, label)
+	local ok, profileOrError = pcall(function()
+		return store:StartSessionAsync(tostring(key), {
+			Cancel = function()
+				return player:IsDescendantOf(Players) == false
+			end,
+		})
+	end)
+	if not ok then
+		warn(string.format("[PlayerDataService] Failed to start %s profile session for %s: %s", label, tostring(key), tostring(profileOrError)))
+		return nil
+	end
+	return profileOrError
+end
+
 function PlayerDataService.LoadPlayerAsync(player)
 	local key = userKey(player)
 	if key == nil then
 		return nil
 	end
 
-	local profile = PLAYER_STORE:StartSessionAsync(tostring(key), {
-		Cancel = function()
-			return player:IsDescendantOf(Players) == false
-		end,
-	})
+	local profile = startSession(PLAYER_STORE, key, player, "primary")
 
 	if not profile and IS_STUDIO and PLAYER_STORE ~= MOCK_PLAYER_STORE then
 		warn("[PlayerDataService] Live profile load failed in Studio; retrying with mock store")
-		profile = MOCK_PLAYER_STORE:StartSessionAsync(tostring(key), {
-			Cancel = function()
-				return player:IsDescendantOf(Players) == false
-			end,
-		})
+		profile = startSession(MOCK_PLAYER_STORE, key, player, "mock")
 	end
 
 	if not profile then

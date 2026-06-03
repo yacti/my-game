@@ -136,7 +136,7 @@ function FeedEditService.Start(config)
 		TelemetryService.Warn("feed_move_rejected", fields)
 	end
 
-	Players.PlayerRemoving:Connect(function(player)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "FeedEditService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key == nil then return end
 		toggleLastFire[key] = nil
@@ -144,7 +144,7 @@ function FeedEditService.Start(config)
 		moveLocks[key] = nil
 	end)
 
-	FeedEditModeRequest.OnServerEvent:Connect(function(player, enabled)
+	RuntimeGuard.Connect(FeedEditModeRequest.OnServerEvent, "FeedEditService.EditModeRequest", function(player, enabled)
 		if type(enabled) ~= "boolean" then return end
 		if not consumeRateLimit(toggleLastFire, player, toggleRateSeconds) then return end
 
@@ -164,7 +164,7 @@ function FeedEditService.Start(config)
 		player:SetAttribute(EDIT_MODE_ATTR, true)
 	end)
 
-	FeedMoveRequest.OnServerEvent:Connect(function(player, requestId, target, cframe)
+	RuntimeGuard.Connect(FeedMoveRequest.OnServerEvent, "FeedEditService.MoveRequest", function(player, requestId, target, cframe)
 		if not consumeRateLimit(moveLastFire, player, moveRateSeconds) then
 			sendMoveResult(player, requestId, false, "rate-limited")
 			return

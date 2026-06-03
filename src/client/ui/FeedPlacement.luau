@@ -723,7 +723,7 @@ function FeedPlacement.start()
 		return UserInputService:GetMouseLocation()
 	end
 
-	UserInputService.InputBegan:Connect(function(input, gpe)
+	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedPlacement.InputBegan", function(input, gpe)
 		if gpe or not placing then return end
 		if input.KeyCode == Enum.KeyCode.R then
 			rotatePreview()
@@ -740,44 +740,44 @@ function FeedPlacement.start()
 	end)
 
 	if confirmBtn then
-		confirmBtn.InputBegan:Connect(function(input)
+		RuntimeGuard.Connect(confirmBtn.InputBegan, "FeedPlacement.ConfirmInputBegan", function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch then
 				ignoreWorldInputUntil = os.clock() + 0.2
 			end
 		end)
-		confirmBtn.Activated:Connect(confirmPlacement)
+		RuntimeGuard.Connect(confirmBtn.Activated, "FeedPlacement.ConfirmActivated", confirmPlacement)
 	end
-	moveBtn.InputBegan:Connect(function(input)
+	RuntimeGuard.Connect(moveBtn.InputBegan, "FeedPlacement.MoveInputBegan", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 			beginMoving(input)
 		end
 	end)
-	moveBtn.InputEnded:Connect(function(input)
+	RuntimeGuard.Connect(moveBtn.InputEnded, "FeedPlacement.MoveInputEnded", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 			stopMoving()
 		end
 	end)
-	rotateBtn.InputBegan:Connect(function(input)
+	RuntimeGuard.Connect(rotateBtn.InputBegan, "FeedPlacement.RotateInputBegan", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 		end
 	end)
-	rotateBtn.Activated:Connect(function()
+	RuntimeGuard.Connect(rotateBtn.Activated, "FeedPlacement.RotateActivated", function()
 		rotatePreview()
 	end)
 
-	UserInputService.InputChanged:Connect(function(input)
+	RuntimeGuard.Connect(UserInputService.InputChanged, "FeedPlacement.InputChanged", function(input)
 		if moving and input.UserInputType == Enum.UserInputType.Touch then
 			touchScreenPosition = input.Position
 		end
 	end)
-	UserInputService.InputEnded:Connect(function(input)
+	RuntimeGuard.Connect(UserInputService.InputEnded, "FeedPlacement.InputEnded", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			stopMoving()
@@ -895,12 +895,12 @@ function FeedPlacement.start()
 			setGridEffectEnabled(true)
 		end
 
-		tool.Equipped:Connect(activateTool)
+		RuntimeGuard.Connect(tool.Equipped, "FeedPlacement.ToolEquipped", activateTool)
 		if tool.Parent == player.Character then
 			activateTool()
 		end
 
-		tool.Unequipped:Connect(function()
+		RuntimeGuard.Connect(tool.Unequipped, "FeedPlacement.ToolUnequipped", function()
 			if activeTool ~= tool then
 				return
 			end
@@ -924,11 +924,11 @@ function FeedPlacement.start()
 	local function watchCharacter(character)
 		if not character then return end
 		for _, item in ipairs(character:GetChildren()) do bindTool(item) end
-		character.ChildAdded:Connect(bindTool)
+		RuntimeGuard.Connect(character.ChildAdded, "FeedPlacement.CharacterChildAdded", bindTool)
 	end
 
-	player.Backpack.ChildAdded:Connect(bindTool)
-	player.CharacterAdded:Connect(function(character)
+	RuntimeGuard.Connect(player.Backpack.ChildAdded, "FeedPlacement.BackpackChildAdded", bindTool)
+	RuntimeGuard.Connect(player.CharacterAdded, "FeedPlacement.CharacterAdded", function(character)
 		destroyPreview()
 		watchBackpack()
 		watchCharacter(character)

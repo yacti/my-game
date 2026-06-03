@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -404,10 +405,10 @@ local function bindPet(pet)
 	watchedPets[pet] = true
 
 	playForPet(pet)
-	pet:GetAttributeChangedSignal(State.Pet.EvolutionSeq):Connect(function()
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.EvolutionSeq), "PetEvolutionEffects.EvolutionSeqChanged", function()
 		playForPet(pet)
 	end)
-	pet.Destroying:Connect(function()
+	RuntimeGuard.Connect(pet.Destroying, "PetEvolutionEffects.PetDestroying", function()
 		watchedPets[pet] = nil
 		playedSeqByPet[pet] = nil
 	end)
@@ -420,7 +421,7 @@ local function watchPlot(plot)
 	for _, child in ipairs(plot:GetChildren()) do
 		if child:IsA("Model") and child:GetAttribute(State.Pet.Index) ~= nil then bindPet(child) end
 	end
-	plot.ChildAdded:Connect(function(child)
+	RuntimeGuard.Connect(plot.ChildAdded, "PetEvolutionEffects.PlotChildAdded", function(child)
 		if child:IsA("Model") and child:GetAttribute(State.Pet.Index) ~= nil then bindPet(child) end
 	end)
 end
@@ -431,12 +432,12 @@ local function watchWorkspace()
 			watchPlot(child)
 		elseif child.Name == "Plots" then
 			for _, plot in ipairs(child:GetChildren()) do watchPlot(plot) end
-			child.ChildAdded:Connect(watchPlot)
+			RuntimeGuard.Connect(child.ChildAdded, "PetEvolutionEffects.PlotsChildAdded", watchPlot)
 		end
 	end
 
 	for _, child in ipairs(Workspace:GetChildren()) do watchChild(child) end
-	Workspace.ChildAdded:Connect(watchChild)
+	RuntimeGuard.Connect(Workspace.ChildAdded, "PetEvolutionEffects.WorkspaceChildAdded", watchChild)
 end
 
 function PetEvolutionEffects.start()
@@ -446,8 +447,8 @@ function PetEvolutionEffects.start()
 			if pet.Parent then playForPet(pet) end
 		end
 	end
-	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(replayOwnedPets)
-	player:GetPropertyChangedSignal("RespawnLocation"):Connect(replayOwnedPets)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "PetEvolutionEffects.AssignedPlotChanged", replayOwnedPets)
+	RuntimeGuard.Connect(player:GetPropertyChangedSignal("RespawnLocation"), "PetEvolutionEffects.RespawnLocationChanged", replayOwnedPets)
 end
 
 return PetEvolutionEffects

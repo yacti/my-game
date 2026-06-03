@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -42,7 +43,14 @@ function PromptInteractionService.Start(config)
 	local lastFire = {}
 	local locks = {}
 
-	Remotes.get(Remotes.Names.PromptInteract).OnServerEvent:Connect(function(player, action, target)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "PromptInteractionService.PlayerRemoving", function(player)
+		local key = userKey(player)
+		if key == nil then return end
+		lastFire[key] = nil
+		locks[key] = nil
+	end)
+
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PromptInteract).OnServerEvent, "PromptInteractionService.PromptInteract", function(player, action, target)
 		if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then return end
 		if not Interactions.IsAction(action) then

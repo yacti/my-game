@@ -630,30 +630,38 @@ function RollService.Purchase(player, offerId, profile)
 	end
 
 	locks[key] = true
+	local spentAmount = 0
 	local ok, success, code, currencyOrNil = pcall(function()
 		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, offer.price)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency
 		end
+		spentAmount = offer.price
 
 		local handler = rewardPurchaseHandlers[offer.category]
 		if not handler then
 			CurrencyService.Add(player, profile, offer.price)
+			spentAmount = 0
 			return false, "unsupported-reward", currency
 		end
 
 		local granted, grantCode = handler(player, profile, offer)
 		if not granted then
 			CurrencyService.Add(player, profile, offer.price)
+			spentAmount = 0
 			return false, grantCode or "grant-failed"
 		end
 
 		removePendingOffer(player, offerId)
+		spentAmount = 0
 		return true, "ok", profile.Data.Currency
 	end)
 	locks[key] = nil
 
 	if not ok then
+		if spentAmount > 0 then
+			CurrencyService.Add(player, profile, spentAmount)
+		end
 		warn("[RollService] Purchase failed: " .. tostring(success))
 		sendPurchaseResult(player, offerId, false, "server-error")
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
@@ -774,6 +782,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 
 	local price = math.max(math.floor(tonumber(nextUpgrade.price) or 0), 0)
 	locks[key] = true
+	local spentAmount = 0
 	local ok, success, code, currencyOrNil = pcall(function()
 		local freshLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 		local freshUpgrade, freshNextLevel = RollLuckBalance.NextUpgrade(freshLevel)
@@ -786,13 +795,19 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency
 		end
+		spentAmount = freshPrice
 
 		profile.Data.RollLuckLevel = freshNextLevel
+		spentAmount = 0
 		return true, "ok", profile.Data.Currency
 	end)
 	locks[key] = nil
 
 	if not ok then
+		profile.Data.RollLuckLevel = currentLevel
+		if spentAmount > 0 then
+			CurrencyService.Add(player, profile, spentAmount)
+		end
 		warn("[RollService] Luck upgrade failed: " .. tostring(success))
 		sendLuckResult(player, requestId, false, "server-error")
 		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
@@ -895,6 +910,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 
 	local price = math.max(math.floor(tonumber(nextUpgrade.price) or 0), 0)
 	locks[key] = true
+	local spentAmount = 0
 	local ok, success, code, currencyOrNil, levelOrNil = pcall(function()
 		local freshLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
 		local freshUpgrade, freshNextLevel = RollDropAreaBalance.NextUpgrade(freshLevel)
@@ -907,20 +923,28 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency, freshLevel
 		end
+		spentAmount = freshPrice
 
 		profile.Data.RollDropAreaLevel = freshNextLevel
 		local applied, applyCode = RollService.ApplyDropAreaVisibility(plot, profile)
 		if not applied then
 			profile.Data.RollDropAreaLevel = freshLevel
 			CurrencyService.Add(player, profile, freshPrice)
+			spentAmount = 0
 			return false, applyCode or "visibility-failed", profile.Data.Currency, freshLevel
 		end
 
+		spentAmount = 0
 		return true, "ok", profile.Data.Currency, freshNextLevel
 	end)
 	locks[key] = nil
 
 	if not ok then
+		profile.Data.RollDropAreaLevel = currentLevel
+		RuntimeGuard.Run("RollService.RestoreDropAreaVisibility", RollService.ApplyDropAreaVisibility, plot, profile)
+		if spentAmount > 0 then
+			CurrencyService.Add(player, profile, spentAmount)
+		end
 		warn("[RollService] Drop area upgrade failed: " .. tostring(success))
 		sendDropAreaResult(player, requestId, false, "server-error")
 		TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {

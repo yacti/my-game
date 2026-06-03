@@ -617,34 +617,34 @@ function FeedEditController.start()
 		end
 	end
 
-	editButton.Activated:Connect(function()
+	RuntimeGuard.Connect(editButton.Activated, "FeedEditController.EditButtonActivated", function()
 		if not buttonVisible and not editEnabled then return end
 		FeedEditModeRequest:FireServer(not editEnabled)
 	end)
 
-	moveButton.InputBegan:Connect(function(input)
+	RuntimeGuard.Connect(moveButton.InputBegan, "FeedEditController.MoveInputBegan", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 			beginMoving(input)
 		end
 	end)
-	moveButton.InputEnded:Connect(function(input)
+	RuntimeGuard.Connect(moveButton.InputEnded, "FeedEditController.MoveInputEnded", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 			stopMoving()
 		end
 	end)
-	rotateButton.InputBegan:Connect(function(input)
+	RuntimeGuard.Connect(rotateButton.InputBegan, "FeedEditController.RotateInputBegan", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			ignoreWorldInputUntil = os.clock() + 0.2
 		end
 	end)
-	rotateButton.Activated:Connect(rotateSelected)
+	RuntimeGuard.Connect(rotateButton.Activated, "FeedEditController.RotateActivated", rotateSelected)
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedEditController.InputBegan", function(input, gameProcessed)
 		if gameProcessed or not editEnabled or moving or pendingRequestId ~= nil then return end
 		if os.clock() < ignoreWorldInputUntil then return end
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -674,13 +674,13 @@ function FeedEditController.start()
 		end
 	end)
 
-	UserInputService.InputChanged:Connect(function(input)
+	RuntimeGuard.Connect(UserInputService.InputChanged, "FeedEditController.InputChanged", function(input)
 		if moving and input.UserInputType == Enum.UserInputType.Touch then
 			touchScreenPosition = input.Position
 		end
 	end)
 
-	UserInputService.InputEnded:Connect(function(input)
+	RuntimeGuard.Connect(UserInputService.InputEnded, "FeedEditController.InputEnded", function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			stopMoving()

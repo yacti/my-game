@@ -878,7 +878,7 @@ local function addPurchasePrompt(model, payload)
 	LocalPrompts.RegisterExternalPrompt(prompt, function()
 		return activeReveals[payload.offerId] ~= nil and prompt:GetAttribute(ROLL_OFFER_PENDING_ATTR) ~= true
 	end)
-	prompt.Triggered:Connect(function()
+	RuntimeGuard.Connect(prompt.Triggered, "RollController.PurchasePromptTriggered", function()
 		if activeReveals[payload.offerId] == nil then
 			return
 		end
@@ -1136,15 +1136,15 @@ function RollController.start()
 
 	RuntimeGuard.Connect(RunService.RenderStepped, "RollController.RenderStepped", stepRollRenderEffects)
 
-	mouse.Button1Down:Connect(function()
+	RuntimeGuard.Connect(mouse.Button1Down, "RollController.MouseButton1Down", function()
 		local target = mouse.Target
 		if isRollButton(target) then
 			pressButton(target, false)
 		end
 	end)
-	mouse.Button1Up:Connect(releasePressedButton)
+	RuntimeGuard.Connect(mouse.Button1Up, "RollController.MouseButton1Up", releasePressedButton)
 
-	ProximityPromptService.PromptTriggered:Connect(function(prompt)
+	RuntimeGuard.Connect(ProximityPromptService.PromptTriggered, "RollController.PromptTriggered", function(prompt)
 		if prompt.Name == CRATE_ROLL_PROMPT_NAME and prompt.Parent and prompt.Parent:IsA("Attachment") then
 			pressButton(prompt.Parent.Parent, true)
 		end
