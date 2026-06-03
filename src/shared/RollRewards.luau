@@ -1,5 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(script.Parent:WaitForChild("Assets"))
+
 local RollRewards = {}
 
 RollRewards.Categories = {
@@ -19,7 +21,7 @@ local miscRoot
 local miscIndex
 
 local function getMiscRoot()
-	miscRoot = miscRoot or ReplicatedStorage:WaitForChild("Misc")
+	miscRoot = miscRoot or Assets.WaitFor(Assets.Names.Misc)
 	return miscRoot
 end
 

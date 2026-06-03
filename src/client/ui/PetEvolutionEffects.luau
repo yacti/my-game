@@ -8,9 +8,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State = require(Shared:WaitForChild("State"))
-local PetModels = ReplicatedStorage:WaitForChild("PetModels")
+local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PetEvolutionEffects = {}
@@ -172,12 +173,12 @@ local function flashAmount(elapsed)
 	return (math.sin(cycles * math.pi * 2 - math.pi / 2) + 1) * 0.5
 end
 
-local function playCharge(effect, pivot, baseScale)
+local function playCharge(effect, pivot, baseScale, pet)
 	local highlight = addWhiteout(effect)
 	local random = Random.new()
 	local startedAt = os.clock()
 
-	while effect.Parent do
+	while effect.Parent and (not pet or pet.Parent) do
 		local elapsed = os.clock() - startedAt
 		local alpha = math.clamp(elapsed / CHARGE_SECONDS, 0, 1)
 		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -205,7 +206,7 @@ local function playCharge(effect, pivot, baseScale)
 		RunService.RenderStepped:Wait()
 	end
 
-	if effect.Parent then
+	if effect.Parent and (not pet or pet.Parent) then
 		TweenService:Create(highlight, TweenInfo.new(WHITEOUT_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			FillTransparency = 0,
 			OutlineTransparency = 0,
@@ -384,8 +385,10 @@ local function playForPet(pet)
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			local highlight = playCharge(effect, pivot, oldScale)
-			morphEffectToNewPet(effect, pet, pivot, highlight)
+			local highlight = playCharge(effect, pivot, oldScale, pet)
+			if pet.Parent then
+				morphEffectToNewPet(effect, pet, pivot, highlight)
+			end
 		end)
 		restoreCamera()
 		if effect.Parent then effect:Destroy() end

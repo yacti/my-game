@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Shovel = require(ReplicatedStorage.Shared:WaitForChild("Shovel"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
@@ -18,9 +19,9 @@ local function findShovel(container)
 end
 
 function ShovelTools.MakeTool()
-	local template = ReplicatedStorage:WaitForChild(Shovel.ToolName)
+	local template = Assets.WaitFor(Shovel.ToolName)
 	if not template:IsA("Tool") then
-		warn("[ShovelTools] ReplicatedStorage.Shovel must be a Tool")
+		warn("[ShovelTools] ReplicatedStorage.Assets.Shovel must be a Tool")
 		return nil
 	end
 

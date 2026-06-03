@@ -21,6 +21,7 @@ local BOX_CORNER_SIGNS = { -1, 1 }
 
 local PetAnimations = {}
 local attached = {}
+local started = false
 local cleanup
 
 local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll, yOffset)
@@ -453,6 +454,9 @@ local function bindPet(pet)
 		end
 
 		local animator = waitForAnimator(pet)
+		if attached[pet] ~= record or not pet.Parent then
+			return
+		end
 		if not animator then
 			warn("[PetAnimations] Pet missing Animator: " .. pet:GetFullName())
 			cleanup(pet)
@@ -461,6 +465,9 @@ local function bindPet(pet)
 
 		local petId = pet:GetAttribute(State.Pet.Id)
 		local visual = PetCatalog.VisualForPetId(petId)
+		if attached[pet] ~= record or not pet.Parent then
+			return
+		end
 		if not visual then
 			warn("[PetAnimations] No animation config for pet id: " .. tostring(petId))
 			cleanup(pet)
@@ -532,6 +539,11 @@ local function watchWorkspace()
 end
 
 function PetAnimations.start()
+	if started then
+		return
+	end
+	started = true
+
 	watchWorkspace()
 	RuntimeGuard.Connect(RunService.RenderStepped, "PetAnimations.RenderStepped", function(dt)
 		for _, record in pairs(attached) do

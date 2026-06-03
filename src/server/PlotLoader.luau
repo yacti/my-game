@@ -1,6 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
+
 local PlotLoader = {}
 
 local MISC_FOLDER_NAME = "Misc"
@@ -90,7 +92,8 @@ local function runtimePlotsFolder()
 end
 
 function PlotLoader.Load()
-	local misc = expectChild(ReplicatedStorage, MISC_FOLDER_NAME, "Folder")
+	local assetRoot = expectChild(ReplicatedStorage, Assets.FolderName, "Folder")
+	local misc = expectChild(assetRoot, MISC_FOLDER_NAME, "Folder")
 	local template = expectChild(misc, PLOT_TEMPLATE_NAME, "Model")
 	local markerFolder = expectChild(Workspace, MARKERS_FOLDER_NAME, "Folder")
 	local markers = collectMarkers(markerFolder)

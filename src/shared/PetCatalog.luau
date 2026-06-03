@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(script.Parent:WaitForChild("Assets"))
 local State = require(script.Parent:WaitForChild("State"))
 
 local PetCatalog = {}
@@ -13,7 +14,7 @@ local DEFAULT_IDLE_ANIMATION_ID = "rbxassetid://122268596727742"
 local DEFAULT_WALK_ANIMATION_ID = "rbxassetid://96926700690285"
 
 local function petModelsFolder()
-	return ReplicatedStorage:FindFirstChild("PetModels")
+	return Assets.Find(Assets.Names.PetModels)
 end
 
 local function numericAttribute(model, attributeName, defaultValue)

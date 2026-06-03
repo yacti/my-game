@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
+local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
@@ -15,7 +16,7 @@ function FeedMachineTools.MakeFeedTool(feedType)
 		return nil
 	end
 
-	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
+	local tool = Assets.WaitFor(Assets.Names.FeedMachineTool):Clone()
 	tool.Name = template.Name
 	tool:SetAttribute(State.Feed.Type, feedType)
 	ToolIdentity.AssignGuid(tool)

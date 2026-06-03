@@ -6,10 +6,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State = require(Shared:WaitForChild("State"))
 
-local PetModels = ReplicatedStorage:WaitForChild("PetModels")
+local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 
 local PetPreloader = {}
 

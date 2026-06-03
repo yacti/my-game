@@ -1,4 +1,4 @@
--- Food registry. Templates live at ReplicatedStorage.Food (recursively;
+-- Food registry. Templates live at ReplicatedStorage.Assets.Food (recursively;
 -- per-machine subfolders are supported, e.g. Food/Patch/Pumpkin1). A
 -- template may be either a BasePart (legacy) or a Model (preferred —
 -- supports multi-part visuals and Model:ScaleTo). Templates may carry a base
@@ -11,12 +11,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
+local Assets = require(script.Parent:WaitForChild("Assets"))
 
 local Food = {}
 
 local folder
 local function getFolder()
-	folder = folder or ReplicatedStorage:WaitForChild("Food")
+	folder = folder or Assets.WaitFor(Assets.Names.Food)
 	return folder
 end
 

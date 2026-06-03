@@ -108,7 +108,11 @@ local function render(options)
 	elseif type(rarity) == "string" and Rarities.Get(rarity) then
 		setItemColor(Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common))
 		if Rarities.Get(rarity).Animated then
-			rarityConnection = RunService.RenderStepped:Connect(function()
+			rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "YesNoWarning.RarityRender", function()
+				if not activePrompt or not frame or not frame.Parent or not itemLabel or not itemLabel.Parent then
+					disconnectRarity()
+					return
+				end
 				setItemColor(Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common))
 			end)
 		end

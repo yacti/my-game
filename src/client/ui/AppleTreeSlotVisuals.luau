@@ -498,7 +498,7 @@ local function shakeTree(tree)
 	activeShakeTargets[tree] = targets
 
 	task.spawn(function()
-		while shakeIds[tree] == shakeId do
+		while shakeIds[tree] == shakeId and tree.Parent do
 			local elapsed = os.clock() - startedAt
 			local alpha = elapsed / SHAKE_DURATION
 			if alpha >= 1 then break end

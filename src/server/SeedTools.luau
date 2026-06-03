@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
@@ -87,9 +88,9 @@ function SeedTools.MakeSeedTool(seedId)
 		return nil
 	end
 
-	local wrapper = ReplicatedStorage:WaitForChild("SeedTool")
+	local wrapper = Assets.WaitFor(Assets.Names.SeedTool)
 	if not wrapper:IsA("Tool") then
-		warn("[SeedTools] ReplicatedStorage.SeedTool must be a Tool")
+		warn("[SeedTools] ReplicatedStorage.Assets.SeedTool must be a Tool")
 		return nil
 	end
 

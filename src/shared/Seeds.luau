@@ -1,5 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(script.Parent:WaitForChild("Assets"))
+
 local Seeds = {}
 
 Seeds.Attributes = {
@@ -15,7 +17,7 @@ local root
 local index
 
 local function getRoot()
-	root = root or ReplicatedStorage:WaitForChild("Seeds")
+	root = root or Assets.WaitFor(Assets.Names.Seeds)
 	return root
 end
 

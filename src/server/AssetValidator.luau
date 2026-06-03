@@ -5,6 +5,7 @@ local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local Food = require(Shared:WaitForChild("Food"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
@@ -21,7 +22,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
 
-local REQUIRED_ROOTS = {
+local REQUIRED_ASSET_ROOTS = {
 	"PetModels",
 	"FeedMachines",
 	"Food",
@@ -32,6 +33,9 @@ local REQUIRED_ROOTS = {
 	"Shovel",
 	"Misc",
 	"VFX",
+}
+
+local REQUIRED_REPLICATED_ROOTS = {
 	"Remotes",
 }
 
@@ -102,6 +106,14 @@ local function child(parent, name, className, errors)
 	return instance
 end
 
+local function assetChild(name, className, errors)
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", errors)
+	if not assetRoot then
+		return nil
+	end
+	return child(assetRoot, name, className, errors)
+end
+
 local function descendant(parent, name, className, errors)
 	if not parent then return nil end
 	for _, instance in ipairs(parent:GetDescendants()) do
@@ -159,7 +171,7 @@ local function validatePetVisual(model, visual, errors)
 end
 
 local function validatePetCatalog(errors)
-	local petModels = child(ReplicatedStorage, "PetModels", "Folder", errors)
+	local petModels = assetChild(Assets.Names.PetModels, "Folder", errors)
 	if not petModels then return end
 
 	local seenPetIds = {}
@@ -353,7 +365,7 @@ local function validateFeedTemplateIdentity(root, errors)
 end
 
 local function validateFeedTemplates(errors)
-	local root = child(ReplicatedStorage, "FeedMachines", "Folder", errors)
+	local root = assetChild(Assets.Names.FeedMachines, "Folder", errors)
 	if not root then return end
 
 	validateFeedTemplateIdentity(root, errors)
@@ -369,7 +381,7 @@ local function validateFeedTemplates(errors)
 end
 
 local function validateSeeds(errors)
-	local root = child(ReplicatedStorage, "Seeds", "Folder", errors)
+	local root = assetChild(Assets.Names.Seeds, "Folder", errors)
 	if not root then return end
 
 	local function hasSeedTemplateAncestor(instance)
@@ -448,12 +460,12 @@ local function validateSeeds(errors)
 	end
 
 	if count == 0 then
-		add(errors, "ReplicatedStorage.Seeds must contain at least one seed template")
+		add(errors, "ReplicatedStorage.Assets.Seeds must contain at least one seed template")
 	end
 end
 
 local function validateMisc(errors)
-	local misc = child(ReplicatedStorage, "Misc", "Folder", errors)
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
 	if not misc then return end
 
 	local function hasBasePart(template)
@@ -546,7 +558,7 @@ local function validateMisc(errors)
 end
 
 local function validateVfx(errors)
-	local vfx = child(ReplicatedStorage, "VFX", "Folder", errors)
+	local vfx = assetChild(Assets.Names.VFX, "Folder", errors)
 	if not vfx then return end
 
 	local rarityParticle = child(vfx, "RarityParticle", nil, errors)
@@ -577,7 +589,7 @@ local function validateCrateTemplate(template, errors)
 end
 
 local function validateCrates(errors)
-	local crates = child(ReplicatedStorage, "Crates", "Folder", errors)
+	local crates = assetChild(Assets.Names.Crates, "Folder", errors)
 	if not crates then return end
 
 	RollChances.Validate(errors)
@@ -822,7 +834,7 @@ local function sourceList(sources)
 end
 
 local function validateFoodTemplates(errors)
-	local foodRoot = child(ReplicatedStorage, "Food", "Folder", errors)
+	local foodRoot = assetChild(Assets.Names.Food, "Folder", errors)
 
 	local requiredFoodIds, sourcesByFoodId = collectRequiredFoodIds(errors)
 
@@ -925,7 +937,7 @@ local function validatePlots(errors)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
 	local rootPlots = {}
-	local misc = ReplicatedStorage:FindFirstChild("Misc")
+	local misc = Assets.Find(Assets.Names.Misc)
 	local plotTemplate = misc and child(misc, "PlotTemplate", "Model", errors) or nil
 	local loadingPadsFolder = child(Workspace, "PlotTemplates", "Folder", errors)
 
@@ -1136,11 +1148,17 @@ function AssetValidator.validate()
 	local errors = {}
 	local warnings = {}
 
-	for _, name in ipairs(REQUIRED_ROOTS) do
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", errors)
+	for _, name in ipairs(REQUIRED_ASSET_ROOTS) do
+		if assetRoot then
+			child(assetRoot, name, nil, errors)
+		end
+	end
+	for _, name in ipairs(REQUIRED_REPLICATED_ROOTS) do
 		child(ReplicatedStorage, name, nil, errors)
 	end
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
-		validateTool(ReplicatedStorage:FindFirstChild(toolName), errors)
+		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)
 	end
 
 	validateRemotes(errors)

@@ -72,12 +72,15 @@ local activeReveals = {}
 local activeRevealOwnerByOfferId = {}
 local activeOfferIdsByOwner = {}
 local activeRollEffectsByOfferId = {}
+local activeRainbowParticles = {}
+local activeRevealAnimations = {}
 local pressedButton = nil
 local buttonOriginalCFrames = setmetatable({}, { __mode = "k" })
 local buttonOriginalColors = setmetatable({}, { __mode = "k" })
 local unavailableButtons = setmetatable({}, { __mode = "k" })
 local warnedMissingBillboardTemplates = {}
 local rng = Random.new()
+local started = false
 
 local function isCurrentRoll(token)
 	return token == activeRollToken
@@ -774,14 +777,9 @@ local function startRainbowParticle(emitter, particleExpiresAt)
 		return
 	end
 
-	local connection
-	connection = RunService.RenderStepped:Connect(function()
-		if not emitter.Parent or (particleExpiresAt ~= nil and os.clock() >= particleExpiresAt) then
-			connection:Disconnect()
-			return
-		end
-		setParticleColor(emitter, Rarities.RainbowColorAt(os.clock()))
-	end)
+	activeRainbowParticles[emitter] = {
+		expiresAt = particleExpiresAt,
+	}
 end
 
 local function isWithinActiveVfxDistance(baseCFrame)
@@ -798,44 +796,67 @@ local function setRevealParticlesEnabled(instance, enabled)
 end
 
 local function startIdleAnimation(instance, baseCFrame, token, particleExpiresAt)
-	local startTime = os.clock()
-	local rotationSpeed = math.rad(IDLE_ROTATION_DEGREES_PER_SECOND)
-	local bobPeriod = math.max(IDLE_BOB_PERIOD, 0.01)
-	local wasActive = nil
-	local wereParticlesEnabled = nil
-	local connection
-	connection = RunService.RenderStepped:Connect(function()
-		if not instance.Parent or (token ~= nil and not isCurrentRoll(token)) then
-			connection:Disconnect()
-			return
+	activeRevealAnimations[instance] = {
+		baseCFrame = baseCFrame,
+		bobPeriod = math.max(IDLE_BOB_PERIOD, 0.01),
+		particleExpiresAt = particleExpiresAt,
+		rotationSpeed = math.rad(IDLE_ROTATION_DEGREES_PER_SECOND),
+		startTime = os.clock(),
+		token = token,
+		wasActive = nil,
+		wereParticlesEnabled = nil,
+	}
+end
+
+local function stepRainbowParticles()
+	local now = os.clock()
+	for emitter, record in pairs(activeRainbowParticles) do
+		if not emitter.Parent or (record.expiresAt ~= nil and now >= record.expiresAt) then
+			activeRainbowParticles[emitter] = nil
+		else
+			setParticleColor(emitter, Rarities.RainbowColorAt(now))
+		end
+	end
+end
+
+local function stepRevealAnimations()
+	local now = os.clock()
+	for instance, record in pairs(activeRevealAnimations) do
+		if not instance.Parent or (record.token ~= nil and not isCurrentRoll(record.token)) then
+			activeRevealAnimations[instance] = nil
+			continue
 		end
 
-		local isActive = isWithinActiveVfxDistance(baseCFrame)
-		local particlesEnabled = isActive and (particleExpiresAt == nil or os.clock() < particleExpiresAt)
-		if particlesEnabled ~= wereParticlesEnabled then
+		local isActive = isWithinActiveVfxDistance(record.baseCFrame)
+		local particlesEnabled = isActive and (record.particleExpiresAt == nil or now < record.particleExpiresAt)
+		if particlesEnabled ~= record.wereParticlesEnabled then
 			setRevealParticlesEnabled(instance, particlesEnabled)
-			wereParticlesEnabled = particlesEnabled
+			record.wereParticlesEnabled = particlesEnabled
 		end
-		if isActive ~= wasActive then
+		if isActive ~= record.wasActive then
 			if not isActive then
-				pivotTo(instance, baseCFrame)
+				pivotTo(instance, record.baseCFrame)
 			end
-			wasActive = isActive
+			record.wasActive = isActive
 		end
 		if not isActive then
-			return
+			continue
 		end
 
-		local elapsed = os.clock() - startTime
-		local bob = math.sin((elapsed / bobPeriod) * math.pi * 2) * IDLE_BOB_HEIGHT
-		local rotation = CFrame.Angles(0, elapsed * rotationSpeed, 0)
-		pivotTo(instance, (baseCFrame + Vector3.new(0, bob, 0)) * rotation)
-	end)
-	instance.Destroying:Connect(function()
-		if connection.Connected then
-			connection:Disconnect()
-		end
-	end)
+		local elapsed = now - record.startTime
+		local bob = math.sin((elapsed / record.bobPeriod) * math.pi * 2) * IDLE_BOB_HEIGHT
+		local rotation = CFrame.Angles(0, elapsed * record.rotationSpeed, 0)
+		pivotTo(instance, (record.baseCFrame + Vector3.new(0, bob, 0)) * rotation)
+	end
+end
+
+local function stepRollRenderEffects()
+	if next(activeRainbowParticles) ~= nil then
+		stepRainbowParticles()
+	end
+	if next(activeRevealAnimations) ~= nil then
+		stepRevealAnimations()
+	end
 end
 
 local function addPurchasePrompt(model, payload)
@@ -1105,8 +1126,15 @@ local function collectPayloadOffers(payload)
 end
 
 function RollController.start()
+	if started then
+		return
+	end
+	started = true
+
 	local player = Players.LocalPlayer
 	local mouse = player:GetMouse()
+
+	RuntimeGuard.Connect(RunService.RenderStepped, "RollController.RenderStepped", stepRollRenderEffects)
 
 	mouse.Button1Down:Connect(function()
 		local target = mouse.Target

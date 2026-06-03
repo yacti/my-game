@@ -740,11 +740,26 @@ function FeedEditController.start()
 	end)
 
 	RuntimeGuard.Connect(RunService.RenderStepped, "FeedEditController.RenderStepped", function()
-		if moving then
-			RuntimeGuard.Run("FeedEditController.UpdateDragPreview", function()
-				updateDragPreview(screenPositionForDrag())
-			end)
+		if not moving then
+			return
 		end
+		if pendingRequestId ~= nil then
+			moving = false
+			touchScreenPosition = nil
+			return
+		end
+		if not editEnabled then
+			clearSelection(true)
+			return
+		end
+		if not selectedFeed or not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
+			clearSelection(false)
+			return
+		end
+
+		RuntimeGuard.Run("FeedEditController.UpdateDragPreview", function()
+			updateDragPreview(screenPositionForDrag())
+		end)
 	end)
 
 	RuntimeGuard.Spawn("FeedEditController.RefreshLoop", function()

@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(script.Parent:WaitForChild("Assets"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local GrowingVisuals = {}
@@ -9,7 +10,7 @@ local function findFeedTemplate(feedType)
 		return nil
 	end
 
-	local root = ReplicatedStorage:FindFirstChild("FeedMachines")
+	local root = Assets.Find(Assets.Names.FeedMachines)
 	if not root then
 		return nil
 	end
@@ -141,10 +142,10 @@ function GrowingVisuals.ApplySaplingTreeColors(sapling, feedType)
 end
 
 function GrowingVisuals.BuildTreeSapling(feedType)
-	local misc = ReplicatedStorage:FindFirstChild("Misc")
+	local misc = Assets.Find(Assets.Names.Misc)
 	local sapling = misc and misc:FindFirstChild("Sapling")
 	if not (sapling and sapling:IsA("Model")) then
-		warn("[GrowingVisuals] Missing ReplicatedStorage.Misc.Sapling Model")
+		warn("[GrowingVisuals] Missing ReplicatedStorage.Assets.Misc.Sapling Model")
 		return nil
 	end
 

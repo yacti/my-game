@@ -66,7 +66,7 @@ State.Feed = {
 	Plot  = "Plot",
 
 	-- Per-template tunables. Each FeedMachine template under
-	-- ReplicatedStorage.FeedMachines.<Class>.<DisplayName> may set any of these
+	-- ReplicatedStorage.Assets.FeedMachines.<Class>.<DisplayName> may set any of these
 	-- as attributes; per-class modules read them with sensible defaults.
 	FoodType        = "FoodType",        -- Processor: accepted food group/category
 	FoodDrop        = "FoodDrop",        -- Tree/Patch: exact food id produced by the machine

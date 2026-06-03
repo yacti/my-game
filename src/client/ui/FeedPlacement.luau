@@ -278,7 +278,7 @@ function FeedPlacement.start()
 	local getPlayerPlot
 
 	local function previewAdornee()
-		if not preview then return nil end
+		if not (preview and preview.Parent) then return nil end
 		if preview:IsA("BasePart") then return preview end
 		if preview:IsA("Model") then return preview.PrimaryPart or firstBasePart(preview) end
 		return nil
@@ -784,11 +784,23 @@ function FeedPlacement.start()
 		end
 	end)
 	RuntimeGuard.Connect(RunService.RenderStepped, "FeedPlacement.RenderStepped", function()
-		if moving then
-			RuntimeGuard.Run("FeedPlacement.DragSelect", function()
-				selectFloorCellFromScreen(screenPositionForDrag())
-			end)
+		if not moving then
+			return
 		end
+		if pendingPlacementRequestId ~= nil then
+			moving = false
+			touchScreenPosition = nil
+			setPlacementEditVisible(false)
+			return
+		end
+		if not placing or not preview or not preview.Parent then
+			stopMoving()
+			return
+		end
+
+		RuntimeGuard.Run("FeedPlacement.DragSelect", function()
+			selectFloorCellFromScreen(screenPositionForDrag())
+		end)
 	end)
 
 	RuntimeGuard.Connect(PlaceFeedMachineResult.OnClientEvent, "FeedPlacement.PlaceResult", function(requestId, success, reason)

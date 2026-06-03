@@ -1,6 +1,7 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
@@ -8,7 +9,7 @@ local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 local InstanceVisibility = require(script.Parent:WaitForChild("InstanceVisibility"))
 
-local PetModels = ReplicatedStorage:WaitForChild("PetModels")
+local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
