@@ -15,6 +15,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local FeedPlacementService = {}
 
@@ -87,7 +88,7 @@ function FeedPlacementService.Start(config)
 		TelemetryService.Warn("feed_placement_rejected", fields)
 	end
 
-	PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe)
+	PlaceFeedMachine.OnServerEvent:Connect(function(player, requestId, cframe, toolGuid)
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendPlaceResult(player, requestId, false, "rate-limited")
 			return
@@ -115,7 +116,13 @@ function FeedPlacementService.Start(config)
 				sendPlaceResult(player, requestId, false, "no-character")
 				return
 			end
-			local tool = character:FindFirstChildWhichIsA("Tool")
+			local tool = ToolIdentity.FindEquippedByGuid(player, toolGuid, function(item)
+				return SeedTools.IsSeedTool(item) or FeedMachineTools.IsFeedTool(item)
+			end)
+			if not tool then
+				sendPlaceResult(player, requestId, false, "no-feed-tool")
+				return
+			end
 			local seedId = nil
 			local placingSeed = SeedTools.IsSeedTool(tool)
 			local feedType = nil
@@ -189,7 +196,11 @@ function FeedPlacementService.Start(config)
 				return
 			end
 
-			tool:Destroy()
+			if not ToolIdentity.DestroyIfGuidMatches(tool, toolGuid) then
+				feedPart:Destroy()
+				sendPlaceResult(player, requestId, false, "no-feed-tool")
+				return
+			end
 			if not placingSeed then
 				FeedMachines.Setup(feedPart, plot, player)
 			end

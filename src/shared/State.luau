@@ -44,6 +44,10 @@ State.Player = {
 	AssignedPlotName = "AssignedPlotName",
 }
 
+State.Tool = {
+	Guid = "ToolGuid",
+}
+
 State.Grid = {
 	Unlocked = "GridUnlocked",
 	Purchasable = "GridPurchasable",

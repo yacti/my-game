@@ -34,6 +34,7 @@ local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
@@ -331,7 +332,8 @@ local function feedPet(plot, player, profile, pet)
 
 	local foodXP = Food.XPOf(food)
 	if not foodXP then return end
-	food:Destroy()
+	local foodGuid = ToolIdentity.EnsureGuid(food)
+	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
 
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet

@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shovel = require(ReplicatedStorage.Shared:WaitForChild("Shovel"))
+local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
 local ShovelTools = {}
 
@@ -26,6 +27,7 @@ function ShovelTools.MakeTool()
 	local tool = template:Clone()
 	tool.Name = Shovel.ToolName
 	tool:SetAttribute(Shovel.ToolKindAttribute, Shovel.ToolKind)
+	ToolIdentity.AssignGuid(tool)
 	return tool
 end
 

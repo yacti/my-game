@@ -27,6 +27,7 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State   = require(Shared:WaitForChild("State"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local Processor = {}
 local ProcessorDepositEffect = Remotes.get(Remotes.Names.ProcessorDepositEffect)
@@ -98,7 +99,8 @@ local function depositOne(machine, s, player)
 	if not food then return end
 	local foodId = Food.IdOf(food)
 	if not foodId then return end
-	food:Destroy()
+	local foodGuid = ToolIdentity.EnsureGuid(food)
+	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
 	table.insert(s.queue, { foodId = foodId, depositedAt = os.time() })
 	refreshAttrs(machine, s)
 	ProcessorDepositEffect:FireClient(player, machine, foodId)

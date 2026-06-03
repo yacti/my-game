@@ -4,6 +4,7 @@ local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
 local FeedMachineTools = {}
 
@@ -17,6 +18,7 @@ function FeedMachineTools.MakeFeedTool(feedType)
 	local tool = ReplicatedStorage:WaitForChild("FeedMachineTool"):Clone()
 	tool.Name = template.Name
 	tool:SetAttribute(State.Feed.Type, feedType)
+	ToolIdentity.AssignGuid(tool)
 	return tool
 end
 

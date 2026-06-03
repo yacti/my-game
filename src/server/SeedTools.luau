@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
 local SeedTools = {}
 
@@ -96,6 +97,7 @@ function SeedTools.MakeSeedTool(seedId)
 	tool.Name = seedTemplate.Name
 	tool.RequiresHandle = true
 	tool:SetAttribute(State.Seed.Id, seedId)
+	ToolIdentity.AssignGuid(tool)
 
 	if not insertSeedVisual(tool, seedTemplate) then
 		tool:Destroy()

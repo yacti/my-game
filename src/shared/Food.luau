@@ -10,6 +10,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
 local Food = {}
 
@@ -146,6 +147,7 @@ function Food.MakeTool(foodId, xpOverride)
 	tool:SetAttribute(State.Food.Id, foodId)
 	tool:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	tool:SetAttribute(State.Food.XP, xpOverride or (template:GetAttribute(State.Food.XP) or 1))
+	ToolIdentity.AssignGuid(tool)
 	return tool
 end
 
@@ -186,7 +188,9 @@ local function isBetterFeedCandidate(candidate, candidateXP, current, currentXP)
 	local currentId = Food.IdOf(current) or ""
 	if candidateId ~= currentId then return candidateId < currentId end
 
-	return candidate.Name < current.Name
+	local candidateGuid = ToolIdentity.GuidOf(candidate) or candidate.Name
+	local currentGuid = ToolIdentity.GuidOf(current) or current.Name
+	return candidateGuid < currentGuid
 end
 
 -- Pet feeding always spends the held food first. If no feedable food is held,

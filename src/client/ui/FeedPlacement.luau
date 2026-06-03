@@ -204,6 +204,10 @@ local function firstBasePart(root)
 	return nil
 end
 
+local function validToolGuid(guid)
+	return type(guid) == "string" and guid ~= ""
+end
+
 function FeedPlacement.start()
 	local player           = Players.LocalPlayer
 	local PlayerGui        = player:WaitForChild("PlayerGui")
@@ -244,6 +248,7 @@ function FeedPlacement.start()
 	local activeFeedType = nil  -- set when a FeedMachine tool is equipped
 	local activeSeedId = nil
 	local activeTool = nil
+	local activeToolGuid = nil
 	local selectedLX, selectedLZ = nil, nil
 	local previewPlacementHeight = nil
 	local previewPrimaryOffset = CFrame.new()
@@ -677,6 +682,7 @@ function FeedPlacement.start()
 		end
 		local cf = getSelectedCFrame()
 		if not cf then return end
+		if not validToolGuid(activeToolGuid) then return end
 
 		nextPlacementRequestId += 1
 		pendingPlacementRequestId = nextPlacementRequestId
@@ -688,7 +694,7 @@ function FeedPlacement.start()
 		setGridEffectEnabled(false)
 		setPlacementEditVisible(false)
 		setConfirmEnabled(false)
-		PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf)
+		PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
 	end
 
 	local function beginMoving(input)
@@ -794,6 +800,7 @@ function FeedPlacement.start()
 			if unequippedWhilePending then
 				activeFeedType = nil
 				activeSeedId = nil
+				activeToolGuid = nil
 				destroyPreview()
 				return
 			end
@@ -818,6 +825,7 @@ function FeedPlacement.start()
 		if not preview then
 			activeFeedType = nil
 			activeSeedId = nil
+			activeToolGuid = nil
 			destroyPreview()
 			return
 		end
@@ -825,6 +833,7 @@ function FeedPlacement.start()
 		if not placedCFrame then
 			activeFeedType = nil
 			activeSeedId = nil
+			activeToolGuid = nil
 			destroyPreview()
 			return
 		end
@@ -837,11 +846,14 @@ function FeedPlacement.start()
 		activeFeedType = nil
 		activeSeedId = nil
 		activeTool = nil
+		activeToolGuid = nil
 		destroyPreview()
 	end)
 
 	local function bindTool(tool)
 		if not tool:IsA("Tool") or boundTools[tool] then return end
+		local toolGuid = tool:GetAttribute(State.Tool.Guid)
+		if not validToolGuid(toolGuid) then return end
 		local seedId = tool:GetAttribute(State.Seed.Id)
 		local toolFeedType = nil
 		if type(seedId) == "string" and seedId ~= "" then
@@ -854,6 +866,7 @@ function FeedPlacement.start()
 
 		local function activateTool()
 			activeTool = tool
+			activeToolGuid = toolGuid
 			activeFeedType  = toolFeedType
 			activeSeedId = type(seedId) == "string" and seedId ~= "" and seedId or nil
 			placing         = true
@@ -877,6 +890,7 @@ function FeedPlacement.start()
 				return
 			end
 			activeTool = nil
+			activeToolGuid = nil
 			if pendingPlacementRequestId ~= nil then
 				unequippedWhilePending = true
 				setGridEffectEnabled(false)
