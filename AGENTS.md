@@ -207,7 +207,7 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.RollBillboardGUI`; rarity particles use `ReplicatedStorage.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
 
-Satchel is Rojo-mapped through `src/satchel.rbxm`; no game Luau in this repo starts it directly. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
+Satchel is Rojo-mapped through `src/satchel.rbxm` and started by `SatchelController` in the client controller loader. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
 
 ## Shared Contracts
 

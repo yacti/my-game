@@ -12,6 +12,7 @@ end)
 local ui = script:WaitForChild("ui")
 
 local CONTROLLERS = {
+	"SatchelController",
 	"LocalPrompts",
 	"HudController",
 	"YesNoWarning",
