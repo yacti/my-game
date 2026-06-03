@@ -11,6 +11,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -24,6 +25,7 @@ local DELETE_FAILURE_MESSAGES = {
 	["no-plot"] = "You need a claimed plot to delete plants.",
 	["no-shovel"] = "Equip the shovel before deleting plants.",
 	["rate-limited"] = "Please wait before deleting again.",
+	["save-failed"] = "Could not save that deletion. Please try again.",
 	["too-far"] = "Move closer to delete that plant.",
 }
 
@@ -160,9 +162,17 @@ function ShovelController.start()
 		if pendingRequestId ~= nil or not feed or not feed.Parent then
 			return
 		end
+		local shovelGuid = ToolIdentity.GuidOf(equippedTool)
+		if not ToolIdentity.IsValidGuid(shovelGuid) then
+			NotificationUi.show({
+				kind = NotificationConfig.Kinds.Error,
+				text = deleteFailureMessage("no-shovel"),
+			})
+			return
+		end
 		nextRequestId += 1
 		pendingRequestId = nextRequestId
-		ShovelDeleteRequest:FireServer(pendingRequestId, feed)
+		ShovelDeleteRequest:FireServer(pendingRequestId, feed, shovelGuid)
 	end
 
 	local function promptDelete(feed)

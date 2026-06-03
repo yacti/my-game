@@ -96,6 +96,19 @@ function FeedPlacementService.Start(config)
 		TelemetryService.Warn("feed_placement_rejected", fields)
 	end
 
+	local function restoreConsumedTool(player, placingSeed, seedId, feedType)
+		local backpack = player and player:FindFirstChildOfClass("Backpack")
+		if not backpack then
+			return false
+		end
+		local replacement = placingSeed and SeedTools.MakeSeedTool(seedId) or FeedMachineTools.MakeFeedTool(feedType)
+		if not replacement then
+			return false
+		end
+		replacement.Parent = backpack
+		return true
+	end
+
 	RuntimeGuard.Connect(Players.PlayerRemoving, "FeedPlacementService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key == nil then return end
@@ -134,6 +147,11 @@ function FeedPlacementService.Start(config)
 			if not character then
 				recordPlacementReject(player, "no-character")
 				sendPlaceResult(player, requestId, false, "no-character")
+				return
+			end
+			local profile = PlayerDataService.GetProfile(player)
+			if not profile then
+				sendPlaceResult(player, requestId, false, "no-profile")
 				return
 			end
 			local tool = ToolIdentity.FindEquippedByGuid(player, toolGuid, function(item)
@@ -216,18 +234,30 @@ function FeedPlacementService.Start(config)
 				return
 			end
 
+			if not placingSeed then
+				local setupSucceeded, setupCode = FeedMachines.Setup(feedPart, plot, player)
+				if not setupSucceeded then
+					feedPart:Destroy()
+					sendPlaceResult(player, requestId, false, setupCode or "setup-failed")
+					return
+				end
+			end
+
 			if not ToolIdentity.DestroyIfGuidMatches(tool, toolGuid) then
 				feedPart:Destroy()
 				sendPlaceResult(player, requestId, false, "no-feed-tool")
 				return
 			end
-			if not placingSeed then
-				FeedMachines.Setup(feedPart, plot, player)
-			end
 			PetMotionService.RefreshPlotRoutes(plot)
-			local profile = PlayerDataService.GetProfile(player)
 			if profile and type(snapshotProfileState) == "function" then
-				snapshotProfileState(player, plot, profile)
+				local snapshotOk = snapshotProfileState(player, plot, profile)
+				if not snapshotOk then
+					feedPart:Destroy()
+					PetMotionService.RefreshPlotRoutes(plot)
+					restoreConsumedTool(player, placingSeed, seedId, feedType)
+					sendPlaceResult(player, requestId, false, "save-failed")
+					return
+				end
 			end
 			sendPlaceResult(player, requestId, true)
 			TelemetryService.Record("feed_placement_succeeded", TelemetryService.ForPlayer(player, {

@@ -100,7 +100,11 @@ local function placeMature(plot, feedType, feedIndex, lx, lz, lry, owner, should
 	end
 	clearGrowingAttributes(machine)
 	if shouldSetup ~= false then
-		FeedMachines.Setup(machine, plot, owner)
+		local setupOk = FeedMachines.Setup(machine, plot, owner)
+		if not setupOk then
+			machine:Destroy()
+			return nil
+		end
 	end
 	return machine
 end

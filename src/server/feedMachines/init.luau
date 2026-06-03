@@ -146,14 +146,18 @@ function FeedMachines.Setup(machine, plot, owner)
 	local mod, name = impl(machine)
 	if not mod then
 		warn(string.format("[FeedMachines] No implementation for %s", tostring(name)))
-		return
+		return false, "no-implementation"
 	end
 	machine:SetAttribute(State.Feed.Class, name)
-	RuntimeGuard.Run("FeedMachines.Setup." .. tostring(name), mod.Setup, machine, plot, owner)
+	local ok = RuntimeGuard.Run("FeedMachines.Setup." .. tostring(name), mod.Setup, machine, plot, owner)
+	if not ok then
+		return false, "setup-failed"
+	end
 	-- Auto-cleanup when the part dies during plot resets or lifecycle teardown.
 	RuntimeGuard.Connect(machine.Destroying, "FeedMachines.Destroying." .. tostring(name), function()
 		FeedMachines.Teardown(machine)
 	end)
+	return true
 end
 
 function FeedMachines.Teardown(machine)

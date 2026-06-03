@@ -73,9 +73,12 @@ local FeedPlacement = {}
 local PLACEMENT_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before placing another feed machine.",
 	["no-feed-tool"] = "Equip a feed machine before placing.",
+	["no-profile"] = "Your save data is not ready yet.",
 	["out-of-bounds"] = "Place feed machines inside your plot.",
 	["overlap"] = "That spot is already occupied.",
 	["rate-limited"] = "Please wait before placing again.",
+	["save-failed"] = "Could not save that placement. Please try again.",
+	["setup-failed"] = "Could not set up that feed machine.",
 	["too-far"] = "Move closer to place that feed machine.",
 }
 

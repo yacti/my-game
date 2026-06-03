@@ -557,7 +557,7 @@ function RollService.Roll(player, target, plot, profile)
 	sendClearOwnerOffers(player)
 	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers)
 	task.delay(RollConfig.RollVisualDuration(), function()
-		sendPublicRollOffers(player, batchIdOrNil, publicOffersOrNil or {})
+		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {})
 	end)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
 		batchId = batchIdOrNil,
@@ -632,7 +632,7 @@ function RollService.Purchase(player, offerId, profile)
 	locks[key] = true
 	local spentAmount = 0
 	local ok, success, code, currencyOrNil = pcall(function()
-		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, offer.price)
+		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, offer.price, true)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency
 		end
@@ -640,14 +640,14 @@ function RollService.Purchase(player, offerId, profile)
 
 		local handler = rewardPurchaseHandlers[offer.category]
 		if not handler then
-			CurrencyService.Add(player, profile, offer.price)
+			CurrencyService.Add(player, profile, offer.price, true)
 			spentAmount = 0
 			return false, "unsupported-reward", currency
 		end
 
 		local granted, grantCode = handler(player, profile, offer)
 		if not granted then
-			CurrencyService.Add(player, profile, offer.price)
+			CurrencyService.Add(player, profile, offer.price, true)
 			spentAmount = 0
 			return false, grantCode or "grant-failed"
 		end
@@ -660,8 +660,9 @@ function RollService.Purchase(player, offerId, profile)
 
 	if not ok then
 		if spentAmount > 0 then
-			CurrencyService.Add(player, profile, spentAmount)
+			CurrencyService.Add(player, profile, spentAmount, true)
 		end
+		PlayerReplicaService.PublishProfile(player, profile)
 		warn("[RollService] Purchase failed: " .. tostring(success))
 		sendPurchaseResult(player, offerId, false, "server-error")
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
@@ -678,7 +679,7 @@ function RollService.Purchase(player, offerId, profile)
 
 	if success then
 		NotificationService.Success(player, string.format("Purchased %s!", offer.displayName or offer.rewardId or offer.feedType))
-		PlayerReplicaService.PublishInventories(player, profile)
+		PlayerReplicaService.PublishProfile(player, profile)
 		sendPurchaseResult(player, offerId, true, "ok", {
 			category = offer.category,
 			rewardId = offer.rewardId,
@@ -707,6 +708,7 @@ function RollService.Purchase(player, offerId, profile)
 	else
 		NotificationService.Error(player, "Could not buy this roll.")
 	end
+	PlayerReplicaService.PublishProfile(player, profile)
 	sendPurchaseResult(player, offerId, false, code)
 	TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 		reason = code,
@@ -791,7 +793,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 		end
 
 		local freshPrice = math.max(math.floor(tonumber(freshUpgrade.price) or 0), 0)
-		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, freshPrice)
+		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, freshPrice, true)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency
 		end
@@ -806,8 +808,9 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	if not ok then
 		profile.Data.RollLuckLevel = currentLevel
 		if spentAmount > 0 then
-			CurrencyService.Add(player, profile, spentAmount)
+			CurrencyService.Add(player, profile, spentAmount, true)
 		end
+		PlayerReplicaService.PublishProfile(player, profile)
 		warn("[RollService] Luck upgrade failed: " .. tostring(success))
 		sendLuckResult(player, requestId, false, "server-error")
 		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
@@ -821,7 +824,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	if success then
 		local updatedLuck = RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel)
 		NotificationService.Success(player, string.format("Luck upgraded to +%d%%!", updatedLuck))
-		PlayerReplicaService.PublishRollLuckLevel(player, profile.Data.RollLuckLevel)
+		PlayerReplicaService.PublishProfile(player, profile)
 		sendLuckResult(player, requestId, true, "ok")
 		TelemetryService.Record("roll_luck_upgrade_succeeded", TelemetryService.ForPlayer(player, {
 			level = profile.Data.RollLuckLevel,
@@ -839,6 +842,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	else
 		NotificationService.Error(player, "Could not upgrade luck.")
 	end
+	PlayerReplicaService.PublishProfile(player, profile)
 	sendLuckResult(player, requestId, false, code)
 	TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
 		reason = code,
@@ -919,7 +923,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		end
 
 		local freshPrice = math.max(math.floor(tonumber(freshUpgrade.price) or 0), 0)
-		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, freshPrice)
+		local spent, spendCode, currency = CurrencyService.TrySpend(player, profile, freshPrice, true)
 		if not spent then
 			return false, spendCode or "insufficient-currency", currency, freshLevel
 		end
@@ -929,7 +933,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		local applied, applyCode = RollService.ApplyDropAreaVisibility(plot, profile)
 		if not applied then
 			profile.Data.RollDropAreaLevel = freshLevel
-			CurrencyService.Add(player, profile, freshPrice)
+			CurrencyService.Add(player, profile, freshPrice, true)
 			spentAmount = 0
 			return false, applyCode or "visibility-failed", profile.Data.Currency, freshLevel
 		end
@@ -943,8 +947,9 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		profile.Data.RollDropAreaLevel = currentLevel
 		RuntimeGuard.Run("RollService.RestoreDropAreaVisibility", RollService.ApplyDropAreaVisibility, plot, profile)
 		if spentAmount > 0 then
-			CurrencyService.Add(player, profile, spentAmount)
+			CurrencyService.Add(player, profile, spentAmount, true)
 		end
+		PlayerReplicaService.PublishProfile(player, profile)
 		warn("[RollService] Drop area upgrade failed: " .. tostring(success))
 		sendDropAreaResult(player, requestId, false, "server-error")
 		TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {
@@ -958,7 +963,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	if success then
 		local unlockedCount = RollDropAreaBalance.UnlockedCount(profile.Data.RollDropAreaLevel)
 		NotificationService.Success(player, string.format("Unlocked drop area %d/%d!", unlockedCount, RollDropAreaBalance.TotalPads))
-		PlayerReplicaService.PublishRollDropAreaLevel(player, profile.Data.RollDropAreaLevel)
+		PlayerReplicaService.PublishProfile(player, profile)
 		sendDropAreaResult(player, requestId, true, "ok")
 		TelemetryService.Record("roll_drop_area_upgrade_succeeded", TelemetryService.ForPlayer(player, {
 			level = levelOrNil,
@@ -976,6 +981,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	else
 		NotificationService.Error(player, "Could not upgrade drop areas.")
 	end
+	PlayerReplicaService.PublishProfile(player, profile)
 	sendDropAreaResult(player, requestId, false, code)
 	TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {
 		reason = code,

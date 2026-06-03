@@ -245,6 +245,7 @@ function FeedEditService.Start(config)
 				return
 			end
 
+			local oldLX, oldLZ, oldLRY = PlotService.WorldPivotToFloorLocal(floor, feed:GetPivot())
 			local movedCFrame = PlotService.RepositionFeed(plot, feed, snappedLX, snappedLZ, snappedLRY)
 			if not movedCFrame then
 				sendMoveResult(player, requestId, false, "move-failed")
@@ -253,7 +254,13 @@ function FeedEditService.Start(config)
 
 			PetMotionService.RefreshPlotRoutes(plot)
 			if type(snapshotProfileState) == "function" then
-				snapshotProfileState(player, plot, profile)
+				local snapshotOk = snapshotProfileState(player, plot, profile)
+				if not snapshotOk then
+					PlotService.RepositionFeed(plot, feed, oldLX, oldLZ, oldLRY)
+					PetMotionService.RefreshPlotRoutes(plot)
+					sendMoveResult(player, requestId, false, "save-failed")
+					return
+				end
 			end
 			sendMoveResult(player, requestId, true, nil, movedCFrame)
 			TelemetryService.Record("feed_move_succeeded", TelemetryService.ForPlayer(player, {

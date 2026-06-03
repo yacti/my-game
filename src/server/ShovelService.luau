@@ -15,6 +15,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local ShovelService = {}
 
@@ -50,10 +51,8 @@ local function rootPart(player)
 	return root and root:IsA("BasePart") and root or nil
 end
 
-local function equippedShovel(player)
-	local character = player.Character
-	local tool = character and character:FindFirstChildWhichIsA("Tool")
-	return Shovel.IsTool(tool)
+local function equippedShovel(player, toolGuid)
+	return ToolIdentity.FindEquippedByGuid(player, toolGuid, Shovel.IsTool)
 end
 
 local function isPlayerNearInstance(player, instance, maxDistance)
@@ -97,6 +96,56 @@ local function isPlant(feed)
 	return feedClass == "Patch" or feedClass == "Tree"
 end
 
+local function placementFromFeed(plot, feed)
+	local floor = PlotService.GetFloor(plot)
+	local feedType = feed and feed:GetAttribute(State.Feed.Type)
+	local feedIndex = feed and feed:GetAttribute(State.Feed.Index)
+	if not (floor and type(feedType) == "string" and feedType ~= "" and type(feedIndex) == "number") then
+		return nil
+	end
+	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, feed:GetPivot())
+	local placement = {
+		type = feedType,
+		index = feedIndex,
+		lx = lx,
+		lz = lz,
+		lry = lry,
+	}
+	local extras = FeedGrowthService.IsGrowing(feed) and FeedGrowthService.Serialize(feed) or FeedMachines.Serialize(feed)
+	if type(extras) == "table" then
+		for key, value in pairs(extras) do
+			placement[key] = value
+		end
+	end
+	return placement
+end
+
+local function restoreFeedPlacement(plot, player, placement)
+	if type(placement) ~= "table" then
+		return nil
+	end
+	if placement.phase == FeedGrowthService.Phase then
+		return FeedGrowthService.RestorePlacement(plot, player, placement, placement.index)
+	end
+	local restored = PlotService.PlaceFeedWithIndex(
+		plot,
+		placement.type,
+		placement.index,
+		placement.lx or 0,
+		placement.lz or 0,
+		placement.lry or 0
+	)
+	if restored then
+		local setupOk = FeedMachines.Setup(restored, plot, player)
+		if not setupOk then
+			restored:Destroy()
+			return nil
+		end
+		FeedMachines.Apply(restored, placement)
+	end
+	return restored
+end
+
 function ShovelService.Start(config)
 	config = config or {}
 	local snapshotProfileState = config.snapshotProfileState
@@ -129,7 +178,7 @@ function ShovelService.Start(config)
 		locks[key] = nil
 	end)
 
-	RuntimeGuard.Connect(ShovelDeleteRequest.OnServerEvent, "ShovelService.DeleteRequest", function(player, requestId, target)
+	RuntimeGuard.Connect(ShovelDeleteRequest.OnServerEvent, "ShovelService.DeleteRequest", function(player, requestId, target, toolGuid)
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendResult(player, requestId, false, "rate-limited")
 			return
@@ -143,7 +192,7 @@ function ShovelService.Start(config)
 			sendResult(player, requestId, false, "busy")
 			return
 		end
-		if not equippedShovel(player) then
+		if not equippedShovel(player, toolGuid) then
 			sendResult(player, requestId, false, "no-shovel")
 			return
 		end
@@ -172,10 +221,17 @@ function ShovelService.Start(config)
 
 			local deletedName = feed.Name
 			local feedType = feed:GetAttribute(State.Feed.Type)
+			local placement = placementFromFeed(plot, feed)
 			feed:Destroy()
 			PetMotionService.RefreshPlotRoutes(plot)
 			if type(snapshotProfileState) == "function" then
-				snapshotProfileState(player, plot, profile)
+				local snapshotOk = snapshotProfileState(player, plot, profile)
+				if not snapshotOk then
+					restoreFeedPlacement(plot, player, placement)
+					PetMotionService.RefreshPlotRoutes(plot)
+					sendResult(player, requestId, false, "save-failed")
+					return
+				end
 			end
 
 			sendResult(player, requestId, true)

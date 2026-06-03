@@ -38,6 +38,7 @@ local MOVE_FAILURE_MESSAGES = {
 	["out-of-bounds"] = "Keep machines inside unlocked plot cells.",
 	["overlap"] = "That spot is already occupied.",
 	["rate-limited"] = "Please wait before moving again.",
+	["save-failed"] = "Could not save that move. Please try again.",
 	["too-far"] = "Move closer to place that machine there.",
 }
 

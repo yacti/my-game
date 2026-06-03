@@ -151,11 +151,15 @@ local function saveFeedState(plot, player, profile)
 end
 
 local function snapshotProfileState(player, plot, profile)
-	if not plot or not profile then return end
-	RuntimeGuard.Run("snapshotProfileState.savePets", savePetsFromPlot, plot, profile)
-	RuntimeGuard.Run("snapshotProfileState.saveFeed", saveFeedState, plot, player, profile)
+	if not plot or not profile then return false end
+	local petsOk = RuntimeGuard.Run("snapshotProfileState.savePets", savePetsFromPlot, plot, profile)
+	local feedOk = RuntimeGuard.Run("snapshotProfileState.saveFeed", saveFeedState, plot, player, profile)
+	if not (petsOk and feedOk) then
+		return false
+	end
 	profile.Data.LastSeen = os.time()
-	PlayerReplicaService.PublishProfile(player, profile)
+	local publishOk = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
+	return publishOk == true
 end
 
 local function notifyGrown(player, feed)
@@ -193,13 +197,15 @@ local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq)
 	pet:SetAttribute(State.Pet.EvolutionSeq, seq)
 
 	task.delay(8, function()
-		if pet.Parent and pet:GetAttribute(State.Pet.EvolutionSeq) == seq then
-			-- Keep the sequence monotonic, but remove stale payload so late
-			-- clients do not replay an already-finished evolution.
-			pet:SetAttribute(State.Pet.EvolutionOldPetId, nil)
-			pet:SetAttribute(State.Pet.EvolutionOldScale, nil)
-			pet:SetAttribute(State.Pet.EvolutionPivot, nil)
-		end
+		RuntimeGuard.Run("PetEvolutionCue.ClearDelayed", function()
+			if pet.Parent and pet:GetAttribute(State.Pet.EvolutionSeq) == seq then
+				-- Keep the sequence monotonic, but remove stale payload so late
+				-- clients do not replay an already-finished evolution.
+				pet:SetAttribute(State.Pet.EvolutionOldPetId, nil)
+				pet:SetAttribute(State.Pet.EvolutionOldScale, nil)
+				pet:SetAttribute(State.Pet.EvolutionPivot, nil)
+			end
+		end)
 	end)
 end
 
@@ -493,6 +499,28 @@ end
 
 -- ── Player lifecycle ──────────────────────────────────────────────────────────
 
+local function teardownPlayerState(player, plot, profile, options)
+	options = options or {}
+	local label = userLabel(player)
+	if options.snapshot == true and plot and profile then
+		RuntimeGuard.Run("PlayerTeardown.Snapshot." .. label, snapshotProfileState, player, plot, profile)
+	end
+	if plot then
+		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
+		RuntimeGuard.Run("PlayerTeardown.DestroyPets." .. label, PlotService.DestroyPets, plot)
+		RuntimeGuard.Run("PlayerTeardown.DestroyFeeds." .. label, PlotService.DestroyFeeds, plot)
+		RuntimeGuard.Run("PlayerTeardown.ResetGrid." .. label, PlotGridService.ResetVacantPlotState, plot)
+		RuntimeGuard.Run("PlayerTeardown.FreePlot." .. label, PlotService.FreePlot, player)
+	end
+	RuntimeGuard.Run("PlayerTeardown.ClearAttributes." .. label, function()
+		player:SetAttribute(State.Player.AssignedPlotName, nil)
+		player:SetAttribute(EDIT_MODE_ATTR, false)
+		player.RespawnLocation = nil
+	end)
+	RuntimeGuard.Run("PlayerTeardown.DestroyReplica." .. label, PlayerReplicaService.Destroy, player)
+	RuntimeGuard.Run("PlayerTeardown.UnloadProfile." .. label, PlayerDataService.UnloadPlayer, player)
+end
+
 local function handlePlayerAdded(player)
 	player:SetAttribute(EDIT_MODE_ATTR, false)
 
@@ -510,125 +538,119 @@ local function handlePlayerAdded(player)
 
 	local profile = PlayerDataService.LoadPlayerAsync(player)
 	if not profile then
-		player:SetAttribute(State.Player.AssignedPlotName, nil)
-		PlotGridService.ResetVacantPlotState(plot)
-		PlotService.FreePlot(player)
+		teardownPlayerState(player, plot, nil, { snapshot = false })
 		return
 	end
 
-	local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
-	if not applied then
-		warn(string.format("[init] Failed to apply user %s plot grid state: %s", userLabel(player), tostring(applyReason)))
-		PlotGridService.ResetPlotState(plot)
-	end
-	RollService.ApplyDropAreaVisibility(plot, profile)
+	local label = userLabel(player)
+	local setupOk = RuntimeGuard.Run("PlayerAdded.Setup." .. label, function()
+		local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
+		if not applied then
+			warn(string.format("[init] Failed to apply user %s plot grid state: %s", userLabel(player), tostring(applyReason)))
+			PlotGridService.ResetPlotState(plot)
+		end
+		RollService.ApplyDropAreaVisibility(plot, profile)
 
-	PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
-	local maturedOnLoad = {}
-	for index, placement in ipairs(profile.Data.FeedPlacements or {}) do
-		if type(placement) == "table" and placement.phase == FeedGrowthService.Phase then
-			local restored, status = FeedGrowthService.RestorePlacement(plot, player, placement, index)
-			if restored and status == "mature" then
-				maturedOnLoad[#maturedOnLoad + 1] = restored
+		PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
+		local maturedOnLoad = {}
+		for index, placement in ipairs(profile.Data.FeedPlacements or {}) do
+			if type(placement) == "table" and placement.phase == FeedGrowthService.Phase then
+				local restored, status = FeedGrowthService.RestorePlacement(plot, player, placement, index)
+				if restored and status == "mature" then
+					maturedOnLoad[#maturedOnLoad + 1] = restored
+				end
+			else
+				PlotService.PlaceFeedWithIndex(plot, placement.type, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 			end
-		else
-			PlotService.PlaceFeedWithIndex(plot, placement.type, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 		end
-	end
 
-	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
-		if FeedGrowthService.IsGrowing(feed) then
-			continue
+		for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+			if FeedGrowthService.IsGrowing(feed) then
+				continue
+			end
+			local setupSucceeded, setupCode = FeedMachines.Setup(feed, plot, player)
+			if not setupSucceeded then
+				error("failed to setup feed machine: " .. tostring(setupCode))
+			end
+			local idx   = feed:GetAttribute(State.Feed.Index)
+			local saved = idx and profile.Data.FeedPlacements[idx] or nil
+			if saved and saved.phase ~= FeedGrowthService.Phase then FeedMachines.Apply(feed, saved) end
 		end
-		FeedMachines.Setup(feed, plot, player)
-		local idx   = feed:GetAttribute(State.Feed.Index)
-		local saved = idx and profile.Data.FeedPlacements[idx] or nil
-		if saved and saved.phase ~= FeedGrowthService.Phase then FeedMachines.Apply(feed, saved) end
-	end
-	for _, feed in ipairs(maturedOnLoad) do
-		task.defer(function()
-			notifyGrown(player, feed)
+		for _, feed in ipairs(maturedOnLoad) do
+			task.defer(function()
+				RuntimeGuard.Run("PlayerAdded.NotifyGrownDeferred." .. label, notifyGrown, player, feed)
+			end)
+		end
+
+		applyOfflineEarnings(plot, profile)
+		PlayerReplicaService.Create(player, profile)
+
+		for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
+			local idx = pet:GetAttribute(State.Pet.Index)
+			local petData = profile.Data.Pets[idx]
+			local money = petData and petData.money or 0
+			local xp = petData and petData.xp or 0
+			publishPetState(pet, money, xp)
+			PetMotionService.Register(plot, pet)
+		end
+
+		startPetMoneyLoop(player, plot, profile)
+		startPetCollectionLoop(player, plot, profile)
+		startProfileSnapshotLoop(player, plot, profile)
+
+		local toolsRestored = false
+		local function onCharacterAdded(character)
+			ShovelTools.EnsureUtilityTool(player)
+			if not toolsRestored then
+				toolsRestored = true
+				task.wait(0.5)
+				for foodType, count in pairs(profile.Data.FoodInventory or {}) do
+					for _ = 1, count do
+						local tool = Food.MakeTool(foodType)
+						if tool then tool.Parent = player.Backpack end
+					end
+				end
+				for feedType, count in pairs(profile.Data.FeedInventory or {}) do
+					if type(count) == "number" then
+						for _ = 1, count do
+							local tool = FeedMachineTools.MakeFeedTool(feedType)
+							if tool then tool.Parent = player.Backpack end
+						end
+					end
+				end
+				for seedId, count in pairs(profile.Data.SeedInventory or {}) do
+					if type(count) == "number" then
+						for _ = 1, count do
+							local tool = SeedTools.MakeSeedTool(seedId)
+							if tool then tool.Parent = player.Backpack end
+						end
+					end
+				end
+			end
+		end
+
+		if player.Character then
+			RuntimeGuard.Run("CharacterAdded.Initial." .. label, onCharacterAdded, player.Character)
+		end
+		RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. label, onCharacterAdded)
+	end)
+
+	if not setupOk then
+		teardownPlayerState(player, plot, profile, { snapshot = false })
+		RuntimeGuard.Run("PlayerAdded.KickFailedSetup." .. label, function()
+			if player:IsDescendantOf(Players) then
+				player:Kick("Could not initialize your session. Please rejoin.")
+			end
 		end)
 	end
-
-	applyOfflineEarnings(plot, profile)
-	PlayerReplicaService.Create(player, profile)
-
-	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-		local idx = pet:GetAttribute(State.Pet.Index)
-		local petData = profile.Data.Pets[idx]
-		local money = petData and petData.money or 0
-		local xp = petData and petData.xp or 0
-		publishPetState(pet, money, xp)
-		PetMotionService.Register(plot, pet)
-	end
-
-	startPetMoneyLoop(player, plot, profile)
-	startPetCollectionLoop(player, plot, profile)
-	startProfileSnapshotLoop(player, plot, profile)
-	local label = userLabel(player)
-
-	local toolsRestored = false
-	local function onCharacterAdded(character)
-		ShovelTools.EnsureUtilityTool(player)
-		if not toolsRestored then
-			toolsRestored = true
-			task.wait(0.5)
-			for foodType, count in pairs(profile.Data.FoodInventory or {}) do
-				for _ = 1, count do
-					local tool = Food.MakeTool(foodType)
-					if tool then tool.Parent = player.Backpack end
-				end
-			end
-			for feedType, count in pairs(profile.Data.FeedInventory or {}) do
-				if type(count) == "number" then
-					for _ = 1, count do
-						local tool = FeedMachineTools.MakeFeedTool(feedType)
-						if tool then tool.Parent = player.Backpack end
-					end
-				end
-			end
-			for seedId, count in pairs(profile.Data.SeedInventory or {}) do
-				if type(count) == "number" then
-					for _ = 1, count do
-						local tool = SeedTools.MakeSeedTool(seedId)
-						if tool then tool.Parent = player.Backpack end
-					end
-				end
-			end
-		end
-	end
-
-	if player.Character then
-		RuntimeGuard.Run("CharacterAdded.Initial." .. label, onCharacterAdded, player.Character)
-	end
-	RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. label, onCharacterAdded)
 end
 
 RuntimeGuard.Connect(Players.PlayerAdded, "Players.PlayerAdded", handlePlayerAdded)
 
 local function handlePlayerRemoving(player)
 	local plot = PlotService.GetPlayerPlot(player)
-	if plot then
-		local profile = PlayerDataService.GetProfile(player)
-		if profile then
-			snapshotProfileState(player, plot, profile)
-		end
-
-		PetMotionService.UnregisterPlot(plot)
-		PlotService.DestroyPets(plot)
-		-- Destroying the feed parts fires Destroying on each, which the
-		-- FeedMachines registry relies on to tear down per-class state
-		-- (and to despawn any food the machine spawned on the floor).
-		PlotService.DestroyFeeds(plot)
-		PlotGridService.ResetVacantPlotState(plot)
-		PlotService.FreePlot(player)
-	end
-	player:SetAttribute(State.Player.AssignedPlotName, nil)
-	player:SetAttribute(EDIT_MODE_ATTR, false)
-
-	PlayerReplicaService.Destroy(player)
-	PlayerDataService.UnloadPlayer(player)
+	local profile = PlayerDataService.GetProfile(player)
+	teardownPlayerState(player, plot, profile, { snapshot = true })
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "Players.PlayerRemoving", handlePlayerRemoving)
@@ -638,11 +660,7 @@ game:BindToClose(function()
 		RuntimeGuard.Run("BindToClose.Player." .. userLabel(player), function()
 			local plot    = PlotService.GetPlayerPlot(player)
 			local profile = PlayerDataService.GetProfile(player)
-			if plot and profile then
-				snapshotProfileState(player, plot, profile)
-			end
-			PlayerReplicaService.Destroy(player)
-			PlayerDataService.UnloadPlayer(player)
+			teardownPlayerState(player, plot, profile, { snapshot = true })
 		end)
 	end
 

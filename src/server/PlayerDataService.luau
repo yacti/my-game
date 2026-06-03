@@ -6,6 +6,7 @@ local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore
 local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
 local RollDropAreaBalance = require(ReplicatedStorage.Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
+local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 
 local STORE_NAME = "PlayerData"
@@ -53,11 +54,11 @@ local function userKey(player)
 	return player and player.UserId or nil
 end
 
-ProfileStore.OnError:Connect(function(message, storeName, profileKey)
+RuntimeGuard.Connect(ProfileStore.OnError, "PlayerDataService.ProfileStoreError", function(message, storeName, profileKey)
 	warn(string.format("[ProfileStore] Store=%s Key=%s Error=%s", tostring(storeName), tostring(profileKey), tostring(message)))
 end)
 
-ProfileStore.OnCriticalToggle:Connect(function(isCritical)
+RuntimeGuard.Connect(ProfileStore.OnCriticalToggle, "PlayerDataService.ProfileStoreCriticalToggle", function(isCritical)
 	if isCritical then
 		warn("[ProfileStore] DataStore access is in a critical state")
 	end
@@ -336,7 +337,7 @@ function PlayerDataService.LoadPlayerAsync(player)
 	profile:AddUserId(key)
 	ensureValidData(profile)
 
-	profile.OnSessionEnd:Connect(function()
+	RuntimeGuard.Connect(profile.OnSessionEnd, "PlayerDataService.SessionEnd", function()
 		if profiles[key] == profile then
 			profiles[key] = nil
 		end

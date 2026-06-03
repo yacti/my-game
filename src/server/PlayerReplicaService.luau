@@ -93,24 +93,43 @@ local function subscribeWhenReady(player, replica)
 
 	local function subscribe()
 		if replicaFor(player) ~= replica or not replica:IsActive() then
-			return
+			return false
 		end
 		if player:IsDescendantOf(Players) then
-			replica:Subscribe(player)
+			local ok = RuntimeGuard.Run("PlayerReplicaService.Subscribe", function()
+				replica:Subscribe(player)
+			end)
+			return ok == true
 		end
+		return false
+	end
+
+	local function retrySubscribe()
+		task.delay(1, function()
+			RuntimeGuard.Run("PlayerReplicaService.SubscribeRetry", function()
+				if subscribe() then
+					clearReadyConnection(key)
+				end
+			end)
+		end)
 	end
 
 	if Replica.ReadyPlayers[player] == true then
-		subscribe()
+		if not subscribe() then
+			retrySubscribe()
+		end
 		return
 	end
 
-	readyConnections[key] = Replica.NewReadyPlayer:Connect(function(readyPlayer)
+	readyConnections[key] = RuntimeGuard.Connect(Replica.NewReadyPlayer, "PlayerReplicaService.NewReadyPlayer", function(readyPlayer)
 		if readyPlayer ~= player then
 			return
 		end
-		clearReadyConnection(key)
-		subscribe()
+		if subscribe() then
+			clearReadyConnection(key)
+		else
+			retrySubscribe()
+		end
 	end)
 end
 
@@ -154,8 +173,10 @@ function PlayerReplicaService.PublishField(player, fieldName, value)
 	if not (replica and replica:IsActive()) then
 		return false
 	end
-	replica:Set({ fieldName }, value)
-	return true
+	local ok = RuntimeGuard.Run("PlayerReplicaService.PublishField." .. tostring(fieldName), function()
+		replica:Set({ fieldName }, value)
+	end)
+	return ok == true
 end
 
 function PlayerReplicaService.PublishProfile(player, profile)
@@ -164,7 +185,12 @@ function PlayerReplicaService.PublishProfile(player, profile)
 		return false
 	end
 	for fieldName, value in pairs(stateFromProfile(profile)) do
-		replica:Set({ fieldName }, value)
+		local ok = RuntimeGuard.Run("PlayerReplicaService.PublishProfile." .. tostring(fieldName), function()
+			replica:Set({ fieldName }, value)
+		end)
+		if not ok then
+			return false
+		end
 	end
 	return true
 end
