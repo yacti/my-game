@@ -4,6 +4,8 @@ This rulebook is for future AI agents and developers building systems for this g
 
 Read it as: respect the current game architecture, review and learn from it, and use that learning to build future systems with best practices. Do not rewrite the game's style just because another pattern is fashionable. Build inside the current architecture unless there is a clear reason to improve it.
 
+Current implementation note: this repo now uses MadStudio `Replica` for client-safe player state replication. Native Replica modules live in Studio as `ServerScriptService.ReplicaServer`, `ReplicatedStorage.ReplicaClient`, and `ReplicatedStorage.ReplicaShared`; do not put game logic in those modules. Game state integration belongs in `src/server/PlayerReplicaService.luau`, `src/shared/PlayerState.luau`, and `src/client/ui/PlayerStateStore.luau`.
+
 ## Source Of Truth
 
 The checked-in Rojo project is currently a small starter scaffold under `src/`. The real game architecture referenced by this rulebook was inspected from the open Roblox Studio place through MCP.
@@ -30,7 +32,11 @@ Use these Studio systems as the architectural examples:
 7. UI and render scripts should be thin. They should display replicated state and send requests, not decide rewards, ownership, prices, or inventory truth.
 8. Monetization rewards must be granted by server purchase handlers, never by the client after a prompt.
 9. Cross-player actions need extra validation: distance, ownership, target identity, settings, cooldown, and rollback/failure behavior.
-10. Learn from current weak spots. Preserve the architecture, but harden migrations, remote validation, source-control sync, and tests when adding new systems.
+10. Key per-player runtime maps by `UserId` where possible, not `Player` instances or player names.
+11. Render loops must have explicit lifetimes; collection renderers should use one loop that iterates tracked objects and prunes invalid entries.
+12. Use protected runtime boundaries (`pcall`, `xpcall`, or local guard helpers) around failure-prone Roblox/API calls so one error does not kill important loops or connections.
+13. Inventory tools need stable GUID identity for grants, equipped-tool resolution, and deletion.
+14. Learn from current weak spots. Preserve the architecture, but harden migrations, remote validation, source-control sync, and tests when adding new systems.
 
 ## Architecture Flow
 
@@ -77,7 +83,7 @@ flowchart TD
 
 **Example From This Game:** `DataService` loads profiles on `PlayerAdded`, calls `AddUserId`, calls `Reconcile`, builds replicas, fires `DataLoaded`, releases on `PlayerRemoving`, destroys section replicas on release, and kicks if the profile cannot be loaded or is released.
 
-**When Building New Features:** Hook into `DataUtil.OnDataAdded` and `DataUtil.OnDataRemoved` instead of assuming data exists. Cancel loops and clear caches on player removal. Do not keep references to stale profile tables after release. For high-risk data work, add explicit handling for session conflicts and ProfileService health signals instead of relying only on library defaults.
+**When Building New Features:** Hook into data-loaded/data-removed lifecycle instead of assuming data exists. Cancel loops and clear caches on player removal. Prefer `UserId` keys for locks, cooldowns, session maps, replica maps, and telemetry labels; use `Player` instances only when calling Roblox APIs or checking current ancestry. Do not keep references to stale profile tables after release. For high-risk data work, add explicit handling for session conflicts and ProfileService health signals instead of relying only on library defaults.
 
 ## 5. Data Migration And Versioning
 
@@ -93,7 +99,9 @@ flowchart TD
 
 **Example From This Game:** `DataService` creates one ReplicaService replica per profile section. Section metadata controls replication as `None`, `Owner`, or `All`. Client `DataController` assembles replicas into local `DataUtil.Data`.
 
-**When Building New Features:** Use `None` for hidden inventories, anti-exploit flags, codes, and server-only state. Use `Owner` for personal progress. Use `All` only for public data like leaderboard-facing values or state other players truly need. Before adding a new `All` section, prove that every field is safe for every client to see.
+**Current Rojo Implementation:** `PlayerReplicaService` creates one owner-only `PlayerState` replica per loaded player profile. It publishes a sanitized read model for durable UI state such as currency, rebirths, roll upgrade levels, inventories, and unlocked grid keys. It must not replicate raw profile tables, processed receipts, timestamps, pending offers, migration internals, or private anti-exploit state.
+
+**When Building New Features:** Use server-only profile data for hidden inventories, anti-exploit flags, codes, and private state. Use owner-only Replica state for personal progress. Use public replication only for data other players truly need. Before adding a public replicated field, prove that every field is safe for every client to see.
 
 ## 7. UI Architecture
 
@@ -101,7 +109,7 @@ flowchart TD
 
 **Example From This Game:** `LocalGameUIMgr` attaches reusable local UI scripts to GUI value markers, while many `StarterGui` scripts render views, buttons, inventory, shops, subscriptions, quests, and event screens.
 
-**When Building New Features:** Keep UI scripts local, reactive, and replaceable. They may read replicated data, listen to attributes, and fire requests. They must not decide prices, rewards, ownership, item grants, or purchase completion.
+**When Building New Features:** Keep UI scripts local, reactive, and replaceable. They may read replicated data, listen to attributes, and fire requests. They must not decide prices, rewards, ownership, item grants, or purchase completion. Every `RenderStepped`/`Heartbeat` connection must disconnect when its owning GUI/model/plot/character is gone. For many similar render targets, such as pets, use one central render step that iterates all tracked objects and removes invalid entries, instead of creating one render connection per object.
 
 ## 8. State Management
 
@@ -109,7 +117,9 @@ flowchart TD
 
 **Example From This Game:** `DataUtil:GetPlayerData`, `GetValue`, `SetValue`, `SetValues`, `ArrayInsert`, `ArrayRemove`, and `ListenFor` centralize state reads, writes, and subscriptions.
 
-**When Building New Features:** Avoid direct deep writes into profile tables. Use the mutation helpers so ReplicaService, listeners, UI, and saves stay in sync. Keep cached derived state disposable and rebuildable.
+**Current Rojo Implementation:** Server services mutate ProfileStore-backed data at the authority point, then publish client-safe changes through explicit `PlayerReplicaService` methods or `PublishProfile(...)`. Client UI observes `PlayerStateStore`; command remotes remain for actions, results, effects, notifications, and purchases.
+
+**When Building New Features:** Avoid direct deep writes into profile tables without also updating the relevant publisher. Use the service helper closest to the mutation so Replica, listeners, UI, and saves stay in sync. Keep cached derived state disposable and rebuildable.
 
 ## 9. Economy Architecture
 
@@ -133,7 +143,7 @@ flowchart TD
 
 **Example From This Game:** Flowers, honeys, bees, tree tools, themes, and similar systems store owned or placed data in profile sections. Server utilities create or update Backpack tools from that data, and the inventory UI renders tools locally.
 
-**When Building New Features:** Store stable item IDs, counts, unique IDs, and required metadata. Rebuild tools from data on character spawn or data changes. Never rely on a client-held Tool as proof of ownership.
+**When Building New Features:** Store stable item IDs, counts, unique IDs, and required metadata. Rebuild tools from data on character spawn or data changes. Never rely on a client-held Tool as proof of ownership. When instancing tools, assign a GUID and require requests that consume tools to resolve and destroy the exact GUID-matching instance. Do not delete tools by searching name/display text, because duplicate tools can exist.
 
 ## 12. Trading Architecture
 
@@ -189,7 +199,7 @@ flowchart TD
 
 **Example From This Game:** Profile load failure kicks with a generic message, profile release cleans data and kicks, product receipt failures return `NotProcessedYet`, config/network calls use `pcall`, warnings, retries, or fallbacks.
 
-**When Building New Features:** If validation fails, do nothing and optionally warn the player. If purchase fulfillment fails, do not grant partial rewards. If data is missing, wait for `DataUtil.OnDataAdded` or stop safely.
+**When Building New Features:** If validation fails, do nothing and optionally warn the player. If purchase fulfillment fails, do not grant partial rewards. If data is missing, wait for data-loaded lifecycle or stop safely. Use `pcall`, `xpcall`, or existing guard helpers around Roblox services, Marketplace/DataStore calls, event callbacks, render/update loops, and cleanup code where a thrown error would kill runtime behavior. Protected calls are not a replacement for validation; log meaningful failures and fail closed.
 
 ## 19. DataStore Budget And Save Strategy
 
@@ -255,4 +265,4 @@ Before adding a new feature, answer these questions:
 
 ## Final Principle
 
-Build like this game, but with the lessons applied: server-owned state, ProfileService persistence, ReplicaService replication, config-driven content, thin clients, explicit validation, clear migrations, and practical testing.
+Build like this game, but with the lessons applied: server-owned state, profile-store persistence, Replica-backed client-safe state, config-driven content, thin clients, explicit validation, clear migrations, and practical testing.

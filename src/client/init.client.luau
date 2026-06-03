@@ -5,6 +5,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
+local function requireReplicaClient()
+	local moduleScript = ReplicatedStorage:WaitForChild("ReplicaClient", 10)
+	assert(moduleScript and moduleScript:IsA("ModuleScript"), "Missing ReplicatedStorage.ReplicaClient ModuleScript")
+	return require(moduleScript)
+end
+
+local Replica = requireReplicaClient()
+
 RuntimeGuard.Run("Client.DisableBackpackCoreGui", function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 end)
@@ -12,6 +20,7 @@ end)
 local ui = script:WaitForChild("ui")
 
 local CONTROLLERS = {
+	"PlayerStateStore",
 	"SatchelController",
 	"LocalPrompts",
 	"HudController",
@@ -52,3 +61,8 @@ end
 for _, controllerName in ipairs(CONTROLLERS) do
 	startController(controllerName)
 end
+
+-- Request after controllers start so future Replica listeners can register first.
+RuntimeGuard.Run("Client.ReplicaRequestData", function()
+	Replica.RequestData()
+end)

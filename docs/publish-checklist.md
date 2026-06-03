@@ -35,6 +35,20 @@ Run this checklist before publishing a live build.
 - `PromptInteract` uses shared action constants, rate limits, and server-side
   ownership/distance/state validation.
 - Food XP used by server actions is clamped through server-known food templates.
+- Per-player locks, cooldowns, caches, and diagnostics use stable `UserId` keys
+  where practical and are cleared on leave/session cleanup.
+- Tool-consuming requests use `ToolIdentity` GUIDs to resolve and delete the exact
+  equipped/backpack tool instance instead of matching by name.
+- Roblox service calls, receipt paths, runtime callbacks, and long-running loops
+  use validation plus `RuntimeGuard`/`pcall` style protection where an error would
+  otherwise kill important gameplay behavior.
+
+## Client Runtime
+
+- `RenderStepped`/`Heartbeat` connections disconnect when their owning GUI, model,
+  plot, character, or controller is destroyed or no longer relevant.
+- Collection renderers such as pets use one central render loop that iterates tracked
+  instances and prunes invalid entries, not one render connection per object.
 
 ## Runtime Output
 

@@ -4,9 +4,7 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared  = ReplicatedStorage:WaitForChild("Shared")
-local Remotes = require(Shared:WaitForChild("Remotes"))
-local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local HudController = {}
 
@@ -42,7 +40,8 @@ function HudController.start()
 		if label then label.Text = "$" .. math.floor(n or 0) end
 	end
 
-	RuntimeGuard.Connect(Remotes.get(Remotes.Names.CurrencyUpdated).OnClientEvent, "HudController.SetAmount", setAmount)
+	setAmount(PlayerStateStore.Get(PlayerStateStore.Fields.Currency) or 0)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, setAmount)
 end
 
 return HudController

@@ -4,7 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -99,11 +101,8 @@ function RollDropAreaController.start()
 		return
 	end
 
-	local RollDropAreaStateRequest = Remotes.get(Remotes.Names.RollDropAreaStateRequest)
-	local RollDropAreaStateUpdated = Remotes.get(Remotes.Names.RollDropAreaStateUpdated)
 	local RollDropAreaUpgradeRequest = Remotes.get(Remotes.Names.RollDropAreaUpgradeRequest)
 	local RollDropAreaUpgradeResult = Remotes.get(Remotes.Names.RollDropAreaUpgradeResult)
-	local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
 
 	UiEffects.BindButton(upgradeButton)
 	local panelState = UiEffects.PreparePanel(frame)
@@ -116,6 +115,7 @@ function RollDropAreaController.start()
 	local wasNear = false
 	local isOpen = false
 	local transitionToken = 0
+	local render
 
 	local function setError(text)
 		if errorLabel then
@@ -124,9 +124,18 @@ function RollDropAreaController.start()
 		end
 	end
 
+	local function buildReplicaState()
+		local level = RollDropAreaBalance.LevelFor(PlayerStateStore.Get(PlayerStateStore.Fields.RollDropAreaLevel))
+		local currency = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Currency)) or currentCurrency
+		local state = RollDropAreaBalance.ToState(level, currency)
+		state.profileReady = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true
+		return state
+	end
+
 	local function requestState()
 		lastStateRequest = os.clock()
-		RollDropAreaStateRequest:FireServer()
+		latestState = buildReplicaState()
+		render()
 	end
 
 	local function canUpgrade()
@@ -141,7 +150,7 @@ function RollDropAreaController.start()
 		return currentCurrency >= price
 	end
 
-	local function render()
+	render = function()
 		local state = latestState or {}
 		currentCurrency = tonumber(state.currency) or currentCurrency
 		local unlockedCount = tonumber(state.unlockedPadCount) or 1
@@ -193,23 +202,12 @@ function RollDropAreaController.start()
 		RollDropAreaUpgradeRequest:FireServer(nextRequestId)
 	end)
 
-	RuntimeGuard.Connect(RollDropAreaStateUpdated.OnClientEvent, "RollDropAreaController.StateUpdated", function(payload)
-		if type(payload) ~= "table" then
-			return
-		end
-		latestState = payload
-		setError(nil)
-		render()
-	end)
-
 	RuntimeGuard.Connect(RollDropAreaUpgradeResult.OnClientEvent, "RollDropAreaController.UpgradeResult", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
 		pendingRequest = false
-		if type(payload.state) == "table" then
-			latestState = payload.state
-		end
+		latestState = buildReplicaState()
 		if payload.success ~= true then
 			setError(codeToMessage(payload.code))
 		else
@@ -218,11 +216,16 @@ function RollDropAreaController.start()
 		render()
 	end)
 
-	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RollDropAreaController.CurrencyUpdated", function(amount)
-		currentCurrency = tonumber(amount) or currentCurrency
-		if latestState then
-			latestState.currency = currentCurrency
-		end
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.RollDropAreaLevel, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
+		latestState = buildReplicaState()
 		render()
 	end)
 

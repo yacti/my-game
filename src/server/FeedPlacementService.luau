@@ -23,19 +23,26 @@ local FeedPlacementService = {}
 local DEFAULT_RATE_SECONDS = 0.25
 local DEFAULT_PLACE_DISTANCE = 24
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 local function consumeRateLimit(map, player, interval)
+	local key = userKey(player)
+	if key == nil then return false end
 	local now = os.clock()
-	local previous = map[player] or 0
+	local previous = map[key] or 0
 	if now - previous < interval then return false end
-	map[player] = now
+	map[key] = now
 	return true
 end
 
 local function withPlayerLock(map, player, callback)
-	if map[player] then return end
-	map[player] = true
+	local key = userKey(player)
+	if key == nil or map[key] then return end
+	map[key] = true
 	RuntimeGuard.Run("FeedPlacementService.Handler", callback)
-	map[player] = nil
+	map[key] = nil
 end
 
 local function isFinite(n)
@@ -104,7 +111,12 @@ function FeedPlacementService.Start(config)
 			sendPlaceResult(player, requestId, false, "no-plot")
 			return
 		end
-		if locks[player] then
+		local key = userKey(player)
+		if key == nil then
+			sendPlaceResult(player, requestId, false, "invalid-player")
+			return
+		end
+		if locks[key] then
 			sendPlaceResult(player, requestId, false, "busy")
 			return
 		end

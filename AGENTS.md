@@ -32,6 +32,8 @@ The current game loop is a plot-based pet/economy game:
 
 `Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `Shovel`, `ReplicatedStorage.Misc.PlotTemplate`, and `Workspace.PlotTemplates` loading pads. Server startup clones the plot template into runtime `Workspace.Plots`.
 
+Replica is inserted in Studio as native/vendor modules, not under Rojo source: `ServerScriptService.ReplicaServer`, `ReplicatedStorage.ReplicaClient`, and `ReplicatedStorage.ReplicaShared`. Do not edit those native Replica modules for game logic. Source code should integrate with them through project modules such as `PlayerReplicaService` and `PlayerStateStore`.
+
 ```mermaid
 flowchart TD
   RojoSource["Rojo Source"] --> SharedCode["ReplicatedStorage.Shared"]
@@ -39,9 +41,12 @@ flowchart TD
   RojoSource --> ClientCode["StarterPlayerScripts.Client"]
   RojoSource --> RemoteFolder["ReplicatedStorage.Remotes"]
   RojoSource --> SatchelAsset["ReplicatedStorage.Satchel"]
+  StudioPlace --> ReplicaNative["Replica native modules"]
   StudioPlace["Studio Place Assets"] --> RuntimeTemplates["Pets, FeedMachines, Food, Crates, Seeds, Misc, VFX, UI, Tools, PlotTemplate, Plot Pads"]
   ClientCode -->|"intent remotes and presentation effects"| ServerCode
   ServerCode -->|"validates, mutates, persists"| RuntimeTemplates
+  ServerCode -->|"client-safe player state"| ReplicaNative
+  ReplicaNative -->|"PlayerState replica"| ClientCode
   ServerCode -->|"attributes, result remotes, VFX remotes"| ClientCode
   SharedCode --> ServerCode
   SharedCode --> ClientCode
@@ -65,6 +70,9 @@ Studio/MCP owns:
 - `ReplicatedStorage.UI`
 - `ReplicatedStorage.FeedMachineTool`
 - `ReplicatedStorage.Shovel`
+- `ReplicatedStorage.ReplicaClient`
+- `ReplicatedStorage.ReplicaShared`
+- `ServerScriptService.ReplicaServer`
 - `ReplicatedStorage.Misc.PlotTemplate`
 - `Workspace.PlotTemplates` loading pads
 - plot-local `RollArea` assets inside `PlotTemplate`, such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
@@ -112,10 +120,11 @@ Startup order is:
 1. `Remotes.validateAll()`
 2. `PlotLoader.Load()` clones `ReplicatedStorage.Misc.PlotTemplate` onto `Workspace.PlotTemplates` loading pads as runtime `Workspace.Plots`
 3. `AssetValidator.validate()`
-4. `PlotGridService.ResetVacantPlotsToPreviewRows()`
-5. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
-6. player lifecycle wiring
-7. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`
+4. require `ServerScriptService.ReplicaServer` so Replica can create its runtime remotes
+5. `PlotGridService.ResetVacantPlotsToPreviewRows()`
+6. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
+7. player lifecycle wiring, including per-player `PlayerState` replica creation after profile load
+8. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`
 
 Key server modules:
 
@@ -123,7 +132,8 @@ Key server modules:
 - `PlotLoader`: server startup cloning from the Studio-authored plot template/loading pads into runtime `Workspace.Plots`.
 - `PlotService`: plot assignment, floor-local placement, pet/feed spawning, placement fit checks, navigation obstacle bounds, and teardown.
 - `PlotGridService`: coordinate-keyed plot expansion, runtime floor creation, cell visibility/fences, unlock purchase validation, and walkable placement bounds.
-- `CurrencyService`: profile `Currency`, spend/add/reset, `CurrencyUpdated`.
+- `CurrencyService`: profile `Currency`, spend/add/reset, and Replica-backed currency publishing.
+- `PlayerReplicaService`: per-player Replica `PlayerState` creation, sanitized profile read-model publishing, ready-player subscription, and cleanup.
 - `PetMotionService`: server-owned pet motion state, route refreshes, feed reactions, and packed segment attributes for client interpolation.
 - `PetNavigation`: grid/A* path planning around unlocked cells and feed-machine obstacles; `PetMotionService` falls back to direct wander if unavailable.
 - `feedMachines/init.luau`: registry and dispatcher for feed-machine classes.
@@ -139,11 +149,13 @@ Key server modules:
 - `FeedMachineTools`: feed tool cloning and attributes.
 - `ShovelTools`: non-persisted utility shovel cloning and identity.
 - `NotificationService`: `PlayerNotification` wrapper.
-- `AssetValidator`: startup contracts for remotes, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
+- `AssetValidator`: startup contracts for remotes, Replica native modules, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
 Gameplay authority is server-side. Clients may preview, render, and request. The server validates ownership, inventory, edit mode, state, currency, XP, evolution, placement, grid unlocks, rolls, rebirth, and persistence.
 
 Security nuance: `PlaceFeedMachine` validates finite `CFrame`, plot, equipped tool, floor bounds, unlocked grid footprint, overlap, player distance to the snapped placement location, rate limits, and per-player locks. `PromptInteractionService` validates action shape, rate limits, locks, context, and plot ancestry for targets by default; action handlers and feed-machine modules still perform detailed ownership, distance, edit-mode, and state checks. Plot grid unlocks validate frontier state, price, currency, and player distance.
+
+Runtime service state should key players by stable `UserId` where possible, not `Player` instances or `Player.Name`. Use `Player` instances only when calling Roblox APIs, remotes, or checking current ancestry/lifecycle. Labels for diagnostics should prefer `UserId` so renames and stale instances do not affect cleanup maps, locks, cooldowns, or telemetry.
 
 ## Feed Machine Architecture
 
@@ -185,13 +197,18 @@ When touching feeds, foods, roll odds, misc rewards, or rebirth rewards, cross-c
 
 Controller categories:
 
-- Remote-driven panels: `HudController`, `Notifications`, `RebirthController`
+- Replica-backed player state: `PlayerStateStore`, `HudController`, `RebirthController`, `RollLuckController`, `RollDropAreaController`
+- Remote-driven events/panels: `Notifications`
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
 - Hybrid systems: `FeedPlacement`, `FeedEditController`, `ShovelController`, `LocalPrompts`, `PlacementGrid`
 - VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals`, `RollController`
 - shared helpers: `UiEffects`
 
 Clients clone Studio UI templates, watch replicated attributes, run local-only presentation, and send intent remotes. Client placement checks, prompt visibility, viewport previews, and button enablement are UX only; server validation remains definitive.
+
+`PlayerStateStore` starts before other UI controllers register state observers. `init.client.luau` calls `Replica.RequestData()` exactly once after controllers start, so `Replica.OnNew(PlayerState.Token, ...)` listeners are registered before initial replica data is requested. Do not call `Replica.RequestData()` from feature controllers.
+
+Render loops must be bounded and explicitly disposable. Any `RunService.RenderStepped`/`Heartbeat` connection should disconnect when its owning GUI, plot, model, character, or controller is destroyed or no longer relevant. For collection-style systems such as pet animation, prefer one central render connection that iterates tracked pets and prunes invalid entries, instead of one render connection per pet.
 
 Pet motion is visually interpolated on the client from server-published segment attributes. `PetAnimations` reads packed `PetSegmentData`, handles corner blending, feed-reaction tilt, collect jumps, and animation speed. `PetPreloader` preloads the next pet template/animations to reduce evolution hitches. Pet billboards, slot billboards, tree visuals, and placement previews are per-client presentation, not authority.
 
@@ -207,6 +224,8 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.RollBillboardGUI`; rarity particles use `ReplicatedStorage.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
 
+`HudController`, `RebirthController`, `RollLuckController`, and `RollDropAreaController` render durable profile-backed state from `PlayerStateStore`. They still use remotes for commands/results such as rebirth requests and upgrade purchases.
+
 Satchel is Rojo-mapped through `src/satchel.rbxm` and started by `SatchelController` in the client controller loader. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
 
 ## Shared Contracts
@@ -215,9 +234,11 @@ Important shared modules:
 
 - `Remotes.luau`: single remote registry. All current remotes are `RemoteEvent`s and must match `default.project.json`.
 - `State.luau`: central replicated runtime attribute keys.
+- `PlayerState.luau`: Replica token and field names for the sanitized per-player profile read model.
 - `Interactions.luau`: valid `PromptInteract` action names.
 - `Notifications.luau`: shared notification payload normalization.
 - `Shovel.luau`: shared shovel tool identity constants.
+- `ToolIdentity.luau`: assigns and resolves per-tool GUIDs so server actions destroy the intended equipped/backpack tool instead of matching by name.
 - `PetCatalog`, `Food`, `Seeds`, `RollRewards`, `RollChances`, `RollConfig`: runtime/catalog helpers, reward category contracts, odds config, and roll presentation timing used by server/client code.
 - `PlotGrid`: grid folder names, grid attributes, coordinate keys, fence/corner naming, and legacy plot-size migration helpers.
 - `RebirthBalance`: rebirth economy.
@@ -232,9 +253,12 @@ Split replicated runtime attributes from Studio template metadata. Runtime repli
 
 Primary data flow:
 
-- Server writes attributes on replicated Instances as the main state bus.
-- RemoteEvents carry client intents, request/result acknowledgements, notifications, state pushes, marketplace UI responses, and VFX triggers.
+- Server writes attributes on replicated Instances for world/visual state tied to Instances.
+- Replica carries durable client-safe player state through `PlayerReplicaService` and `PlayerStateStore` (`Currency`, `Rebirths`, roll upgrade levels, inventories, and unlocked grid keys today).
+- RemoteEvents carry client intents, request/result acknowledgements, notifications, marketplace UI responses, and VFX/one-shot presentation triggers.
 - Raw profile data stays server-side.
+
+Do not replicate raw `profile.Data` directly. `PlayerReplicaService` builds a sanitized read model and must exclude server-only fields such as processed receipts, timestamps, pending roll offers, internal migration fields, and any anti-exploit/private data. Mutate profile truth server-side first, then publish through explicit `PlayerReplicaService` methods or `PublishProfile(...)`.
 
 ## Remote Policy
 
@@ -243,17 +267,17 @@ All remotes are declared in both `default.project.json` and `src/shared/Remotes.
 Groups:
 
 - VFX: `ProcessorDepositEffect`, `TreeClickerEffect`
-- UI pushes: `PlayerNotification`, `CurrencyUpdated`
+- UI pushes: `PlayerNotification`
 - Placement: `PlaceFeedMachine`, `PlaceFeedMachineResult`
 - Feed editing: `FeedEditModeRequest`, `FeedMoveRequest`, `FeedMoveResult`
 - Shovel deletion: `ShovelDeleteRequest`, `ShovelDeleteResult`
 - Interactions: `PromptInteract`
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
-- Rebirth: `RebirthStateRequest`, `RebirthStateUpdated`, `RebirthRequest`, `RebirthResult`
+- Rebirth: `RebirthRequest`, `RebirthResult`
 
 When adding a remote, update both `default.project.json` and `src/shared/Remotes.luau`, then intentionally wire server and client behavior.
 
-Do not assume every remote is symmetric or actively fired from both sides. Some are one-way pushes, some are request/result pairs, and receipt behavior is driven through `MarketplaceService` receipt handling.
+Do not assume every remote is symmetric or actively fired from both sides. Some are one-way pushes, some are request/result pairs, and receipt behavior is driven through `MarketplaceService` receipt handling. Durable player state should prefer Replica over new state-push remotes; keep remotes for commands, results, notifications, effects, marketplace callbacks, and transitional compatibility.
 
 ## Rolls And Rebirth
 
@@ -275,7 +299,7 @@ During a session, live plot Instances are the runtime source of truth for pets, 
 
 Do not conflate a profile snapshot with a DataStore save. Snapshotting mutates `profile.Data`; ProfileStore autosaves separately, explicit saves happen in selected flows such as Robux receipts and rebirth, and leave/shutdown closes sessions.
 
-Profile data is server-only. Clients receive derived state through attributes and remotes.
+Profile data is server-only. Clients receive derived durable player state through the per-player `PlayerState` Replica, world/visual state through attributes, and one-shot events/results through remotes.
 
 New player defaults include one `Pet1`, zero currency, zero rebirths, empty feed/seed/food inventories, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`. The shovel is a non-persisted utility tool granted by `ShovelTools`, not saved inventory.
 
@@ -296,7 +320,8 @@ Player join:
 3. reset plot grid state to starter visibility
 4. load profile
 5. apply saved grid state, then restore pets, feed machines, machine class state, tools, inventories, and offline pet earnings
-6. send initial currency and rebirth state
+6. create and subscribe the player's `PlayerState` replica
+7. send command/result/effect remotes only when gameplay actions require them
 
 Prompt interaction:
 
@@ -310,7 +335,7 @@ Feed placement:
 
 1. client previews placement
 2. client fires `PlaceFeedMachine`
-3. server validates finite `CFrame`, rate, lock, plot, tool, floor bounds, unlocked grid footprint, and overlap
+3. server validates finite `CFrame`, rate, lock, plot, GUID-identified equipped tool, floor bounds, unlocked grid footprint, and overlap
 4. server places and sets up the machine
 5. server snapshots and replies with `PlaceFeedMachineResult`
 
@@ -354,6 +379,10 @@ When changing shipped behavior, consider data migration, player inventory, curre
 
 Preserve server authority. Validate ownership, distance where applicable, edit mode, inventory, rate limits, placement bounds, currency, profile state, and state transitions.
 
+Prefer `UserId` keys over `Player` instances or names for locks, cooldowns, per-player caches, replica maps, and telemetry labels. Always clear those maps on `PlayerRemoving` and profile release.
+
+Use `RuntimeGuard`, `pcall`, or `xpcall` around Roblox API calls and other failure-prone runtime boundaries where a thrown error would kill an event connection, loop, receipt handler, prompt handler, or render/update path. Do not use protected calls to hide invalid state; validate first, fail closed, warn or report important failures, and only continue when partial success is safe.
+
 Add new prompt actions through `Interactions.luau`, client prompt wiring, server handlers, and validator prompt template expectations when needed.
 
 Add new replicated runtime attributes through `State.luau` and update all readers/writers deliberately. For Studio template metadata, document the owning template/catalog path and keep validator/catalog expectations aligned.
@@ -361,6 +390,8 @@ Add new replicated runtime attributes through `State.luau` and update all reader
 When changing plot expansion, update `PlotGrid`, `PlotGridService`, Studio `StarterArea`/`GridAreas` attributes, client `LocalPrompts`/`FeedPlacement` expectations, persistence migration, and validator coverage together.
 
 When changing feeds or rolls, update Studio templates and attributes, server class/balance modules, `RollRewards`, `RollChances`, `PlayerDataService` defaults if starters change, and `AssetValidator` required feed/food/crate/reward coverage.
+
+When creating, granting, consuming, or deleting inventory tools, assign and carry a GUID through `ToolIdentity`. Server requests that consume a tool should resolve the submitted GUID and destroy that exact instance if it still matches, rather than searching by tool name or display text.
 
 Treat `ProfileStore.luau` as third-party vendored code.
 

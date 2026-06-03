@@ -10,19 +10,26 @@ local PromptInteractionService = {}
 
 local DEFAULT_RATE_SECONDS = 0.12
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 local function consumeRateLimit(map, player, interval)
+	local key = userKey(player)
+	if key == nil then return false end
 	local now = os.clock()
-	local previous = map[player] or 0
+	local previous = map[key] or 0
 	if now - previous < interval then return false end
-	map[player] = now
+	map[key] = now
 	return true
 end
 
 local function withPlayerLock(map, player, callback)
-	if map[player] then return end
-	map[player] = true
+	local key = userKey(player)
+	if key == nil or map[key] then return end
+	map[key] = true
 	RuntimeGuard.Run("PromptInteractionService.Handler", callback)
-	map[player] = nil
+	map[key] = nil
 end
 
 function PromptInteractionService.Start(config)

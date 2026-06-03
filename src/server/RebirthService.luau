@@ -7,6 +7,7 @@ local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
+local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
@@ -21,23 +22,29 @@ local State = require(Shared:WaitForChild("State"))
 local RebirthService = {}
 
 local REQUEST_RATE_SECONDS = 0.75
-local STATE_RATE_SECONDS = 0.5
 
 local started = false
 local transactionLocks = {}
 local requestLastFire = {}
-local stateLastFire = {}
 
-local RebirthStateUpdated = Remotes.get(Remotes.Names.RebirthStateUpdated)
 local RebirthResult = Remotes.get(Remotes.Names.RebirthResult)
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 local function consumeRateLimit(map, player, interval)
+	local key = userKey(player)
+	if key == nil then
+		return false
+	end
+
 	local now = os.clock()
-	local previous = map[player] or 0
+	local previous = map[key] or 0
 	if now - previous < interval then
 		return false
 	end
-	map[player] = now
+	map[key] = now
 	return true
 end
 
@@ -302,40 +309,11 @@ local function restoreLivePets(plot, pets)
 	return true
 end
 
-local function buildStatePayload(player)
-	local profile = PlayerDataService.GetProfile(player)
-	local rebirths = profile and integer(profile.Data.Rebirths, 0) or 0
-	local tierNumber, tier = RebirthBalance.GetNextTier(rebirths)
-	local currency = profile and integer(profile.Data.Currency, 0) or 0
-	local price = tier and integer(tier.Price, 0) or 0
-
-	return {
-		profileReady = profile ~= nil,
-		rebirths = rebirths,
-		nextTier = tier and tierNumber or nil,
-		maxTier = tier == nil,
-		price = price,
-		currency = currency,
-		progress = price > 0 and math.clamp(currency / price, 0, 1) or 1,
-		rewards = RebirthBalance.ToClientRewards(tier),
-		skipProductId = tier and integer(tier.SkipProductId, 0) > 0 and tier.SkipProductId or nil,
-	}
-end
-
-local function sendState(player)
-	RebirthStateUpdated:FireClient(player, buildStatePayload(player))
-end
-
-function RebirthService.SendState(player)
-	sendState(player)
-end
-
 local function sendResult(player, requestId, success, code)
 	local payload = {
 		requestId = requestId,
 		success = success,
 		code = code,
-		state = buildStatePayload(player),
 	}
 	RebirthResult:FireClient(player, payload)
 end
@@ -416,13 +394,13 @@ local function runTransaction(player, options)
 		if not restored then
 			warn("[RebirthService] Failed to restore live pet state after profile save failure")
 		end
+		PlayerReplicaService.PublishProfile(player, profile)
 		CurrencyService.Publish(player, profile)
-		sendState(player)
 		return false, "save-failed"
 	end
 
+	PlayerReplicaService.PublishProfile(player, profile)
 	CurrencyService.Publish(player, profile)
-	sendState(player)
 	NotificationService.Success(player, string.format("Rebirth %d complete!", tierNumber))
 	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
 		tier = tierNumber,
@@ -433,13 +411,14 @@ local function runTransaction(player, options)
 end
 
 local function performRebirth(player, options)
-	if transactionLocks[player] then
+	local key = userKey(player)
+	if key == nil or transactionLocks[key] then
 		return false, "busy"
 	end
 
-	transactionLocks[player] = true
+	transactionLocks[key] = true
 	local ok, success, code = pcall(runTransaction, player, options or {})
-	transactionLocks[player] = nil
+	transactionLocks[key] = nil
 
 	if not ok then
 		warn("[RebirthService] Transaction failed: " .. tostring(success))
@@ -545,13 +524,6 @@ function RebirthService.Start()
 	end
 	started = true
 
-	RuntimeGuard.Connect(Remotes.get(Remotes.Names.RebirthStateRequest).OnServerEvent, "RebirthService.StateRequest", function(player)
-		if not consumeRateLimit(stateLastFire, player, STATE_RATE_SECONDS) then
-			return
-		end
-		sendState(player)
-	end)
-
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.RebirthRequest).OnServerEvent, "RebirthService.RebirthRequest", function(player, requestId)
 		if type(requestId) ~= "number" then
 			requestId = nil
@@ -568,9 +540,10 @@ function RebirthService.Start()
 	end)
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "RebirthService.PlayerRemoving", function(player)
-		transactionLocks[player] = nil
-		requestLastFire[player] = nil
-		stateLastFire[player] = nil
+		local key = userKey(player)
+		if key == nil then return end
+		transactionLocks[key] = nil
+		requestLastFire[key] = nil
 	end)
 end
 

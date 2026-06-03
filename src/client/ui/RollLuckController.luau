@@ -4,7 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -96,11 +98,8 @@ function RollLuckController.start()
 		return
 	end
 
-	local RollLuckStateRequest = Remotes.get(Remotes.Names.RollLuckStateRequest)
-	local RollLuckStateUpdated = Remotes.get(Remotes.Names.RollLuckStateUpdated)
 	local RollLuckUpgradeRequest = Remotes.get(Remotes.Names.RollLuckUpgradeRequest)
 	local RollLuckUpgradeResult = Remotes.get(Remotes.Names.RollLuckUpgradeResult)
-	local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
 
 	UiEffects.BindButton(upgradeButton)
 	local panelState = UiEffects.PreparePanel(frame)
@@ -113,6 +112,7 @@ function RollLuckController.start()
 	local wasNear = false
 	local isOpen = false
 	local transitionToken = 0
+	local render
 
 	local function setError(text)
 		if errorLabel then
@@ -121,9 +121,18 @@ function RollLuckController.start()
 		end
 	end
 
+	local function buildReplicaState()
+		local level = RollLuckBalance.LevelFor(PlayerStateStore.Get(PlayerStateStore.Fields.RollLuckLevel))
+		local currency = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Currency)) or currentCurrency
+		local state = RollLuckBalance.ToState(level, currency)
+		state.profileReady = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true
+		return state
+	end
+
 	local function requestState()
 		lastStateRequest = os.clock()
-		RollLuckStateRequest:FireServer()
+		latestState = buildReplicaState()
+		render()
 	end
 
 	local function canUpgrade()
@@ -138,7 +147,7 @@ function RollLuckController.start()
 		return currentCurrency >= price
 	end
 
-	local function render()
+	render = function()
 		local state = latestState or {}
 		currentCurrency = tonumber(state.currency) or currentCurrency
 		local currentLuck = tonumber(state.currentLuckPercent) or 0
@@ -189,23 +198,12 @@ function RollLuckController.start()
 		RollLuckUpgradeRequest:FireServer(nextRequestId)
 	end)
 
-	RuntimeGuard.Connect(RollLuckStateUpdated.OnClientEvent, "RollLuckController.StateUpdated", function(payload)
-		if type(payload) ~= "table" then
-			return
-		end
-		latestState = payload
-		setError(nil)
-		render()
-	end)
-
 	RuntimeGuard.Connect(RollLuckUpgradeResult.OnClientEvent, "RollLuckController.UpgradeResult", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
 		pendingRequest = false
-		if type(payload.state) == "table" then
-			latestState = payload.state
-		end
+		latestState = buildReplicaState()
 		if payload.success ~= true then
 			setError(codeToMessage(payload.code))
 		else
@@ -214,11 +212,16 @@ function RollLuckController.start()
 		render()
 	end)
 
-	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RollLuckController.CurrencyUpdated", function(amount)
-		currentCurrency = tonumber(amount) or currentCurrency
-		if latestState then
-			latestState.currency = currentCurrency
-		end
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.RollLuckLevel, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
+		latestState = buildReplicaState()
 		render()
 	end)
 

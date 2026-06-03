@@ -49,6 +49,10 @@ local profiles = {}
 
 local PlayerDataService = {}
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 ProfileStore.OnError:Connect(function(message, storeName, profileKey)
 	warn(string.format("[ProfileStore] Store=%s Key=%s Error=%s", tostring(storeName), tostring(profileKey), tostring(message)))
 end)
@@ -292,11 +296,17 @@ local function ensureValidData(profile)
 end
 
 function PlayerDataService.GetProfile(player)
-	return profiles[player]
+	local key = userKey(player)
+	return key and profiles[key] or nil
 end
 
 function PlayerDataService.LoadPlayerAsync(player)
-	local profile = PLAYER_STORE:StartSessionAsync(tostring(player.UserId), {
+	local key = userKey(player)
+	if key == nil then
+		return nil
+	end
+
+	local profile = PLAYER_STORE:StartSessionAsync(tostring(key), {
 		Cancel = function()
 			return player:IsDescendantOf(Players) == false
 		end,
@@ -304,7 +314,7 @@ function PlayerDataService.LoadPlayerAsync(player)
 
 	if not profile and IS_STUDIO and PLAYER_STORE ~= MOCK_PLAYER_STORE then
 		warn("[PlayerDataService] Live profile load failed in Studio; retrying with mock store")
-		profile = MOCK_PLAYER_STORE:StartSessionAsync(tostring(player.UserId), {
+		profile = MOCK_PLAYER_STORE:StartSessionAsync(tostring(key), {
 			Cancel = function()
 				return player:IsDescendantOf(Players) == false
 			end,
@@ -316,12 +326,12 @@ function PlayerDataService.LoadPlayerAsync(player)
 		return nil
 	end
 
-	profile:AddUserId(player.UserId)
+	profile:AddUserId(key)
 	ensureValidData(profile)
 
 	profile.OnSessionEnd:Connect(function()
-		if profiles[player] == profile then
-			profiles[player] = nil
+		if profiles[key] == profile then
+			profiles[key] = nil
 		end
 		if player:IsDescendantOf(Players) then
 			player:Kick("Your save data session ended. Please rejoin.")
@@ -333,12 +343,13 @@ function PlayerDataService.LoadPlayerAsync(player)
 		return nil
 	end
 
-	profiles[player] = profile
+	profiles[key] = profile
 	return profile
 end
 
 function PlayerDataService.UnloadPlayer(player)
-	local profile = profiles[player]
+	local key = userKey(player)
+	local profile = key and profiles[key] or nil
 	if profile and profile:IsActive() then
 		profile:EndSession()
 	end

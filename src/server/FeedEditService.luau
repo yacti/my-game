@@ -22,19 +22,26 @@ local DEFAULT_MOVE_DISTANCE = 24
 local FLOOR_Y_TOLERANCE_BELOW = 5
 local FLOOR_Y_TOLERANCE_ABOVE = 14
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 local function consumeRateLimit(map, player, interval)
+	local key = userKey(player)
+	if key == nil then return false end
 	local now = os.clock()
-	local previous = map[player] or 0
+	local previous = map[key] or 0
 	if now - previous < interval then return false end
-	map[player] = now
+	map[key] = now
 	return true
 end
 
 local function withPlayerLock(map, player, callback)
-	if map[player] then return false end
-	map[player] = true
+	local key = userKey(player)
+	if key == nil or map[key] then return false end
+	map[key] = true
 	local ok = RuntimeGuard.Run("FeedEditService.Handler", callback)
-	map[player] = nil
+	map[key] = nil
 	return ok
 end
 
@@ -130,9 +137,11 @@ function FeedEditService.Start(config)
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
-		toggleLastFire[player] = nil
-		moveLastFire[player] = nil
-		moveLocks[player] = nil
+		local key = userKey(player)
+		if key == nil then return end
+		toggleLastFire[key] = nil
+		moveLastFire[key] = nil
+		moveLocks[key] = nil
 	end)
 
 	FeedEditModeRequest.OnServerEvent:Connect(function(player, enabled)
@@ -169,7 +178,12 @@ function FeedEditService.Start(config)
 			sendMoveResult(player, requestId, false, "not-editing")
 			return
 		end
-		if moveLocks[player] then
+		local key = userKey(player)
+		if key == nil then
+			sendMoveResult(player, requestId, false, "invalid-player")
+			return
+		end
+		if moveLocks[key] then
 			sendMoveResult(player, requestId, false, "busy")
 			return
 		end

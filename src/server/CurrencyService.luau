@@ -1,13 +1,17 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
+local PlayerReplicaService = require(script.Parent:WaitForChild("PlayerReplicaService"))
 
 local CurrencyService = {}
 
-local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
 local currencyLocks = {}
+
+local function userKey(player)
+	return player and player.UserId or nil
+end
 
 local function balance(profile)
 	return profile and (tonumber(profile.Data.Currency) or 0) or 0
@@ -23,20 +27,25 @@ end
 
 local function publish(player, profile)
 	RuntimeGuard.Run("CurrencyService.Publish", function()
-		CurrencyUpdated:FireClient(player, balance(profile))
+		local amount = balance(profile)
+		PlayerReplicaService.PublishCurrency(player, amount)
 	end)
 end
 
 local function acquire(player)
-	if currencyLocks[player] then
+	local key = userKey(player)
+	if key == nil or currencyLocks[key] then
 		return false
 	end
-	currencyLocks[player] = true
+	currencyLocks[key] = true
 	return true
 end
 
 local function release(player)
-	currencyLocks[player] = nil
+	local key = userKey(player)
+	if key ~= nil then
+		currencyLocks[key] = nil
+	end
 end
 
 local function shouldPublish(deferPublish)

@@ -4,7 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local RebirthController = {}
@@ -108,11 +110,8 @@ function RebirthController.start()
 	rebirthGui.Enabled = false
 	local panelState = UiEffects.PreparePanel(panel)
 
-	local RebirthStateRequest = Remotes.get(Remotes.Names.RebirthStateRequest)
-	local RebirthStateUpdated = Remotes.get(Remotes.Names.RebirthStateUpdated)
 	local RebirthRequest = Remotes.get(Remotes.Names.RebirthRequest)
 	local RebirthResult = Remotes.get(Remotes.Names.RebirthResult)
-	local CurrencyUpdated = Remotes.get(Remotes.Names.CurrencyUpdated)
 
 	local latestState = nil
 	local currentCurrency = 0
@@ -123,6 +122,7 @@ function RebirthController.start()
 	local lastStateRequest = 0
 	local isOpen = false
 	local transitionToken = 0
+	local render
 
 	local function setError(text)
 		if errorLabel then
@@ -131,9 +131,29 @@ function RebirthController.start()
 		end
 	end
 
+	local function buildReplicaState()
+		local currency = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Currency)) or currentCurrency
+		local rebirths = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Rebirths)) or 0
+		local tierNumber, tier = RebirthBalance.GetNextTier(rebirths)
+		local price = tier and math.max(math.floor(tonumber(tier.Price) or 0), 0) or 0
+
+		return {
+			profileReady = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true,
+			rebirths = rebirths,
+			nextTier = tier and tierNumber or nil,
+			maxTier = tier == nil,
+			price = price,
+			currency = currency,
+			progress = price > 0 and math.clamp(currency / price, 0, 1) or 1,
+			rewards = RebirthBalance.ToClientRewards(tier),
+			skipProductId = tier and math.max(math.floor(tonumber(tier.SkipProductId) or 0), 0) > 0 and tier.SkipProductId or nil,
+		}
+	end
+
 	local function requestState()
 		lastStateRequest = os.clock()
-		RebirthStateRequest:FireServer()
+		latestState = buildReplicaState()
+		render()
 	end
 
 	local function setProgress(progress)
@@ -162,7 +182,7 @@ function RebirthController.start()
 		end
 	end
 
-	local function render()
+	render = function()
 		local state = latestState or {}
 		currentCurrency = tonumber(state.currency) or currentCurrency
 		nextPrice = tonumber(state.price) or nextPrice
@@ -242,23 +262,12 @@ function RebirthController.start()
 		end)
 	end)
 
-	RuntimeGuard.Connect(RebirthStateUpdated.OnClientEvent, "RebirthController.StateUpdated", function(payload)
-		if type(payload) ~= "table" then
-			return
-		end
-		latestState = payload
-		setError(nil)
-		render()
-	end)
-
 	RuntimeGuard.Connect(RebirthResult.OnClientEvent, "RebirthController.Result", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
 		pendingRequest = false
-		if type(payload.state) == "table" then
-			latestState = payload.state
-		end
+		latestState = buildReplicaState()
 		if payload.success ~= true then
 			setError(tostring(payload.code or "Could not rebirth."))
 		else
@@ -267,11 +276,16 @@ function RebirthController.start()
 		render()
 	end)
 
-	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RebirthController.CurrencyUpdated", function(amount)
-		currentCurrency = tonumber(amount) or currentCurrency
-		if latestState then
-			latestState.currency = currentCurrency
-		end
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Rebirths, function()
+		latestState = buildReplicaState()
+		render()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
+		latestState = buildReplicaState()
 		render()
 	end)
 

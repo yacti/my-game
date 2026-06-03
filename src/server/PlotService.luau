@@ -96,11 +96,20 @@ local localToWorldOnFloorTop
 
 local PlotService = {}
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 function PlotService.AssignPlot(player)
+	local key = userKey(player)
+	if key == nil then
+		return nil, nil
+	end
+
 	for i, plot in ipairs(plots) do
 		if not plotOwners[i] then
-			plotOwners[i]       = player
-			playerPlots[player] = i
+			plotOwners[i]  = key
+			playerPlots[key] = i
 			setPlotVacantPresentation(plot, false)
 			return plot, i
 		end
@@ -109,7 +118,8 @@ function PlotService.AssignPlot(player)
 end
 
 function PlotService.GetPlayerPlot(player)
-	local i = playerPlots[player]
+	local key = userKey(player)
+	local i = key and playerPlots[key] or nil
 	return i and plots[i] or nil
 end
 
@@ -119,11 +129,12 @@ function PlotService.GetFloor(plot)
 end
 
 function PlotService.FreePlot(player)
-	local i = playerPlots[player]
+	local key = userKey(player)
+	local i = key and playerPlots[key] or nil
 	if i then
 		local plot = plots[i]
 		plotOwners[i]       = nil
-		playerPlots[player] = nil
+		playerPlots[key] = nil
 		setPlotVacantPresentation(plot, true)
 	end
 end

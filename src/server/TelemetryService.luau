@@ -63,7 +63,6 @@ function TelemetryService.ForPlayer(player, fields)
 	fields = fields or {}
 	if player then
 		fields.userId = player.UserId
-		fields.playerName = player.Name
 	end
 	return fields
 end

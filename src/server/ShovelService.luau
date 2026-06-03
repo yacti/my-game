@@ -21,19 +21,26 @@ local ShovelService = {}
 local DEFAULT_RATE_SECONDS = 0.25
 local DEFAULT_DELETE_DISTANCE = 18
 
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
 local function consumeRateLimit(map, player, interval)
+	local key = userKey(player)
+	if key == nil then return false end
 	local now = os.clock()
-	local previous = map[player] or 0
+	local previous = map[key] or 0
 	if now - previous < interval then return false end
-	map[player] = now
+	map[key] = now
 	return true
 end
 
 local function withPlayerLock(map, player, callback)
-	if map[player] then return false end
-	map[player] = true
+	local key = userKey(player)
+	if key == nil or map[key] then return false end
+	map[key] = true
 	local ok = RuntimeGuard.Run("ShovelService.Handler", callback)
-	map[player] = nil
+	map[key] = nil
 	return ok
 end
 
@@ -116,8 +123,10 @@ function ShovelService.Start(config)
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
-		lastFire[player] = nil
-		locks[player] = nil
+		local key = userKey(player)
+		if key == nil then return end
+		lastFire[key] = nil
+		locks[key] = nil
 	end)
 
 	ShovelDeleteRequest.OnServerEvent:Connect(function(player, requestId, target)
@@ -125,7 +134,12 @@ function ShovelService.Start(config)
 			sendResult(player, requestId, false, "rate-limited")
 			return
 		end
-		if locks[player] then
+		local key = userKey(player)
+		if key == nil then
+			sendResult(player, requestId, false, "invalid-player")
+			return
+		end
+		if locks[key] then
 			sendResult(player, requestId, false, "busy")
 			return
 		end

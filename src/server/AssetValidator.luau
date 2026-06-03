@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
@@ -37,6 +38,13 @@ local REQUIRED_ASSET_ROOTS = {
 
 local REQUIRED_REPLICATED_ROOTS = {
 	"Remotes",
+}
+
+local REQUIRED_REPLICA_SHARED_MODULES = {
+	"Maid",
+	"RateLimit",
+	"Remote",
+	"Signal",
 }
 
 -- Stable FeedType values that must exist somewhere under FeedMachines.
@@ -123,6 +131,15 @@ local function descendant(parent, name, className, errors)
 	end
 	add(errors, string.format("Missing descendant %s.%s", parent:GetFullName(), name))
 	return nil
+end
+
+local function validateReplica(errors)
+	child(ServerScriptService, "ReplicaServer", "ModuleScript", errors)
+	child(ReplicatedStorage, "ReplicaClient", "ModuleScript", errors)
+	local replicaShared = child(ReplicatedStorage, "ReplicaShared", "Folder", errors)
+	for _, moduleName in ipairs(REQUIRED_REPLICA_SHARED_MODULES) do
+		child(replicaShared, moduleName, "ModuleScript", errors)
+	end
 end
 
 local function nearlyEqual(a, b, tolerance)
@@ -1157,6 +1174,7 @@ function AssetValidator.validate()
 	for _, name in ipairs(REQUIRED_REPLICATED_ROOTS) do
 		child(ReplicatedStorage, name, nil, errors)
 	end
+	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)
 	end

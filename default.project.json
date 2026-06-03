@@ -24,22 +24,10 @@
         "CrateRollPurchaseResult": {
           "$className": "RemoteEvent"
         },
-        "RollLuckStateRequest": {
-          "$className": "RemoteEvent"
-        },
-        "RollLuckStateUpdated": {
-          "$className": "RemoteEvent"
-        },
         "RollLuckUpgradeRequest": {
           "$className": "RemoteEvent"
         },
         "RollLuckUpgradeResult": {
-          "$className": "RemoteEvent"
-        },
-        "RollDropAreaStateRequest": {
-          "$className": "RemoteEvent"
-        },
-        "RollDropAreaStateUpdated": {
           "$className": "RemoteEvent"
         },
         "RollDropAreaUpgradeRequest": {
@@ -49,9 +37,6 @@
           "$className": "RemoteEvent"
         },
         "PlayerNotification": {
-          "$className": "RemoteEvent"
-        },
-        "CurrencyUpdated": {
           "$className": "RemoteEvent"
         },
         "PlaceFeedMachine": {
@@ -76,12 +61,6 @@
           "$className": "RemoteEvent"
         },
         "PromptInteract": {
-          "$className": "RemoteEvent"
-        },
-        "RebirthStateRequest": {
-          "$className": "RemoteEvent"
-        },
-        "RebirthStateUpdated": {
           "$className": "RemoteEvent"
         },
         "RebirthRequest": {

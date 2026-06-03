@@ -8,8 +8,15 @@ local Remotes           = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard      = require(Shared:WaitForChild("RuntimeGuard"))
 Remotes.validateAll()
 
+local function requireReplicaServer()
+	local moduleScript = ServerScriptService:FindFirstChild("ReplicaServer")
+	assert(moduleScript and moduleScript:IsA("ModuleScript"), "Missing ServerScriptService.ReplicaServer ModuleScript")
+	return require(moduleScript)
+end
+
 require(Server:WaitForChild("PlotLoader")).Load()
 require(Server:WaitForChild("AssetValidator")).validate()
+requireReplicaServer()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
@@ -30,6 +37,7 @@ local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
+local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -37,7 +45,6 @@ local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
-local CurrencyUpdated  = Remotes.get(Remotes.Names.CurrencyUpdated)
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 
 local PROMPT_RATE_SECONDS = 0.12
@@ -49,6 +56,10 @@ local PET_FEED_PROMPT_DISTANCE = 8
 local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
+
+local function userLabel(player)
+	return tostring(player and player.UserId or "unknown")
+end
 
 RuntimeGuard.Run("PlotGridService.ResetVacantPlotsToPreviewRows", PlotGridService.ResetVacantPlotsToPreviewRows)
 RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantPlotVisibility)
@@ -144,6 +155,7 @@ local function snapshotProfileState(player, plot, profile)
 	RuntimeGuard.Run("snapshotProfileState.savePets", savePetsFromPlot, plot, profile)
 	RuntimeGuard.Run("snapshotProfileState.saveFeed", saveFeedState, plot, player, profile)
 	profile.Data.LastSeen = os.time()
+	PlayerReplicaService.PublishProfile(player, profile)
 end
 
 local function notifyGrown(player, feed)
@@ -375,10 +387,11 @@ local function applyOfflineEarnings(plot, profile)
 end
 
 local function startPetMoneyLoop(player, plot, profile)
-	RuntimeGuard.Spawn("PetMoneyLoop." .. player.Name, function()
+	local label = userLabel(player)
+	RuntimeGuard.Spawn("PetMoneyLoop." .. label, function()
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(1)
-			RuntimeGuard.Run("PetMoneyTick." .. player.Name, function()
+			RuntimeGuard.Run("PetMoneyTick." .. label, function()
 				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 					local idx = pet:GetAttribute(State.Pet.Index)
 					local petData = profile.Data.Pets[idx]
@@ -394,10 +407,11 @@ local function startPetMoneyLoop(player, plot, profile)
 end
 
 local function startPetCollectionLoop(player, plot, profile)
-	RuntimeGuard.Spawn("PetCollectionLoop." .. player.Name, function()
+	local label = userLabel(player)
+	RuntimeGuard.Spawn("PetCollectionLoop." .. label, function()
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(PET_COLLECTION_INTERVAL)
-			RuntimeGuard.Run("PetCollectionTick." .. player.Name, function()
+			RuntimeGuard.Run("PetCollectionTick." .. label, function()
 				local character = player.Character
 				local root = character and character:FindFirstChild("HumanoidRootPart")
 				if not (root and root:IsA("BasePart")) then
@@ -429,11 +443,12 @@ local function startPetCollectionLoop(player, plot, profile)
 end
 
 local function startProfileSnapshotLoop(player, plot, profile)
-	RuntimeGuard.Spawn("ProfileSnapshotLoop." .. player.Name, function()
+	local label = userLabel(player)
+	RuntimeGuard.Spawn("ProfileSnapshotLoop." .. label, function()
 		while PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile do
 			task.wait(60)
 			if PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile then
-				RuntimeGuard.Run("ProfileSnapshotTick." .. player.Name, snapshotProfileState, player, plot, profile)
+				RuntimeGuard.Run("ProfileSnapshotTick." .. label, snapshotProfileState, player, plot, profile)
 			end
 		end
 	end)
@@ -461,6 +476,7 @@ local function unlockGridPart(target, plot, player, profile)
 	end
 
 	PetMotionService.RefreshPlotRoutes(plot)
+	PlayerReplicaService.PublishUnlockedGridKeys(player, profile)
 	if gridPart then
 		RuntimeGuard.Run("GridUnlockEffect.FireAllClients", function()
 			GridUnlockEffect:FireAllClients(gridPart)
@@ -502,7 +518,7 @@ local function handlePlayerAdded(player)
 
 	local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
 	if not applied then
-		warn(string.format("[init] Failed to apply %s plot grid state: %s", player.Name, tostring(applyReason)))
+		warn(string.format("[init] Failed to apply user %s plot grid state: %s", userLabel(player), tostring(applyReason)))
 		PlotGridService.ResetPlotState(plot)
 	end
 	RollService.ApplyDropAreaVisibility(plot, profile)
@@ -536,6 +552,7 @@ local function handlePlayerAdded(player)
 	end
 
 	applyOfflineEarnings(plot, profile)
+	PlayerReplicaService.Create(player, profile)
 
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
@@ -549,12 +566,7 @@ local function handlePlayerAdded(player)
 	startPetMoneyLoop(player, plot, profile)
 	startPetCollectionLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
-	RuntimeGuard.Run("CurrencyUpdated.Initial." .. player.Name, function()
-		CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
-	end)
-	RuntimeGuard.Run("RebirthService.SendState.Initial." .. player.Name, RebirthService.SendState, player)
-	RuntimeGuard.Run("RollService.SendLuckState.Initial." .. player.Name, RollService.SendLuckState, player, profile)
-	RuntimeGuard.Run("RollService.SendDropAreaState.Initial." .. player.Name, RollService.SendDropAreaState, player, profile)
+	local label = userLabel(player)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
@@ -588,9 +600,9 @@ local function handlePlayerAdded(player)
 	end
 
 	if player.Character then
-		RuntimeGuard.Run("CharacterAdded.Initial." .. player.Name, onCharacterAdded, player.Character)
+		RuntimeGuard.Run("CharacterAdded.Initial." .. label, onCharacterAdded, player.Character)
 	end
-	RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. player.Name, onCharacterAdded)
+	RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. label, onCharacterAdded)
 end
 
 RuntimeGuard.Connect(Players.PlayerAdded, "Players.PlayerAdded", handlePlayerAdded)
@@ -615,6 +627,7 @@ local function handlePlayerRemoving(player)
 	player:SetAttribute(State.Player.AssignedPlotName, nil)
 	player:SetAttribute(EDIT_MODE_ATTR, false)
 
+	PlayerReplicaService.Destroy(player)
 	PlayerDataService.UnloadPlayer(player)
 end
 
@@ -622,12 +635,13 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "Players.PlayerRemoving", handlePla
 
 game:BindToClose(function()
 	for _, player in pairs(Players:GetPlayers()) do
-		RuntimeGuard.Run("BindToClose.Player." .. player.Name, function()
+		RuntimeGuard.Run("BindToClose.Player." .. userLabel(player), function()
 			local plot    = PlotService.GetPlayerPlot(player)
 			local profile = PlayerDataService.GetProfile(player)
 			if plot and profile then
 				snapshotProfileState(player, plot, profile)
 			end
+			PlayerReplicaService.Destroy(player)
 			PlayerDataService.UnloadPlayer(player)
 		end)
 	end
