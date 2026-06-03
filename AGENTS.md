@@ -30,7 +30,7 @@ The current game loop is a plot-based pet/economy game:
 - `src/satchel.rbxm` -> `ReplicatedStorage.Satchel`
 - selected `Workspace`, `Lighting`, and `SoundService` property overrides
 
-`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `Shovel`, `Workspace.Plots`, and plot-local `RollArea` assets.
+`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `Shovel`, `ReplicatedStorage.Misc.PlotTemplate`, and `Workspace.PlotTemplates` loading pads. Server startup clones the plot template into runtime `Workspace.Plots`.
 
 ```mermaid
 flowchart TD
@@ -39,7 +39,7 @@ flowchart TD
   RojoSource --> ClientCode["StarterPlayerScripts.Client"]
   RojoSource --> RemoteFolder["ReplicatedStorage.Remotes"]
   RojoSource --> SatchelAsset["ReplicatedStorage.Satchel"]
-  StudioPlace["Studio Place Assets"] --> RuntimeTemplates["Pets, FeedMachines, Food, Crates, Seeds, Misc, VFX, UI, Tools, Plots, RollArea"]
+  StudioPlace["Studio Place Assets"] --> RuntimeTemplates["Pets, FeedMachines, Food, Crates, Seeds, Misc, VFX, UI, Tools, PlotTemplate, Plot Pads"]
   ClientCode -->|"intent remotes and presentation effects"| ServerCode
   ServerCode -->|"validates, mutates, persists"| RuntimeTemplates
   ServerCode -->|"attributes, result remotes, VFX remotes"| ClientCode
@@ -65,8 +65,9 @@ Studio/MCP owns:
 - `ReplicatedStorage.UI`
 - `ReplicatedStorage.FeedMachineTool`
 - `ReplicatedStorage.Shovel`
-- `Workspace.Plots`
-- plot-local `RollArea` assets such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
+- `ReplicatedStorage.Misc.PlotTemplate`
+- `Workspace.PlotTemplates` loading pads
+- plot-local `RollArea` assets inside `PlotTemplate`, such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
 
 Do not migrate `ReplicatedStorage.UI` into Rojo. `src/client/ui` is controller and presentation logic, not UI asset source. Gradual Rojo migration is non-UI only and should follow `docs/asset-workflow.md`: tools first, then pet/feed/food templates.
 
@@ -81,8 +82,8 @@ Current Studio asset shape observed through MCP:
 - `ReplicatedStorage.VFX.RarityParticle` owns the roll reveal rarity particle emitter or a container that contains it.
 - `ReplicatedStorage.UI.RollBillboardGUI` owns the `Seed` and `Misc` roll reveal `BillboardGui` templates.
 - `ReplicatedStorage.UI.YesNoWarning` owns the reusable yes/no warning prompt UI.
-- The inspected place currently has `Workspace.Plots.Plot1` with a starter cell and many `GridAreas`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
-- The inspected place currently has a plot-local `RollArea` with a green roll button and `CrateFloor`.
+- `ReplicatedStorage.Misc.PlotTemplate` contains the authored plot structure with a starter cell, many `GridAreas`, `GridEffect`, `SpawnLocation`, and plot-local `RollArea`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
+- `Workspace.PlotTemplates` contains numbered loading pads (`Plot1`, `Plot2`, etc.). `src/server/PlotLoader.luau` clones the template onto those pads at server startup and parents the generated plot models under runtime `Workspace.Plots`.
 
 Before destructive, bulk, rename, restructure, or risky Studio/MCP edits, export the affected assets under `asset-backups/`.
 
@@ -109,15 +110,17 @@ Avoid adding more major gameplay to `init.server.luau` by default. If a change a
 Startup order is:
 
 1. `Remotes.validateAll()`
-2. `AssetValidator.validate()`
-3. `PlotGridService.ResetVacantPlotsToPreviewRows()`
-4. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
-5. player lifecycle wiring
-6. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`
+2. `PlotLoader.Load()` clones `ReplicatedStorage.Misc.PlotTemplate` onto `Workspace.PlotTemplates` loading pads as runtime `Workspace.Plots`
+3. `AssetValidator.validate()`
+4. `PlotGridService.ResetVacantPlotsToPreviewRows()`
+5. `RebirthService.Start()`, `ReceiptService.Start(...)`, and `RollService.Start()`
+6. player lifecycle wiring
+7. `PromptInteractionService.Start(...)` and `FeedPlacementService.Start(...)`
 
 Key server modules:
 
 - `PlayerDataService`: ProfileStore sessions, schema reconciliation, Studio mock-store policy.
+- `PlotLoader`: server startup cloning from the Studio-authored plot template/loading pads into runtime `Workspace.Plots`.
 - `PlotService`: plot assignment, floor-local placement, pet/feed spawning, placement fit checks, navigation obstacle bounds, and teardown.
 - `PlotGridService`: coordinate-keyed plot expansion, runtime floor creation, cell visibility/fences, unlock purchase validation, and walkable placement bounds.
 - `CurrencyService`: profile `Currency`, spend/add/reset, `CurrencyUpdated`.

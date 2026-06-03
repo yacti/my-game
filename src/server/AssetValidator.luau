@@ -78,6 +78,7 @@ local SEED_OWNED_FEED_ATTRIBUTES = {
 }
 
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
+local PLOT_NAME_PATTERN = "^Plot(%d+)$"
 local TEMPLATE_SIZE_TOLERANCE = 0.01
 
 local DEPRECATED_FOOD_ATTRIBUTES = {
@@ -924,6 +925,9 @@ local function validatePlots(errors)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
 	local rootPlots = {}
+	local misc = ReplicatedStorage:FindFirstChild("Misc")
+	local plotTemplate = misc and child(misc, "PlotTemplate", "Model", errors) or nil
+	local loadingPadsFolder = child(Workspace, "PlotTemplates", "Folder", errors)
 
 	for _, instance in ipairs(Workspace:GetChildren()) do
 		if instance.Name:match("^Plot%d+$") then
@@ -989,8 +993,7 @@ local function validatePlots(errors)
 		end
 	end
 
-	local function validatePlot(plot)
-		foundPlot = true
+	local function validatePlotShape(plot)
 		local floor = plot:FindFirstChild("Floor")
 		if floor and not floor:IsA("BasePart") then
 			add(errors, string.format("%s is %s, expected optional BasePart Floor", floor:GetFullName(), floor.ClassName))
@@ -1048,6 +1051,47 @@ local function validatePlots(errors)
 		end
 	end
 
+	local function validateLoadingPads(folder)
+		if not folder then return end
+
+		local seenByNumber = {}
+		local padCount = 0
+		for _, pad in ipairs(folder:GetChildren()) do
+			if not pad:IsA("BasePart") then
+				add(errors, string.format("%s is %s, expected numbered BasePart plot loading pad", pad:GetFullName(), pad.ClassName))
+				continue
+			end
+
+			local plotNumber = tonumber(pad.Name:match(PLOT_NAME_PATTERN))
+			if not plotNumber then
+				add(errors, pad:GetFullName() .. " must be named Plot<number>")
+				continue
+			end
+
+			padCount += 1
+			if seenByNumber[plotNumber] then
+				add(errors, string.format(
+					"Duplicate plot loading pad number %d on %s and %s",
+					plotNumber,
+					seenByNumber[plotNumber]:GetFullName(),
+					pad:GetFullName()
+				))
+			else
+				seenByNumber[plotNumber] = pad
+			end
+		end
+
+		if padCount == 0 then
+			add(errors, folder:GetFullName() .. " must contain at least one numbered plot loading pad")
+			return
+		end
+		for index = 1, padCount do
+			if not seenByNumber[index] then
+				add(errors, string.format("%s loading pads must be numbered contiguously from Plot1; missing Plot%d", folder:GetFullName(), index))
+			end
+		end
+	end
+
 	local function validatePlotList(plots, sourceName)
 		local seenNames = {}
 		for _, plot in ipairs(plots) do
@@ -1055,7 +1099,7 @@ local function validatePlots(errors)
 				add(errors, string.format("%s is %s, expected Model plot", plot:GetFullName(), plot.ClassName))
 				continue
 			end
-			if not plot.Name:match("^Plot%d+$") then
+			if not plot.Name:match(PLOT_NAME_PATTERN) then
 				add(errors, string.format("%s has invalid plot name; expected Plot<number>", plot:GetFullName()))
 			end
 			local previous = seenNames[plot.Name]
@@ -1064,9 +1108,15 @@ local function validatePlots(errors)
 			else
 				seenNames[plot.Name] = plot
 			end
-			validatePlot(plot)
+			foundPlot = true
+			validatePlotShape(plot)
 		end
 	end
+
+	if plotTemplate then
+		validatePlotShape(plotTemplate)
+	end
+	validateLoadingPads(loadingPadsFolder)
 
 	if plotsFolder then
 		if #rootPlots > 0 then

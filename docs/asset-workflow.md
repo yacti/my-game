@@ -18,11 +18,15 @@ These live under `ReplicatedStorage` and are required by server/client code:
 - `SeedTool`
 - `Shovel`
 - `Seeds`
-- `Misc` (`Sapling`, `Clouds`, roll rewards such as `Brick`)
+- `Misc` (`PlotTemplate`, `Sapling`, `Clouds`, roll rewards such as `Brick`)
 - `VFX` (`RarityParticle`)
 
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
+
+Studio also owns `Workspace.PlotTemplates`, the numbered loading pads used by
+`src/server/PlotLoader.luau` to spawn runtime `Workspace.Plots` from
+`ReplicatedStorage.Misc.PlotTemplate` on server startup.
 
 ## Backup Before Risky Edits
 
@@ -42,6 +46,7 @@ asset-backups/
     Shovel.rbxm
     Seeds.rbxm
     Misc.rbxm
+    Workspace-PlotTemplates.rbxm
     VFX.rbxm
 ```
 
@@ -66,7 +71,8 @@ Avoid migrating everything at once. Complex models can break if pivots,
 ## Startup Validation
 
 `src/server/AssetValidator.luau` checks required asset roots, templates,
-attributes, remotes, crates, tools, UI templates, roll areas, and plot structure at server startup.
+attributes, remotes, crates, tools, UI templates, roll areas, the plot template,
+numbered plot loading pads, and generated runtime plot structure at server startup.
 Seed templates used by crate rolls must include valid `RollChanceN`, `Price`,
 `GrowTime`, and `FeedType` attributes; `Rarity` is display-only when present.
 Misc templates enter the roll pool only when they carry `MiscID`, and must then

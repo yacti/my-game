@@ -7,6 +7,7 @@ local Shared            = ReplicatedStorage:WaitForChild("Shared")
 local Remotes           = require(Shared:WaitForChild("Remotes"))
 Remotes.validateAll()
 
+require(Server:WaitForChild("PlotLoader")).Load()
 require(Server:WaitForChild("AssetValidator")).validate()
 
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
