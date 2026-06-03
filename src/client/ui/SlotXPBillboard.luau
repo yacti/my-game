@@ -18,6 +18,7 @@ local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local RANGE = 10
@@ -105,33 +106,35 @@ local function build(food)
 		label.Text = string.format("%dxp", math.floor(xp))
 	end
 	render()
-	food:GetAttributeChangedSignal(State.Food.XP):Connect(render)
+	RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.Render", render)
 
 	gui.Parent = food
 	tracked[food] = gui
 
-	food.AncestryChanged:Connect(function()
+	RuntimeGuard.Connect(food.AncestryChanged, "SlotXPBillboard.AncestryChanged", function()
 		if not food:IsDescendantOf(Workspace) then tracked[food] = nil end
 	end)
 end
 
 function SlotXPBillboard.start()
 	for _, d in ipairs(Workspace:GetDescendants()) do
-		if isSlotFood(d) then build(d) end
+		if isSlotFood(d) then RuntimeGuard.Run("SlotXPBillboard.BuildInitial", build, d) end
 	end
-	Workspace.DescendantAdded:Connect(function(d)
-		if isSlotFood(d) then build(d) end
+	RuntimeGuard.Connect(Workspace.DescendantAdded, "SlotXPBillboard.DescendantAdded", function(d)
+		if isSlotFood(d) then RuntimeGuard.Run("SlotXPBillboard.Build", build, d) end
 	end)
 
-	RunService.Heartbeat:Connect(function()
+	RuntimeGuard.Connect(RunService.Heartbeat, "SlotXPBillboard.Heartbeat", function()
 		local char = player.Character
 		local hrp  = char and char:FindFirstChild("HumanoidRootPart")
 		for food, gui in pairs(tracked) do
-			if hrp and food:IsDescendantOf(Workspace) then
-				gui.Enabled = (foodPosition(food) - hrp.Position).Magnitude <= RANGE
-			else
-				gui.Enabled = false
-			end
+			RuntimeGuard.Run("SlotXPBillboard.UpdateVisibility", function()
+				if hrp and food:IsDescendantOf(Workspace) then
+					gui.Enabled = (foodPosition(food) - hrp.Position).Magnitude <= RANGE
+				else
+					gui.Enabled = false
+				end
+			end)
 		end
 	end)
 end

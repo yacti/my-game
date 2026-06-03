@@ -1,6 +1,6 @@
 -- Registry + dispatcher for FeedMachine templates.
 --
--- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>.
+-- Templates live at ReplicatedStorage.Assets.FeedMachines.<Class>.<DisplayName>.
 -- A template can be a BasePart or a Model. The template carries:
 --   FeedClass  (string, broad behavior class, e.g. "Patch", "Processor", or "Tree")
 --   FeedType   (string, stable gameplay id; template/model Name is visual only)
@@ -23,6 +23,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
+local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Trees = require(script:WaitForChild("Trees"))
@@ -44,7 +46,7 @@ local index  -- { [feedType] = { template = Instance, class = string } }
 
 local function buildIndex()
 	local result = {}
-	local root = ReplicatedStorage:WaitForChild("FeedMachines")
+	local root = Assets.WaitFor(Assets.Names.FeedMachines)
 	for _, classFolder in ipairs(root:GetChildren()) do
 		if classFolder:IsA("Folder") then
 			for _, template in ipairs(classFolder:GetChildren()) do
@@ -147,40 +149,54 @@ function FeedMachines.Setup(machine, plot, owner)
 		return
 	end
 	machine:SetAttribute(State.Feed.Class, name)
-	mod.Setup(machine, plot, owner)
+	RuntimeGuard.Run("FeedMachines.Setup." .. tostring(name), mod.Setup, machine, plot, owner)
 	-- Auto-cleanup when the part dies during plot resets or lifecycle teardown.
-	machine.Destroying:Connect(function() FeedMachines.Teardown(machine) end)
+	RuntimeGuard.Connect(machine.Destroying, "FeedMachines.Destroying." .. tostring(name), function()
+		FeedMachines.Teardown(machine)
+	end)
 end
 
 function FeedMachines.Teardown(machine)
 	local mod = impl(machine)
-	if mod and mod.Teardown then mod.Teardown(machine) end
+	if mod and mod.Teardown then
+		RuntimeGuard.Run("FeedMachines.Teardown", mod.Teardown, machine)
+	end
 end
 
 function FeedMachines.Serialize(machine)
 	local mod = impl(machine)
-	if mod and mod.Serialize then return mod.Serialize(machine) end
+	if mod and mod.Serialize then
+		local ok, result = RuntimeGuard.Run("FeedMachines.Serialize", mod.Serialize, machine)
+		return ok and result or nil
+	end
 	return nil
 end
 
 function FeedMachines.Apply(machine, placement)
 	if not placement then return end
 	local mod = impl(machine)
-	if mod and mod.Apply then mod.Apply(machine, placement) end
+	if mod and mod.Apply then
+		RuntimeGuard.Run("FeedMachines.Apply", mod.Apply, machine, placement)
+	end
 end
 
 function FeedMachines.Interact(machine, player)
 	local mod = impl(machine)
-	if mod and mod.Interact then return mod.Interact(machine, player) end
+	if mod and mod.Interact then
+		local ok, result = RuntimeGuard.Run("FeedMachines.Interact", mod.Interact, machine, player)
+		return ok and result or nil
+	end
 	return nil
 end
 
 function FeedMachines.HarvestPatchAnchor(anchor, player)
-	return Patches.HarvestAnchor(anchor, player)
+	local ok, result = RuntimeGuard.Run("FeedMachines.HarvestPatchAnchor", Patches.HarvestAnchor, anchor, player)
+	return ok and result or nil
 end
 
 function FeedMachines.PickupTreeGround(ground, player)
-	return Trees.PickupGround(ground, player)
+	local ok, result = RuntimeGuard.Run("FeedMachines.PickupTreeGround", Trees.PickupGround, ground, player)
+	return ok and result or nil
 end
 
 return FeedMachines

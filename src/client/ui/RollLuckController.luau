@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -188,7 +189,7 @@ function RollLuckController.start()
 		RollLuckUpgradeRequest:FireServer(nextRequestId)
 	end)
 
-	RollLuckStateUpdated.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RollLuckStateUpdated.OnClientEvent, "RollLuckController.StateUpdated", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -197,7 +198,7 @@ function RollLuckController.start()
 		render()
 	end)
 
-	RollLuckUpgradeResult.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RollLuckUpgradeResult.OnClientEvent, "RollLuckController.UpgradeResult", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -213,7 +214,7 @@ function RollLuckController.start()
 		render()
 	end)
 
-	CurrencyUpdated.OnClientEvent:Connect(function(amount)
+	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RollLuckController.CurrencyUpdated", function(amount)
 		currentCurrency = tonumber(amount) or currentCurrency
 		if latestState then
 			latestState.currency = currentCurrency
@@ -221,22 +222,24 @@ function RollLuckController.start()
 		render()
 	end)
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("RollLuckController.ProximityLoop", function()
 		while frame.Parent do
-			local near = isNearRollButton(player)
-			if near then
-				openPanel()
-			else
-				closePanel()
-			end
-			if near and (not wasNear or os.clock() - lastStateRequest >= STATE_RETRY_SECONDS) then
-				requestState()
-			elseif not near then
-				pendingRequest = false
-				setError(nil)
-			end
-			wasNear = near
-			render()
+			RuntimeGuard.Run("RollLuckController.ProximityTick", function()
+				local near = isNearRollButton(player)
+				if near then
+					openPanel()
+				else
+					closePanel()
+				end
+				if near and (not wasNear or os.clock() - lastStateRequest >= STATE_RETRY_SECONDS) then
+					requestState()
+				elseif not near then
+					pendingRequest = false
+					setError(nil)
+				end
+				wasNear = near
+				render()
+			end)
 			task.wait(PROXIMITY_CHECK_SECONDS)
 		end
 	end)

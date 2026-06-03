@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local RebirthController = {}
@@ -236,10 +237,12 @@ function RebirthController.start()
 		if pendingRequest or type(skipProductId) ~= "number" or skipProductId <= 0 then
 			return
 		end
-		MarketplaceService:PromptProductPurchase(player, skipProductId)
+		RuntimeGuard.Run("RebirthController.PromptProductPurchase", function()
+			MarketplaceService:PromptProductPurchase(player, skipProductId)
+		end)
 	end)
 
-	RebirthStateUpdated.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RebirthStateUpdated.OnClientEvent, "RebirthController.StateUpdated", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -248,7 +251,7 @@ function RebirthController.start()
 		render()
 	end)
 
-	RebirthResult.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RebirthResult.OnClientEvent, "RebirthController.Result", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -264,7 +267,7 @@ function RebirthController.start()
 		render()
 	end)
 
-	CurrencyUpdated.OnClientEvent:Connect(function(amount)
+	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RebirthController.CurrencyUpdated", function(amount)
 		currentCurrency = tonumber(amount) or currentCurrency
 		if latestState then
 			latestState.currency = currentCurrency
@@ -272,20 +275,22 @@ function RebirthController.start()
 		render()
 	end)
 
-	MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)
+	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "RebirthController.PromptPurchaseFinished", function(userId, productId, wasPurchased)
 		if userId ~= player.UserId or not wasPurchased then
 			return
 		end
 		if type(skipProductId) == "number" and productId == skipProductId then
-			task.delay(0.5, requestState)
+			task.delay(0.5, function()
+				RuntimeGuard.Run("RebirthController.DelayedStateRequest", requestState)
+			end)
 		end
 	end)
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("RebirthController.StateRetryLoop", function()
 		while rebirthGui.Parent do
 			task.wait(STATE_RETRY_SECONDS)
 			if isOpen and os.clock() - lastStateRequest >= STATE_RETRY_SECONDS then
-				requestState()
+				RuntimeGuard.Run("RebirthController.StateRetryRequest", requestState)
 			end
 		end
 	end)

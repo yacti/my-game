@@ -11,6 +11,7 @@ local Workspace         = game:GetService("Workspace")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 
 local AppleTreeSlotVisuals = {}
@@ -538,7 +539,7 @@ local function animate(food)
 		tweenModelGrow(food)
 	end
 
-	food.AncestryChanged:Connect(function()
+	RuntimeGuard.Connect(food.AncestryChanged, "AppleTreeSlotVisuals.FoodAncestryChanged", function()
 		if not food:IsDescendantOf(Workspace) then
 			animated[food] = nil
 		end
@@ -548,17 +549,19 @@ end
 function AppleTreeSlotVisuals.start()
 	scanGroundFoods()
 	for _, delaySeconds in ipairs(GROUND_FOOD_RESCAN_DELAYS) do
-		task.delay(delaySeconds, scanGroundFoods)
+		task.delay(delaySeconds, function()
+			RuntimeGuard.Run("AppleTreeSlotVisuals.RescanGroundFoods", scanGroundFoods)
+		end)
 	end
 
-	Workspace.DescendantAdded:Connect(function(obj)
+	RuntimeGuard.Connect(Workspace.DescendantAdded, "AppleTreeSlotVisuals.DescendantAdded", function(obj)
 		if isAppleTreeSlotFood(obj) then
 			animate(obj)
 		end
 		trackGroundFoodCandidate(obj)
 	end)
 
-	Remotes.get(Remotes.Names.TreeClickerEffect).OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.TreeClickerEffect).OnClientEvent, "AppleTreeSlotVisuals.TreeClickerEffect", function(payload)
 		if type(payload) ~= "table" then return end
 		local tree = payload.machine
 		local anchor = payload.anchor

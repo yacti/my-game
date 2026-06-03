@@ -1,28 +1,53 @@
 -- Hide Roblox's default backpack so Satchel is the only inventory UI.
 local StarterGui = game:GetService("StarterGui")
-StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
+RuntimeGuard.Run("Client.DisableBackpackCoreGui", function()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+end)
 
 local ui = script:WaitForChild("ui")
 
-require(ui:WaitForChild("LocalPrompts")).start()
-require(ui:WaitForChild("HudController")).start()
-require(ui:WaitForChild("YesNoWarning")).start()
-require(ui:WaitForChild("FeedEditController")).start()
-require(ui:WaitForChild("ShovelController")).start()
-require(ui:WaitForChild("RollLuckController")).start()
-require(ui:WaitForChild("RollDropAreaController")).start()
-require(ui:WaitForChild("Notifications")).start()
-require(ui:WaitForChild("PetBillboards")).start()
-require(ui:WaitForChild("PetPreloader")).start()
-require(ui:WaitForChild("PetEvolutionEffects")).start()
-require(ui:WaitForChild("PetAnimations")).start()
-require(ui:WaitForChild("ToolStatsBillboard")).start()
-require(ui:WaitForChild("SlotXPBillboard")).start()
-require(ui:WaitForChild("AppleTreeSlotVisuals")).start()
-require(ui:WaitForChild("GrowingSeedBillboards")).start()
-require(ui:WaitForChild("ProcessorVisuals")).start()
-require(ui:WaitForChild("CloudController")).start()
-require(ui:WaitForChild("FeedPlacement")).start()
-require(ui:WaitForChild("RebirthController")).start()
-require(ui:WaitForChild("GridUnlockEffects")).start()
-require(ui:WaitForChild("RollController")).start()
+local CONTROLLERS = {
+	"LocalPrompts",
+	"HudController",
+	"YesNoWarning",
+	"FeedEditController",
+	"ShovelController",
+	"RollLuckController",
+	"RollDropAreaController",
+	"Notifications",
+	"PetBillboards",
+	"PetPreloader",
+	"PetEvolutionEffects",
+	"PetAnimations",
+	"ToolStatsBillboard",
+	"SlotXPBillboard",
+	"AppleTreeSlotVisuals",
+	"GrowingSeedBillboards",
+	"ProcessorVisuals",
+	"CloudController",
+	"FeedPlacement",
+	"RebirthController",
+	"GridUnlockEffects",
+	"RollController",
+}
+
+local function startController(name)
+	local moduleScript = ui:WaitForChild(name)
+	RuntimeGuard.Run("Client.StartController." .. name, function()
+		local controller = require(moduleScript)
+		if type(controller.start) == "function" then
+			controller.start()
+		else
+			warn("[Client] Controller has no start function: " .. name)
+		end
+	end)
+end
+
+for _, controllerName in ipairs(CONTROLLERS) do
+	startController(controllerName)
+end

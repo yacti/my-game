@@ -13,6 +13,7 @@ local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
@@ -33,11 +34,8 @@ end
 local function withPlayerLock(map, player, callback)
 	if map[player] then return end
 	map[player] = true
-	local ok, err = pcall(callback)
+	RuntimeGuard.Run("FeedPlacementService.Handler", callback)
 	map[player] = nil
-	if not ok then
-		warn(err)
-	end
 end
 
 local function isFinite(n)
@@ -79,7 +77,9 @@ function FeedPlacementService.Start(config)
 
 	local function sendPlaceResult(player, requestId, success, reason)
 		if type(requestId) ~= "number" then return end
-		PlaceFeedMachineResult:FireClient(player, requestId, success, reason)
+		RuntimeGuard.Run("FeedPlacementService.FireResult", function()
+			PlaceFeedMachineResult:FireClient(player, requestId, success, reason)
+		end)
 	end
 
 	local function recordPlacementReject(player, reason, extra)

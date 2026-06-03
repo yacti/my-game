@@ -26,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
@@ -59,11 +60,13 @@ end
 
 -- Single shared heartbeat keeps replicated queue/ready counts fresh for
 -- client-local prompt context.
-task.spawn(function()
+RuntimeGuard.Spawn("Processor.RefreshLoop", function()
 	while true do
 		task.wait(1)
 		for machine, s in pairs(state) do
-			if machine.Parent then refreshAttrs(machine, s) end
+			if machine.Parent then
+				RuntimeGuard.Run("Processor.RefreshAttrs", refreshAttrs, machine, s)
+			end
 		end
 	end
 end)
@@ -103,7 +106,9 @@ local function depositOne(machine, s, player)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
 	table.insert(s.queue, { foodId = foodId, depositedAt = os.time() })
 	refreshAttrs(machine, s)
-	ProcessorDepositEffect:FireClient(player, machine, foodId)
+	RuntimeGuard.Run("Processor.DepositEffect", function()
+		ProcessorDepositEffect:FireClient(player, machine, foodId)
+	end)
 end
 
 local function promptParentFor(machine)

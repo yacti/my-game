@@ -6,6 +6,7 @@ local PlotService = require(Server:WaitForChild("PlotService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -49,7 +50,7 @@ end
 
 local function register(instance, data)
 	state[instance] = data
-	instance.Destroying:Connect(function()
+	RuntimeGuard.Connect(instance.Destroying, "FeedGrowthService.Destroying", function()
 		state[instance] = nil
 	end)
 end
@@ -126,7 +127,7 @@ local function matureInstance(instance)
 
 	local mature = placeMature(plot, feedType, feedIndex, lx, lz, lry, owner)
 	if mature and onMatureCallback then
-		onMatureCallback(owner, plot, mature)
+		RuntimeGuard.Run("FeedGrowthService.OnMature", onMatureCallback, owner, plot, mature)
 	end
 	return mature
 end
@@ -224,15 +225,17 @@ function FeedGrowthService.Start(config)
 	config = config or {}
 	onMatureCallback = config.onMature
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("FeedGrowthService.MaturityLoop", function()
 		while true do
 			task.wait(MATURITY_CHECK_SECONDS)
 			for instance, data in pairs(state) do
-				if not instance.Parent then
-					state[instance] = nil
-				elseif data.plantedAt + data.growTime <= now() then
-					matureInstance(instance)
-				end
+				RuntimeGuard.Run("FeedGrowthService.MaturityTick", function()
+					if not instance.Parent then
+						state[instance] = nil
+					elseif data.plantedAt + data.growTime <= now() then
+						matureInstance(instance)
+					end
+				end)
 			end
 		end
 	end)

@@ -16,6 +16,7 @@ local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -699,36 +700,50 @@ function LocalPrompts.start()
 		ProximityPromptService.MaxPromptsVisible = 1
 	end)
 
-	Workspace.DescendantAdded:Connect(function(instance)
-		task.defer(tryBind, instance)
+	RuntimeGuard.Connect(Workspace.DescendantAdded, "LocalPrompts.DescendantAdded", function(instance)
+		task.defer(function()
+			RuntimeGuard.Run("LocalPrompts.TryBindDeferred", tryBind, instance)
+		end)
 	end)
 
-	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function() refreshAll(true) end)
-	player:GetPropertyChangedSignal("RespawnLocation"):Connect(function() refreshAll(true) end)
-	player:GetAttributeChangedSignal("EditMode"):Connect(function() refreshAll(false) end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "LocalPrompts.AssignedPlotChanged", function()
+		refreshAll(true)
+	end)
+	RuntimeGuard.Connect(player:GetPropertyChangedSignal("RespawnLocation"), "LocalPrompts.RespawnLocationChanged", function()
+		refreshAll(true)
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal("EditMode"), "LocalPrompts.EditModeChanged", function()
+		refreshAll(false)
+	end)
 	local function watchCharacter(character)
 		if not character then return end
-		character.ChildAdded:Connect(function(child)
+		RuntimeGuard.Connect(character.ChildAdded, "LocalPrompts.CharacterChildAdded", function(child)
 			if child:IsA("Tool") then refreshAll(false) end
 		end)
-		character.ChildRemoved:Connect(function(child)
+		RuntimeGuard.Connect(character.ChildRemoved, "LocalPrompts.CharacterChildRemoved", function(child)
 			if child:IsA("Tool") then refreshAll(false) end
 		end)
 		refreshAll(true)
 	end
-	player.CharacterAdded:Connect(watchCharacter)
-	watchCharacter(player.Character)
-	backpack.ChildAdded:Connect(function() refreshAll(false) end)
-	backpack.ChildRemoved:Connect(function() refreshAll(false) end)
+	RuntimeGuard.Connect(player.CharacterAdded, "LocalPrompts.CharacterAdded", watchCharacter)
+	RuntimeGuard.Run("LocalPrompts.InitialCharacter", watchCharacter, player.Character)
+	RuntimeGuard.Connect(backpack.ChildAdded, "LocalPrompts.BackpackChildAdded", function()
+		refreshAll(false)
+	end)
+	RuntimeGuard.Connect(backpack.ChildRemoved, "LocalPrompts.BackpackChildRemoved", function()
+		refreshAll(false)
+	end)
 
-	task.defer(function() refreshAll(true) end)
+	task.defer(function()
+		RuntimeGuard.Run("LocalPrompts.InitialRefresh", refreshAll, true)
+	end)
 
 	local accumulator = 0
-	RunService.Heartbeat:Connect(function(dt)
+	RuntimeGuard.Connect(RunService.Heartbeat, "LocalPrompts.Heartbeat", function(dt)
 		accumulator += dt
 		if accumulator >= 0.1 then
 			accumulator = 0
-			refreshAll(false)
+			RuntimeGuard.Run("LocalPrompts.RefreshHeartbeat", refreshAll, false)
 		end
 	end)
 end

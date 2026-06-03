@@ -12,6 +12,7 @@ local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -31,11 +32,8 @@ end
 local function withPlayerLock(map, player, callback)
 	if map[player] then return false end
 	map[player] = true
-	local ok, err = pcall(callback)
+	local ok = RuntimeGuard.Run("ShovelService.Handler", callback)
 	map[player] = nil
-	if not ok then
-		warn(err)
-	end
 	return ok
 end
 
@@ -106,7 +104,9 @@ function ShovelService.Start(config)
 
 	local function sendResult(player, requestId, success, reason)
 		if type(requestId) ~= "number" then return end
-		ShovelDeleteResult:FireClient(player, requestId, success, reason)
+		RuntimeGuard.Run("ShovelService.FireResult", function()
+			ShovelDeleteResult:FireClient(player, requestId, success, reason)
+		end)
 	end
 
 	local function recordReject(player, reason, extra)

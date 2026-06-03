@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local TelemetryService = require(script.Parent:WaitForChild("TelemetryService"))
 
@@ -52,7 +53,7 @@ function ReceiptService.ClearProcessed(profile, purchaseId)
 	ReceiptService.Ensure(profile)[key] = nil
 end
 
-local function processReceipt(receiptInfo)
+local function processReceiptTransaction(receiptInfo)
 	if rebirthService and RebirthBalance.TierForSkipProductId(receiptInfo.ProductId) then
 		return rebirthService.ProcessSkipReceipt(receiptInfo)
 	end
@@ -62,6 +63,14 @@ local function processReceipt(receiptInfo)
 		productId = receiptInfo.ProductId,
 		purchaseId = tostring(receiptInfo.PurchaseId),
 	})
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+local function processReceipt(receiptInfo)
+	local ok, decision = RuntimeGuard.Run("ReceiptService.ProcessReceipt", processReceiptTransaction, receiptInfo)
+	if ok and decision ~= nil then
+		return decision
+	end
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end
 

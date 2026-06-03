@@ -4,8 +4,10 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
@@ -34,7 +36,7 @@ local function feedTemplate(feedType)
 		return nil
 	end
 
-	local root = ReplicatedStorage:FindFirstChild("FeedMachines")
+	local root = Assets.Find(Assets.Names.FeedMachines)
 	if not root then
 		return nil
 	end
@@ -204,11 +206,11 @@ function ShovelController.start()
 			equippedTool = tool
 		end
 
-		tool.Equipped:Connect(activateTool)
+		RuntimeGuard.Connect(tool.Equipped, "ShovelController.ToolEquipped", activateTool)
 		if tool.Parent == player.Character then
 			activateTool()
 		end
-		tool.Unequipped:Connect(function()
+		RuntimeGuard.Connect(tool.Unequipped, "ShovelController.ToolUnequipped", function()
 			if equippedTool == tool then
 				equippedTool = nil
 				cancelPrompt()
@@ -227,7 +229,7 @@ function ShovelController.start()
 		end
 	end
 
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	RuntimeGuard.Connect(UserInputService.InputBegan, "ShovelController.InputBegan", function(input, gameProcessed)
 		if gameProcessed or promptOpen or pendingRequestId ~= nil or not isEquipped() then
 			return
 		end
@@ -246,7 +248,7 @@ function ShovelController.start()
 		end
 	end)
 
-	ShovelDeleteResult.OnClientEvent:Connect(function(requestId, success, reason)
+	RuntimeGuard.Connect(ShovelDeleteResult.OnClientEvent, "ShovelController.DeleteResult", function(requestId, success, reason)
 		if requestId ~= pendingRequestId then
 			return
 		end
@@ -260,17 +262,19 @@ function ShovelController.start()
 		})
 	end)
 
-	player.Backpack.ChildAdded:Connect(bindTool)
-	player.CharacterAdded:Connect(function(character)
+	RuntimeGuard.Connect(player.Backpack.ChildAdded, "ShovelController.BackpackChildAdded", bindTool)
+	RuntimeGuard.Connect(player.CharacterAdded, "ShovelController.CharacterAdded", function(character)
 		equippedTool = nil
 		cancelPrompt()
-		character.ChildAdded:Connect(bindTool)
-		task.defer(scanTools)
+		RuntimeGuard.Connect(character.ChildAdded, "ShovelController.CharacterChildAdded", bindTool)
+		task.defer(function()
+			RuntimeGuard.Run("ShovelController.ScanToolsDeferred", scanTools)
+		end)
 	end)
 	if player.Character then
-		player.Character.ChildAdded:Connect(bindTool)
+		RuntimeGuard.Connect(player.Character.ChildAdded, "ShovelController.InitialCharacterChildAdded", bindTool)
 	end
-	scanTools()
+	RuntimeGuard.Run("ShovelController.ScanToolsInitial", scanTools)
 end
 
 return ShovelController

@@ -12,6 +12,7 @@ local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
@@ -985,12 +986,12 @@ local function bindRollButton(buttonPart, PlotService, PlayerDataService)
 	clickDetector.MaxActivationDistance = ROLL_DISTANCE
 
 	local connections = {}
-	connections[#connections + 1] = clickDetector.MouseClick:Connect(function(player)
+	connections[#connections + 1] = RuntimeGuard.Connect(clickDetector.MouseClick, "RollService.RollButtonClick", function(player)
 		rollForButton(player, buttonPart, PlotService, PlayerDataService)
 	end)
 	boundRollButtons[buttonPart] = connections
 
-	connections[#connections + 1] = buttonPart.Destroying:Connect(function()
+	connections[#connections + 1] = RuntimeGuard.Connect(buttonPart.Destroying, "RollService.RollButtonDestroying", function()
 		local activeConnections = boundRollButtons[buttonPart]
 		if activeConnections then
 			for _, connection in ipairs(activeConnections) do
@@ -1014,44 +1015,44 @@ function RollService.Start()
 	local PlotService = require(Server:WaitForChild("PlotService"))
 
 	scanRollButtons(PlotService, PlayerDataService)
-	workspace.DescendantAdded:Connect(function(descendant)
+	RuntimeGuard.Connect(workspace.DescendantAdded, "RollService.DescendantAdded", function(descendant)
 		if descendant:IsA("BasePart") then
 			bindRollButton(descendant, PlotService, PlayerDataService)
 		end
 	end)
 
-	CrateRollPurchaseRequest.OnServerEvent:Connect(function(player, offerId)
+	RuntimeGuard.Connect(CrateRollPurchaseRequest.OnServerEvent, "RollService.CrateRollPurchaseRequest", function(player, offerId)
 		local profile = PlayerDataService.GetProfile(player)
 		RollService.Purchase(player, offerId, profile)
 	end)
 
-	RollLuckStateRequest.OnServerEvent:Connect(function(player)
+	RuntimeGuard.Connect(RollLuckStateRequest.OnServerEvent, "RollService.RollLuckStateRequest", function(player)
 		if not consumeRateLimit(lastLuckStateRequest, player, LUCK_STATE_RATE_SECONDS) then
 			return
 		end
 		sendLuckState(player, PlayerDataService.GetProfile(player))
 	end)
 
-	RollLuckUpgradeRequest.OnServerEvent:Connect(function(player, requestId)
+	RuntimeGuard.Connect(RollLuckUpgradeRequest.OnServerEvent, "RollService.RollLuckUpgradeRequest", function(player, requestId)
 		local profile = PlayerDataService.GetProfile(player)
 		local plot = PlotService.GetPlayerPlot(player)
 		RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	end)
 
-	RollDropAreaStateRequest.OnServerEvent:Connect(function(player)
+	RuntimeGuard.Connect(RollDropAreaStateRequest.OnServerEvent, "RollService.RollDropAreaStateRequest", function(player)
 		if not consumeRateLimit(lastDropAreaStateRequest, player, DROP_AREA_STATE_RATE_SECONDS) then
 			return
 		end
 		sendDropAreaState(player, PlayerDataService.GetProfile(player))
 	end)
 
-	RollDropAreaUpgradeRequest.OnServerEvent:Connect(function(player, requestId)
+	RuntimeGuard.Connect(RollDropAreaUpgradeRequest.OnServerEvent, "RollService.RollDropAreaUpgradeRequest", function(player, requestId)
 		local profile = PlayerDataService.GetProfile(player)
 		local plot = PlotService.GetPlayerPlot(player)
 		RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	end)
 
-	Players.PlayerRemoving:Connect(function(player)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "RollService.PlayerRemoving", function(player)
 		sendClearOwnerOffers(player)
 		locks[player] = nil
 		rollCooldownUntil[player] = nil

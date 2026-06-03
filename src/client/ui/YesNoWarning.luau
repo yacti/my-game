@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -129,7 +130,7 @@ local function finish(result, reason)
 
 	local callback = prompt.callback
 	if callback then
-		task.spawn(callback, result == true, reason)
+		RuntimeGuard.Spawn("YesNoWarning.Callback", callback, result == true, reason)
 	end
 
 	if not frame then

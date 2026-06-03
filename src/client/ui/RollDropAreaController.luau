@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -192,7 +193,7 @@ function RollDropAreaController.start()
 		RollDropAreaUpgradeRequest:FireServer(nextRequestId)
 	end)
 
-	RollDropAreaStateUpdated.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RollDropAreaStateUpdated.OnClientEvent, "RollDropAreaController.StateUpdated", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -201,7 +202,7 @@ function RollDropAreaController.start()
 		render()
 	end)
 
-	RollDropAreaUpgradeResult.OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(RollDropAreaUpgradeResult.OnClientEvent, "RollDropAreaController.UpgradeResult", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -217,7 +218,7 @@ function RollDropAreaController.start()
 		render()
 	end)
 
-	CurrencyUpdated.OnClientEvent:Connect(function(amount)
+	RuntimeGuard.Connect(CurrencyUpdated.OnClientEvent, "RollDropAreaController.CurrencyUpdated", function(amount)
 		currentCurrency = tonumber(amount) or currentCurrency
 		if latestState then
 			latestState.currency = currentCurrency
@@ -225,22 +226,24 @@ function RollDropAreaController.start()
 		render()
 	end)
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("RollDropAreaController.ProximityLoop", function()
 		while frame.Parent do
-			local near = isNearRollButton(player)
-			if near then
-				openPanel()
-			else
-				closePanel()
-			end
-			if near and (not wasNear or os.clock() - lastStateRequest >= STATE_RETRY_SECONDS) then
-				requestState()
-			elseif not near then
-				pendingRequest = false
-				setError(nil)
-			end
-			wasNear = near
-			render()
+			RuntimeGuard.Run("RollDropAreaController.ProximityTick", function()
+				local near = isNearRollButton(player)
+				if near then
+					openPanel()
+				else
+					closePanel()
+				end
+				if near and (not wasNear or os.clock() - lastStateRequest >= STATE_RETRY_SECONDS) then
+					requestState()
+				elseif not near then
+					pendingRequest = false
+					setError(nil)
+				end
+				wasNear = near
+				render()
+			end)
 			task.wait(PROXIMITY_CHECK_SECONDS)
 		end
 	end)

@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 
 local NotificationService = {}
@@ -11,10 +12,13 @@ local PlayerNotification = Remotes.get(Remotes.Names.PlayerNotification)
 function NotificationService.Notify(player, payload)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
 
-	local normalized = NotificationConfig.Normalize(payload)
+	local ok, normalized = RuntimeGuard.Run("NotificationService.Normalize", NotificationConfig.Normalize, payload)
+	if not ok then return end
 	if not normalized then return end
 
-	PlayerNotification:FireClient(player, normalized)
+	RuntimeGuard.Run("NotificationService.FireClient", function()
+		PlayerNotification:FireClient(player, normalized)
+	end)
 end
 
 function NotificationService.Info(player, text)

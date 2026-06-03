@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 
 local Notifications = {}
@@ -124,7 +125,7 @@ function Notifications.show(payload)
 	TweenService:Create(label, SHOW_TWEEN, { TextTransparency = 0 }):Play()
 
 	task.delay(normalized.lifetime, function()
-		destroyEntry(entry, true)
+		RuntimeGuard.Run("Notifications.DestroyDelayed", destroyEntry, entry, true)
 	end)
 end
 
@@ -148,7 +149,7 @@ function Notifications.start()
 	if not ensureListLayout(container) then return end
 	template.Parent = nil
 
-	Remotes.get(Remotes.Names.PlayerNotification).OnClientEvent:Connect(Notifications.show)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PlayerNotification).OnClientEvent, "Notifications.Show", Notifications.show)
 end
 
 return Notifications

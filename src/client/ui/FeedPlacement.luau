@@ -12,6 +12,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State   = require(Shared:WaitForChild("State"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
@@ -30,7 +31,7 @@ local function isHiddenPreviewPart(part)
 	return part.Name:match("^BaseFood") ~= nil or part.Name == EDIT_SELECTION_HITBOX_NAME
 end
 
--- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>. The
+-- Templates live at ReplicatedStorage.Assets.FeedMachines.<Class>.<DisplayName>. The
 -- equipped FeedMachine tool carries the stable FeedType attribute; template
 -- names are visual only.
 local function findTemplate(feedType)
@@ -782,13 +783,15 @@ function FeedPlacement.start()
 			stopMoving()
 		end
 	end)
-	RunService.RenderStepped:Connect(function()
+	RuntimeGuard.Connect(RunService.RenderStepped, "FeedPlacement.RenderStepped", function()
 		if moving then
-			selectFloorCellFromScreen(screenPositionForDrag())
+			RuntimeGuard.Run("FeedPlacement.DragSelect", function()
+				selectFloorCellFromScreen(screenPositionForDrag())
+			end)
 		end
 	end)
 
-	PlaceFeedMachineResult.OnClientEvent:Connect(function(requestId, success, reason)
+	RuntimeGuard.Connect(PlaceFeedMachineResult.OnClientEvent, "FeedPlacement.PlaceResult", function(requestId, success, reason)
 		if requestId ~= pendingPlacementRequestId then return end
 		pendingPlacementRequestId = nil
 		local placedCFrame = pendingPlacementCFrame

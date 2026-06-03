@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
@@ -686,7 +687,7 @@ function FeedEditController.start()
 		end
 	end)
 
-	FeedMoveResult.OnClientEvent:Connect(function(requestId, success, reason, snappedCFrame)
+	RuntimeGuard.Connect(FeedMoveResult.OnClientEvent, "FeedEditController.MoveResult", function(requestId, success, reason, snappedCFrame)
 		if requestId ~= pendingRequestId then return end
 
 		local targetCFrame = typeof(snappedCFrame) == "CFrame" and snappedCFrame or pendingTargetCFrame
@@ -726,25 +727,29 @@ function FeedEditController.start()
 		end
 	end)
 
-	player:GetAttributeChangedSignal(EDIT_MODE_ATTR):Connect(refreshEditState)
-	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(function()
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(EDIT_MODE_ATTR), "FeedEditController.EditModeChanged", refreshEditState)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "FeedEditController.AssignedPlotChanged", function()
 		refreshButtonVisibility()
 		refreshEditState()
 	end)
-	player.CharacterAdded:Connect(function()
+	RuntimeGuard.Connect(player.CharacterAdded, "FeedEditController.CharacterAdded", function()
 		clearSelection(true)
-		task.defer(refreshButtonVisibility)
+		task.defer(function()
+			RuntimeGuard.Run("FeedEditController.RefreshButtonDeferred", refreshButtonVisibility)
+		end)
 	end)
 
-	RunService.RenderStepped:Connect(function()
+	RuntimeGuard.Connect(RunService.RenderStepped, "FeedEditController.RenderStepped", function()
 		if moving then
-			updateDragPreview(screenPositionForDrag())
+			RuntimeGuard.Run("FeedEditController.UpdateDragPreview", function()
+				updateDragPreview(screenPositionForDrag())
+			end)
 		end
 	end)
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("FeedEditController.RefreshLoop", function()
 		while editButton.Parent do
-			refreshButtonVisibility()
+			RuntimeGuard.Run("FeedEditController.RefreshButtonVisibility", refreshButtonVisibility)
 			task.wait(0.1)
 		end
 	end)

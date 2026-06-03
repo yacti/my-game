@@ -15,6 +15,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local RebirthService = {}
@@ -544,14 +545,14 @@ function RebirthService.Start()
 	end
 	started = true
 
-	Remotes.get(Remotes.Names.RebirthStateRequest).OnServerEvent:Connect(function(player)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.RebirthStateRequest).OnServerEvent, "RebirthService.StateRequest", function(player)
 		if not consumeRateLimit(stateLastFire, player, STATE_RATE_SECONDS) then
 			return
 		end
 		sendState(player)
 	end)
 
-	Remotes.get(Remotes.Names.RebirthRequest).OnServerEvent:Connect(function(player, requestId)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.RebirthRequest).OnServerEvent, "RebirthService.RebirthRequest", function(player, requestId)
 		if type(requestId) ~= "number" then
 			requestId = nil
 		end
@@ -566,7 +567,7 @@ function RebirthService.Start()
 		sendResult(player, requestId, success, code)
 	end)
 
-	Players.PlayerRemoving:Connect(function(player)
+	RuntimeGuard.Connect(Players.PlayerRemoving, "RebirthService.PlayerRemoving", function(player)
 		transactionLocks[player] = nil
 		requestLastFire[player] = nil
 		stateLastFire[player] = nil

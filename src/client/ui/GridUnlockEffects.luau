@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 
@@ -139,25 +140,27 @@ local function animateFencePart(part, delaySeconds)
 	part.Transparency = 1
 
 	task.delay(delaySeconds, function()
-		if part.Parent == nil then return end
-		tween(part, FENCE_DROP_TWEEN, {
-			CFrame = finalCFrame,
-		})
-		tween(part, FENCE_FADE_TWEEN, {
-			Transparency = finalTransparency,
-		})
+		RuntimeGuard.Run("GridUnlockEffects.AnimateFencePartDelayed", function()
+			if part.Parent == nil then return end
+			tween(part, FENCE_DROP_TWEEN, {
+				CFrame = finalCFrame,
+			})
+			tween(part, FENCE_FADE_TWEEN, {
+				Transparency = finalTransparency,
+			})
+		end)
 	end)
 end
 
 local function animateFenceVisuals(root, delaySeconds)
 	for _, visual in ipairs(collectDescendants(root, "Decal")) do
 		task.delay(delaySeconds, function()
-			fadeVisual(visual, FENCE_FADE_TWEEN)
+			RuntimeGuard.Run("GridUnlockEffects.FadeDecalDelayed", fadeVisual, visual, FENCE_FADE_TWEEN)
 		end)
 	end
 	for _, visual in ipairs(collectDescendants(root, "Texture")) do
 		task.delay(delaySeconds, function()
-			fadeVisual(visual, FENCE_FADE_TWEEN)
+			RuntimeGuard.Run("GridUnlockEffects.FadeTextureDelayed", fadeVisual, visual, FENCE_FADE_TWEEN)
 		end)
 	end
 end
@@ -215,10 +218,8 @@ local function playUnlockEffect(gridPart)
 end
 
 function GridUnlockEffects.start()
-	GridUnlockEffect.OnClientEvent:Connect(function(gridPart)
-		task.spawn(function()
-			playUnlockEffect(gridPart)
-		end)
+	RuntimeGuard.Connect(GridUnlockEffect.OnClientEvent, "GridUnlockEffects.Event", function(gridPart)
+		RuntimeGuard.Spawn("GridUnlockEffects.Play", playUnlockEffect, gridPart)
 	end)
 end
 

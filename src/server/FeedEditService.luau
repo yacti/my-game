@@ -10,6 +10,7 @@ local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local FeedEditService = {}
@@ -32,11 +33,8 @@ end
 local function withPlayerLock(map, player, callback)
 	if map[player] then return false end
 	map[player] = true
-	local ok, err = pcall(callback)
+	local ok = RuntimeGuard.Run("FeedEditService.Handler", callback)
 	map[player] = nil
-	if not ok then
-		warn(err)
-	end
 	return ok
 end
 
@@ -120,7 +118,9 @@ function FeedEditService.Start(config)
 
 	local function sendMoveResult(player, requestId, success, reason, targetCFrame)
 		if type(requestId) ~= "number" then return end
-		FeedMoveResult:FireClient(player, requestId, success, reason, targetCFrame)
+		RuntimeGuard.Run("FeedEditService.FireMoveResult", function()
+			FeedMoveResult:FireClient(player, requestId, success, reason, targetCFrame)
+		end)
 	end
 
 	local function recordMoveReject(player, reason, extra)

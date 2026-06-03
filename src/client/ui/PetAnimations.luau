@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local FADE_SECONDS = 0.18
@@ -532,9 +533,9 @@ end
 
 function PetAnimations.start()
 	watchWorkspace()
-	RunService.RenderStepped:Connect(function(dt)
+	RuntimeGuard.Connect(RunService.RenderStepped, "PetAnimations.RenderStepped", function(dt)
 		for _, record in pairs(attached) do
-			renderPet(record, dt)
+			RuntimeGuard.Run("PetAnimations.RenderPet", renderPet, record, dt)
 		end
 	end)
 end

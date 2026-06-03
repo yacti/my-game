@@ -6,8 +6,10 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -148,7 +150,7 @@ local function isKnownRewardCategory(category)
 end
 
 local function crateTemplate(name)
-	local crates = ReplicatedStorage:FindFirstChild("Crates")
+	local crates = Assets.Find(Assets.Names.Crates)
 	local template = crates and crates:FindFirstChild(name)
 	if template and (template:IsA("Model") or template:IsA("BasePart")) then
 		return template
@@ -157,7 +159,7 @@ local function crateTemplate(name)
 end
 
 local function rarityParticleTemplate()
-	local vfx = ReplicatedStorage:FindFirstChild("VFX")
+	local vfx = Assets.Find(Assets.Names.VFX)
 	local template = vfx and vfx:FindFirstChild("RarityParticle")
 	if template and template:IsA("ParticleEmitter") then
 		return template
@@ -1120,7 +1122,7 @@ function RollController.start()
 		end
 	end)
 
-	Remotes.get(Remotes.Names.CrateRollEffect).OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.CrateRollEffect).OnClientEvent, "RollController.CrateRollEffect", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end
@@ -1143,7 +1145,7 @@ function RollController.start()
 			for _, offer in ipairs(collectPayloadOffers(payload)) do
 				offer.ownerUserId = ownerUserId
 				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
-				task.spawn(showPublicOffer, offer)
+				RuntimeGuard.Spawn("RollController.ShowPublicOffer", showPublicOffer, offer)
 			end
 			return
 		end
@@ -1166,13 +1168,11 @@ function RollController.start()
 			if offer.button == nil then
 				offer.button = payload.button
 			end
-			task.spawn(function()
-				playCrateFall(offer, token)
-			end)
+			RuntimeGuard.Spawn("RollController.PlayCrateFall", playCrateFall, offer, token)
 		end
 	end)
 
-	Remotes.get(Remotes.Names.CrateRollPurchaseResult).OnClientEvent:Connect(function(payload)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.CrateRollPurchaseResult).OnClientEvent, "RollController.PurchaseResult", function(payload)
 		if type(payload) ~= "table" then
 			return
 		end

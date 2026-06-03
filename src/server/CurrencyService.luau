@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local CurrencyService = {}
 
@@ -21,7 +22,9 @@ local function spendAmount(amount)
 end
 
 local function publish(player, profile)
-	CurrencyUpdated:FireClient(player, balance(profile))
+	RuntimeGuard.Run("CurrencyService.Publish", function()
+		CurrencyUpdated:FireClient(player, balance(profile))
+	end)
 end
 
 local function acquire(player)

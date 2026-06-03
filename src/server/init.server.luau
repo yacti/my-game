@@ -5,6 +5,7 @@ local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local Server            = ServerScriptService:WaitForChild("Server")
 local Shared            = ReplicatedStorage:WaitForChild("Shared")
 local Remotes           = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard      = require(Shared:WaitForChild("RuntimeGuard"))
 Remotes.validateAll()
 
 require(Server:WaitForChild("PlotLoader")).Load()
@@ -49,14 +50,16 @@ local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
 
-PlotGridService.ResetVacantPlotsToPreviewRows()
-PlotService.SyncVacantPlotVisibility()
+RuntimeGuard.Run("PlotGridService.ResetVacantPlotsToPreviewRows", PlotGridService.ResetVacantPlotsToPreviewRows)
+RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantPlotVisibility)
 
-RebirthService.Start()
-ReceiptService.Start({
-	rebirthService = RebirthService,
-})
-RollService.Start()
+RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
+RuntimeGuard.Run("ReceiptService.Start", function()
+	ReceiptService.Start({
+		rebirthService = RebirthService,
+	})
+end)
+RuntimeGuard.Run("RollService.Start", RollService.Start)
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
 
@@ -138,8 +141,8 @@ end
 
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return end
-	savePetsFromPlot(plot, profile)
-	saveFeedState(plot, player, profile)
+	RuntimeGuard.Run("snapshotProfileState.savePets", savePetsFromPlot, plot, profile)
+	RuntimeGuard.Run("snapshotProfileState.saveFeed", saveFeedState, plot, player, profile)
 	profile.Data.LastSeen = os.time()
 end
 
@@ -148,16 +151,18 @@ local function notifyGrown(player, feed)
 	NotificationService.Success(player, string.format("%s has grown!", feed.Name))
 end
 
-FeedGrowthService.Start({
-	onMature = function(player, plot, matureFeed)
-		notifyGrown(player, matureFeed)
-		PetMotionService.RefreshPlotRoutes(plot)
-		local profile = PlayerDataService.GetProfile(player)
-		if profile then
-			snapshotProfileState(player, plot, profile)
-		end
-	end,
-})
+RuntimeGuard.Run("FeedGrowthService.Start", function()
+	FeedGrowthService.Start({
+		onMature = function(player, plot, matureFeed)
+			notifyGrown(player, matureFeed)
+			PetMotionService.RefreshPlotRoutes(plot)
+			local profile = PlayerDataService.GetProfile(player)
+			if profile then
+				snapshotProfileState(player, plot, profile)
+			end
+		end,
+	})
+end)
 
 -- ── Pet state replication ────────────────────────────────────────────────────
 -- Per-pet state is published as attributes on the pet Model. Clients subscribe
@@ -370,61 +375,65 @@ local function applyOfflineEarnings(plot, profile)
 end
 
 local function startPetMoneyLoop(player, plot, profile)
-	task.spawn(function()
+	RuntimeGuard.Spawn("PetMoneyLoop." .. player.Name, function()
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(1)
-			for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-				local idx = pet:GetAttribute(State.Pet.Index)
-				local petData = profile.Data.Pets[idx]
-				if petData then
-					local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
-					petData.money = (petData.money or 0) + rate
-					pet:SetAttribute(State.Pet.Money, petData.money)
+			RuntimeGuard.Run("PetMoneyTick." .. player.Name, function()
+				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
+					local idx = pet:GetAttribute(State.Pet.Index)
+					local petData = profile.Data.Pets[idx]
+					if petData then
+						local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
+						petData.money = (petData.money or 0) + rate
+						pet:SetAttribute(State.Pet.Money, petData.money)
+					end
 				end
-			end
+			end)
 		end
 	end)
 end
 
 local function startPetCollectionLoop(player, plot, profile)
-	task.spawn(function()
+	RuntimeGuard.Spawn("PetCollectionLoop." .. player.Name, function()
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(PET_COLLECTION_INTERVAL)
-			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			if not (root and root:IsA("BasePart")) then
-				continue
-			end
-
-			for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
-				local idx = pet:GetAttribute(State.Pet.Index)
-				local petData = profile.Data.Pets[idx]
-				if not petData then
-					continue
+			RuntimeGuard.Run("PetCollectionTick." .. player.Name, function()
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+				if not (root and root:IsA("BasePart")) then
+					return
 				end
 
-				local money = petData.money or 0
-				if money < 1 then
-					continue
-				end
+				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
+					local idx = pet:GetAttribute(State.Pet.Index)
+					local petData = profile.Data.Pets[idx]
+					if not petData then
+						continue
+					end
 
-				local petPosition = PetMotionService.GetLogicalPosition(pet)
-				if (root.Position - petPosition).Magnitude <= PET_COLLECTION_DISTANCE then
-					CurrencyService.Add(player, profile, money)
-					petData.money = 0
-					pet:SetAttribute(State.Pet.Money, 0)
+					local money = petData.money or 0
+					if money < 1 then
+						continue
+					end
+
+					local petPosition = PetMotionService.GetLogicalPosition(pet)
+					if (root.Position - petPosition).Magnitude <= PET_COLLECTION_DISTANCE then
+						CurrencyService.Add(player, profile, money)
+						petData.money = 0
+						pet:SetAttribute(State.Pet.Money, 0)
+					end
 				end
-			end
+			end)
 		end
 	end)
 end
 
 local function startProfileSnapshotLoop(player, plot, profile)
-	task.spawn(function()
+	RuntimeGuard.Spawn("ProfileSnapshotLoop." .. player.Name, function()
 		while PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile do
 			task.wait(60)
 			if PlotService.GetPlayerPlot(player) == plot and PlayerDataService.GetProfile(player) == profile then
-				snapshotProfileState(player, plot, profile)
+				RuntimeGuard.Run("ProfileSnapshotTick." .. player.Name, snapshotProfileState, player, plot, profile)
 			end
 		end
 	end)
@@ -453,7 +462,9 @@ local function unlockGridPart(target, plot, player, profile)
 
 	PetMotionService.RefreshPlotRoutes(plot)
 	if gridPart then
-		GridUnlockEffect:FireAllClients(gridPart)
+		RuntimeGuard.Run("GridUnlockEffect.FireAllClients", function()
+			GridUnlockEffect:FireAllClients(gridPart)
+		end)
 	end
 	TelemetryService.Record("grid_unlock_succeeded", TelemetryService.ForPlayer(player, {
 		price = price,
@@ -466,7 +477,7 @@ end
 
 -- ── Player lifecycle ──────────────────────────────────────────────────────────
 
-Players.PlayerAdded:Connect(function(player)
+local function handlePlayerAdded(player)
 	player:SetAttribute(EDIT_MODE_ATTR, false)
 
 	local plot, _ = PlotService.AssignPlot(player)
@@ -538,10 +549,12 @@ Players.PlayerAdded:Connect(function(player)
 	startPetMoneyLoop(player, plot, profile)
 	startPetCollectionLoop(player, plot, profile)
 	startProfileSnapshotLoop(player, plot, profile)
-	CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
-	RebirthService.SendState(player)
-	RollService.SendLuckState(player, profile)
-	RollService.SendDropAreaState(player, profile)
+	RuntimeGuard.Run("CurrencyUpdated.Initial." .. player.Name, function()
+		CurrencyUpdated:FireClient(player, profile.Data.Currency or 0)
+	end)
+	RuntimeGuard.Run("RebirthService.SendState.Initial." .. player.Name, RebirthService.SendState, player)
+	RuntimeGuard.Run("RollService.SendLuckState.Initial." .. player.Name, RollService.SendLuckState, player, profile)
+	RuntimeGuard.Run("RollService.SendDropAreaState.Initial." .. player.Name, RollService.SendDropAreaState, player, profile)
 
 	local toolsRestored = false
 	local function onCharacterAdded(character)
@@ -574,11 +587,15 @@ Players.PlayerAdded:Connect(function(player)
 		end
 	end
 
-	if player.Character then onCharacterAdded(player.Character) end
-	player.CharacterAdded:Connect(onCharacterAdded)
-end)
+	if player.Character then
+		RuntimeGuard.Run("CharacterAdded.Initial." .. player.Name, onCharacterAdded, player.Character)
+	end
+	RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. player.Name, onCharacterAdded)
+end
 
-Players.PlayerRemoving:Connect(function(player)
+RuntimeGuard.Connect(Players.PlayerAdded, "Players.PlayerAdded", handlePlayerAdded)
+
+local function handlePlayerRemoving(player)
 	local plot = PlotService.GetPlayerPlot(player)
 	if plot then
 		local profile = PlayerDataService.GetProfile(player)
@@ -599,16 +616,20 @@ Players.PlayerRemoving:Connect(function(player)
 	player:SetAttribute(EDIT_MODE_ATTR, false)
 
 	PlayerDataService.UnloadPlayer(player)
-end)
+end
+
+RuntimeGuard.Connect(Players.PlayerRemoving, "Players.PlayerRemoving", handlePlayerRemoving)
 
 game:BindToClose(function()
 	for _, player in pairs(Players:GetPlayers()) do
-		local plot    = PlotService.GetPlayerPlot(player)
-		local profile = PlayerDataService.GetProfile(player)
-		if plot and profile then
-			snapshotProfileState(player, plot, profile)
-		end
-		PlayerDataService.UnloadPlayer(player)
+		RuntimeGuard.Run("BindToClose.Player." .. player.Name, function()
+			local plot    = PlotService.GetPlayerPlot(player)
+			local profile = PlayerDataService.GetProfile(player)
+			if plot and profile then
+				snapshotProfileState(player, plot, profile)
+			end
+			PlayerDataService.UnloadPlayer(player)
+		end)
 	end
 
 	-- Wait for ProfileStore sessions to finish their final save.
@@ -618,54 +639,62 @@ game:BindToClose(function()
 	end
 end)
 
-PromptInteractionService.Start({
-	rateSeconds = PROMPT_RATE_SECONDS,
-	getContext = function(player)
-		return PlotService.GetPlayerPlot(player), PlayerDataService.GetProfile(player)
-	end,
-	handlers = {
-		[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
-			feedPet(plot, player, profile, target)
+RuntimeGuard.Run("PromptInteractionService.Start", function()
+	PromptInteractionService.Start({
+		rateSeconds = PROMPT_RATE_SECONDS,
+		getContext = function(player)
+			return PlotService.GetPlayerPlot(player), PlayerDataService.GetProfile(player)
 		end,
-		[Interactions.Actions.FeedMachine] = function(player, target, plot)
-			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-				FeedMachines.Interact(target, player)
-			end
+		handlers = {
+			[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
+				feedPet(plot, player, profile, target)
+			end,
+			[Interactions.Actions.FeedMachine] = function(player, target, plot)
+				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+					FeedMachines.Interact(target, player)
+				end
+			end,
+			[Interactions.Actions.PatchHarvest] = function(player, target, plot)
+				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
+					FeedMachines.HarvestPatchAnchor(target, player)
+				end
+			end,
+			[Interactions.Actions.TreeGroundPickup] = function(player, target, plot)
+				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, FOOD_PICKUP_PROMPT_DISTANCE) then
+					FeedMachines.PickupTreeGround(target, player)
+				end
+			end,
+			[Interactions.Actions.GridPartUnlock] = function(player, target, plot, profile)
+				unlockGridPart(target, plot, player, profile)
+			end,
+			[Interactions.Actions.CrateRoll] = function(player, target, plot, profile)
+				local ok, code = RollService.Roll(player, target, plot, profile)
+				if not ok and code ~= "cooldown" and code ~= "busy" then
+					NotificationService.Error(player, "Could not roll that crate.")
+				end
+			end,
+		},
+		afterInteraction = function(player, plot, profile)
+			snapshotProfileState(player, plot, profile)
 		end,
-		[Interactions.Actions.PatchHarvest] = function(player, target, plot)
-			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-				FeedMachines.HarvestPatchAnchor(target, player)
-			end
-		end,
-		[Interactions.Actions.TreeGroundPickup] = function(player, target, plot)
-			if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, FOOD_PICKUP_PROMPT_DISTANCE) then
-				FeedMachines.PickupTreeGround(target, player)
-			end
-		end,
-		[Interactions.Actions.GridPartUnlock] = function(player, target, plot, profile)
-			unlockGridPart(target, plot, player, profile)
-		end,
-		[Interactions.Actions.CrateRoll] = function(player, target, plot, profile)
-			local ok, code = RollService.Roll(player, target, plot, profile)
-			if not ok and code ~= "cooldown" and code ~= "busy" then
-				NotificationService.Error(player, "Could not roll that crate.")
-			end
-		end,
-	},
-	afterInteraction = function(player, plot, profile)
-		snapshotProfileState(player, plot, profile)
-	end,
-})
+	})
+end)
 
-FeedEditService.Start({
-	snapshotProfileState = snapshotProfileState,
-})
+RuntimeGuard.Run("FeedEditService.Start", function()
+	FeedEditService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
 
-ShovelService.Start({
-	snapshotProfileState = snapshotProfileState,
-})
+RuntimeGuard.Run("ShovelService.Start", function()
+	ShovelService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
 
-FeedPlacementService.Start({
-	rateSeconds = PLACE_RATE_SECONDS,
-	snapshotProfileState = snapshotProfileState,
-})
+RuntimeGuard.Run("FeedPlacementService.Start", function()
+	FeedPlacementService.Start({
+		rateSeconds = PLACE_RATE_SECONDS,
+		snapshotProfileState = snapshotProfileState,
+	})
+end)

@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local TelemetryService = require(script.Parent:WaitForChild("TelemetryService"))
 
 local PromptInteractionService = {}
@@ -20,11 +21,8 @@ end
 local function withPlayerLock(map, player, callback)
 	if map[player] then return end
 	map[player] = true
-	local ok, err = pcall(callback)
+	RuntimeGuard.Run("PromptInteractionService.Handler", callback)
 	map[player] = nil
-	if not ok then
-		warn(err)
-	end
 end
 
 function PromptInteractionService.Start(config)
@@ -49,7 +47,8 @@ function PromptInteractionService.Start(config)
 		end
 		if type(getContext) ~= "function" then return end
 
-		local plot, profile = getContext(player)
+		local ok, plot, profile = RuntimeGuard.Run("PromptInteractionService.GetContext", getContext, player)
+		if not ok then return end
 		if not plot or not profile then return end
 		if requireTargetInPlot and not target:IsDescendantOf(plot) then
 			TelemetryService.Warn("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
@@ -69,7 +68,7 @@ function PromptInteractionService.Start(config)
 		end)
 
 		if type(afterInteraction) == "function" then
-			afterInteraction(player, plot, profile)
+			RuntimeGuard.Run("PromptInteractionService.AfterInteraction", afterInteraction, player, plot, profile)
 		end
 	end)
 end

@@ -13,6 +13,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Patches = {}
@@ -165,17 +166,19 @@ local function applyGrowth(machine, s, seconds)
 end
 
 -- Single shared heartbeat across all patch-style machines (1Hz tick).
-task.spawn(function()
+RuntimeGuard.Spawn("Patches.GrowthLoop", function()
 	while true do
 		task.wait(1)
 		for machine, s in pairs(state) do
-			if machine.Parent then
-				if s.deferVisualRefresh and not (s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true) then
-					refreshAllSlotVisuals(s)
+			RuntimeGuard.Run("Patches.GrowthTick", function()
+				if machine.Parent then
+					if s.deferVisualRefresh and not (s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true) then
+						refreshAllSlotVisuals(s)
+					end
+					applyGrowth(machine, s, 1)
+					s.lastTick = os.time()
 				end
-				applyGrowth(machine, s, 1)
-				s.lastTick = os.time()
-			end
+			end)
 		end
 	end
 end)
@@ -245,7 +248,7 @@ function Patches.Setup(machine, plot, owner)
 	state[machine] = s
 
 	if owner then
-		s.editModeConn = owner:GetAttributeChangedSignal(EDIT_MODE_ATTR):Connect(function()
+		s.editModeConn = RuntimeGuard.Connect(owner:GetAttributeChangedSignal(EDIT_MODE_ATTR), "Patches.EditModeChanged", function()
 			if s.deferVisualRefresh and owner:GetAttribute(EDIT_MODE_ATTR) ~= true then
 				refreshAllSlotVisuals(s)
 			end

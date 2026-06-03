@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
@@ -389,14 +390,14 @@ end
 
 local function tickAll(dt)
 	for _, state in pairs(registry) do
-		tickPet(state, dt)
+		RuntimeGuard.Run("PetMotionService.TickPet", tickPet, state, dt)
 	end
 end
 
 local function ensureHeartbeat()
 	if heartbeatConnection then return end
 
-	heartbeatConnection = RunService.Heartbeat:Connect(function(dt)
+	heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "PetMotionService.Heartbeat", function(dt)
 		accumulator += dt
 		while accumulator >= UPDATE_INTERVAL do
 			accumulator -= UPDATE_INTERVAL
@@ -446,7 +447,7 @@ function PetMotionService.Register(plot, pet)
 		destroyingConnection = nil,
 	}
 
-	state.destroyingConnection = pet.Destroying:Connect(function()
+	state.destroyingConnection = RuntimeGuard.Connect(pet.Destroying, "PetMotionService.PetDestroying", function()
 		unregister(pet)
 	end)
 	registry[pet] = state

@@ -30,6 +30,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State  = require(Shared:WaitForChild("State"))
 
 local TreeBalance = script.Parent:WaitForChild("Tree")
@@ -53,11 +54,17 @@ local FRUIT_GROUP = "AppleTreeFruit"
 local FLOOR_GROUP = "PlotFloor"
 
 local function ensureCollisionGroups()
-	pcall(function() PhysicsService:RegisterCollisionGroup(FRUIT_GROUP) end)
-	pcall(function() PhysicsService:RegisterCollisionGroup(FLOOR_GROUP) end)
-	PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, "Default",   false)
-	PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, FRUIT_GROUP, false)
-	PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, FLOOR_GROUP, true)
+	RuntimeGuard.Run("TreeClicker.RegisterFruitCollisionGroup", function()
+		PhysicsService:RegisterCollisionGroup(FRUIT_GROUP)
+	end)
+	RuntimeGuard.Run("TreeClicker.RegisterFloorCollisionGroup", function()
+		PhysicsService:RegisterCollisionGroup(FLOOR_GROUP)
+	end)
+	RuntimeGuard.Run("TreeClicker.ConfigureCollisionGroups", function()
+		PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, "Default", false)
+		PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, FRUIT_GROUP, false)
+		PhysicsService:CollisionGroupSetCollidable(FRUIT_GROUP, FLOOR_GROUP, true)
+	end)
 end
 ensureCollisionGroups()
 
@@ -358,17 +365,21 @@ local function fireEffectNearby(machine, balance, anchor, marker, foodId)
 	}
 	for _, player in ipairs(Players:GetPlayers()) do
 		if isPlayerNear(player, origin, balance.EffectRadius) then
-			TreeClickerEffect:FireClient(player, payload)
+			RuntimeGuard.Run("TreeClicker.EffectFireClient", function()
+				TreeClickerEffect:FireClient(player, payload)
+			end)
 		end
 	end
 end
 
 -- Single 4Hz heartbeat across all AppleTree machines.
-task.spawn(function()
+RuntimeGuard.Spawn("TreeClicker.RespawnLoop", function()
 	while true do
 		task.wait(0.25)
 		for machine, s in pairs(state) do
-			if machine.Parent then tickRespawns(s) end
+			if machine.Parent then
+				RuntimeGuard.Run("TreeClicker.TickRespawns", tickRespawns, s)
+			end
 		end
 	end
 end)
@@ -391,7 +402,7 @@ local function onTreeClicked(machine, s, player)
 	local foodId = s.foodDrop
 	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId)
 	task.delay(s.balance.DropEffectDuration, function()
-		applyDrop(machine, s, slot, foodId)
+		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId)
 	end)
 end
 
@@ -459,7 +470,7 @@ local function setupClickDetector(machine, s)
 	local detector = Instance.new("ClickDetector")
 	detector.MaxActivationDistance = 24
 	detector.Parent = primary
-	table.insert(s.conns, detector.MouseClick:Connect(function(player)
+	table.insert(s.conns, RuntimeGuard.Connect(detector.MouseClick, "TreeClicker.MouseClick", function(player)
 		onTreeClicked(machine, s, player)
 	end))
 end

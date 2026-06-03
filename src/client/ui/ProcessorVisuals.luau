@@ -9,6 +9,7 @@ local Workspace         = game:GetService("Workspace")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local ProcessorVisuals = {}
 
@@ -116,7 +117,9 @@ local function bounceModel(model)
 		if previous.down then previous.down:Cancel() end
 		if previous.value then previous.value:Destroy() end
 		if model.Parent then
-			model:ScaleTo(previous.baseScale)
+			RuntimeGuard.Run("ProcessorVisuals.ResetModelScale", function()
+				model:ScaleTo(previous.baseScale)
+			end)
 		end
 	end
 
@@ -133,7 +136,9 @@ local function bounceModel(model)
 
 	value.Changed:Connect(function(nextScale)
 		if model.Parent then
-			model:ScaleTo(nextScale)
+			RuntimeGuard.Run("ProcessorVisuals.BounceModelScale", function()
+				model:ScaleTo(nextScale)
+			end)
 		end
 	end)
 
@@ -156,7 +161,9 @@ local function bounceModel(model)
 				activeBounces[model] = nil
 			end
 			if model.Parent then
-				model:ScaleTo(baseScale)
+				RuntimeGuard.Run("ProcessorVisuals.RestoreModelScale", function()
+					model:ScaleTo(baseScale)
+				end)
 			end
 			value:Destroy()
 		end)
@@ -179,20 +186,26 @@ local function renderPartEffect(effect)
 	TweenService:Create(effect, SCALE_IN_INFO, { Size = targetSize * PEAK_SCALE }):Play()
 
 	task.delay(SCALE_IN_INFO.Time, function()
-		if not effect.Parent then return end
-		TweenService:Create(effect, SCALE_OUT_INFO, { Size = targetSize * START_SCALE }):Play()
-		tweenTransparency(effect, SCALE_OUT_INFO, 1)
+		RuntimeGuard.Run("ProcessorVisuals.RenderPartDelayed", function()
+			if not effect.Parent then return end
+			TweenService:Create(effect, SCALE_OUT_INFO, { Size = targetSize * START_SCALE }):Play()
+			tweenTransparency(effect, SCALE_OUT_INFO, 1)
+		end)
 	end)
 end
 
 local function renderModelEffect(effect)
 	local scale = Instance.new("NumberValue")
 	scale.Value = START_SCALE
-	effect:ScaleTo(START_SCALE)
+	RuntimeGuard.Run("ProcessorVisuals.InitialEffectScale", function()
+		effect:ScaleTo(START_SCALE)
+	end)
 
 	scale.Changed:Connect(function(value)
 		if effect.Parent then
-			effect:ScaleTo(value)
+			RuntimeGuard.Run("ProcessorVisuals.EffectScaleChanged", function()
+				effect:ScaleTo(value)
+			end)
 		end
 	end)
 
@@ -232,14 +245,16 @@ local function renderDeposit(machine, foodId)
 	end
 
 	task.delay(SCALE_IN_INFO.Time + SCALE_OUT_INFO.Time + 0.05, function()
-		if effect.Parent then
-			effect:Destroy()
-		end
+		RuntimeGuard.Run("ProcessorVisuals.DestroyEffectDelayed", function()
+			if effect.Parent then
+				effect:Destroy()
+			end
+		end)
 	end)
 end
 
 function ProcessorVisuals.start()
-	Remotes.get(Remotes.Names.ProcessorDepositEffect).OnClientEvent:Connect(renderDeposit)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.ProcessorDepositEffect).OnClientEvent, "ProcessorVisuals.RenderDeposit", renderDeposit)
 end
 
 return ProcessorVisuals

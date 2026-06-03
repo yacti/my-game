@@ -3,6 +3,10 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
 local CloudController = {}
 
 local WAIT_SECONDS = 10
@@ -42,10 +46,10 @@ end
 
 local function loadAssets()
 	local map = Workspace:WaitForChild("Map", WAIT_SECONDS)
-	local misc = ReplicatedStorage:WaitForChild("Misc", WAIT_SECONDS)
+	local misc = Assets.WaitFor(Assets.Names.Misc, WAIT_SECONDS)
 	local templatesFolder = misc and misc:WaitForChild("Clouds", WAIT_SECONDS)
 	if not templatesFolder then
-		warnCloud("Missing ReplicatedStorage.Misc.Clouds; clouds disabled")
+		warnCloud("Missing ReplicatedStorage.Assets.Misc.Clouds; clouds disabled")
 		return nil
 	end
 
@@ -56,7 +60,7 @@ local function loadAssets()
 		end
 	end
 	if #templates == 0 then
-		warnCloud("ReplicatedStorage.Misc.Clouds has no BasePart templates; clouds disabled")
+		warnCloud("ReplicatedStorage.Assets.Misc.Clouds has no BasePart templates; clouds disabled")
 		return nil
 	end
 
@@ -183,7 +187,7 @@ function CloudController.start()
 		return
 	end
 
-	task.spawn(function()
+	RuntimeGuard.Spawn("CloudController.Start", function()
 		local assets = loadAssets()
 		if not assets then
 			return
@@ -196,7 +200,7 @@ function CloudController.start()
 			end
 		end
 
-		heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "CloudController.Heartbeat", function(deltaTime)
 			updateAccumulator += deltaTime
 			if updateAccumulator < UPDATE_INTERVAL then
 				return
@@ -205,7 +209,7 @@ function CloudController.start()
 			local stepTime = updateAccumulator
 			updateAccumulator = 0
 			for _, lane in ipairs(assets.lanes) do
-				updateLane(assets, lane, stepTime)
+				RuntimeGuard.Run("CloudController.UpdateLane", updateLane, assets, lane, stepTime)
 			end
 		end)
 	end)

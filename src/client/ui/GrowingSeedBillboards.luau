@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
@@ -130,7 +131,7 @@ local function attach(instance)
 	tracked[instance] = gui
 	update(instance, gui)
 
-	instance.AncestryChanged:Connect(function()
+	RuntimeGuard.Connect(instance.AncestryChanged, "GrowingSeedBillboards.AncestryChanged", function()
 		if not instance:IsDescendantOf(Workspace) then
 			if tracked[instance] then tracked[instance]:Destroy() end
 			tracked[instance] = nil
@@ -160,29 +161,33 @@ local function watchCurrentPlot()
 	if not plot then
 		return
 	end
-	plotDescendantAdded = plot.DescendantAdded:Connect(function(instance)
+	plotDescendantAdded = RuntimeGuard.Connect(plot.DescendantAdded, "GrowingSeedBillboards.PlotDescendantAdded", function(instance)
 		task.defer(function()
-			if isGrowing(instance) then
-				attach(instance)
-			end
+			RuntimeGuard.Run("GrowingSeedBillboards.AttachDeferred", function()
+				if isGrowing(instance) then
+					attach(instance)
+				end
+			end)
 		end)
 	end)
 	scan()
 end
 
 function GrowingSeedBillboards.start()
-	task.defer(watchCurrentPlot)
-	player:GetAttributeChangedSignal(State.Player.AssignedPlotName):Connect(watchCurrentPlot)
+	task.defer(function()
+		RuntimeGuard.Run("GrowingSeedBillboards.WatchInitialPlot", watchCurrentPlot)
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "GrowingSeedBillboards.AssignedPlotChanged", watchCurrentPlot)
 
 	local elapsed = 0
-	RunService.Heartbeat:Connect(function(dt)
+	RuntimeGuard.Connect(RunService.Heartbeat, "GrowingSeedBillboards.Heartbeat", function(dt)
 		elapsed += dt
 		if elapsed < UPDATE_SECONDS then
 			return
 		end
 		elapsed = 0
 		for instance, gui in pairs(tracked) do
-			update(instance, gui)
+			RuntimeGuard.Run("GrowingSeedBillboards.Update", update, instance, gui)
 		end
 	end)
 end
