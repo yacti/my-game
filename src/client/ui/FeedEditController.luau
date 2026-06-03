@@ -27,6 +27,7 @@ local SELECTION_ALLOWED_COLOR = Color3.fromRGB(0, 228, 10)
 local SELECTION_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
 local PLACEMENT_EDIT_FLOOR_OFFSET = 3
 local OVERLAP_QUERY_INSET = 0.05
+local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
 
 local MOVE_FAILURE_MESSAGES = {
@@ -93,6 +94,31 @@ local function growingFeedRootFromInstance(plot, instance)
 	return nil
 end
 
+local function hasFeedRootAncestor(plot, instance)
+	local current = instance.Parent
+	while current and current ~= plot do
+		if isMatureFeed(current) or isGrowingFeed(current) then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function feedRoots(plot)
+	local roots = {}
+	if not plot then return roots end
+
+	for _, descendant in ipairs(plot:GetDescendants()) do
+		if (isMatureFeed(descendant) or isGrowingFeed(descendant))
+			and not hasFeedRootAncestor(plot, descendant) then
+			roots[#roots + 1] = descendant
+		end
+	end
+
+	return roots
+end
+
 local function feedHitboxRootFromPart(plot, part)
 	local current = part
 	while current and current ~= plot do
@@ -105,6 +131,26 @@ local function feedHitboxRootFromPart(plot, part)
 		end
 		current = current.Parent
 	end
+	return nil
+end
+
+local function feedRootFromScreen(plot, screenPosition)
+	local camera = Workspace.CurrentCamera
+	if not plot or not camera then return nil end
+
+	local roots = feedRoots(plot)
+	if #roots == 0 then return nil end
+
+	local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = roots
+
+	local hit = Workspace:Raycast(ray.Origin, ray.Direction * SELECTION_RAY_DISTANCE, params)
+	if hit then
+		return feedRootFromInstance(plot, hit.Instance) or growingFeedRootFromInstance(plot, hit.Instance)
+	end
+
 	return nil
 end
 
@@ -606,27 +652,22 @@ function FeedEditController.start()
 		end
 
 		local plot = getPlayerPlot()
-		local camera = Workspace.CurrentCamera
-		if not plot or not camera then
+		if not plot then
 			clearSelection(true)
 			return
 		end
 
-		local ray = camera:ViewportPointToRay(input.Position.X, input.Position.Y)
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = { plot }
-
-		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
-		local feed = hit and feedRootFromInstance(plot, hit.Instance) or nil
+		local feed = feedRootFromScreen(plot, input.Position)
 		if feed then
-			selectFeed(feed)
-		elseif hit and growingFeedRootFromInstance(plot, hit.Instance) then
-			NotificationUi.show({
-				kind = NotificationConfig.Kinds.Error,
-				text = GROWING_PLANT_MESSAGE,
-			})
-			clearSelection(true)
+			if isGrowingFeed(feed) then
+				NotificationUi.show({
+					kind = NotificationConfig.Kinds.Error,
+					text = GROWING_PLANT_MESSAGE,
+				})
+				clearSelection(true)
+			else
+				selectFeed(feed)
+			end
 		else
 			clearSelection(true)
 		end

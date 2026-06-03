@@ -77,6 +77,9 @@ local SEED_OWNED_FEED_ATTRIBUTES = {
 	Seeds.Attributes.GrowTime,
 }
 
+local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
+local TEMPLATE_SIZE_TOLERANCE = 0.01
+
 local DEPRECATED_FOOD_ATTRIBUTES = {
 	MaxXP = State.Food.XP,
 }
@@ -107,6 +110,10 @@ local function descendant(parent, name, className, errors)
 	end
 	add(errors, string.format("Missing descendant %s.%s", parent:GetFullName(), name))
 	return nil
+end
+
+local function nearlyEqual(a, b, tolerance)
+	return math.abs(a - b) <= tolerance
 end
 
 local function validateTool(tool, errors)
@@ -213,6 +220,52 @@ local function validatePetCatalog(errors)
 	end
 end
 
+local function validatePatchEditSelectionHitbox(template, errors)
+	if not template:IsA("Model") then
+		add(errors, template:GetFullName() .. " Patch feed template must be a Model")
+		return
+	end
+
+	local dirt = template:FindFirstChild("Dirt")
+	if not (dirt and dirt:IsA("BasePart")) then
+		add(errors, template:GetFullName() .. " missing Dirt BasePart")
+		return
+	end
+
+	local baseFood = template:FindFirstChild("BaseFood")
+	if not (baseFood and baseFood:IsA("BasePart")) then
+		add(errors, template:GetFullName() .. " missing BaseFood BasePart")
+		return
+	end
+
+	local hitbox = template:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
+	if not (hitbox and hitbox:IsA("BasePart")) then
+		add(errors, string.format("%s missing %s BasePart", template:GetFullName(), EDIT_SELECTION_HITBOX_NAME))
+		return
+	end
+
+	if hitbox.CanQuery ~= true then
+		add(errors, hitbox:GetFullName() .. " must have CanQuery=true")
+	end
+	if hitbox.CanCollide ~= false then
+		add(errors, hitbox:GetFullName() .. " must have CanCollide=false")
+	end
+	if hitbox.Transparency < 1 then
+		add(errors, hitbox:GetFullName() .. " must be fully transparent")
+	end
+
+	if not nearlyEqual(hitbox.Size.X, dirt.Size.X, TEMPLATE_SIZE_TOLERANCE)
+		or not nearlyEqual(hitbox.Size.Z, dirt.Size.Z, TEMPLATE_SIZE_TOLERANCE) then
+		add(errors, string.format("%s must match Dirt X/Z size", hitbox:GetFullName()))
+	end
+
+	local baseFoodTop = baseFood.CFrame:PointToWorldSpace(Vector3.new(0, baseFood.Size.Y / 2, 0))
+	local expectedHeight = math.max(dirt.CFrame:PointToObjectSpace(baseFoodTop).Y + dirt.Size.Y / 2, 0.1)
+	if not nearlyEqual(hitbox.Size.Y, expectedHeight, TEMPLATE_SIZE_TOLERANCE) then
+		add(errors, string.format("%s height must reach top of BaseFood", hitbox:GetFullName()))
+	end
+end
+
 local function validateFeedTemplateIdentity(root, errors)
 	local seenByFeedType = {}
 	for _, classFolder in ipairs(root:GetChildren()) do
@@ -285,6 +338,9 @@ local function validateFeedTemplateIdentity(root, errors)
 			end
 			if feedClass == "Patch" and feedXP == nil then
 				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XP))
+			end
+			if feedClass == "Patch" then
+				validatePatchEditSelectionHitbox(template, errors)
 			end
 
 			local growRate = template:GetAttribute(State.Feed.GrowRate)

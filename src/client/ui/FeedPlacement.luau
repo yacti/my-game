@@ -24,9 +24,10 @@ local PLACEMENT_EDIT_FLOOR_OFFSET = 3
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
+local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 
 local function isHiddenPreviewPart(part)
-	return part.Name:match("^BaseFood") ~= nil
+	return part.Name:match("^BaseFood") ~= nil or part.Name == EDIT_SELECTION_HITBOX_NAME
 end
 
 -- Templates live at ReplicatedStorage.FeedMachines.<Class>.<DisplayName>. The

@@ -24,6 +24,7 @@ local OFFLINE_GROW_FRACTION = 0.001
 local SCALE_MIN = 0.3
 local SCALE_MAX = 2.75
 local SCALE_MAX_BASE_XP_MULTIPLIER = 500
+local EDIT_MODE_ATTR = "EditMode"
 
 -- Offline progress runs at this fraction of the online rate. With default
 -- XP=1 and GrowRate=1, 0.001 means a slot earns ~1 xp per 1000s (~17 min)
@@ -67,22 +68,6 @@ local function configureSlotPart(part)
 	part.CanQuery   = false
 end
 
-local function slotAlignedCFrame(slot, visual)
-	local target = slot.anchor.CFrame
-	if visual:IsA("BasePart") then
-		return target * CFrame.new(0, visual.Size.Y / 2 - slot.anchor.Size.Y / 2, 0)
-	elseif visual:IsA("Model") then
-		local pivot = visual:GetPivot()
-		local boxCFrame, boxSize = visual:GetBoundingBox()
-		local boxCenterLocal = pivot:PointToObjectSpace(boxCFrame.Position)
-		local bottomLocalY = boxCenterLocal.Y - boxSize.Y / 2
-		local targetBottomLocalY = -slot.anchor.Size.Y / 2
-		return target * CFrame.new(0, targetBottomLocalY - bottomLocalY, 0)
-	else
-		return target
-	end
-end
-
 local function spawnFoodAtSlot(slot)
 	local foodId = slot.foodId
 	local template = Food.GetTemplate(foodId)
@@ -93,12 +78,12 @@ local function spawnFoodAtSlot(slot)
 	clone:SetAttribute(State.Food.XP, slot.xp or 0)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
-		clone.CFrame = slotAlignedCFrame(slot, clone)
+		clone:PivotTo(slot.anchor.CFrame)
 	elseif clone:IsA("Model") then
 		for _, d in ipairs(clone:GetDescendants()) do
 			if d:IsA("BasePart") then configureSlotPart(d) end
 		end
-		clone:PivotTo(slotAlignedCFrame(slot, clone))
+		clone:PivotTo(slot.anchor.CFrame)
 	end
 	clone.Parent = slot.anchor
 	return clone
@@ -118,17 +103,28 @@ local function applySlotScale(slot)
 	slot.foodPart:ScaleTo(scale)
 end
 
-local function refreshSlotXP(slot)
+local function refreshSlotVisual(slot)
+	if not slot.foodPart and not slot.respawnAt then
+		slot.foodPart = spawnFoodAtSlot(slot)
+	end
 	if slot.foodPart then
 		slot.foodPart:SetAttribute(State.Food.XP, slot.xp)
 		applySlotScale(slot)
 	end
 end
 
-local function materializeRespawn(slot)
+local function refreshAllSlotVisuals(s)
+	for _, slot in ipairs(s.slots) do
+		refreshSlotVisual(slot)
+	end
+	s.deferVisualRefresh = false
+end
+
+local function materializeRespawn(slot, deferVisualRefresh)
 	slot.respawnAt = nil
 	slot.xp        = 0
 	slot.growthElapsed = 0
+	if deferVisualRefresh then return end
 	slot.foodPart  = spawnFoodAtSlot(slot)
 	applySlotScale(slot)
 end
@@ -139,20 +135,30 @@ local function applyGrowth(machine, s, seconds)
 	if type(growRate) ~= "number" or growRate <= 0 then
 		growRate = DEFAULT_GROW_RATE
 	end
+	local deferVisualRefresh = s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true
 	local xpPerInterval = s.patchXP
 	local now      = os.time()
 	for _, slot in ipairs(s.slots) do
 		if slot.respawnAt then
 			-- Slot is empty post-harvest. Materialize food once the
 			-- delay has elapsed; growth starts on the next tick.
-			if now >= slot.respawnAt then materializeRespawn(slot) end
+			if now >= slot.respawnAt then
+				materializeRespawn(slot, deferVisualRefresh)
+				if deferVisualRefresh then
+					s.deferVisualRefresh = true
+				end
+			end
 		else
 			slot.growthElapsed = (slot.growthElapsed or 0) + seconds
 			local intervals = math.floor(slot.growthElapsed / growRate)
 			if intervals > 0 then
 				slot.growthElapsed -= intervals * growRate
 				slot.xp += intervals * xpPerInterval
-				refreshSlotXP(slot)
+				if deferVisualRefresh then
+					s.deferVisualRefresh = true
+				else
+					refreshSlotVisual(slot)
+				end
 			end
 		end
 	end
@@ -164,6 +170,9 @@ task.spawn(function()
 		task.wait(1)
 		for machine, s in pairs(state) do
 			if machine.Parent then
+				if s.deferVisualRefresh and not (s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true) then
+					refreshAllSlotVisuals(s)
+				end
 				applyGrowth(machine, s, 1)
 				s.lastTick = os.time()
 			end
@@ -198,8 +207,8 @@ local function harvest(machine, s, slotIndex, player)
 	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
 end
 
--- Anchor the slot at the BaseFood's bottom face so the food clone grows from
--- the same vertical base point regardless of the marker's thickness.
+-- Anchor the slot at the BaseFood's bottom face. Patch food templates are
+-- expected to author their pivot at the bottom contact point.
 local function makeSlotAnchor(machine, baseFoodPart)
 	local anchor = Instance.new("Part")
 	anchor.Name         = "SlotAnchor"
@@ -209,7 +218,7 @@ local function makeSlotAnchor(machine, baseFoodPart)
 	anchor.CanTouch     = false
 	anchor.Transparency = 1
 	anchor.Size         = Vector3.new(0.1, 0.1, 0.1)
-	anchor.CFrame       = baseFoodPart.CFrame * CFrame.new(0, -baseFoodPart.Size.Y / 2 + anchor.Size.Y / 2, 0)
+	anchor.CFrame       = baseFoodPart.CFrame * CFrame.new(0, -baseFoodPart.Size.Y / 2, 0)
 	anchor.Parent       = machine
 	return anchor
 end
@@ -231,8 +240,17 @@ function Patches.Setup(machine, plot, owner)
 		patchXP = patchXPFor(machine),
 		slots = {},
 		lastTick = os.time(),
+		deferVisualRefresh = false,
 	}
 	state[machine] = s
+
+	if owner then
+		s.editModeConn = owner:GetAttributeChangedSignal(EDIT_MODE_ATTR):Connect(function()
+			if s.deferVisualRefresh and owner:GetAttribute(EDIT_MODE_ATTR) ~= true then
+				refreshAllSlotVisuals(s)
+			end
+		end)
+	end
 
 	for _, child in ipairs(machine:GetChildren()) do
 		if child:IsA("BasePart") and child.Name == "BaseFood" then
@@ -256,6 +274,10 @@ function Patches.Setup(machine, plot, owner)
 end
 
 function Patches.Teardown(machine)
+	local s = state[machine]
+	if s and s.editModeConn then
+		s.editModeConn:Disconnect()
+	end
 	state[machine] = nil
 end
 
@@ -298,7 +320,7 @@ function Patches.Apply(machine, placement)
 				if not slot.foodPart then
 					slot.foodPart = spawnFoodAtSlot(slot)
 				end
-				refreshSlotXP(slot)
+				refreshSlotVisual(slot)
 			end
 		end
 	end

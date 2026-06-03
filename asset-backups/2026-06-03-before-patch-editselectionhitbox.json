@@ -1,0 +1,115 @@
+{
+  "backupPath": "ServerStorage.AgentAssetBackups.2026-06-03-before-patch-editselectionhitbox",
+  "assetRoot": "ReplicatedStorage.FeedMachines.Patch",
+  "reason": "Before adding EditSelectionHitbox parts to patch templates.",
+  "patches": [
+    {
+      "name": "Cabbage Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Cabbage Patch",
+      "feedType": "CabbagePatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Corn Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Corn Patch",
+      "feedType": "CornPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Glowshroom Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Glowshroom Patch",
+      "feedType": "GlowshroomPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Mushroom Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Mushroom Patch",
+      "feedType": "MushroomPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Pineapple Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Pineapple Patch",
+      "feedType": "PineapplePatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Potato Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Potato Patch",
+      "feedType": "PotatoPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Pumpkin Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Pumpkin Patch",
+      "feedType": "PumpkinPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Purple Shroom Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Purple Shroom Patch",
+      "feedType": "PurpleShroomPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    },
+    {
+      "name": "Watermelon Patch",
+      "path": "ReplicatedStorage.FeedMachines.Patch.Watermelon Patch",
+      "feedType": "WatermelonPatch",
+      "dirtClass": "UnionOperation",
+      "dirtSize": "4, 0.25, 4",
+      "dirtPosition": "-12, 2.3250012397766113, -7.600015163421631",
+      "baseFoodClass": "Part",
+      "baseFoodSize": "3, 3, 3",
+      "baseFoodPosition": "-12, 3.934441328048706, -7.600015163421631",
+      "hadEditSelectionHitbox": false
+    }
+  ]
+}
