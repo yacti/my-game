@@ -25,6 +25,7 @@ local CONTROLLERS = {
 	"LocalPrompts",
 	"HudController",
 	"GearShopController",
+	"CosmeticShopController",
 	"YesNoWarning",
 	"FeedEditController",
 	"ShovelController",

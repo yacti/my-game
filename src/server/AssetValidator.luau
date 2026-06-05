@@ -7,6 +7,7 @@ local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
+local CosmeticShopBalance = require(Shared:WaitForChild("CosmeticShopBalance"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
@@ -486,7 +487,7 @@ local function validateSeeds(errors)
 	end
 end
 
-local function validateCosmetics(errors)
+local function validateCosmetics(errors, warnings)
 	local root = assetChild(Assets.Names.Cosmetics, "Folder", errors)
 	if not root then return end
 
@@ -523,7 +524,7 @@ local function validateCosmetics(errors)
 
 		local cosmeticId = template:GetAttribute(Cosmetics.Attributes.Id)
 		if type(cosmeticId) ~= "string" or cosmeticId == "" then
-			add(errors, template:GetFullName() .. " missing " .. Cosmetics.Attributes.Id .. " attribute")
+			add(warnings or errors, template:GetFullName() .. " missing " .. Cosmetics.Attributes.Id .. " attribute; using template name fallback")
 		elseif seenByCosmeticId[cosmeticId] then
 			add(errors, string.format(
 				"Duplicate %s %q on %s and %s",
@@ -546,6 +547,10 @@ local function validateCosmetics(errors)
 		local rarity = template:GetAttribute(Cosmetics.Attributes.Rarity)
 		if rarity ~= nil and not Rarities.IsValid(rarity) then
 			add(errors, string.format("%s has unknown %s %q", template:GetFullName(), Cosmetics.Attributes.Rarity, tostring(rarity)))
+		end
+		local description = template:GetAttribute(Cosmetics.Attributes.Description)
+		if type(description) ~= "string" then
+			add(warnings or errors, template:GetFullName() .. " missing string " .. Cosmetics.Attributes.Description .. " attribute")
 		end
 	end
 
@@ -714,14 +719,14 @@ local function validateRebirthUi(errors)
 	end
 end
 
-local function validateGearShopUi(errors)
+local function validateShopUi(uiName, requireRarity, errors)
 	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
 	if not ui then return end
 
-	local gearShopGui = child(ui, "GearShop", "ScreenGui", errors)
-	if not gearShopGui then return end
+	local shopGui = child(ui, uiName, "ScreenGui", errors)
+	if not shopGui then return end
 
-	local panel = child(gearShopGui, "GearShop", "GuiObject", errors)
+	local panel = child(shopGui, uiName, "GuiObject", errors)
 	if not panel then return end
 
 	descendant(panel, "CloseButton", "GuiButton", errors)
@@ -730,7 +735,9 @@ local function validateGearShopUi(errors)
 	if not template then return end
 
 	descendant(template, "Name", "TextLabel", errors)
-	descendant(template, "Rarity", "TextLabel", errors)
+	if requireRarity then
+		descendant(template, "Rarity", "TextLabel", errors)
+	end
 	descendant(template, "Description", "TextLabel", errors)
 	descendant(template, "ItemIcon", "ViewportFrame", errors)
 	descendant(template, "isLocked", "GuiObject", errors)
@@ -746,6 +753,14 @@ local function validateGearShopUi(errors)
 			descendant(robuxButton, "Price", "TextLabel", errors)
 		end
 	end
+end
+
+local function validateGearShopUi(errors)
+	validateShopUi("GearShop", true, errors)
+end
+
+local function validateCosmeticShopUi(errors)
+	validateShopUi("CosmeticShop", false, errors)
 end
 
 local function validateBillboardTemplate(ui, name, labelName, errors)
@@ -922,6 +937,54 @@ local function validateGearShopBalance(errors)
 		if item.Rarity ~= nil and not Rarities.IsValid(item.Rarity) then
 			add(errors, source .. " has invalid Rarity " .. tostring(item.Rarity))
 		end
+	end
+end
+
+local function validateCosmeticShopBalance(errors)
+	CosmeticShopBalance.Validate(errors)
+	for index, item in ipairs(CosmeticShopBalance.All()) do
+		local source = "CosmeticShopBalance.Items[" .. tostring(index) .. "]"
+		if not Cosmetics.GetTemplate(item.ItemID) then
+			add(errors, source .. " has unknown ItemID " .. tostring(item.ItemID))
+		end
+	end
+end
+
+local function validateCosmeticToolContract(errors)
+	local tool = Assets.Find(Assets.Names.CosmeticTool)
+	if not tool then
+		return
+	end
+	if not tool:IsA("Tool") then
+		add(errors, string.format("%s is %s, expected Tool", tool:GetFullName(), tool.ClassName))
+	end
+end
+
+local function addProductIdSource(seenProducts, productId, source, errors)
+	productId = tonumber(productId) or 0
+	if productId <= 0 or productId % 1 ~= 0 then
+		return
+	end
+	local previous = seenProducts[productId]
+	if previous then
+		add(errors, string.format("Duplicate developer product id %d on %s and %s", productId, previous, source))
+	else
+		seenProducts[productId] = source
+	end
+end
+
+local function validateShopProductIds(errors)
+	local seenProducts = {}
+	for tierNumber, tier in pairs(RebirthBalance.Tiers or {}) do
+		if type(tier) == "table" then
+			addProductIdSource(seenProducts, tier.SkipProductId, "RebirthBalance.Tiers[" .. tostring(tierNumber) .. "].SkipProductId", errors)
+		end
+	end
+	for index, item in ipairs(GearShopBalance.All()) do
+		addProductIdSource(seenProducts, item.DevProductId, "GearShopBalance.Items[" .. tostring(index) .. "].DevProductId", errors)
+	end
+	for index, item in ipairs(CosmeticShopBalance.All()) do
+		addProductIdSource(seenProducts, item.DevProductId, "CosmeticShopBalance.Items[" .. tostring(index) .. "].DevProductId", errors)
 	end
 end
 
@@ -1303,7 +1366,7 @@ function AssetValidator.validate()
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
 	validateSeeds(errors)
-	validateCosmetics(errors)
+	validateCosmetics(errors, warnings)
 	validateMisc(errors)
 	validateVfx(errors)
 	validateCrates(errors)
@@ -1311,10 +1374,14 @@ function AssetValidator.validate()
 	validateRollLuckBalance(errors)
 	validateRollDropAreaBalance(errors)
 	validateGearShopBalance(errors)
+	validateCosmeticShopBalance(errors)
+	validateShopProductIds(errors)
+	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
 	validateRebirthUi(warnings)
 	validateGearShopUi(warnings)
+	validateCosmeticShopUi(warnings)
 	validatePlots(errors)
 
 	if #warnings > 0 then

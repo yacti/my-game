@@ -25,6 +25,7 @@ local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
 local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
+local CosmeticShopService = require(Server:WaitForChild("CosmeticShopService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -69,10 +70,12 @@ RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantP
 
 RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
+RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
 		gearShopService = GearShopService,
+		cosmeticShopService = CosmeticShopService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)

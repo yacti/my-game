@@ -6,6 +6,7 @@ local Cosmetics = {}
 Cosmetics.Attributes = {
 	Id = State.Cosmetic.Id,
 	Rarity = State.Cosmetic.Rarity,
+	Description = "Description",
 }
 
 local root
@@ -104,6 +105,15 @@ end
 function Cosmetics.DisplayNameFor(cosmeticId)
 	local template = Cosmetics.GetTemplate(cosmeticId)
 	return template and template.Name or cosmeticId
+end
+
+function Cosmetics.DescriptionFor(cosmeticId)
+	local template = Cosmetics.GetTemplate(cosmeticId)
+	local description = template and template:GetAttribute(Cosmetics.Attributes.Description)
+	if type(description) == "string" then
+		return description
+	end
+	return ""
 end
 
 return Cosmetics
