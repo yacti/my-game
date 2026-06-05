@@ -36,6 +36,12 @@
         "RollDropAreaUpgradeResult": {
           "$className": "RemoteEvent"
         },
+        "GearShopPurchaseRequest": {
+          "$className": "RemoteEvent"
+        },
+        "GearShopPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

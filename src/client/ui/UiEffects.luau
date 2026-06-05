@@ -7,6 +7,7 @@ local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 local UiEffects = {}
 
 local BUTTON_EFFECTS_ATTR = "UiEffectsButtonBound"
+local GENERATED_SCALE_ATTR = "UiEffectsGeneratedScale"
 
 local OPEN_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -32,6 +33,18 @@ end
 
 local function findScale(guiObject)
 	return guiObject:FindFirstChildOfClass("UIScale")
+end
+
+local function ensureScale(guiObject)
+	local scale = findScale(guiObject)
+	if scale then
+		return scale
+	end
+	scale = Instance.new("UIScale")
+	scale.Name = "UiEffectsScale"
+	scale:SetAttribute(GENERATED_SCALE_ATTR, true)
+	scale.Parent = guiObject
+	return scale
 end
 
 local function tween(instance, tweenInfo, props)
@@ -77,7 +90,8 @@ function UiEffects.BindButton(button)
 
 	local colorProp, baseColor = buttonColorTarget(button)
 	local hoverColor = darken(baseColor, 0.72)
-	local uiScale = findScale(button)
+	local uiScale = ensureScale(button)
+	local baseScale = uiScale.Scale
 	local hovering = false
 	local pressing = false
 
@@ -100,7 +114,7 @@ function UiEffects.BindButton(button)
 		pressing = active
 		if uiScale then
 			tween(uiScale, PRESS_TWEEN, {
-				Scale = active and 0.92 or 1,
+				Scale = active and baseScale * 0.92 or baseScale,
 			})
 		end
 	end
@@ -139,6 +153,20 @@ function UiEffects.BindButton(button)
 	RuntimeGuard.Connect(button.Destroying, "UiEffects.ButtonDestroying", function()
 		pressedButtons[button] = nil
 	end)
+end
+
+function UiEffects.BindAllButtons(root)
+	if not root then
+		return
+	end
+	if root:IsA("GuiButton") then
+		UiEffects.BindButton(root)
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("GuiButton") then
+			UiEffects.BindButton(descendant)
+		end
+	end
 end
 
 function UiEffects.SetTextStack(root, text)

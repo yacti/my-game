@@ -28,6 +28,7 @@ local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
+local GearShopService = require(Server:WaitForChild("GearShopService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
@@ -65,9 +66,11 @@ RuntimeGuard.Run("PlotGridService.ResetVacantPlotsToPreviewRows", PlotGridServic
 RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantPlotVisibility)
 
 RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
+RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
+		gearShopService = GearShopService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)

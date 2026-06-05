@@ -8,6 +8,7 @@ local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Food = require(Shared:WaitForChild("Food"))
+local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -641,6 +642,40 @@ local function validateRebirthUi(errors)
 	end
 end
 
+local function validateGearShopUi(errors)
+	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
+	if not ui then return end
+
+	local gearShopGui = child(ui, "GearShop", "ScreenGui", errors)
+	if not gearShopGui then return end
+
+	local panel = child(gearShopGui, "GearShop", "GuiObject", errors)
+	if not panel then return end
+
+	descendant(panel, "CloseButton", "GuiButton", errors)
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local template = holder and child(holder, "Template", "GuiObject", errors)
+	if not template then return end
+
+	descendant(template, "Name", "TextLabel", errors)
+	descendant(template, "Rarity", "TextLabel", errors)
+	descendant(template, "Description", "TextLabel", errors)
+	descendant(template, "ItemIcon", "ViewportFrame", errors)
+	descendant(template, "isLocked", "GuiObject", errors)
+	local buyButtons = descendant(template, "BuyBtns", "GuiObject", errors)
+	if buyButtons then
+		local cashButton = descendant(buyButtons, "CashBtn", "GuiButton", errors)
+		if cashButton then
+			descendant(cashButton, "Price", "TextLabel", errors)
+			descendant(cashButton, "CannotAfford", "ImageLabel", errors)
+		end
+		local robuxButton = descendant(buyButtons, "RobuxBtn", "GuiButton", errors)
+		if robuxButton then
+			descendant(robuxButton, "Price", "TextLabel", errors)
+		end
+	end
+end
+
 local function validateBillboardTemplate(ui, name, labelName, errors)
 	local billboard = child(ui, name, "BillboardGui", errors)
 	if billboard and labelName then
@@ -803,6 +838,19 @@ end
 
 local function validateRollDropAreaBalance(errors)
 	RollDropAreaBalance.Validate(errors)
+end
+
+local function validateGearShopBalance(errors)
+	GearShopBalance.Validate(errors)
+	for index, item in ipairs(GearShopBalance.All()) do
+		local source = "GearShopBalance.Items[" .. tostring(index) .. "]"
+		if item.Kind == GearShopBalance.Kinds.FeedMachine and not FeedMachines.GetTemplate(item.FeedType) then
+			add(errors, source .. " has unknown FeedType " .. tostring(item.FeedType))
+		end
+		if item.Rarity ~= nil and not Rarities.IsValid(item.Rarity) then
+			add(errors, source .. " has invalid Rarity " .. tostring(item.Rarity))
+		end
+	end
 end
 
 local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
@@ -1189,9 +1237,11 @@ function AssetValidator.validate()
 	validateRebirthBalance(errors)
 	validateRollLuckBalance(errors)
 	validateRollDropAreaBalance(errors)
+	validateGearShopBalance(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
 	validateRebirthUi(warnings)
+	validateGearShopUi(warnings)
 	validatePlots(errors)
 
 	if #warnings > 0 then

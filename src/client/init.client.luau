@@ -24,6 +24,7 @@ local CONTROLLERS = {
 	"SatchelController",
 	"LocalPrompts",
 	"HudController",
+	"GearShopController",
 	"YesNoWarning",
 	"FeedEditController",
 	"ShovelController",
