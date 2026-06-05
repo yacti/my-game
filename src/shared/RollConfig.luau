@@ -18,7 +18,7 @@ RollConfig.Crate = {
 
 RollConfig.Reveal = {
 	SeedDefaultScale = 1.02,
-	SeedLiftHeight = 4,
+	SeedLiftHeight = 2,
 	SeedLiftDuration = 0.5,
 	SeedShakeDuration = 0.55,
 	SeedShakeDegrees = 12,
@@ -29,7 +29,7 @@ RollConfig.Reveal = {
 	MiscStartScale = 0.1,
 	MiscDefaultScale = 1,
 	MiscFadeInDuration = 0.25,
-	MiscLiftHeight = 4,
+	MiscLiftHeight = 2,
 	MiscLiftDuration = 0.45,
 	IdleBobHeight = 0.35,
 	IdleBobPeriod = 2,

@@ -3,17 +3,24 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
+local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
+local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 
 local RebirthController = {}
 
 local GENERATED_REWARD_ATTR = "RebirthGeneratedReward"
+local HUD_LEFT_BUTTONS_NAME = "LeftButtons"
+local HUD_REBIRTH_BUTTON_NAME = "RebirthButton"
+local MENU_REBIRTH_FRAME_NAME = "Rebirth"
 local STATE_RETRY_SECONDS = 2
-local TEMPLATE_WAIT_SECONDS = 10
 
 local function findDescendant(root, name, className)
 	if not root then
@@ -31,7 +38,10 @@ local function rewardText(reward)
 	local amount = math.max(math.floor(tonumber(reward.amount) or 0), 0)
 	local prefix = amount > 1 and ("x" .. tostring(amount) .. " ") or ""
 	if reward.kind == "Pet" then
-		return prefix .. tostring(reward.displayName or reward.petId or "Pet")
+		if amount <= 1 then
+			return "+1 Pet Slot"
+		end
+		return "+" .. tostring(amount) .. " Pet Slots"
 	end
 	if reward.kind == "FeedMachine" then
 		return prefix .. tostring(reward.displayName or reward.feedType or "Feed Machine")
@@ -39,18 +49,28 @@ local function rewardText(reward)
 	return prefix .. tostring(reward.displayName or reward.kind or "Reward")
 end
 
-local function cloneTemplate()
-	local uiFolder = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
-	if not uiFolder then
-		warn("[RebirthController] Missing ReplicatedStorage.UI; rebirth UI disabled")
+local function petTemplateFor(petId)
+	local visual = PetCatalog.VisualForPetId(petId)
+	local modelName = visual and visual.ModelName
+	if type(modelName) ~= "string" or modelName == "" then
 		return nil
 	end
 
-	local template = uiFolder:WaitForChild("Rebirth", TEMPLATE_WAIT_SECONDS)
-	if template and template:IsA("ScreenGui") then
-		return template:Clone()
+	local petModels = Assets.Find(Assets.Names.PetModels)
+	local template = petModels and petModels:FindFirstChild(modelName)
+	return template and template:IsA("Model") and template or nil
+end
+
+local function rewardTemplateFor(reward)
+	if type(reward) ~= "table" then
+		return nil
 	end
-	warn("[RebirthController] Missing ReplicatedStorage.UI.Rebirth")
+	if reward.kind == "Pet" then
+		return petTemplateFor(reward.petId)
+	end
+	if reward.kind == "FeedMachine" then
+		return GrowingVisuals.FeedTemplateFor(reward.feedType)
+	end
 	return nil
 end
 
@@ -60,42 +80,47 @@ local function findHudOpenButton(playerGui)
 		warn("[RebirthController] Missing PlayerGui.HUD for rebirth open button")
 		return nil
 	end
-	return findDescendant(hud, "RebirthOpenButton", "GuiButton")
+
+	local leftButtons = hud:FindFirstChild(HUD_LEFT_BUTTONS_NAME)
+	if not (leftButtons and leftButtons:IsA("GuiObject")) then
+		warn("[RebirthController] Missing HUD.LeftButtons for rebirth open button")
+		return nil
+	end
+
+	local button = leftButtons:FindFirstChild(HUD_REBIRTH_BUTTON_NAME)
+	if button and button:IsA("GuiButton") then
+		return button
+	end
+	warn("[RebirthController] Missing HUD.LeftButtons.RebirthButton GuiButton")
+	return nil
 end
 
 function RebirthController.start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 
-	local existing = playerGui:FindFirstChild("Rebirth")
-	if existing then
-		existing:Destroy()
-	end
-
-	local rebirthGui = cloneTemplate()
-	if not rebirthGui then
+	local rebirthFrame = MenuGui.GetFrame(MENU_REBIRTH_FRAME_NAME, "RebirthController")
+	if not rebirthFrame then
 		return
 	end
-	rebirthGui.Parent = playerGui
-	rebirthGui.Enabled = true
 
-	local panel = findDescendant(rebirthGui, "Panel", "GuiObject")
-	local closeButton = findDescendant(rebirthGui, "CloseButton", "GuiButton")
+	local panel = findDescendant(rebirthFrame, "Panel", "GuiObject")
+	local closeButton = findDescendant(rebirthFrame, "CloseButton", "GuiButton")
 	local openButton = findHudOpenButton(playerGui)
-		or findDescendant(rebirthGui, "OpenButton", "GuiButton")
-		or findDescendant(rebirthGui, "RebirthOpenButton", "GuiButton")
-	local rebirthButton = findDescendant(rebirthGui, "RebirthButton", "GuiButton")
-	local skipButton = findDescendant(rebirthGui, "SkipButton", "GuiButton")
-	local tierLabel = findDescendant(rebirthGui, "TierLabel", "TextLabel")
-	local priceLabel = findDescendant(rebirthGui, "PriceLabel", "TextLabel")
-	local cashLabel = findDescendant(rebirthGui, "CashLabel", "TextLabel")
-	local progressBar = findDescendant(rebirthGui, "ProgressBar", "GuiObject")
-	local progressFill = progressBar and findDescendant(progressBar, "Fill", "GuiObject") or findDescendant(rebirthGui, "Fill", "GuiObject")
-	local rewardList = findDescendant(rebirthGui, "RewardList", "GuiObject")
+	local rebirthButton = findDescendant(rebirthFrame, "RebirthButton", "GuiButton")
+	local rebirthCannotAfford = rebirthButton and findDescendant(rebirthButton, "CannotAfford", "GuiObject")
+	local skipButton = findDescendant(rebirthFrame, "SkipButton", "GuiButton")
+	local tierLabel = findDescendant(rebirthFrame, "TierLabel", "TextLabel")
+	local cashLabel = findDescendant(rebirthFrame, "CashLabel", "TextLabel")
+	local progressBar = findDescendant(rebirthFrame, "ProgressBar", "GuiObject")
+	local progressFill = progressBar and findDescendant(progressBar, "Fill", "GuiObject") or findDescendant(rebirthFrame, "Fill", "GuiObject")
+	local rewardList = findDescendant(rebirthFrame, "RewardList", "GuiObject")
 	local rewardTemplate = rewardList and findDescendant(rewardList, "RewardTemplate", "GuiObject")
-	local errorLabel = findDescendant(rebirthGui, "ErrorLabel", "TextLabel")
+	local petHolderTemplate = rewardList and findDescendant(rewardList, "PetHolder", "GuiObject")
+	local petViewportTemplate = petHolderTemplate and findDescendant(petHolderTemplate, "PetIcon", "ViewportFrame")
+	local errorLabel = findDescendant(rebirthFrame, "ErrorLabel", "TextLabel")
 
-	if not (panel and closeButton and rebirthButton and skipButton and tierLabel and priceLabel and cashLabel and progressFill and rewardList and rewardTemplate) then
+	if not (panel and closeButton and rebirthButton and skipButton and tierLabel and cashLabel and progressFill and rewardList and rewardTemplate and petHolderTemplate and petViewportTemplate) then
 		warn("[RebirthController] Rebirth UI is missing required named instances")
 		return
 	end
@@ -107,7 +132,8 @@ function RebirthController.start()
 		UiEffects.BindButton(openButton)
 	end
 	rewardTemplate.Visible = false
-	rebirthGui.Enabled = false
+	petHolderTemplate.Visible = false
+	rebirthFrame.Visible = false
 	local panelState = UiEffects.PreparePanel(panel)
 
 	local RebirthRequest = Remotes.get(Remotes.Names.RebirthRequest)
@@ -122,6 +148,7 @@ function RebirthController.start()
 	local lastStateRequest = 0
 	local isOpen = false
 	local transitionToken = 0
+	local renderedRewardsSignature = nil
 	local render
 
 	local function setError(text)
@@ -169,7 +196,66 @@ function RebirthController.start()
 		end
 	end
 
+	local function rewardsSignature(rewards)
+		local parts = {}
+		for index, reward in ipairs(type(rewards) == "table" and rewards or {}) do
+			parts[index] = table.concat({
+				tostring(reward.kind),
+				tostring(reward.petId),
+				tostring(reward.feedType),
+				tostring(reward.amount),
+				tostring(reward.displayName),
+			}, "\31")
+		end
+		return table.concat(parts, "\30")
+	end
+
+	local function rewardViewportOptions(reward)
+		if type(reward) == "table" and reward.kind == "Pet" then
+			return {
+				targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
+				zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
+			}
+		end
+		return nil
+	end
+
+	local function renderRewardViewport(row, template, options)
+		if not template then
+			return
+		end
+
+		local itemIcon = findDescendant(row, "ItemIcon", "GuiObject")
+		local viewport = petViewportTemplate:Clone()
+		viewport.Name = "ItemViewport"
+		if itemIcon then
+			viewport.AnchorPoint = itemIcon.AnchorPoint
+			viewport.Position = itemIcon.Position
+			viewport.Size = itemIcon.Size
+			viewport.LayoutOrder = itemIcon.LayoutOrder
+			viewport.ZIndex = itemIcon.ZIndex
+			viewport.Parent = itemIcon.Parent
+		else
+			viewport.Parent = row
+		end
+		viewport.Visible = true
+
+		if ViewportPreview.Render(viewport, template, options) then
+			if itemIcon then
+				itemIcon.Visible = false
+			end
+		else
+			viewport:Destroy()
+		end
+	end
+
 	local function renderRewards(rewards)
+		local signature = rewardsSignature(rewards)
+		if signature == renderedRewardsSignature then
+			return
+		end
+		renderedRewardsSignature = signature
+
 		clearGeneratedRewards()
 		for index, reward in ipairs(type(rewards) == "table" and rewards or {}) do
 			local row = rewardTemplate:Clone()
@@ -178,6 +264,7 @@ function RebirthController.start()
 			row.Visible = true
 			row:SetAttribute(GENERATED_REWARD_ATTR, true)
 			UiEffects.SetTextStack(row, rewardText(reward))
+			renderRewardViewport(row, rewardTemplateFor(reward), rewardViewportOptions(reward))
 			row.Parent = rewardList
 		end
 	end
@@ -190,10 +277,12 @@ function RebirthController.start()
 
 		if state.maxTier == true then
 			UiEffects.SetTextStack(tierLabel, "Max Rebirth")
-			UiEffects.SetTextStack(priceLabel, "Max")
 			UiEffects.SetTextStack(cashLabel, UiEffects.FormatCurrency(currentCurrency))
 			setProgress(1)
 			UiEffects.SetButtonEnabled(rebirthButton, false)
+			if rebirthCannotAfford then
+				rebirthCannotAfford.Visible = false
+			end
 			UiEffects.SetButtonEnabled(skipButton, false)
 			renderRewards({})
 			return
@@ -201,45 +290,64 @@ function RebirthController.start()
 
 		local nextTier = tonumber(state.nextTier) or 0
 		UiEffects.SetTextStack(tierLabel, "Rebirth " .. tostring(nextTier))
-		UiEffects.SetTextStack(priceLabel, UiEffects.FormatCurrency(nextPrice))
 		UiEffects.SetTextStack(cashLabel, UiEffects.FormatCurrency(currentCurrency) .. " / " .. UiEffects.FormatCurrency(nextPrice))
 		setProgress(nextPrice > 0 and currentCurrency / nextPrice or 0)
 
-		local canRebirth = state.profileReady == true and nextPrice > 0 and currentCurrency >= nextPrice and not pendingRequest
-		UiEffects.SetButtonEnabled(rebirthButton, canRebirth)
+		local readyToAttemptRebirth = state.profileReady == true and nextPrice > 0 and not pendingRequest
+		UiEffects.SetButtonEnabled(rebirthButton, readyToAttemptRebirth)
+		if rebirthCannotAfford then
+			rebirthCannotAfford.Visible = readyToAttemptRebirth and currentCurrency < nextPrice
+		end
 		UiEffects.SetButtonEnabled(skipButton, state.profileReady == true and type(skipProductId) == "number" and skipProductId > 0 and not pendingRequest)
 		renderRewards(state.rewards)
 	end
 
-	local function openPanel()
+	local function showPanel()
 		if isOpen then
 			requestState()
 			return
 		end
 		isOpen = true
 		transitionToken += 1
-		rebirthGui.Enabled = true
+		rebirthFrame.Visible = true
 		UiEffects.PlayOpen(panel, panelState)
 		requestState()
 	end
 
-	local function closePanel()
-		if not isOpen then
+	local function hidePanel(switching)
+		if not isOpen and not rebirthFrame.Visible then
 			return
 		end
 		isOpen = false
 		transitionToken += 1
 		local token = transitionToken
+		if switching then
+			panel.Visible = false
+			panel.Position = panelState.closedPosition
+			panel.Size = panelState.closedSize
+			rebirthFrame.Visible = false
+			return
+		end
 		UiEffects.PlayClose(panel, panelState, function()
 			if transitionToken == token and not isOpen then
-				rebirthGui.Enabled = false
+				rebirthFrame.Visible = false
 			end
 		end)
 	end
 
-	RuntimeGuard.Connect(closeButton.Activated, "RebirthController.CloseActivated", closePanel)
+	MenuGui.RegisterPanel(MENU_REBIRTH_FRAME_NAME, {
+		open = showPanel,
+		close = hidePanel,
+		refresh = requestState,
+	})
+
+	RuntimeGuard.Connect(closeButton.Activated, "RebirthController.CloseActivated", function()
+		MenuGui.ClosePanel(MENU_REBIRTH_FRAME_NAME)
+	end)
 	if openButton then
-		RuntimeGuard.Connect(openButton.Activated, "RebirthController.OpenActivated", openPanel)
+		RuntimeGuard.Connect(openButton.Activated, "RebirthController.ToggleActivated", function()
+			MenuGui.TogglePanel(MENU_REBIRTH_FRAME_NAME)
+		end)
 	end
 
 	RuntimeGuard.Connect(rebirthButton.Activated, "RebirthController.RebirthActivated", function()
@@ -301,7 +409,7 @@ function RebirthController.start()
 	end)
 
 	RuntimeGuard.Spawn("RebirthController.StateRetryLoop", function()
-		while rebirthGui.Parent do
+		while rebirthFrame.Parent do
 			task.wait(STATE_RETRY_SECONDS)
 			if isOpen and os.clock() - lastStateRequest >= STATE_RETRY_SECONDS then
 				RuntimeGuard.Run("RebirthController.StateRetryRequest", requestState)

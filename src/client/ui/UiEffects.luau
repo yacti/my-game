@@ -7,12 +7,15 @@ local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 local UiEffects = {}
 
 local BUTTON_EFFECTS_ATTR = "UiEffectsButtonBound"
+local BILLBOARD_POP_ATTR = "UiEffectsBillboardPopBound"
 local GENERATED_SCALE_ATTR = "UiEffectsGeneratedScale"
 
 local OPEN_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local HOVER_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PRESS_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local BILLBOARD_POP_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local BILLBOARD_POP_START_SCALE = 0.18
 
 local function darken(color, amount)
 	return Color3.new(
@@ -61,6 +64,8 @@ local function buttonColorTarget(button)
 end
 
 local pressedButtons = setmetatable({}, { __mode = "k" })
+local billboardBaseSizes = setmetatable({}, { __mode = "k" })
+local billboardPopTokens = setmetatable({}, { __mode = "k" })
 local inputEndedConnection = nil
 
 local function ensureInputEndedConnection()
@@ -166,6 +171,60 @@ function UiEffects.BindAllButtons(root)
 		if descendant:IsA("GuiButton") then
 			UiEffects.BindButton(descendant)
 		end
+	end
+end
+
+function UiEffects.PlayBillboardPop(billboard)
+	if not (billboard and billboard:IsA("BillboardGui")) then
+		return nil
+	end
+
+	local baseSize = billboardBaseSizes[billboard] or billboard.Size
+	billboardBaseSizes[billboard] = baseSize
+
+	local token = (billboardPopTokens[billboard] or 0) + 1
+	billboardPopTokens[billboard] = token
+
+	billboard.Size = scaleUDim2(baseSize, BILLBOARD_POP_START_SCALE)
+	local popTween = tween(billboard, BILLBOARD_POP_TWEEN, {
+		Size = baseSize,
+	})
+	RuntimeGuard.Connect(popTween.Completed, "UiEffects.BillboardPopCompleted", function()
+		if billboardPopTokens[billboard] ~= token then
+			return
+		end
+		if billboard.Parent then
+			billboard.Size = baseSize
+		end
+	end)
+	return popTween
+end
+
+function UiEffects.BindBillboardPop(billboard)
+	if not (billboard and billboard:IsA("BillboardGui")) then
+		return
+	end
+	if billboard:GetAttribute(BILLBOARD_POP_ATTR) == true then
+		return
+	end
+	billboard:SetAttribute(BILLBOARD_POP_ATTR, true)
+
+	RuntimeGuard.Connect(billboard:GetPropertyChangedSignal("Enabled"), "UiEffects.BillboardEnabled", function()
+		if billboard.Enabled then
+			UiEffects.PlayBillboardPop(billboard)
+		end
+	end)
+	RuntimeGuard.Connect(billboard.Destroying, "UiEffects.BillboardDestroying", function()
+		billboardBaseSizes[billboard] = nil
+		billboardPopTokens[billboard] = nil
+	end)
+
+	if billboard.Enabled then
+		task.defer(function()
+			if billboard.Parent and billboard.Enabled then
+				UiEffects.PlayBillboardPop(billboard)
+			end
+		end)
 	end
 end
 

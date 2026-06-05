@@ -6,7 +6,9 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
+local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local GrowingSeedBillboards = {}
 
@@ -28,11 +30,10 @@ local function getTemplate()
 		return template ~= false and template or nil
 	end
 
-	local uiFolder = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
-	local found = uiFolder and uiFolder:WaitForChild(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
+	local found = BillboardGuiTemplates.WaitFor(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
 	if not (found and found:IsA("BillboardGui")) then
 		if not warnedTemplate then
-			warn("[GrowingSeedBillboards] Missing ReplicatedStorage.UI.GrowingSeedBillboard BillboardGui")
+			warn("[GrowingSeedBillboards] Missing " .. BillboardGuiTemplates.Path(TEMPLATE_NAME) .. " BillboardGui")
 			warnedTemplate = true
 		end
 		template = false
@@ -126,6 +127,7 @@ local function attach(instance)
 	end
 
 	local gui = baseTemplate:Clone()
+	UiEffects.BindBillboardPop(gui)
 	gui.Adornee = adornee
 	gui.Parent = adornee
 	tracked[instance] = gui

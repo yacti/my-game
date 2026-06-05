@@ -1,6 +1,6 @@
 -- Feed/seed placement preview. Players equip an inventory tool, click an
 -- unlocked grid cell, then confirm or adjust through the Studio-authored
--- ReplicatedStorage.UI.PlacementEdit billboard.
+-- ReplicatedStorage.UI.BillboardGUIs.PlacementEdit billboard.
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -16,9 +16,11 @@ local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State   = require(Shared:WaitForChild("State"))
+local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
@@ -227,14 +229,14 @@ function FeedPlacement.start()
 	local PlaceCosmeticResult = Remotes.get(Remotes.Names.PlaceCosmeticResult)
 	local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 	local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
-	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
-	local placementEditTemplate = uiFolder and uiFolder:FindFirstChild("PlacementEdit")
+	local placementEditTemplate = BillboardGuiTemplates.Find("PlacementEdit")
 	if not (placementEditTemplate and placementEditTemplate:IsA("BillboardGui")) then
-		warn("[FeedPlacement] Missing ReplicatedStorage.UI.PlacementEdit BillboardGui")
+		warn("[FeedPlacement] Missing " .. BillboardGuiTemplates.Path("PlacementEdit") .. " BillboardGui")
 		return
 	end
 
 	local placementEdit = placementEditTemplate:Clone()
+	UiEffects.BindBillboardPop(placementEdit)
 	placementEdit.Enabled = false
 	placementEdit.Parent = PlayerGui
 

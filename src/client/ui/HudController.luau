@@ -5,16 +5,21 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local HudController = {}
+local LEFT_BUTTONS_NAME = "LeftButtons"
 
 local function findCurrencyLabel(gui)
 	local currency = gui:FindFirstChild("Currency")
-	local amount = currency and currency:FindFirstChild("Amount")
-	if amount and amount:IsA("TextLabel") then return amount end
-	local named = gui:FindFirstChild("CurrencyLabel", true)
-	if named and named:IsA("TextLabel") then return named end
-	warn("[HudController] HUD missing Currency.Amount or CurrencyLabel TextLabel")
+	if not (currency and currency:IsA("GuiObject")) then
+		warn("[HudController] HUD missing Currency GuiObject")
+		return nil
+	end
+
+	local label = currency:FindFirstChild("CurrencyLabel")
+	if label and label:IsA("TextLabel") then return label end
+	warn("[HudController] HUD missing Currency.CurrencyLabel TextLabel")
 	return nil
 end
 
@@ -33,6 +38,13 @@ function HudController.start()
 	local gui = cloneTemplate()
 	if not gui then return end
 	gui.Parent = PlayerGui
+
+	local leftButtons = gui:FindFirstChild(LEFT_BUTTONS_NAME)
+	if leftButtons and leftButtons:IsA("GuiObject") then
+		UiEffects.BindAllButtons(leftButtons)
+	else
+		warn("[HudController] HUD missing LeftButtons GuiObject")
+	end
 
 	local label = findCurrencyLabel(gui)
 

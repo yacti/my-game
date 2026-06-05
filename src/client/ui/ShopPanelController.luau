@@ -7,13 +7,14 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
+local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 
 local ShopPanelController = {}
 
-local TEMPLATE_WAIT_SECONDS = 10
+local SHOP_MENU_GROUP = "Shop"
 local PROXIMITY_SECONDS = 0.1
 local productPriceById = {}
 
@@ -50,24 +51,6 @@ local function nearShop(player, shopPartName)
 	return math.abs(localPosition.X) <= half.X
 		and math.abs(localPosition.Y) <= half.Y
 		and math.abs(localPosition.Z) <= half.Z
-end
-
-local function cloneGui(playerGui, uiName, debugName)
-	local ui = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
-	local template = ui and ui:WaitForChild(uiName, TEMPLATE_WAIT_SECONDS)
-	if not (template and template:IsA("ScreenGui")) then
-		warn(string.format("[%s] Missing ReplicatedStorage.UI.%s", debugName, uiName))
-		return nil
-	end
-
-	local existing = playerGui:FindFirstChild(uiName)
-	if existing then
-		existing:Destroy()
-	end
-
-	local clone = template:Clone()
-	clone.Parent = playerGui
-	return clone
 end
 
 local function robuxText(productId, debugName, onLoaded)
@@ -119,6 +102,7 @@ function ShopPanelController.Start(config)
 	local panelName = tostring(config.panelName or uiName)
 	local shopPartName = tostring(config.shopPartName or uiName)
 	local itemPrefix = tostring(config.itemPrefix or uiName .. "Item")
+	local menuGroup = tostring(config.menuGroup or SHOP_MENU_GROUP)
 	config.debugName = debugName
 	if uiName == "" or panelName == "" or shopPartName == "" then
 		warn("[" .. debugName .. "] Missing required shop config")
@@ -131,17 +115,15 @@ function ShopPanelController.Start(config)
 	end
 
 	local player = Players.LocalPlayer
-	local playerGui = player:WaitForChild("PlayerGui")
-	local gui = cloneGui(playerGui, uiName, debugName)
-	if not gui then return end
-
-	local panel = gui:FindFirstChild(panelName)
+	local panel = MenuGui.GetFrame(panelName, debugName)
+	if not panel then return end
+	local gui = panel:FindFirstAncestorOfClass("ScreenGui")
 	local closeButton = panel and findDescendant(panel, "CloseButton", "GuiButton")
 	local holder = panel and findDescendant(panel, "SFHolder", "ScrollingFrame")
 	local template = holder and holder:FindFirstChild("Template")
 	if not (panel and panel:IsA("GuiObject") and closeButton and holder and template and template:IsA("GuiObject")) then
 		warn("[" .. debugName .. "] Shop UI missing required instances")
-		gui.Enabled = false
+		panel.Visible = false
 		return
 	end
 
@@ -149,7 +131,7 @@ function ShopPanelController.Start(config)
 	local purchaseResult = config.purchaseResult
 	if not (purchaseRequest and purchaseResult) then
 		warn("[" .. debugName .. "] Missing purchase remotes")
-		gui.Enabled = false
+		panel.Visible = false
 		return
 	end
 
@@ -187,7 +169,7 @@ function ShopPanelController.Start(config)
 			local price = int(valueFrom(config, "getPrice", item, 0), 0)
 			local locked = current.rebirths < requiredRebirths
 			local affordable = current.currency >= price
-			local cashEnabled = current.ready and not locked and affordable and pendingRequestId == nil
+			local cashEnabled = current.ready and not locked and pendingRequestId == nil
 			local robuxProductId = int(valueFrom(config, "getDevProductId", item, 0), 0)
 
 			UiEffects.SetTextStack(row.nameLabel, tostring(valueFrom(config, "getDisplayName", item, itemId or "Item")))
@@ -216,25 +198,41 @@ function ShopPanelController.Start(config)
 		end
 	end
 
-	local function openPanel()
-		if open or manuallyClosed then return end
+	local function showPanel()
+		if open then
+			render()
+			return
+		end
 		open = true
 		transitionToken += 1
 		render()
 		UiEffects.PlayOpen(panel, panelState)
 	end
 
-	local function closePanel()
-		if not open then return end
+	local function hidePanel(switching)
+		if not open and not panel.Visible then return end
 		open = false
 		transitionToken += 1
 		local token = transitionToken
+		if switching then
+			panel.Visible = false
+			panel.Position = panelState.closedPosition
+			panel.Size = panelState.closedSize
+			return
+		end
 		UiEffects.PlayClose(panel, panelState, function()
 			if token == transitionToken and not open then
 				panel.Visible = false
 			end
 		end)
 	end
+
+	MenuGui.RegisterPanel(panelName, {
+		group = menuGroup,
+		open = showPanel,
+		close = hidePanel,
+		refresh = render,
+	})
 
 	for index, item in ipairs(items) do
 		local itemId = valueFrom(config, "getItemId", item, index)
@@ -292,7 +290,7 @@ function ShopPanelController.Start(config)
 
 	RuntimeGuard.Connect(closeButton.Activated, debugName .. ".Close", function()
 		manuallyClosed = true
-		closePanel()
+		MenuGui.ClosePanel(panelName)
 	end)
 	RuntimeGuard.Connect(purchaseResult.OnClientEvent, debugName .. ".Result", function(payload)
 		if type(payload) == "table" and payload.requestId == pendingRequestId then
@@ -305,12 +303,18 @@ function ShopPanelController.Start(config)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, render)
 
 	RuntimeGuard.Spawn(debugName .. ".Proximity", function()
-		while gui.Parent do
+		while gui and gui.Parent do
 			if nearShop(player, shopPartName) then
-				openPanel()
+				local activePanel = MenuGui.ActivePanel()
+				if not manuallyClosed
+					and (activePanel == nil or activePanel == panelName or MenuGui.ActivePanelGroup() == menuGroup) then
+					MenuGui.OpenPanel(panelName)
+				end
 			else
 				manuallyClosed = false
-				closePanel()
+				if MenuGui.IsOpen(panelName) then
+					MenuGui.ClosePanel(panelName)
+				end
 			end
 			task.wait(PROXIMITY_SECONDS)
 		end

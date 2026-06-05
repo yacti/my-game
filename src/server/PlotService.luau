@@ -5,6 +5,7 @@ local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
+local PetNicknames = require(ReplicatedStorage.Shared:WaitForChild("PetNicknames"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
@@ -16,6 +17,7 @@ local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local ROLL_AREA_NAME = "RollArea"
+local petNicknameRandom = Random.new()
 
 local ROLL_AREA_VISIBILITY_OPTIONS = {
 	RuntimeHiddenAsVisible = true,
@@ -303,6 +305,7 @@ end
 local function applyPetIdAttributes(pet, definition)
 	local templatePetId = pet:GetAttribute(State.Pet.Id)
 	local useTemplateProgression = templatePetId == definition.Id
+	local nickname = PetNicknames.Pick(petNicknameRandom)
 
 	pet:SetAttribute(State.Pet.Id, definition.Id)
 	pet:SetAttribute(State.Pet.Order, useTemplateProgression
@@ -315,6 +318,8 @@ local function applyPetIdAttributes(pet, definition)
 		and numberAttributeOrDefault(pet, State.Pet.WalkSpeed, definition.WalkSpeed)
 		or definition.WalkSpeed)
 	pet:SetAttribute(State.Pet.MoneyRate, numberAttributeOrDefault(pet, State.Pet.MoneyRate, 1))
+	pet:SetAttribute(State.Pet.Nickname, nickname)
+	pet:SetAttribute(State.Pet.NicknameColor, PetNicknames.ColorFor(nickname))
 end
 
 local function modelPivotFloorOffset(model)

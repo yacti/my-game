@@ -20,42 +20,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
+local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local RANGE = 10
-local SLOT_XP_TEMPLATE_NAME = "SlotXPBillboard"
-local XP_LABEL_NAME = "XPLabel"
 
 local player    = Players.LocalPlayer
 local tracked   = {}  -- [food] = gui
 
 local SlotXPBillboard = {}
-local warnedMissingTemplate = false
-local warnedMissingLabel = false
-
-local function cloneTemplate()
-	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
-	local template = uiFolder and uiFolder:FindFirstChild(SLOT_XP_TEMPLATE_NAME)
-	if not (template and template:IsA("BillboardGui")) then
-		if not warnedMissingTemplate then
-			warn("[SlotXPBillboard] Missing ReplicatedStorage.UI.SlotXPBillboard BillboardGui")
-			warnedMissingTemplate = true
-		end
-		return nil
-	end
-	return template:Clone()
-end
-
-local function findXPLabel(gui)
-	local label = gui:FindFirstChild(XP_LABEL_NAME, true)
-	if label and label:IsA("TextLabel") then
-		return label
-	end
-	if not warnedMissingLabel then
-		warn("[SlotXPBillboard] SlotXPBillboard missing XPLabel TextLabel")
-		warnedMissingLabel = true
-	end
-	return nil
-end
 
 local function isSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -89,13 +61,8 @@ local function build(food)
 	local adornee = adorneeFor(food)
 	if not adornee then return end
 
-	local gui = cloneTemplate()
+	local gui, label = XPBillboardTemplate.Clone("SlotXPBillboard")
 	if not gui then return end
-	local label = findXPLabel(gui)
-	if not label then
-		gui:Destroy()
-		return
-	end
 
 	gui.Name = "XPBillboard"
 	gui.Adornee = adornee

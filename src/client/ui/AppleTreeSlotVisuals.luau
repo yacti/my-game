@@ -13,6 +13,7 @@ local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
+local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local AppleTreeSlotVisuals = {}
 
@@ -24,17 +25,13 @@ local SHAKE_DURATION     = 0.25
 local SHAKE_ANGLE        = math.rad(5)
 local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
-local GROUND_XP_TEMPLATE_NAME = "TreeGroundXPBillboard"
 local GROUND_FOOD_RESCAN_DELAYS = { 0.25, 1, 3 }
-local XP_LABEL_NAME      = "XPLabel"
 
 local animated = {}
 local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
 local shakeIds = {}
-local warnedMissingGroundXPTemplate = false
-local warnedMissingGroundXPLabel = false
 
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
@@ -163,31 +160,6 @@ local function adorneeFor(food)
 	return nil
 end
 
-local function cloneGroundXPTemplate()
-	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
-	local template = uiFolder and uiFolder:FindFirstChild(GROUND_XP_TEMPLATE_NAME)
-	if not (template and template:IsA("BillboardGui")) then
-		if not warnedMissingGroundXPTemplate then
-			warn("[AppleTreeSlotVisuals] Missing ReplicatedStorage.UI.TreeGroundXPBillboard BillboardGui")
-			warnedMissingGroundXPTemplate = true
-		end
-		return nil
-	end
-	return template:Clone()
-end
-
-local function findXPLabel(gui)
-	local label = gui:FindFirstChild(XP_LABEL_NAME, true)
-	if label and label:IsA("TextLabel") then
-		return label
-	end
-	if not warnedMissingGroundXPLabel then
-		warn("[AppleTreeSlotVisuals] TreeGroundXPBillboard missing XPLabel TextLabel")
-		warnedMissingGroundXPLabel = true
-	end
-	return nil
-end
-
 local function roundedXP(value)
 	return math.floor((tonumber(value) or 0) + 0.5)
 end
@@ -270,13 +242,8 @@ local function attachXPBillboard(food)
 	local adornee = adorneeFor(food)
 	if not adornee then return false end
 
-	local gui = cloneGroundXPTemplate()
+	local gui, label = XPBillboardTemplate.Clone("AppleTreeSlotVisuals")
 	if not gui then return false end
-	local label = findXPLabel(gui)
-	if not label then
-		gui:Destroy()
-		return false
-	end
 	gui.Name = "XPBillboard"
 	gui.Adornee = adornee
 	gui.MaxDistance = BILLBOARD_RANGE

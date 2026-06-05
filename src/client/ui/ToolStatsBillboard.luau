@@ -13,38 +13,9 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local ToolStatsBillboard = {}
-
-local TOOL_STATS_TEMPLATE_NAME = "ToolStatsBillboard"
-local STATS_LABEL_NAME = "StatsLabel"
-local warnedMissingTemplate = false
-local warnedMissingLabel = false
-
-local function cloneTemplate()
-	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
-	local template = uiFolder and uiFolder:FindFirstChild(TOOL_STATS_TEMPLATE_NAME)
-	if not (template and template:IsA("BillboardGui")) then
-		if not warnedMissingTemplate then
-			warn("[ToolStatsBillboard] Missing ReplicatedStorage.UI.ToolStatsBillboard BillboardGui")
-			warnedMissingTemplate = true
-		end
-		return nil
-	end
-	return template:Clone()
-end
-
-local function findStatsLabel(gui)
-	local label = gui:FindFirstChild(STATS_LABEL_NAME, true)
-	if label and label:IsA("TextLabel") then
-		return label
-	end
-	if not warnedMissingLabel then
-		warn("[ToolStatsBillboard] ToolStatsBillboard missing StatsLabel TextLabel")
-		warnedMissingLabel = true
-	end
-	return nil
-end
 
 local function isFoodTool(obj)
 	return obj:IsA("Tool")
@@ -56,13 +27,8 @@ local function build(tool)
 	if not handle then return end
 	if handle:FindFirstChild("Stats") then return end
 
-	local gui = cloneTemplate()
+	local gui, label = XPBillboardTemplate.Clone("ToolStatsBillboard")
 	if not gui then return end
-	local label = findStatsLabel(gui)
-	if not label then
-		gui:Destroy()
-		return
-	end
 
 	gui.Name = "Stats"
 	gui.Adornee = handle

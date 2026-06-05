@@ -1,7 +1,8 @@
 local Notifications = {}
 
 Notifications.MaxVisible = 5
-Notifications.DefaultLifetimeSeconds = 10
+Notifications.MaxLifetimeSeconds = 5
+Notifications.DefaultLifetimeSeconds = Notifications.MaxLifetimeSeconds
 
 Notifications.Kinds = {
 	Info = "info",
@@ -30,7 +31,7 @@ local function normalizeLifetime(lifetime)
 	if type(lifetime) ~= "number" or lifetime <= 0 or lifetime ~= lifetime or lifetime == math.huge then
 		return Notifications.DefaultLifetimeSeconds
 	end
-	return math.clamp(lifetime, 1, 30)
+	return math.clamp(lifetime, 1, Notifications.MaxLifetimeSeconds)
 end
 
 function Notifications.Normalize(payload)

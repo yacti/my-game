@@ -3,7 +3,10 @@ local RunService = game:GetService("RunService")
 local ViewportPreview = {}
 
 local PREVIEW_SCALE = 1.25
+local PET_TARGET_MAX_DIMENSION = 5
+local PET_VIEWPORT_ZOOM = 2.2
 local ROTATION_SECONDS = 12
+local TAU = math.pi * 2
 local rotationConnections = setmetatable({}, { __mode = "k" })
 
 local function disconnect(viewport)
@@ -33,9 +36,37 @@ local function anchor(instance)
 	end
 end
 
-local function scalePreview(instance)
+local function boundsSize(instance)
 	if instance:IsA("Model") then
-		instance:ScaleTo(PREVIEW_SCALE)
+		local _, size = instance:GetBoundingBox()
+		return size
+	elseif instance:IsA("BasePart") then
+		return instance.Size
+	end
+	return Vector3.new(0, 0, 0)
+end
+
+local function maxDimension(size)
+	return math.max(size.X, size.Y, size.Z)
+end
+
+local function scalePreview(instance, targetMaxDimension)
+	local target = tonumber(targetMaxDimension)
+	if type(target) == "number" and target > 0 then
+		local currentMax = maxDimension(boundsSize(instance))
+		if currentMax > 0 then
+			local factor = target / currentMax
+			if instance:IsA("Model") then
+				instance:ScaleTo(instance:GetScale() * factor)
+			elseif instance:IsA("BasePart") then
+				instance.Size *= factor
+			end
+		end
+		return
+	end
+
+	if instance:IsA("Model") then
+		instance:ScaleTo(instance:GetScale() * PREVIEW_SCALE)
 	elseif instance:IsA("BasePart") then
 		instance.Size *= PREVIEW_SCALE
 	end
@@ -49,20 +80,55 @@ local function pivotPreview(instance, cframe)
 	end
 end
 
+local function centerAtOrigin(instance)
+	if instance:IsA("Model") then
+		local boundsCF, boundsSize = instance:GetBoundingBox()
+		local centerOffset = -boundsCF.Position
+		instance:PivotTo(instance:GetPivot() + centerOffset)
+		return boundsSize
+	elseif instance:IsA("BasePart") then
+		instance.CFrame = CFrame.new()
+		return instance.Size
+	end
+	return Vector3.new(4, 4, 4)
+end
+
+local function makeRotationRig(world, clone)
+	local rig = Instance.new("Model")
+	rig.Name = "ViewportRig"
+	rig.Parent = world
+
+	local center = Instance.new("Part")
+	center.Name = "ViewportCenter"
+	center.Anchored = true
+	center.CanCollide = false
+	center.CanQuery = false
+	center.CanTouch = false
+	center.Transparency = 1
+	center.Size = Vector3.new(0.05, 0.05, 0.05)
+	center.CFrame = CFrame.new()
+	center.Parent = rig
+	rig.PrimaryPart = center
+
+	clone.Parent = rig
+	rig:PivotTo(CFrame.new())
+	return rig
+end
+
 local function startRotation(viewport, instance)
-	local startedAt = os.clock()
-	rotationConnections[viewport] = RunService.RenderStepped:Connect(function()
+	local angle = 0
+	rotationConnections[viewport] = RunService.RenderStepped:Connect(function(deltaTime)
 		if not (viewport.Parent and instance.Parent) then
 			disconnect(viewport)
 			return
 		end
 
-		local alpha = ((os.clock() - startedAt) / ROTATION_SECONDS) % 1
-		pivotPreview(instance, CFrame.Angles(0, alpha * math.pi * 2, 0))
+		angle = (angle + (tonumber(deltaTime) or 0) * TAU / ROTATION_SECONDS) % TAU
+		pivotPreview(instance, CFrame.Angles(0, angle, 0))
 	end)
 end
 
-function ViewportPreview.Render(viewport, template)
+function ViewportPreview.Render(viewport, template, options)
 	if not (viewport and viewport:IsA("ViewportFrame")) then
 		return false
 	end
@@ -76,29 +142,27 @@ function ViewportPreview.Render(viewport, template)
 
 	local clone = template:Clone()
 	anchor(clone)
-	scalePreview(clone)
+	options = type(options) == "table" and options or {}
+	scalePreview(clone, options.targetMaxDimension)
 	clone.Parent = world
-
-	local size = Vector3.new(4, 4, 4)
-	if clone:IsA("Model") then
-		local _, bounds = clone:GetBoundingBox()
-		size = bounds
-	elseif clone:IsA("BasePart") then
-		size = clone.Size
-	end
-	pivotPreview(clone, CFrame.new())
+	local size = centerAtOrigin(clone)
+	local rig = makeRotationRig(world, clone)
 
 	local camera = Instance.new("Camera")
 	local radius = math.max(size.X, size.Y, size.Z, 1)
-	local distance = radius * 1.25 + 2.5
+	local zoom = math.max(tonumber(options.zoom) or 1, 0.01)
+	local distance = (radius * 1.25 + 2.5) / zoom
 	camera.CFrame = CFrame.new(Vector3.new(distance, distance * 0.45, distance), Vector3.new())
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
 	viewport.Ambient = Color3.fromRGB(180, 180, 180)
 	viewport.LightColor = Color3.fromRGB(255, 255, 255)
 	viewport.LightDirection = Vector3.new(-0.4, -1, -0.35)
-	startRotation(viewport, clone)
+	startRotation(viewport, rig)
 	return true
 end
+
+ViewportPreview.PET_TARGET_MAX_DIMENSION = PET_TARGET_MAX_DIMENSION
+ViewportPreview.PET_VIEWPORT_ZOOM = PET_VIEWPORT_ZOOM
 
 return ViewportPreview

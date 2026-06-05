@@ -66,7 +66,7 @@ Run this checklist before publishing a live build.
   should skip the affected UI path and should never create fallback UI.
 - Confirm cosmetic templates under `ReplicatedStorage.Assets.Cosmetics` have
   unique `CosmeticID` attributes and model `PrimaryPart`s.
-- Confirm `ReplicatedStorage.UI.RollBillboardGUI` has `Seed` and `Misc`
+- Confirm `ReplicatedStorage.UI.BillboardGUIs` has `SeedRoll` and `MiscRoll`
   billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.
 - Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and

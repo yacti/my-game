@@ -90,5 +90,5 @@ attributes.
 Critical gameplay assets still fail startup when they are missing or malformed.
 Studio-owned UI assets warn clearly and the affected UI path skips itself; the
 code should not generate fallback UI.
-Roll reveal billboards are Studio-owned under `ReplicatedStorage.UI.RollBillboardGUI`
-with `Seed` and `Misc` `BillboardGui` templates.
+Billboard templates are Studio-owned under `ReplicatedStorage.UI.BillboardGUIs`.
+Roll reveals use the `SeedRoll` and `MiscRoll` `BillboardGui` templates.

@@ -1,4 +1,3 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -6,12 +5,12 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
+local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local YesNoWarning = {}
 
 local TEMPLATE_NAME = "YesNoWarning"
-local TEMPLATE_WAIT_SECONDS = 10
 
 local started = false
 local ready = false
@@ -24,6 +23,8 @@ local yesButton = nil
 local noButton = nil
 local closeButton = nil
 local activePrompt = nil
+local pendingResult = false
+local pendingReason = nil
 local rarityConnection = nil
 local transitionToken = 0
 
@@ -58,34 +59,12 @@ local function setItemColor(color)
 	end
 end
 
-local function cloneTemplate(playerGui)
-	local uiFolder = ReplicatedStorage:WaitForChild("UI", TEMPLATE_WAIT_SECONDS)
-	if not uiFolder then
-		warn("[YesNoWarning] Missing ReplicatedStorage.UI; warning prompts disabled")
-		return nil
+local function getFrame()
+	local frame = MenuGui.GetFrame(TEMPLATE_NAME, "YesNoWarning")
+	if frame then
+		frame.Visible = false
 	end
-
-	local template = uiFolder:WaitForChild(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
-	if not (template and template:IsA("GuiObject")) then
-		warn("[YesNoWarning] Missing ReplicatedStorage.UI.YesNoWarning GuiObject")
-		return nil
-	end
-
-	local hud = playerGui:WaitForChild("HUD", TEMPLATE_WAIT_SECONDS)
-	if not (hud and hud:IsA("ScreenGui")) then
-		warn("[YesNoWarning] Missing PlayerGui.HUD ScreenGui")
-		return nil
-	end
-
-	local existing = findDescendant(hud, TEMPLATE_NAME, "GuiObject")
-	if existing then
-		existing:Destroy()
-	end
-
-	local clone = template:Clone()
-	clone.Visible = false
-	clone.Parent = hud
-	return clone
+	return frame
 end
 
 local function render(options)
@@ -121,7 +100,7 @@ local function render(options)
 	end
 end
 
-local function finish(result, reason)
+local function finish(result, reason, instant)
 	if not activePrompt then
 		return
 	end
@@ -140,6 +119,14 @@ local function finish(result, reason)
 	if not frame then
 		return
 	end
+	if instant then
+		frame.Visible = false
+		if panelState then
+			frame.Position = panelState.closedPosition
+			frame.Size = panelState.closedSize
+		end
+		return
+	end
 	if panelState then
 		UiEffects.PlayClose(frame, panelState, function()
 			if transitionToken == token and not activePrompt then
@@ -151,15 +138,29 @@ local function finish(result, reason)
 	end
 end
 
+local function showPanel()
+	if panelState then
+		UiEffects.PlayOpen(frame, panelState)
+	else
+		frame.Visible = true
+	end
+end
+
+local function hidePanel(switching)
+	local result = pendingResult == true
+	local reason = pendingReason or (switching and "switched" or "closed")
+	pendingResult = false
+	pendingReason = nil
+	finish(result, reason, switching == true)
+end
+
 function YesNoWarning.start()
 	if started then
 		return ready
 	end
 	started = true
 
-	local player = Players.LocalPlayer
-	local playerGui = player:WaitForChild("PlayerGui")
-	frame = cloneTemplate(playerGui)
+	frame = getFrame()
 	if not frame then
 		return false
 	end
@@ -183,14 +184,25 @@ function YesNoWarning.start()
 	panelState = UiEffects.PreparePanel(frame)
 	frame.Visible = false
 
+	MenuGui.RegisterPanel(TEMPLATE_NAME, {
+		open = showPanel,
+		close = hidePanel,
+	})
+
 	RuntimeGuard.Connect(yesButton.Activated, "YesNoWarning.YesActivated", function()
-		finish(true, "yes")
+		pendingResult = true
+		pendingReason = "yes"
+		MenuGui.ClosePanel(TEMPLATE_NAME)
 	end)
 	RuntimeGuard.Connect(noButton.Activated, "YesNoWarning.NoActivated", function()
-		finish(false, "no")
+		pendingResult = false
+		pendingReason = "no"
+		MenuGui.ClosePanel(TEMPLATE_NAME)
 	end)
 	RuntimeGuard.Connect(closeButton.Activated, "YesNoWarning.CloseActivated", function()
-		finish(false, "closed")
+		pendingResult = false
+		pendingReason = "closed"
+		MenuGui.ClosePanel(TEMPLATE_NAME)
 	end)
 
 	ready = true
@@ -203,24 +215,27 @@ function YesNoWarning.Prompt(options, callback)
 	end
 
 	if activePrompt then
-		finish(false, "replaced")
+		local prompt = activePrompt
+		activePrompt = nil
+		disconnectRarity()
+		if prompt.callback then
+			RuntimeGuard.Spawn("YesNoWarning.Callback", prompt.callback, false, "replaced")
+		end
 	end
 
 	activePrompt = {
 		callback = callback,
 	}
+	pendingResult = false
+	pendingReason = nil
 	render(options)
-	transitionToken += 1
-	if panelState then
-		UiEffects.PlayOpen(frame, panelState)
-	else
-		frame.Visible = true
-	end
-	return true
+	return MenuGui.OpenPanel(TEMPLATE_NAME)
 end
 
 function YesNoWarning.Cancel(reason)
-	finish(false, reason or "cancelled")
+	pendingResult = false
+	pendingReason = reason or "cancelled"
+	MenuGui.ClosePanel(TEMPLATE_NAME)
 end
 
 return YesNoWarning

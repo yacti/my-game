@@ -11,15 +11,18 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
+local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local FeedEditController = {}
 
 local EDIT_MODE_ATTR = "EditMode"
 local HUD_NAME = "HUD"
 local EDIT_BUTTON_NAME = "EditModeButton"
+local EXIT_EDIT_BUTTON_NAME = "ExitEditMode"
 local PLACEMENT_EDIT_NAME = "PlacementEdit"
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local FLOOR_Y_TOLERANCE_BELOW = 5
@@ -309,7 +312,6 @@ end
 function FeedEditController.start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
-	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
 	local hud = playerGui:WaitForChild(HUD_NAME, 10)
 	if not hud then
 		warn("[FeedEditController] Missing HUD ScreenGui")
@@ -321,10 +323,15 @@ function FeedEditController.start()
 		warn("[FeedEditController] HUD missing EditModeButton GuiButton")
 		return
 	end
+	local exitEditButton = hud:FindFirstChild(EXIT_EDIT_BUTTON_NAME, true)
+	if not (exitEditButton and exitEditButton:IsA("GuiButton")) then
+		warn("[FeedEditController] HUD missing ExitEditMode GuiButton")
+		return
+	end
 
-	local placementEditTemplate = uiFolder and uiFolder:FindFirstChild(PLACEMENT_EDIT_NAME)
+	local placementEditTemplate = BillboardGuiTemplates.Find(PLACEMENT_EDIT_NAME)
 	if not (placementEditTemplate and placementEditTemplate:IsA("BillboardGui")) then
-		warn("[FeedEditController] Missing ReplicatedStorage.UI.PlacementEdit BillboardGui")
+		warn("[FeedEditController] Missing " .. BillboardGuiTemplates.Path(PLACEMENT_EDIT_NAME) .. " BillboardGui")
 		return
 	end
 
@@ -352,8 +359,13 @@ function FeedEditController.start()
 	local pendingOriginalCFrame = nil
 	local ignoreWorldInputUntil = 0
 	local lastForcedOffRequest = 0
+	local editButtonOpen = false
+	local exitEditButtonOpen = false
+	local editButtonTransitionToken = 0
+	local exitEditButtonTransitionToken = 0
 
 	local placementEdit = placementEditTemplate:Clone()
+	UiEffects.BindBillboardPop(placementEdit)
 	placementEdit.Enabled = false
 	placementEdit.Parent = playerGui
 
@@ -367,6 +379,10 @@ function FeedEditController.start()
 		placementEdit:Destroy()
 		return
 	end
+	UiEffects.BindButton(editButton)
+	UiEffects.BindButton(exitEditButton)
+	local editButtonPanelState = UiEffects.PreparePanel(editButton)
+	local exitEditButtonPanelState = UiEffects.PreparePanel(exitEditButton)
 	if confirmButton and confirmButton:IsA("GuiObject") then
 		confirmButton.Visible = false
 	end
@@ -600,20 +616,55 @@ function FeedEditController.start()
 		sendMoveRequest()
 	end
 
-	local function setButtonActiveState(active)
-		editButton.Text = active and "Exit Edit" or "Edit Mode"
-		editButton.BackgroundColor3 = active
-			and Color3.fromRGB(26, 171, 86)
-			or Color3.fromRGB(32, 120, 255)
+	local function setEditButtonOpen(open)
+		if editButtonOpen == open then
+			return
+		end
+		editButtonOpen = open
+		editButtonTransitionToken += 1
+		local token = editButtonTransitionToken
+		editButton.Active = open
+		if open then
+			UiEffects.PlayOpen(editButton, editButtonPanelState)
+		else
+			UiEffects.PlayClose(editButton, editButtonPanelState, function()
+				if editButtonTransitionToken ~= token and editButtonOpen then
+					editButton.Visible = true
+				end
+			end)
+		end
+	end
+
+	local function setExitEditButtonOpen(open)
+		if exitEditButtonOpen == open then
+			return
+		end
+		exitEditButtonOpen = open
+		exitEditButtonTransitionToken += 1
+		local token = exitEditButtonTransitionToken
+		exitEditButton.Active = open
+		if open then
+			UiEffects.PlayOpen(exitEditButton, exitEditButtonPanelState)
+		else
+			UiEffects.PlayClose(exitEditButton, exitEditButtonPanelState, function()
+				if exitEditButtonTransitionToken ~= token and exitEditButtonOpen then
+					exitEditButton.Visible = true
+				end
+			end)
+		end
+	end
+
+	local function refreshEditButtonVisibility()
+		setEditButtonOpen(buttonVisible and not editEnabled)
+		setExitEditButtonOpen(buttonVisible and editEnabled)
 	end
 
 	local function refreshButtonVisibility()
 		local floor = getPlayerFloor()
 		local visible = floor ~= nil and isOnFloor(floor)
 		buttonVisible = visible
-		editButton.Visible = visible
+		refreshEditButtonVisibility()
 		if not visible and editEnabled then
-			setButtonActiveState(false)
 			setGridEnabled(false)
 			clearSelection(true)
 			if os.clock() - lastForcedOffRequest >= 0.2 then
@@ -625,7 +676,7 @@ function FeedEditController.start()
 
 	local function refreshEditState()
 		editEnabled = player:GetAttribute(EDIT_MODE_ATTR) == true
-		setButtonActiveState(editEnabled)
+		refreshEditButtonVisibility()
 		setGridEnabled(editEnabled)
 		if not editEnabled then
 			clearSelection(true)
@@ -633,8 +684,12 @@ function FeedEditController.start()
 	end
 
 	RuntimeGuard.Connect(editButton.Activated, "FeedEditController.EditButtonActivated", function()
-		if not buttonVisible and not editEnabled then return end
-		FeedEditModeRequest:FireServer(not editEnabled)
+		if not buttonVisible or editEnabled then return end
+		FeedEditModeRequest:FireServer(true)
+	end)
+	RuntimeGuard.Connect(exitEditButton.Activated, "FeedEditController.ExitEditButtonActivated", function()
+		if not buttonVisible or not editEnabled then return end
+		FeedEditModeRequest:FireServer(false)
 	end)
 
 	RuntimeGuard.Connect(moveButton.InputBegan, "FeedEditController.MoveInputBegan", function(input)

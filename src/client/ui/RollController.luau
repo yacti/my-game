@@ -13,7 +13,9 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
+local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local RollController = {}
 
@@ -62,6 +64,7 @@ local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
+local ROLL_BILLBOARD_CARD_NAME = "Card"
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 local SEED_POP_IN_TWEEN = TweenInfo.new(SEED_POP_IN_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -513,31 +516,44 @@ local function rollBillboardTemplate(category)
 		return nil
 	end
 
-	local ui = ReplicatedStorage:FindFirstChild("UI")
-	local folder = ui and ui:FindFirstChild("RollBillboardGUI")
-	local templateName = category == RollRewards.Categories.Misc and "Misc" or "Seed"
-	local template = folder and folder:FindFirstChild(templateName)
-	if template and template:IsA("BillboardGui") then
+	local templateName = category == RollRewards.Categories.Misc and "MiscRoll" or "SeedRoll"
+	local template = BillboardGuiTemplates.Find(templateName)
+	if not (template and template:IsA("BillboardGui")) then
+		if not warnedMissingBillboardTemplates[templateName] then
+			warn("[RollController] Missing " .. BillboardGuiTemplates.Path(templateName) .. " BillboardGui")
+			warnedMissingBillboardTemplates[templateName] = true
+		end
+		return nil
+	end
+
+	local card = template:FindFirstChild(ROLL_BILLBOARD_CARD_NAME)
+	if card and card:IsA("GuiObject") then
 		return template
 	end
-	if not warnedMissingBillboardTemplates[templateName] then
-		warn("[RollController] Missing ReplicatedStorage.UI.RollBillboardGUI." .. templateName .. " BillboardGui")
-		warnedMissingBillboardTemplates[templateName] = true
+	local warningKey = templateName .. "." .. ROLL_BILLBOARD_CARD_NAME
+	if not warnedMissingBillboardTemplates[warningKey] then
+		warn("[RollController] Missing " .. BillboardGuiTemplates.Path(templateName) .. "." .. ROLL_BILLBOARD_CARD_NAME .. " GuiObject")
+		warnedMissingBillboardTemplates[warningKey] = true
 	end
 	return nil
 end
 
-local function textLabel(root, name)
-	local label = root:FindFirstChild(name, true)
+local function billboardCard(billboard)
+	local card = billboard:FindFirstChild(ROLL_BILLBOARD_CARD_NAME)
+	return card and card:IsA("GuiObject") and card or nil
+end
+
+local function textLabel(card, name)
+	local label = card and card:FindFirstChild(name)
 	return label and label:IsA("TextLabel") and label or nil
 end
 
-local function setLabel(root, name, text, color)
-	local label = textLabel(root, name)
+local function setLabel(card, name, text, color)
+	local label = textLabel(card, name)
 	if not label then
 		return
 	end
-	label.Text = text
+	UiEffects.SetTextStack(label, text)
 	if color then
 		label.TextColor3 = color
 	end
@@ -556,25 +572,31 @@ local function addRevealBillboard(model, payload)
 	end
 
 	local billboard = template:Clone()
+	UiEffects.BindBillboardPop(billboard)
 	billboard.Name = "RollRevealBillboard"
 	billboard.Adornee = anchor
 	billboard.AlwaysOnTop = true
 	billboard.MaxDistance = BILLBOARD_MAX_DISTANCE
 	billboard.StudsOffsetWorldSpace = Vector3.zero
+	local card = billboardCard(billboard)
+	if not card then
+		billboard:Destroy()
+		return
+	end
 
 	local name = tostring(payload.displayName or payload.rewardId or payload.feedType or "Reward")
 	if isMisc then
-		setLabel(billboard, "NameLabel", name, Color3.new(1, 1, 1))
-		setLabel(billboard, "PriceLabel", formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+		setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
+		setLabel(card, "PriceLabel", formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
 		billboard.Parent = anchor
 		return
 	end
 
 	local rarityColor = Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
-	setLabel(billboard, "NameLabel", name, Color3.new(1, 1, 1))
-	setLabel(billboard, "PriceLabel", "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
-	setLabel(billboard, "ChanceLabel", "Chance: " .. tostring(payload.rngChanceText or ("1 in " .. tostring(payload.chanceN or "?"))), Color3.fromRGB(210, 230, 255))
-	setLabel(billboard, "RarityLabel", "Rarity: " .. tostring(payload.rarity or "Unknown"), rarityColor)
+	setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
+	setLabel(card, "PriceLabel", "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+	setLabel(card, "ChanceLabel", tostring(payload.rngChanceText or ("1 in " .. tostring(payload.chanceN or "?"))), Color3.fromRGB(210, 230, 255))
+	setLabel(card, "RarityLabel", tostring(payload.rarity or "Unknown"), rarityColor)
 
 	billboard.Parent = anchor
 end

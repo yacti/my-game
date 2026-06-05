@@ -234,6 +234,10 @@ local function validatePetCatalog(errors)
 		else
 			seenOrders[definition.Order] = petId
 		end
+		local rarity = model:GetAttribute(State.Pet.Rarity)
+		if rarity ~= nil and not Rarities.IsValid(rarity) then
+			add(errors, string.format("%s has unknown %s %q", model:GetFullName(), State.Pet.Rarity, tostring(rarity)))
+		end
 
 		validatePetVisual(model, definition.Visual, errors)
 	end
@@ -695,38 +699,35 @@ local function validateCrates(errors)
 	end
 end
 
-local function validateRebirthUi(errors)
-	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
-	if not ui then return end
+local function validateRebirthUi(menu, errors)
+	local rebirthFrame = child(menu, "Rebirth", "GuiObject", errors)
+	if not rebirthFrame then return end
 
-	local rebirthGui = child(ui, "Rebirth", "ScreenGui", errors)
-	if not rebirthGui then return end
-
-	descendant(rebirthGui, "Panel", "GuiObject", errors)
-	descendant(rebirthGui, "CloseButton", "GuiButton", errors)
-	descendant(rebirthGui, "RebirthButton", "GuiButton", errors)
-	descendant(rebirthGui, "SkipButton", "GuiButton", errors)
-	descendant(rebirthGui, "TierLabel", "TextLabel", errors)
-	descendant(rebirthGui, "PriceLabel", "TextLabel", errors)
-	descendant(rebirthGui, "CashLabel", "TextLabel", errors)
-	local progressBar = descendant(rebirthGui, "ProgressBar", "GuiObject", errors)
+	descendant(rebirthFrame, "Panel", "GuiObject", errors)
+	descendant(rebirthFrame, "CloseButton", "GuiButton", errors)
+	descendant(rebirthFrame, "RebirthButton", "GuiButton", errors)
+	descendant(rebirthFrame, "SkipButton", "GuiButton", errors)
+	descendant(rebirthFrame, "TierLabel", "TextLabel", errors)
+	descendant(rebirthFrame, "CashLabel", "TextLabel", errors)
+	local progressBar = descendant(rebirthFrame, "ProgressBar", "GuiObject", errors)
 	if progressBar then
 		descendant(progressBar, "Fill", "GuiObject", errors)
 	end
-	local rewardList = descendant(rebirthGui, "RewardList", "GuiObject", errors)
+	local rewardList = descendant(rebirthFrame, "RewardList", "GuiObject", errors)
 	if rewardList then
-		descendant(rewardList, "RewardTemplate", "GuiObject", errors)
+		local rewardTemplate = descendant(rewardList, "RewardTemplate", "GuiObject", errors)
+		if rewardTemplate then
+			descendant(rewardTemplate, "ItemIcon", "GuiObject", errors)
+		end
+		local petHolder = descendant(rewardList, "PetHolder", "GuiObject", errors)
+		if petHolder then
+			descendant(petHolder, "PetIcon", "ViewportFrame", errors)
+		end
 	end
 end
 
-local function validateShopUi(uiName, requireRarity, errors)
-	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
-	if not ui then return end
-
-	local shopGui = child(ui, uiName, "ScreenGui", errors)
-	if not shopGui then return end
-
-	local panel = child(shopGui, uiName, "GuiObject", errors)
+local function validateShopUi(menu, uiName, requireRarity, errors)
+	local panel = child(menu, uiName, "GuiObject", errors)
 	if not panel then return end
 
 	descendant(panel, "CloseButton", "GuiButton", errors)
@@ -755,20 +756,38 @@ local function validateShopUi(uiName, requireRarity, errors)
 	end
 end
 
-local function validateGearShopUi(errors)
-	validateShopUi("GearShop", true, errors)
+local function validateGearShopUi(menu, errors)
+	validateShopUi(menu, "GearShop", true, errors)
 end
 
-local function validateCosmeticShopUi(errors)
-	validateShopUi("CosmeticShop", false, errors)
+local function validateCosmeticShopUi(menu, errors)
+	validateShopUi(menu, "CosmeticShop", false, errors)
 end
 
-local function validateBillboardTemplate(ui, name, labelName, errors)
-	local billboard = child(ui, name, "BillboardGui", errors)
+local function validateBillboardTemplate(billboardFolder, name, labelName, errors)
+	local billboard = child(billboardFolder, name, "BillboardGui", errors)
 	if billboard and labelName then
 		descendant(billboard, labelName, "TextLabel", errors)
 	end
 	return billboard
+end
+
+local function validatePetMoneyBillboard(billboardFolder, errors)
+	local billboard = validateBillboardTemplate(billboardFolder, "PetMoneyBillboard", nil, errors)
+	if not billboard then return end
+
+	local stats = child(billboard, "Stats", "GuiObject", errors)
+	if stats then
+		child(stats, "Money", "TextLabel", errors)
+		child(stats, "MoneyRateLabel", "TextLabel", errors)
+		child(stats, "NameLabel", "TextLabel", errors)
+		child(stats, "NicknameLabel", "TextLabel", errors)
+	end
+
+	local xp = child(billboard, "XP", "GuiObject", errors)
+	if xp then
+		child(xp, "Fill", "GuiObject", errors)
+	end
 end
 
 local function validatePromptTemplates(ui, errors)
@@ -788,11 +807,9 @@ local function validatePromptTemplates(ui, errors)
 end
 
 local function validateHudCurrency(hud, errors)
-	local currency = hud:FindFirstChild("Currency")
-	local amount = currency and currency:FindFirstChild("Amount")
-	if amount and amount:IsA("TextLabel") then return end
-	if descendant(hud, "CurrencyLabel", "TextLabel", {}) then return end
-	add(errors, string.format("Missing %s.Currency.Amount or descendant CurrencyLabel TextLabel", hud:GetFullName()))
+	local currency = child(hud, "Currency", "GuiObject", errors)
+	if not currency then return end
+	child(currency, "CurrencyLabel", "TextLabel", errors)
 end
 
 local function validateRollUpgradeButton(frame, errors)
@@ -821,31 +838,34 @@ local function validateRollDropAreaHud(rollButtons, errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
 end
 
-local function validateRollBillboards(ui, errors)
-	local folder = child(ui, "RollBillboardGUI", "Folder", errors)
-	if not folder then return end
+local function validateRollBillboards(billboardFolder, errors)
+	local function validateTemplate(templateName, labelNames)
+		local billboard = child(billboardFolder, templateName, "BillboardGui", errors)
+		if not billboard then
+			return
+		end
 
-	local seed = child(folder, "Seed", "BillboardGui", errors)
-	if seed then
-		descendant(seed, "NameLabel", "TextLabel", errors)
-		descendant(seed, "PriceLabel", "TextLabel", errors)
-		descendant(seed, "ChanceLabel", "TextLabel", errors)
-		descendant(seed, "RarityLabel", "TextLabel", errors)
+		local card = child(billboard, "Card", "GuiObject", errors)
+		if not card then
+			return
+		end
+
+		for _, labelName in ipairs(labelNames) do
+			child(card, labelName, "TextLabel", errors)
+		end
 	end
 
-	local misc = child(folder, "Misc", "BillboardGui", errors)
-	if misc then
-		descendant(misc, "NameLabel", "TextLabel", errors)
-		descendant(misc, "PriceLabel", "TextLabel", errors)
-	end
+	validateTemplate("SeedRoll", { "NameLabel", "PriceLabel", "ChanceLabel", "RarityLabel" })
+	validateTemplate("MiscRoll", { "NameLabel", "PriceLabel" })
 end
 
-local function validateFeedEditUi(ui, hud, errors)
+local function validateFeedEditUi(ui, hud, billboardFolder, errors)
 	if hud then
 		descendant(hud, "EditModeButton", "GuiButton", errors)
 	end
 
-	local placementEdit = child(ui, "PlacementEdit", "BillboardGui", errors)
+	if not billboardFolder then return end
+	local placementEdit = child(billboardFolder, "PlacementEdit", "BillboardGui", errors)
 	if not placementEdit then return end
 
 	local options = child(placementEdit, "options", "GuiObject", errors)
@@ -857,8 +877,8 @@ local function validateFeedEditUi(ui, hud, errors)
 	child(placementEdit, "tip", "TextLabel", errors)
 end
 
-local function validateYesNoWarningUi(ui, errors)
-	local warning = child(ui, "YesNoWarning", "GuiObject", errors)
+local function validateYesNoWarningUi(menu, errors)
+	local warning = child(menu, "YesNoWarning", "GuiObject", errors)
 	if not warning then return end
 
 	descendant(warning, "Description", "TextLabel", errors)
@@ -1106,7 +1126,10 @@ local function validateUi(errors)
 			validateRollLuckHud(rollButtons, errors)
 			validateRollDropAreaHud(rollButtons, errors)
 		end
-		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
+		local leftButtons = child(hud, "LeftButtons", "GuiObject", errors)
+		if leftButtons then
+			child(leftButtons, "RebirthButton", "GuiButton", errors)
+		end
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
 			child(notifications, "NotificationTemplate", "TextLabel", errors)
@@ -1114,25 +1137,26 @@ local function validateUi(errors)
 		end
 	end
 
-	validateBillboardTemplate(ui, "PetMoneyBillboard", "MoneyLabel", errors)
-	local petXP = validateBillboardTemplate(ui, "PetXPBillboard", nil, errors)
-	if petXP then
-		local background = child(petXP, "Background", "GuiObject", errors)
-		if background then
-			child(background, "Fill", "GuiObject", errors)
-		end
+	local menu = child(ui, "Menu", "ScreenGui", errors)
+	if menu then
+		validateRebirthUi(menu, errors)
+		validateGearShopUi(menu, errors)
+		validateCosmeticShopUi(menu, errors)
+		validateYesNoWarningUi(menu, errors)
 	end
-	validateBillboardTemplate(ui, "ToolStatsBillboard", "StatsLabel", errors)
-	validateBillboardTemplate(ui, "SlotXPBillboard", "XPLabel", errors)
-	validateBillboardTemplate(ui, "TreeGroundXPBillboard", "XPLabel", errors)
-	local growingSeed = validateBillboardTemplate(ui, "GrowingSeedBillboard", "TitleLabel", errors)
-	if growingSeed then
-		descendant(growingSeed, "TimeLabel", "TextLabel", errors)
-	end
-	validateRollBillboards(ui, errors)
 
-	validateFeedEditUi(ui, hud, errors)
-	validateYesNoWarningUi(ui, errors)
+	local billboardFolder = child(ui, "BillboardGUIs", "Folder", errors)
+	if billboardFolder then
+		validatePetMoneyBillboard(billboardFolder, errors)
+		validateBillboardTemplate(billboardFolder, "XPBillboard", "XPLabel", errors)
+		local growingSeed = validateBillboardTemplate(billboardFolder, "GrowingSeedBillboard", "TitleLabel", errors)
+		if growingSeed then
+			descendant(growingSeed, "TimeLabel", "TextLabel", errors)
+		end
+		validateRollBillboards(billboardFolder, errors)
+	end
+
+	validateFeedEditUi(ui, hud, billboardFolder, errors)
 
 	validatePromptTemplates(ui, errors)
 end
@@ -1390,9 +1414,6 @@ function AssetValidator.validate()
 	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings)
-	validateRebirthUi(warnings)
-	validateGearShopUi(warnings)
-	validateCosmeticShopUi(warnings)
 	validatePlots(errors)
 
 	if #warnings > 0 then

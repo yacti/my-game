@@ -19,38 +19,32 @@ Rarities.Order = {
 local DEFINITIONS = {
 	[Rarities.Common] = {
 		Name = Rarities.Common,
-		RGB = { 128, 128, 128 },
 		Color = Color3.fromRGB(128, 128, 128),
 		Animated = false,
 	},
 	[Rarities.Rare] = {
 		Name = Rarities.Rare,
-		RGB = { 0, 162, 255 },
 		Color = Color3.fromRGB(0, 162, 255),
 		Animated = false,
 	},
 	[Rarities.Epic] = {
 		Name = Rarities.Epic,
-		RGB = { 170, 85, 255 },
 		Color = Color3.fromRGB(170, 85, 255),
 		Animated = false,
 	},
 	[Rarities.Legendary] = {
 		Name = Rarities.Legendary,
-		RGB = { 255, 221, 0 },
 		Color = Color3.fromRGB(255, 221, 0),
 		Animated = false,
 	},
 	[Rarities.Mythical] = {
 		Name = Rarities.Mythical,
-		RGB = { 255, 0, 255 },
 		Color = Color3.fromRGB(255, 0, 255),
 		Animated = true,
 		RainbowPeriod = 4,
 	},
 	[Rarities.Secret] = {
 		Name = Rarities.Secret,
-		RGB = { 20, 20, 20 },
 		Color = Color3.fromRGB(20, 20, 20),
 		Animated = false,
 	},
