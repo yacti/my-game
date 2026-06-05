@@ -42,14 +42,16 @@ local function copyCountMap(map)
 	return copy
 end
 
-local function copyBooleanMap(map)
+local function copyStringArray(array)
 	local copy = {}
-	if type(map) ~= "table" then
+	if type(array) ~= "table" then
 		return copy
 	end
-	for key, enabled in pairs(map) do
-		if type(key) == "string" and enabled == true then
-			copy[key] = true
+	local seen = {}
+	for _, key in ipairs(array) do
+		if type(key) == "string" and not seen[key] then
+			seen[key] = true
+			copy[#copy + 1] = key
 		end
 	end
 	return copy
@@ -66,7 +68,7 @@ local function stateFromProfile(profile)
 		[PlayerState.Fields.FeedInventory] = copyCountMap(data.FeedInventory),
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
 		[PlayerState.Fields.FoodInventory] = copyCountMap(data.FoodInventory),
-		[PlayerState.Fields.UnlockedGridKeys] = copyBooleanMap(data.UnlockedGridKeys),
+		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
 	}
 end
 
@@ -220,7 +222,7 @@ end
 
 function PlayerReplicaService.PublishUnlockedGridKeys(player, profile)
 	local data = profile and profile.Data or {}
-	return PlayerReplicaService.PublishField(player, PlayerState.Fields.UnlockedGridKeys, copyBooleanMap(data.UnlockedGridKeys))
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.UnlockedGridKeys, copyStringArray(data.UnlockedGridKeys))
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)

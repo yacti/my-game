@@ -11,14 +11,22 @@ local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
-local PetModels = Assets.WaitFor(Assets.Names.PetModels)
-
 local PetPreloader = {}
 
 local preloaded = {}
 local inFlight = {}
 local watchedPets = {}
 local watchedPlots = {}
+local warnedMissingPetModels = false
+
+local function petModels()
+	local folder = Assets.Find(Assets.Names.PetModels)
+	if not folder and not warnedMissingPetModels then
+		warn("[PetPreloader] Missing ReplicatedStorage.Assets.PetModels; pet preloading disabled")
+		warnedMissingPetModels = true
+	end
+	return folder
+end
 
 local function isPet(instance)
 	return instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil
@@ -95,7 +103,8 @@ local function preloadPetId(petId)
 
 	local visual = PetCatalog.VisualForPetId(petId)
 	local modelName = visual and visual.ModelName
-	local template = type(modelName) == "string" and PetModels:FindFirstChild(modelName) or nil
+	local models = petModels()
+	local template = models and type(modelName) == "string" and models:FindFirstChild(modelName) or nil
 	if not template then
 		return
 	end

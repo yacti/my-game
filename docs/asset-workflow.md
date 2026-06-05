@@ -7,26 +7,26 @@ add game UI backups or Rojo mappings under `src/ui`.
 
 ## Current Runtime Asset Roots
 
-These live under `ReplicatedStorage` and are required by server/client code:
+These gameplay assets live under `ReplicatedStorage.Assets` and are required by server/client code:
 
-- `PetModels`
-- `FeedMachines`
-- `Food`
-- `Crates`
-- `UI`
-- `FeedMachineTool`
-- `SeedTool`
-- `Shovel`
-- `Seeds`
-- `Misc` (`PlotTemplate`, `Sapling`, `Clouds`, roll rewards such as `Brick`)
-- `VFX` (`RarityParticle`)
+- `ReplicatedStorage.Assets.PetModels`
+- `ReplicatedStorage.Assets.FeedMachines`
+- `ReplicatedStorage.Assets.Food`
+- `ReplicatedStorage.Assets.Crates`
+- `ReplicatedStorage.Assets.FeedMachineTool`
+- `ReplicatedStorage.Assets.SeedTool`
+- `ReplicatedStorage.Assets.Shovel`
+- `ReplicatedStorage.Assets.Seeds`
+- `ReplicatedStorage.Assets.Misc` (`PlotTemplate`, `Sapling`, `Clouds`, roll rewards such as `Brick`)
+- `ReplicatedStorage.Assets.VFX` (`RarityParticle`)
+- `ReplicatedStorage.UI`
 
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
 
 Studio also owns `Workspace.PlotTemplates`, the numbered loading pads used by
 `src/server/PlotLoader.luau` to spawn runtime `Workspace.Plots` from
-`ReplicatedStorage.Misc.PlotTemplate` on server startup.
+`ReplicatedStorage.Assets.Misc.PlotTemplate` on server startup.
 
 ## Backup Before Risky Edits
 
@@ -60,10 +60,10 @@ of truth.
 
 Move non-UI assets into Rojo/source ownership in small, tested commits:
 
-1. `ReplicatedStorage.FeedMachineTool`
-2. `ReplicatedStorage.PetModels`
-3. `ReplicatedStorage.FeedMachines`
-4. `ReplicatedStorage.Food`
+1. `ReplicatedStorage.Assets.FeedMachineTool`
+2. `ReplicatedStorage.Assets.PetModels`
+3. `ReplicatedStorage.Assets.FeedMachines`
+4. `ReplicatedStorage.Assets.Food`
 
 Avoid migrating everything at once. Complex models can break if pivots,
 `PrimaryPart`s, welds, attributes, or tool handles are not preserved.

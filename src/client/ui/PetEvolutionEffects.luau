@@ -12,7 +12,6 @@ local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
-local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PetEvolutionEffects = {}
@@ -45,6 +44,16 @@ local playedSeqByPet = setmetatable({}, { __mode = "k" })
 local activeCameraZooms = 0
 local cameraBaseFov = nil
 local cameraZoomTween = nil
+local warnedMissingPetModels = false
+
+local function petModels()
+	local folder = Assets.Find(Assets.Names.PetModels)
+	if not folder and not warnedMissingPetModels then
+		warn("[PetEvolutionEffects] Missing ReplicatedStorage.Assets.PetModels; pet evolution effects disabled")
+		warnedMissingPetModels = true
+	end
+	return folder
+end
 
 local function assignedPlot()
 	return PlotResolver.ResolveForPlayer(player)
@@ -135,7 +144,8 @@ end
 
 local function cloneOldVisual(petId)
 	local visual = PetCatalog.VisualForPetId(petId)
-	local template = visual and PetModels:FindFirstChild(visual.ModelName)
+	local models = petModels()
+	local template = visual and models and models:FindFirstChild(visual.ModelName)
 	if not (template and template:IsA("Model")) then return nil end
 
 	local clone = template:Clone()

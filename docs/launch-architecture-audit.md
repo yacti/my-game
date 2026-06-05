@@ -243,8 +243,8 @@ Recommendation:
 - Live Studio has `Workspace.Plot1` directly under `Workspace`, not `Workspace.Plots.Plot1`. Current code supports both direct plot models and a `Workspace.Plots` folder in several places.
 - `ReplicatedStorage.UI` has a generic `LocalPrompt`, not a `PromptTemplates` folder. `AssetValidator` allows this.
 - Feed-machine folder names are organizational. `FeedType` and `FeedClass` attributes are the stable source of truth.
-- Roll/economy/growth tuning for roll-purchased growables now lives on `ReplicatedStorage.Seeds` templates (`SeedID`, `FeedType`, `GrowTime`, `RollChanceN`, `Price`, optional `Rarity`); feed templates keep mature behavior attributes such as `FeedType`, `FeedClass`, `FoodDrop`, `GrowRate`, and `XP`.
-- `ReplicatedStorage.SeedTool`, `ReplicatedStorage.Misc.Sapling`, and `ReplicatedStorage.UI.GrowingSeedBillboard` are Studio-owned runtime assets required by the seed growth flow.
+- Roll/economy/growth tuning for roll-purchased growables now lives on `ReplicatedStorage.Assets.Seeds` templates (`SeedID`, `FeedType`, `GrowTime`, `RollChanceN`, `Price`, optional `Rarity`); feed templates keep mature behavior attributes such as `FeedType`, `FeedClass`, `FoodDrop`, `GrowRate`, and `XP`.
+- `ReplicatedStorage.Assets.SeedTool`, `ReplicatedStorage.Assets.Misc.Sapling`, and `ReplicatedStorage.UI.GrowingSeedBillboard` are Studio-owned runtime assets required by the seed growth flow.
 - `ReplicatedStorage.UI` contains billboard/HUD/rebirth/tool/slot prompt templates, including `YesNoWarning` for reusable confirmation prompts.
 
 ## Launch Test Checklist

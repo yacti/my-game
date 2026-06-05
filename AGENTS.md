@@ -30,7 +30,7 @@ The current game loop is a plot-based pet/economy game:
 - `src/satchel.rbxm` -> `ReplicatedStorage.Satchel`
 - selected `Workspace`, `Lighting`, and `SoundService` property overrides
 
-`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place still supplies `ReplicatedStorage.PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `UI`, `FeedMachineTool`, `Shovel`, `ReplicatedStorage.Misc.PlotTemplate`, and `Workspace.PlotTemplates` loading pads. Server startup clones the plot template into runtime `Workspace.Plots`.
+`Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place supplies gameplay assets under `ReplicatedStorage.Assets` (`PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `FeedMachineTool`, `SeedTool`, and `Shovel`), UI under `ReplicatedStorage.UI`, and `Workspace.PlotTemplates` loading pads. Server startup clones `ReplicatedStorage.Assets.Misc.PlotTemplate` into runtime `Workspace.Plots`.
 
 Replica is inserted in Studio as native/vendor modules, not under Rojo source: `ServerScriptService.ReplicaServer`, `ReplicatedStorage.ReplicaClient`, and `ReplicatedStorage.ReplicaShared`. Do not edit those native Replica modules for game logic. Source code should integrate with them through project modules such as `PlayerReplicaService` and `PlayerStateStore`.
 
@@ -60,20 +60,21 @@ Studio is the source of truth for currently Studio-owned assets. MCP is the pref
 
 Studio/MCP owns:
 
-- `ReplicatedStorage.PetModels`
-- `ReplicatedStorage.FeedMachines`
-- `ReplicatedStorage.Food`
-- `ReplicatedStorage.Crates`
-- `ReplicatedStorage.Seeds`
-- `ReplicatedStorage.Misc`
-- `ReplicatedStorage.VFX`
+- `ReplicatedStorage.Assets.PetModels`
+- `ReplicatedStorage.Assets.FeedMachines`
+- `ReplicatedStorage.Assets.Food`
+- `ReplicatedStorage.Assets.Crates`
+- `ReplicatedStorage.Assets.Seeds`
+- `ReplicatedStorage.Assets.Misc`
+- `ReplicatedStorage.Assets.VFX`
 - `ReplicatedStorage.UI`
-- `ReplicatedStorage.FeedMachineTool`
-- `ReplicatedStorage.Shovel`
+- `ReplicatedStorage.Assets.FeedMachineTool`
+- `ReplicatedStorage.Assets.SeedTool`
+- `ReplicatedStorage.Assets.Shovel`
 - `ReplicatedStorage.ReplicaClient`
 - `ReplicatedStorage.ReplicaShared`
 - `ServerScriptService.ReplicaServer`
-- `ReplicatedStorage.Misc.PlotTemplate`
+- `ReplicatedStorage.Assets.Misc.PlotTemplate`
 - `Workspace.PlotTemplates` loading pads
 - plot-local `RollArea` assets inside `PlotTemplate`, such as `RollArea.Button.Button` and `RollArea.Button.CrateFloor`
 
@@ -81,16 +82,16 @@ Do not migrate `ReplicatedStorage.UI` into Rojo. `src/client/ui` is controller a
 
 Current Studio asset shape observed through MCP:
 
-- `ReplicatedStorage.PetModels` contains the active pet progression templates, keyed by `PetID` and ordered by `Order`; a previous Workspace duplicate cleanup is documented under `asset-backups/`.
-- `ReplicatedStorage.FeedMachines` contains `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
-- `ReplicatedStorage.Food` contains recursive food template folders. Food identity is `FoodId`; broad matching uses `FoodType`.
-- `ReplicatedStorage.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.
-- `ReplicatedStorage.Seeds` contains roll-purchased growable seed templates with `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`.
-- `ReplicatedStorage.Misc` contains non-seed runtime templates. Rollable misc rewards use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
-- `ReplicatedStorage.VFX.RarityParticle` owns the roll reveal rarity particle emitter or a container that contains it.
+- `ReplicatedStorage.Assets.PetModels` contains the active pet progression templates, keyed by `PetID` and ordered by `Order`; a previous Workspace duplicate cleanup is documented under `asset-backups/`.
+- `ReplicatedStorage.Assets.FeedMachines` contains `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
+- `ReplicatedStorage.Assets.Food` contains recursive food template folders. Food identity is `FoodId`; broad matching uses `FoodType`.
+- `ReplicatedStorage.Assets.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.
+- `ReplicatedStorage.Assets.Seeds` contains roll-purchased growable seed templates with `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`.
+- `ReplicatedStorage.Assets.Misc` contains non-seed runtime templates. Rollable misc rewards use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
+- `ReplicatedStorage.Assets.VFX.RarityParticle` owns the roll reveal rarity particle emitter or a container that contains it.
 - `ReplicatedStorage.UI.RollBillboardGUI` owns the `Seed` and `Misc` roll reveal `BillboardGui` templates.
 - `ReplicatedStorage.UI.YesNoWarning` owns the reusable yes/no warning prompt UI.
-- `ReplicatedStorage.Misc.PlotTemplate` contains the authored plot structure with a starter cell, many `GridAreas`, `GridEffect`, `SpawnLocation`, and plot-local `RollArea`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
+- `ReplicatedStorage.Assets.Misc.PlotTemplate` contains the authored plot structure with a starter cell, many `GridAreas`, `GridEffect`, `SpawnLocation`, and plot-local `RollArea`; `PlotGridService` can create an invisible runtime `Floor` if one is not already authored.
 - `Workspace.PlotTemplates` contains numbered loading pads (`Plot1`, `Plot2`, etc.). `src/server/PlotLoader.luau` clones the template onto those pads at server startup and parents the generated plot models under runtime `Workspace.Plots`.
 
 Before destructive, bulk, rename, restructure, or risky Studio/MCP edits, export the affected assets under `asset-backups/`.
@@ -118,7 +119,7 @@ Avoid adding more major gameplay to `init.server.luau` by default. If a change a
 Startup order is:
 
 1. `Remotes.validateAll()`
-2. `PlotLoader.Load()` clones `ReplicatedStorage.Misc.PlotTemplate` onto `Workspace.PlotTemplates` loading pads as runtime `Workspace.Plots`
+2. `PlotLoader.Load()` clones `ReplicatedStorage.Assets.Misc.PlotTemplate` onto `Workspace.PlotTemplates` loading pads as runtime `Workspace.Plots`
 3. `AssetValidator.validate()`
 4. require `ServerScriptService.ReplicaServer` so Replica can create its runtime remotes
 5. `PlotGridService.ResetVacantPlotsToPreviewRows()`
@@ -159,13 +160,13 @@ Runtime service state should key players by stable `UserId` where possible, not 
 
 ## Feed Machine Architecture
 
-Templates live under Studio-owned `ReplicatedStorage.FeedMachines/<Class>/<Template>`.
+Templates live under Studio-owned `ReplicatedStorage.Assets.FeedMachines/<Class>/<Template>`.
 
 Stable gameplay identity is `FeedType`. Broad behavior is `FeedClass`. Template/model names and containing folders are visual/organizational only; the folder is only the default when `FeedClass` is omitted.
 
-Roll-purchased growables are Studio-owned seed templates under `ReplicatedStorage.Seeds`. Seed templates own `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`; feed-machine templates own mature behavior attributes only. Placed seeds persist as growing feed placements until `GrowTime` elapses, then mature into the existing patch/tree class behavior. Mature feed-machine tools from inventory grants or rebirth rewards still place directly.
+Roll-purchased growables are Studio-owned seed templates under `ReplicatedStorage.Assets.Seeds`. Seed templates own `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`; feed-machine templates own mature behavior attributes only. Placed seeds persist as growing feed placements until `GrowTime` elapses, then mature into the existing patch/tree class behavior. Mature feed-machine tools from inventory grants or rebirth rewards still place directly.
 
-Roll rewards are category-based. `src/shared/RollRewards.luau` owns category constants and misc reward catalog helpers. The current categories are `Seed` and `Misc`; seeds grant seed tools on purchase, while misc rewards can define future purchase behavior through server-side category handlers. Misc roll templates live under `ReplicatedStorage.Misc` and use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
+Roll rewards are category-based. `src/shared/RollRewards.luau` owns category constants and misc reward catalog helpers. The current categories are `Seed` and `Misc`; seeds grant seed tools on purchase, while misc rewards can define future purchase behavior through server-side category handlers. Misc roll templates live under `ReplicatedStorage.Assets.Misc` and use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
 
 `src/server/feedMachines/init.luau` indexes templates and dispatches by feed type/class. Class modules implement:
 
@@ -220,9 +221,9 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `YesNoWarning` is a reusable client module for Studio-authored yes/no prompts backed by `ReplicatedStorage.UI.YesNoWarning`. Feature controllers provide prompt text, item text, and optional rarity data; the module clones the template into the runtime HUD and owns button effects and panel show/hide behavior.
 
-`ShovelController` lets players equip the Studio-owned `ReplicatedStorage.Shovel` utility tool, click placed plants, show `YesNoWarning`, and send confirmed delete intents. `ShovelService` validates the equipped shovel, plot ownership, plant class, distance, rate limits, and profile state before deleting. The shovel is not persisted as feed/seed/food inventory.
+`ShovelController` lets players equip the Studio-owned `ReplicatedStorage.Assets.Shovel` utility tool, click placed plants, show `YesNoWarning`, and send confirmed delete intents. `ShovelService` validates the equipped shovel, plot ownership, plant class, distance, rate limits, and profile state before deleting. The shovel is not persisted as feed/seed/food inventory.
 
-`RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.RollBillboardGUI`; rarity particles use `ReplicatedStorage.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
+`RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.RollBillboardGUI`; rarity particles use `ReplicatedStorage.Assets.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
 
 `HudController`, `RebirthController`, `RollLuckController`, and `RollDropAreaController` render durable profile-backed state from `PlayerStateStore`. They still use remotes for commands/results such as rebirth requests and upgrade purchases.
 
@@ -247,7 +248,7 @@ Important shared modules:
 
 Split replicated runtime attributes from Studio template metadata. Runtime replicated keys should go through `State.luau`; template/catalog metadata such as pet animation IDs, feed-machine `XP`, patch `FoodDrop`, patch `GrowRate`, seed `GrowTime`, reward cosmetic `Rarity`, seed/misc `RollChanceN`, seed/misc roll `Price`, and misc `MiscID` may live directly on Studio instances. Crate drop weights and luck donor behavior currently live in `RollChances.luau`.
 
-`FoodId` is the stable exact food template key. `FoodType` is the broad category used by processors and old-tool compatibility. Food templates may be nested recursively under `ReplicatedStorage.Food`.
+`FoodId` is the stable exact food template key. `FoodType` is the broad category used by processors and old-tool compatibility. Food templates may be nested recursively under `ReplicatedStorage.Assets.Food`.
 
 `EditMode` is a raw boolean `Player` attribute used by server and client today. It is not currently part of `State.luau`.
 

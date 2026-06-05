@@ -45,8 +45,12 @@ local function bindReplica(nextReplica)
 
 	nextReplica.Maid:Add(function()
 		if replica == nextReplica then
+			local previousData = currentData
 			replica = nil
 			currentData = {}
+			for _, fieldName in pairs(PlayerState.Fields) do
+				notify(fieldName, nil, previousData[fieldName])
+			end
 		end
 	end)
 end

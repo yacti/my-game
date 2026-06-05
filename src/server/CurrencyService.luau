@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -47,6 +48,8 @@ local function release(player)
 		currencyLocks[key] = nil
 	end
 end
+
+RuntimeGuard.Connect(Players.PlayerRemoving, "CurrencyService.PlayerRemoving", release)
 
 local function shouldPublish(deferPublish)
 	return deferPublish ~= true

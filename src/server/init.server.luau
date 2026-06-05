@@ -77,7 +77,7 @@ RuntimeGuard.Run("RollService.Start", RollService.Start)
 -- Rebuild profile.Data.Pets from the current plot state (source of truth is the
 -- spawned Models and their attributes). Preserves xp/money from the existing
 -- profile entry when possible; falls back to 0.
-local function savePetsFromPlot(plot, profile)
+local function collectPetsFromPlot(plot, profile)
 	local floor = PlotService.GetFloor(plot)
 	local saved = {}
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
@@ -98,12 +98,16 @@ local function savePetsFromPlot(plot, profile)
 			saved[idx] = entry
 		end
 	end
-	profile.Data.Pets = saved
+	return saved
+end
+
+local function savePetsFromPlot(plot, profile)
+	profile.Data.Pets = collectPetsFromPlot(plot, profile)
 end
 
 -- ── Feed state save ───────────────────────────────────────────────────────────
 
-local function saveFeedState(plot, player, profile)
+local function collectFeedState(plot, player)
 	local floor = PlotService.GetFloor(plot)
 	local placements = {}
 	if floor then
@@ -132,7 +136,6 @@ local function saveFeedState(plot, player, profile)
 			table.insert(placements, rec)
 		end
 	end
-	profile.Data.FeedPlacements = placements
 
 	local feedInventory = {}
 	local function captureTool(item)
@@ -144,22 +147,41 @@ local function saveFeedState(plot, player, profile)
 	if player.Character then
 		captureTool(player.Character:FindFirstChildWhichIsA("Tool"))
 	end
-	profile.Data.FeedInventory = feedInventory
-	profile.Data.SeedInventory = SeedTools.CountBySeed(player)
 
-	profile.Data.FoodInventory = Food.CountByType(player)
+	return {
+		FeedPlacements = placements,
+		FeedInventory = feedInventory,
+		SeedInventory = SeedTools.CountBySeed(player),
+		FoodInventory = Food.CountByType(player),
+	}
+end
+
+local function saveFeedState(plot, player, profile)
+	local state = collectFeedState(plot, player)
+	profile.Data.FeedPlacements = state.FeedPlacements
+	profile.Data.FeedInventory = state.FeedInventory
+	profile.Data.SeedInventory = state.SeedInventory
+	profile.Data.FoodInventory = state.FoodInventory
 end
 
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return false end
-	local petsOk = RuntimeGuard.Run("snapshotProfileState.savePets", savePetsFromPlot, plot, profile)
-	local feedOk = RuntimeGuard.Run("snapshotProfileState.saveFeed", saveFeedState, plot, player, profile)
+	local petsOk, pets = RuntimeGuard.Run("snapshotProfileState.collectPets", collectPetsFromPlot, plot, profile)
+	local feedOk, feedState = RuntimeGuard.Run("snapshotProfileState.collectFeed", collectFeedState, plot, player)
 	if not (petsOk and feedOk) then
 		return false
 	end
+	profile.Data.Pets = pets
+	profile.Data.FeedPlacements = feedState.FeedPlacements
+	profile.Data.FeedInventory = feedState.FeedInventory
+	profile.Data.SeedInventory = feedState.SeedInventory
+	profile.Data.FoodInventory = feedState.FoodInventory
 	profile.Data.LastSeen = os.time()
-	local publishOk = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
-	return publishOk == true
+	local publishRunOk, published = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
+	if publishRunOk and published ~= true then
+		warn("[init] Snapshot saved but PlayerState replica was not updated for user " .. userLabel(player))
+	end
+	return true
 end
 
 local function notifyGrown(player, feed)
