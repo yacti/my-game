@@ -29,6 +29,29 @@ local function findDescendant(root, name, className)
 	return nil
 end
 
+local function upgradeButtonTextRoot(button)
+	if not button then
+		return nil
+	end
+	if button:IsA("TextButton") then
+		return button
+	end
+
+	local price = button:FindFirstChild("Price")
+	if price and (price:IsA("TextLabel") or price:IsA("TextButton")) then
+		return price
+	end
+	return findDescendant(button, "Price", "TextLabel")
+end
+
+local function updateUpgradeButton(button, cannotAffordImage, enabled, showCannotAfford)
+	button.Active = enabled
+	button.AutoButtonColor = enabled
+	if cannotAffordImage then
+		cannotAffordImage.Visible = showCannotAfford
+	end
+end
+
 local function getAssignedPlot(player)
 	return PlotResolver.ResolveForPlayer(player)
 end
@@ -52,11 +75,8 @@ local function isNearRollButton(player)
 	return root ~= nil and button ~= nil and (root.Position - button.Position).Magnitude <= PROXIMITY_DISTANCE
 end
 
-local function formatPads(count, total)
+local function formatPadCount(count)
 	return tostring(math.max(math.floor(tonumber(count) or 0), 0))
-		.. "/"
-		.. tostring(math.max(math.floor(tonumber(total) or 0), 0))
-		.. " Pads"
 end
 
 local function codeToMessage(code)
@@ -87,16 +107,24 @@ function RollDropAreaController.start()
 		return
 	end
 
-	local frame = hud:WaitForChild("RollDropAreaFrame", HUD_WAIT_SECONDS)
-	if not (frame and frame:IsA("GuiObject")) then
-		warn("[RollDropAreaController] Missing HUD.RollDropAreaFrame")
+	local rollButtons = hud:WaitForChild("RollButtons", HUD_WAIT_SECONDS)
+	if not (rollButtons and rollButtons:IsA("GuiObject")) then
+		warn("[RollDropAreaController] Missing HUD.RollButtons")
 		return
 	end
 
-	local dropAreaLabel = findDescendant(frame, "DropAreaLabel", "TextLabel")
+	local frame = rollButtons:WaitForChild("RollDropAreaFrame", HUD_WAIT_SECONDS)
+	if not (frame and frame:IsA("GuiObject")) then
+		warn("[RollDropAreaController] Missing HUD.RollButtons.RollDropAreaFrame")
+		return
+	end
+
+	local dropAreaLabel = findDescendant(frame, "LuckLabel", "TextLabel")
 	local upgradeButton = findDescendant(frame, "UpgradeButton", "GuiButton")
+	local upgradeButtonText = upgradeButtonTextRoot(upgradeButton)
+	local cannotAffordImage = upgradeButton and findDescendant(upgradeButton, "CannotAfford", "ImageLabel")
 	local errorLabel = findDescendant(frame, "ErrorLabel", "TextLabel")
-	if not (dropAreaLabel and upgradeButton) then
+	if not (dropAreaLabel and upgradeButton and upgradeButtonText and cannotAffordImage) then
 		warn("[RollDropAreaController] Roll drop area UI is missing required named instances")
 		return
 	end
@@ -155,17 +183,19 @@ function RollDropAreaController.start()
 		currentCurrency = tonumber(state.currency) or currentCurrency
 		local unlockedCount = tonumber(state.unlockedPadCount) or 1
 		local nextPadCount = tonumber(state.nextPadCount) or unlockedCount
-		local totalPads = tonumber(state.totalPads) or unlockedCount
+		local price = tonumber(state.price)
 
 		if state.isMaxLevel == true then
-			dropAreaLabel.Text = formatPads(unlockedCount, totalPads) .. " -> Max"
-			upgradeButton.Text = "Max"
+			dropAreaLabel.Text = formatPadCount(unlockedCount) .. " -> Max"
+			UiEffects.SetTextStack(upgradeButtonText, "Max")
 		else
-			dropAreaLabel.Text = formatPads(unlockedCount, totalPads) .. " -> " .. formatPads(nextPadCount, totalPads)
-			upgradeButton.Text = UiEffects.FormatCurrency(state.price or 0)
+			dropAreaLabel.Text = formatPadCount(unlockedCount) .. " -> " .. formatPadCount(nextPadCount)
+			UiEffects.SetTextStack(upgradeButtonText, UiEffects.FormatCurrency(price or 0))
 		end
 
-		UiEffects.SetButtonEnabled(upgradeButton, canUpgrade())
+		local canBuy = canUpgrade()
+		local showCannotAfford = price ~= nil and state.profileReady == true and state.isMaxLevel ~= true and currentCurrency < price
+		updateUpgradeButton(upgradeButton, cannotAffordImage, canBuy, showCannotAfford)
 	end
 
 	local function openPanel()

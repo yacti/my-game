@@ -29,6 +29,29 @@ local function findDescendant(root, name, className)
 	return nil
 end
 
+local function upgradeButtonTextRoot(button)
+	if not button then
+		return nil
+	end
+	if button:IsA("TextButton") then
+		return button
+	end
+
+	local price = button:FindFirstChild("Price")
+	if price and (price:IsA("TextLabel") or price:IsA("TextButton")) then
+		return price
+	end
+	return findDescendant(button, "Price", "TextLabel")
+end
+
+local function updateUpgradeButton(button, cannotAffordImage, enabled, showCannotAfford)
+	button.Active = enabled
+	button.AutoButtonColor = enabled
+	if cannotAffordImage then
+		cannotAffordImage.Visible = showCannotAfford
+	end
+end
+
 local function getAssignedPlot(player)
 	return PlotResolver.ResolveForPlayer(player)
 end
@@ -84,16 +107,24 @@ function RollLuckController.start()
 		return
 	end
 
-	local frame = hud:WaitForChild("RollLuckFrame", HUD_WAIT_SECONDS)
+	local rollButtons = hud:WaitForChild("RollButtons", HUD_WAIT_SECONDS)
+	if not (rollButtons and rollButtons:IsA("GuiObject")) then
+		warn("[RollLuckController] Missing HUD.RollButtons")
+		return
+	end
+
+	local frame = rollButtons:WaitForChild("UpgradeLuckFrame", HUD_WAIT_SECONDS)
 	if not (frame and frame:IsA("GuiObject")) then
-		warn("[RollLuckController] Missing HUD.RollLuckFrame")
+		warn("[RollLuckController] Missing HUD.RollButtons.UpgradeLuckFrame")
 		return
 	end
 
 	local luckLabel = findDescendant(frame, "LuckLabel", "TextLabel")
 	local upgradeButton = findDescendant(frame, "UpgradeButton", "GuiButton")
+	local upgradeButtonText = upgradeButtonTextRoot(upgradeButton)
+	local cannotAffordImage = upgradeButton and findDescendant(upgradeButton, "CannotAfford", "ImageLabel")
 	local errorLabel = findDescendant(frame, "ErrorLabel", "TextLabel")
-	if not (luckLabel and upgradeButton) then
+	if not (luckLabel and upgradeButton and upgradeButtonText and cannotAffordImage) then
 		warn("[RollLuckController] Roll luck UI is missing required named instances")
 		return
 	end
@@ -152,16 +183,19 @@ function RollLuckController.start()
 		currentCurrency = tonumber(state.currency) or currentCurrency
 		local currentLuck = tonumber(state.currentLuckPercent) or 0
 		local nextLuck = tonumber(state.nextLuckPercent) or currentLuck
+		local price = tonumber(state.price)
 
 		if state.isMaxLevel == true then
 			luckLabel.Text = formatPercent(currentLuck) .. " -> Max"
-			upgradeButton.Text = "Max"
+			UiEffects.SetTextStack(upgradeButtonText, "Max")
 		else
 			luckLabel.Text = formatPercent(currentLuck) .. " -> " .. formatPercent(nextLuck)
-			upgradeButton.Text = UiEffects.FormatCurrency(state.price or 0)
+			UiEffects.SetTextStack(upgradeButtonText, UiEffects.FormatCurrency(price or 0))
 		end
 
-		UiEffects.SetButtonEnabled(upgradeButton, canUpgrade())
+		local canBuy = canUpgrade()
+		local showCannotAfford = price ~= nil and state.profileReady == true and state.isMaxLevel ~= true and currentCurrency < price
+		updateUpgradeButton(upgradeButton, cannotAffordImage, canBuy, showCannotAfford)
 	end
 
 	local function openPanel()

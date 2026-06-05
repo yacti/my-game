@@ -795,21 +795,29 @@ local function validateHudCurrency(hud, errors)
 	add(errors, string.format("Missing %s.Currency.Amount or descendant CurrencyLabel TextLabel", hud:GetFullName()))
 end
 
-local function validateRollLuckHud(hud, errors)
-	local frame = child(hud, "RollLuckFrame", "GuiObject", errors)
+local function validateRollUpgradeButton(frame, errors)
+	local button = descendant(frame, "UpgradeButton", "GuiButton", errors)
+	if button and not button:IsA("TextButton") then
+		descendant(button, "Price", "TextLabel", errors)
+		descendant(button, "CannotAfford", "ImageLabel", errors)
+	end
+end
+
+local function validateRollLuckHud(rollButtons, errors)
+	local frame = child(rollButtons, "UpgradeLuckFrame", "GuiObject", errors)
 	if not frame then return end
 
 	descendant(frame, "LuckLabel", "TextLabel", errors)
-	descendant(frame, "UpgradeButton", "GuiButton", errors)
+	validateRollUpgradeButton(frame, errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
 end
 
-local function validateRollDropAreaHud(hud, errors)
-	local frame = child(hud, "RollDropAreaFrame", "GuiObject", errors)
+local function validateRollDropAreaHud(rollButtons, errors)
+	local frame = child(rollButtons, "RollDropAreaFrame", "GuiObject", errors)
 	if not frame then return end
 
-	descendant(frame, "DropAreaLabel", "TextLabel", errors)
-	descendant(frame, "UpgradeButton", "GuiButton", errors)
+	descendant(frame, "LuckLabel", "TextLabel", errors)
+	validateRollUpgradeButton(frame, errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
 end
 
@@ -1093,8 +1101,11 @@ local function validateUi(errors)
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
 		validateHudCurrency(hud, errors)
-		validateRollLuckHud(hud, errors)
-		validateRollDropAreaHud(hud, errors)
+		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
+		if rollButtons then
+			validateRollLuckHud(rollButtons, errors)
+			validateRollDropAreaHud(rollButtons, errors)
+		end
 		descendant(hud, "RebirthOpenButton", "GuiButton", errors)
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
