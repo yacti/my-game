@@ -93,6 +93,12 @@ State.Seed = {
 	TargetDisplayName = "SeedTargetDisplayName",
 }
 
+State.Cosmetic = {
+	Id = "CosmeticID",
+	Index = "CosmeticIndex",
+	Rarity = "Rarity",
+}
+
 State.TreeClicker = {
 	GroundFolder = "TreeClickerGroundPiles",
 	GroundPile = "TreeClickerGroundPile",

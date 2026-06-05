@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
+local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
@@ -65,6 +66,24 @@ local function feedHitboxRootFromPart(plot, part)
 		current = current.Parent
 	end
 	return nil
+end
+
+local function cosmeticHitboxRootFromPart(plot, part)
+	local current = part
+	while current and current ~= plot do
+		local cosmeticId = current:GetAttribute(State.Cosmetic.Id)
+		if type(cosmeticId) == "string" and cosmeticId ~= "" and current:GetAttribute(State.Cosmetic.Index) then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") then return current end
+			return nil
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function placeableHitboxRootFromPart(plot, part)
+	return feedHitboxRootFromPart(plot, part) or cosmeticHitboxRootFromPart(plot, part)
 end
 
 local function collectPlots()
@@ -179,6 +198,24 @@ function PlotService.GetSortedFeeds(plot)
 	return feeds
 end
 
+-- Returns all cosmetic instances on the plot, sorted by CosmeticIndex.
+function PlotService.GetSortedCosmetics(plot)
+	local cosmetics = {}
+	for _, obj in pairs(plot:GetDescendants()) do
+		local cosmeticId = obj:GetAttribute(State.Cosmetic.Id)
+		if (obj:IsA("BasePart") or obj:IsA("Model"))
+			and type(cosmeticId) == "string"
+			and cosmeticId ~= ""
+			and obj:GetAttribute(State.Cosmetic.Index) then
+			table.insert(cosmetics, obj)
+		end
+	end
+	table.sort(cosmetics, function(a, b)
+		return (a:GetAttribute(State.Cosmetic.Index) or 0) < (b:GetAttribute(State.Cosmetic.Index) or 0)
+	end)
+	return cosmetics
+end
+
 -- Templates can be either BasePart or Model. Returns the Y-extent used
 -- for stacking the machine on the floor surface.
 local function templateHeight(template)
@@ -219,6 +256,11 @@ local function applyFeedIdentity(instance, feedType, feedIndex)
 	if feedClass then
 		instance:SetAttribute(State.Feed.Class, feedClass)
 	end
+end
+
+local function applyCosmeticIdentity(instance, cosmeticId, cosmeticIndex)
+	instance:SetAttribute(State.Cosmetic.Id, cosmeticId)
+	instance:SetAttribute(State.Cosmetic.Index, cosmeticIndex)
 end
 
 local function normalizePetModel(model)
@@ -381,6 +423,24 @@ end
 
 local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 	local template = FeedMachines.GetTemplate(feedType)
+	if not template then return nil, nil end
+
+	local height = templateHeight(template)
+	local placementCF = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
+	if template:IsA("BasePart") then
+		return placementCF, template.Size
+	end
+	if template:IsA("Model") then
+		local primary = template.PrimaryPart
+		if not primary then return nil, nil end
+		local primaryOffset = template:GetPivot():ToObjectSpace(primary.CFrame)
+		return placementCF * primaryOffset, primary.Size
+	end
+	return nil, nil
+end
+
+local function cosmeticPlacementBounds(floor, cosmeticId, lx, lz, lry)
+	local template = Cosmetics.GetTemplate(cosmeticId)
 	if not template then return nil, nil end
 
 	local height = templateHeight(template)
@@ -597,6 +657,15 @@ function PlotService.NextFeedIndex(plot)
 	return maxIndex + 1
 end
 
+function PlotService.NextCosmeticIndex(plot)
+	local maxIndex = 0
+	for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
+		local idx = cosmetic:GetAttribute(State.Cosmetic.Index) or 0
+		if idx > maxIndex then maxIndex = idx end
+	end
+	return maxIndex + 1
+end
+
 -- Spawns a feed/growing instance at a specific floor-local placement index.
 -- The optional template override is used for growing visuals such as saplings.
 function PlotService.PlaceFeedWithIndex(plot, feedType, feedIndex, lx, lz, lry, templateOverride)
@@ -626,6 +695,30 @@ function PlotService.PlaceFeed(plot, feedType, lx, lz, lry)
 	return PlotService.PlaceFeedWithIndex(plot, feedType, PlotService.NextFeedIndex(plot), lx, lz, lry)
 end
 
+function PlotService.PlaceCosmeticWithIndex(plot, cosmeticId, cosmeticIndex, lx, lz, lry)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return nil end
+
+	local template = Cosmetics.GetTemplate(cosmeticId)
+	if not template then
+		warn("[PlotService] No cosmetic template: " .. tostring(cosmeticId))
+		return nil
+	end
+
+	local clone = template:Clone()
+	stripPromptTemplates(clone)
+	applyCosmeticIdentity(clone, cosmeticId, cosmeticIndex)
+
+	local height = templateHeight(clone)
+	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
+	clone.Parent = plot
+	return clone
+end
+
+function PlotService.PlaceCosmetic(plot, cosmeticId, lx, lz, lry)
+	return PlotService.PlaceCosmeticWithIndex(plot, cosmeticId, PlotService.NextCosmeticIndex(plot), lx, lz, lry)
+end
+
 function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return false end
@@ -637,11 +730,18 @@ function PlotService.FeedPlacementFitsOnFloor(plot, feedType, lx, lz, lry)
 		and PlotGridService.CanPlaceFootprint(plot, boundsCF, boundsSize)
 end
 
-local function feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
+function PlotService.CosmeticPlacementFitsOnFloor(plot, cosmeticId, lx, lz, lry)
 	local floor = PlotService.GetFloor(plot)
-	if not floor then return true end
+	if not floor then return false end
 
-	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
+	local boundsCF, boundsSize = cosmeticPlacementBounds(floor, cosmeticId, lx, lz, lry)
+	if not boundsCF or not boundsSize then return false end
+
+	return boundsFitOnFloor(floor, boundsCF, boundsSize)
+		and PlotGridService.CanPlaceFootprint(plot, boundsCF, boundsSize)
+end
+
+local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlaceable)
 	if not boundsCF or not boundsSize then return true end
 	local querySize = Vector3.new(
 		math.max(boundsSize.X - OVERLAP_QUERY_INSET, 0.05),
@@ -654,12 +754,28 @@ local function feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
 	params.FilterDescendantsInstances = { plot }
 
 	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
-		local hitFeed = feedHitboxRootFromPart(plot, part)
-		if hitFeed and hitFeed ~= excludedFeed then
+		local hitPlaceable = placeableHitboxRootFromPart(plot, part)
+		if hitPlaceable and hitPlaceable ~= excludedPlaceable then
 			return true
 		end
 	end
 	return false
+end
+
+local function feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return true end
+
+	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
+	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedFeed)
+end
+
+local function cosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry, excludedCosmetic)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return true end
+
+	local boundsCF, boundsSize = cosmeticPlacementBounds(floor, cosmeticId, lx, lz, lry)
+	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedCosmetic)
 end
 
 function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
@@ -670,6 +786,14 @@ function PlotService.FeedPlacementOverlapsExcept(plot, feedType, lx, lz, lry, ex
 	return feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
 end
 
+function PlotService.CosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry)
+	return cosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry)
+end
+
+function PlotService.CosmeticPlacementOverlapsExcept(plot, cosmeticId, lx, lz, lry, excludedCosmetic)
+	return cosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry, excludedCosmetic)
+end
+
 function PlotService.RepositionFeed(plot, feed, lx, lz, lry)
 	local floor = PlotService.GetFloor(plot)
 	if not floor or not feed or not feed:IsDescendantOf(plot) then return nil end
@@ -678,6 +802,17 @@ function PlotService.RepositionFeed(plot, feed, lx, lz, lry)
 	local height = templateHeight(feed)
 	local cframe = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
 	anchorAndPlace(feed, cframe)
+	return cframe
+end
+
+function PlotService.RepositionCosmetic(plot, cosmetic, lx, lz, lry)
+	local floor = PlotService.GetFloor(plot)
+	if not floor or not cosmetic or not cosmetic:IsDescendantOf(plot) then return nil end
+	if not (cosmetic:IsA("BasePart") or cosmetic:IsA("Model")) then return nil end
+
+	local height = templateHeight(cosmetic)
+	local cframe = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
+	anchorAndPlace(cosmetic, cframe)
 	return cframe
 end
 
@@ -719,12 +854,12 @@ function PlotService.GetNavigationObstacleBounds(plot)
 	if not floor then return {} end
 
 	local obstacles = {}
-	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+	local function addObstacle(instance)
 		local boundsCF, boundsSize
-		if feed:IsA("BasePart") then
-			boundsCF, boundsSize = feed.CFrame, feed.Size
-		elseif feed:IsA("Model") then
-			local primary = feed.PrimaryPart
+		if instance:IsA("BasePart") then
+			boundsCF, boundsSize = instance.CFrame, instance.Size
+		elseif instance:IsA("Model") then
+			local primary = instance.PrimaryPart
 			if primary then
 				boundsCF, boundsSize = primary.CFrame, primary.Size
 			end
@@ -734,7 +869,7 @@ function PlotService.GetNavigationObstacleBounds(plot)
 			local minX, maxX, minZ, maxZ = floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
 			if minX then
 				obstacles[#obstacles + 1] = {
-					instance = feed,
+					instance = instance,
 					minX = minX,
 					maxX = maxX,
 					minZ = minZ,
@@ -742,6 +877,13 @@ function PlotService.GetNavigationObstacleBounds(plot)
 				}
 			end
 		end
+	end
+
+	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+		addObstacle(feed)
+	end
+	for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
+		addObstacle(cosmetic)
 	end
 
 	return obstacles
@@ -761,6 +903,12 @@ end
 function PlotService.DestroyFeeds(plot)
 	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
 		feed:Destroy()
+	end
+end
+
+function PlotService.DestroyCosmetics(plot)
+	for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
+		cosmetic:Destroy()
 	end
 end
 

@@ -74,10 +74,18 @@ local function isGrowingFeed(instance)
 		and instance:GetAttribute(State.Seed.Phase) == "GrowingSeed"
 end
 
-local function feedRootFromInstance(plot, instance)
+local function isCosmetic(instance)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(instance:GetAttribute(State.Cosmetic.Id)) == "string"
+		and instance:GetAttribute(State.Cosmetic.Id) ~= ""
+		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function placeableRootFromInstance(plot, instance)
 	local current = instance
 	while current and current ~= plot do
-		if isMatureFeed(current) then
+		if isMatureFeed(current) or isCosmetic(current) then
 			return current
 		end
 		current = current.Parent
@@ -96,10 +104,10 @@ local function growingFeedRootFromInstance(plot, instance)
 	return nil
 end
 
-local function hasFeedRootAncestor(plot, instance)
+local function hasPlaceableRootAncestor(plot, instance)
 	local current = instance.Parent
 	while current and current ~= plot do
-		if isMatureFeed(current) or isGrowingFeed(current) then
+		if isMatureFeed(current) or isGrowingFeed(current) or isCosmetic(current) then
 			return true
 		end
 		current = current.Parent
@@ -107,13 +115,13 @@ local function hasFeedRootAncestor(plot, instance)
 	return false
 end
 
-local function feedRoots(plot)
+local function placeableRoots(plot)
 	local roots = {}
 	if not plot then return roots end
 
 	for _, descendant in ipairs(plot:GetDescendants()) do
-		if (isMatureFeed(descendant) or isGrowingFeed(descendant))
-			and not hasFeedRootAncestor(plot, descendant) then
+		if (isMatureFeed(descendant) or isGrowingFeed(descendant) or isCosmetic(descendant))
+			and not hasPlaceableRootAncestor(plot, descendant) then
 			roots[#roots + 1] = descendant
 		end
 	end
@@ -121,7 +129,7 @@ local function feedRoots(plot)
 	return roots
 end
 
-local function feedHitboxRootFromPart(plot, part)
+local function placeableHitboxRootFromPart(plot, part)
 	local current = part
 	while current and current ~= plot do
 		local feedType = current:GetAttribute(State.Feed.Type)
@@ -131,16 +139,22 @@ local function feedHitboxRootFromPart(plot, part)
 			if current:IsA("Model") then return current end
 			return nil
 		end
+		local cosmeticId = current:GetAttribute(State.Cosmetic.Id)
+		if type(cosmeticId) == "string" and cosmeticId ~= "" and current:GetAttribute(State.Cosmetic.Index) then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") then return current end
+			return nil
+		end
 		current = current.Parent
 	end
 	return nil
 end
 
-local function feedRootFromScreen(plot, screenPosition)
+local function placeableRootFromScreen(plot, screenPosition)
 	local camera = Workspace.CurrentCamera
 	if not plot or not camera then return nil end
 
-	local roots = feedRoots(plot)
+	local roots = placeableRoots(plot)
 	if #roots == 0 then return nil end
 
 	local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
@@ -150,7 +164,7 @@ local function feedRootFromScreen(plot, screenPosition)
 
 	local hit = Workspace:Raycast(ray.Origin, ray.Direction * SELECTION_RAY_DISTANCE, params)
 	if hit then
-		return feedRootFromInstance(plot, hit.Instance) or growingFeedRootFromInstance(plot, hit.Instance)
+		return placeableRootFromInstance(plot, hit.Instance) or growingFeedRootFromInstance(plot, hit.Instance)
 	end
 
 	return nil
@@ -426,8 +440,8 @@ function FeedEditController.start()
 		params.FilterDescendantsInstances = { plot }
 
 		for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
-			local feed = feedHitboxRootFromPart(plot, part)
-			if feed and feed ~= selectedFeed then
+			local placeable = placeableHitboxRootFromPart(plot, part)
+			if placeable and placeable ~= selectedFeed then
 				return true
 			end
 		end
@@ -659,16 +673,16 @@ function FeedEditController.start()
 			return
 		end
 
-		local feed = feedRootFromScreen(plot, input.Position)
-		if feed then
-			if isGrowingFeed(feed) then
+		local placeable = placeableRootFromScreen(plot, input.Position)
+		if placeable then
+			if isGrowingFeed(placeable) then
 				NotificationUi.show({
 					kind = NotificationConfig.Kinds.Error,
 					text = GROWING_PLANT_MESSAGE,
 				})
 				clearSelection(true)
 			else
-				selectFeed(feed)
+				selectFeed(placeable)
 			end
 		else
 			clearSelection(true)

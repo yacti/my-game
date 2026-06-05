@@ -65,6 +65,7 @@ local function stateFromProfile(profile)
 		[PlayerState.Fields.Rebirths] = integer(data.Rebirths, 0),
 		[PlayerState.Fields.RollLuckLevel] = integer(data.RollLuckLevel, 0),
 		[PlayerState.Fields.RollDropAreaLevel] = integer(data.RollDropAreaLevel, 0),
+		[PlayerState.Fields.CosmeticInventory] = copyCountMap(data.CosmeticInventory),
 		[PlayerState.Fields.FeedInventory] = copyCountMap(data.FeedInventory),
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
 		[PlayerState.Fields.FoodInventory] = copyCountMap(data.FoodInventory),
@@ -215,6 +216,7 @@ end
 
 function PlayerReplicaService.PublishInventories(player, profile)
 	local data = profile and profile.Data or {}
+	PlayerReplicaService.PublishField(player, PlayerState.Fields.CosmeticInventory, copyCountMap(data.CosmeticInventory))
 	PlayerReplicaService.PublishField(player, PlayerState.Fields.FeedInventory, copyCountMap(data.FeedInventory))
 	PlayerReplicaService.PublishField(player, PlayerState.Fields.SeedInventory, copyCountMap(data.SeedInventory))
 	PlayerReplicaService.PublishField(player, PlayerState.Fields.FoodInventory, copyCountMap(data.FoodInventory))

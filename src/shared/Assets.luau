@@ -5,6 +5,8 @@ local Assets = {}
 Assets.FolderName = "Assets"
 
 Assets.Names = {
+	Cosmetics = "Cosmetics",
+	CosmeticTool = "CosmeticTool",
 	Crates = "Crates",
 	FeedMachines = "FeedMachines",
 	FeedMachineTool = "FeedMachineTool",

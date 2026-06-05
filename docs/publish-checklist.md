@@ -11,7 +11,7 @@ Run this checklist before publishing a live build.
 - `ReplicatedStorage.Assets.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
   `Assets.PetModels`, `Assets.FeedMachines`, `Assets.Food`, `Assets.Crates`,
-  `UI`, `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
+  `UI`, `Assets.Cosmetics`, `Assets.CosmeticTool`, `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
   `Assets.Seeds`, `Assets.Misc.Sapling`, `Assets.Misc.Brick`, and
   `Assets.VFX.RarityParticle`.
 - `ReplicatedStorage.UI.YesNoWarning` has `Description`, `Item`, `Yes`,
@@ -23,12 +23,12 @@ Run this checklist before publishing a live build.
 
 - `src/server/PlayerDataService.luau` store policy is intentional:
   `STORE_NAME = "PlayerData"` and Studio uses ProfileStore mock mode by default.
-- Fresh ProfileStore profile receives expected default pet, no persisted feed/seed/food inventory tools, utility shovel, and starting currency.
+- Fresh ProfileStore profile receives expected default pet, starter cosmetic tool, no persisted feed/seed/food inventory tools, utility shovel, and starting currency.
 - Server output shows ProfileStore has DataStore access in production test
   environments.
 - Leave/rejoin preserves pets, feed machines, growing seed placements, seed
-  inventory, feed inventory, food inventory, currency, and patch/processor/tree
-  machine state.
+  inventory, feed inventory, food inventory, cosmetic placements, cosmetic
+  inventory, currency, and patch/processor/tree machine state.
 
 ## Gameplay Security
 
@@ -64,6 +64,8 @@ Run this checklist before publishing a live build.
   `RollChanceN`, `Price`, or `Rarity` attributes.
 - Confirm any missing `ReplicatedStorage.UI` warnings are intentional; missing UI
   should skip the affected UI path and should never create fallback UI.
+- Confirm cosmetic templates under `ReplicatedStorage.Assets.Cosmetics` have
+  unique `CosmeticID` attributes and model `PrimaryPart`s.
 - Confirm `ReplicatedStorage.UI.RollBillboardGUI` has `Seed` and `Misc`
   billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.

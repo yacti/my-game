@@ -8,11 +8,15 @@ local RollDropAreaBalance = require(ReplicatedStorage.Shared:WaitForChild("RollD
 local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
+local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 3
+local CURRENT_DATA_VERSION = 5
 local GROWING_SEED_PHASE = "GrowingSeed"
+local STARTER_COSMETIC_INVENTORY = {
+	Fountain = 1,
+}
 
 local DEPRECATED_FEED_TYPES = {
 	Clicker1 = true,
@@ -26,6 +30,8 @@ local DATA_TEMPLATE = {
 		{ petId = "Pet1", xp = 0, money = 0 },
 	},
 	FeedPlacements = {},
+	CosmeticPlacements = {},
+	CosmeticInventory = STARTER_COSMETIC_INVENTORY, -- { [CosmeticID] = count }
 	FeedInventory = {},
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
@@ -122,6 +128,22 @@ local function migrateData(data)
 		elseif nextVersion == 3 then
 			if type(data.SeedInventory) ~= "table" then
 				data.SeedInventory = {}
+			end
+		elseif nextVersion == 4 then
+			if type(data.CosmeticPlacements) ~= "table" then
+				data.CosmeticPlacements = {}
+			end
+			if type(data.CosmeticInventory) ~= "table" then
+				data.CosmeticInventory = {}
+			end
+		elseif nextVersion == 5 then
+			if type(data.CosmeticInventory) ~= "table" then
+				data.CosmeticInventory = {}
+			end
+			for cosmeticId, count in pairs(STARTER_COSMETIC_INVENTORY) do
+				if data.CosmeticInventory[cosmeticId] == nil then
+					data.CosmeticInventory[cosmeticId] = count
+				end
 			end
 		end
 
@@ -230,6 +252,36 @@ local function ensureValidData(profile)
 		end
 	end
 	profile.Data.FeedPlacements = placements
+
+	local cosmeticPlacements = {}
+	if type(profile.Data.CosmeticPlacements) == "table" then
+		for _, placement in ipairs(profile.Data.CosmeticPlacements) do
+			if type(placement) == "table"
+				and type(placement.id) == "string"
+				and Cosmetics.GetTemplate(placement.id) then
+				cosmeticPlacements[#cosmeticPlacements + 1] = {
+					id = placement.id,
+					lx = tonumber(placement.lx) or 0,
+					lz = tonumber(placement.lz) or 0,
+					lry = tonumber(placement.lry) or 0,
+				}
+			end
+		end
+	end
+	profile.Data.CosmeticPlacements = cosmeticPlacements
+
+	local cosmeticInventory = {}
+	if type(profile.Data.CosmeticInventory) == "table" then
+		for cosmeticId, count in pairs(profile.Data.CosmeticInventory) do
+			if type(cosmeticId) == "string"
+				and type(count) == "number"
+				and count > 0
+				and Cosmetics.GetTemplate(cosmeticId) then
+				cosmeticInventory[cosmeticId] = math.floor(count)
+			end
+		end
+	end
+	profile.Data.CosmeticInventory = cosmeticInventory
 
 	local feedInventory = {}
 	if type(profile.Data.FeedInventory) == "table" then

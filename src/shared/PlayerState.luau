@@ -8,6 +8,7 @@ PlayerState.Fields = {
 	Rebirths = "Rebirths",
 	RollLuckLevel = "RollLuckLevel",
 	RollDropAreaLevel = "RollDropAreaLevel",
+	CosmeticInventory = "CosmeticInventory",
 	FeedInventory = "FeedInventory",
 	SeedInventory = "SeedInventory",
 	FoodInventory = "FoodInventory",

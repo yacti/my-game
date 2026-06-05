@@ -45,6 +45,12 @@
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },
+        "PlaceCosmetic": {
+          "$className": "RemoteEvent"
+        },
+        "PlaceCosmeticResult": {
+          "$className": "RemoteEvent"
+        },
         "PlaceFeedMachine": {
           "$className": "RemoteEvent"
         },

@@ -7,6 +7,7 @@ local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
@@ -25,6 +26,8 @@ local State = require(Shared:WaitForChild("State"))
 local AssetValidator = {}
 
 local REQUIRED_ASSET_ROOTS = {
+	"Cosmetics",
+	"CosmeticTool",
 	"PetModels",
 	"FeedMachines",
 	"Food",
@@ -58,6 +61,7 @@ local REQUIRED_FEEDS = {
 }
 
 local REQUIRED_TOOLS = {
+	"CosmeticTool",
 	"FeedMachineTool",
 	"SeedTool",
 	"Shovel",
@@ -479,6 +483,74 @@ local function validateSeeds(errors)
 
 	if count == 0 then
 		add(errors, "ReplicatedStorage.Assets.Seeds must contain at least one seed template")
+	end
+end
+
+local function validateCosmetics(errors)
+	local root = assetChild(Assets.Names.Cosmetics, "Folder", errors)
+	if not root then return end
+
+	local function hasCosmeticTemplateAncestor(instance)
+		local parent = instance.Parent
+		while parent and parent ~= root do
+			if parent:IsA("BasePart") or parent:IsA("Model") then
+				return true
+			end
+			parent = parent.Parent
+		end
+		return false
+	end
+
+	local function hasBasePart(template)
+		if template:IsA("BasePart") then
+			return true
+		end
+		for _, descendant in ipairs(template:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				return true
+			end
+		end
+		return false
+	end
+
+	local seenByCosmeticId = {}
+	local count = 0
+	for _, template in ipairs(root:GetDescendants()) do
+		if not (template:IsA("BasePart") or template:IsA("Model")) or hasCosmeticTemplateAncestor(template) then
+			continue
+		end
+		count += 1
+
+		local cosmeticId = template:GetAttribute(Cosmetics.Attributes.Id)
+		if type(cosmeticId) ~= "string" or cosmeticId == "" then
+			add(errors, template:GetFullName() .. " missing " .. Cosmetics.Attributes.Id .. " attribute")
+		elseif seenByCosmeticId[cosmeticId] then
+			add(errors, string.format(
+				"Duplicate %s %q on %s and %s",
+				Cosmetics.Attributes.Id,
+				cosmeticId,
+				seenByCosmeticId[cosmeticId]:GetFullName(),
+				template:GetFullName()
+			))
+		else
+			seenByCosmeticId[cosmeticId] = template
+		end
+
+		if not hasBasePart(template) then
+			add(errors, template:GetFullName() .. " has no BasePart descendants")
+		end
+		if template:IsA("Model") and not template.PrimaryPart then
+			add(errors, template:GetFullName() .. " missing PrimaryPart")
+		end
+
+		local rarity = template:GetAttribute(Cosmetics.Attributes.Rarity)
+		if rarity ~= nil and not Rarities.IsValid(rarity) then
+			add(errors, string.format("%s has unknown %s %q", template:GetFullName(), Cosmetics.Attributes.Rarity, tostring(rarity)))
+		end
+	end
+
+	if count == 0 then
+		add(errors, "ReplicatedStorage.Assets.Cosmetics must contain at least one cosmetic template")
 	end
 end
 
@@ -1231,6 +1303,7 @@ function AssetValidator.validate()
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors)
 	validateSeeds(errors)
+	validateCosmetics(errors)
 	validateMisc(errors)
 	validateVfx(errors)
 	validateCrates(errors)

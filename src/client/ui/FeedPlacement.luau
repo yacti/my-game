@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
@@ -72,14 +73,15 @@ local FeedPlacement = {}
 
 local PLACEMENT_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before placing another feed machine.",
+	["no-cosmetic-tool"] = "Equip a cosmetic before placing.",
 	["no-feed-tool"] = "Equip a feed machine before placing.",
 	["no-profile"] = "Your save data is not ready yet.",
-	["out-of-bounds"] = "Place feed machines inside your plot.",
+	["out-of-bounds"] = "Place items inside unlocked plot cells.",
 	["overlap"] = "That spot is already occupied.",
 	["rate-limited"] = "Please wait before placing again.",
 	["save-failed"] = "Could not save that placement. Please try again.",
 	["setup-failed"] = "Could not set up that feed machine.",
-	["too-far"] = "Move closer to place that feed machine.",
+	["too-far"] = "Move closer to place that item.",
 }
 
 local function placementFailureMessage(reason)
@@ -172,11 +174,17 @@ local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
 	return true
 end
 
-local function feedHitboxRootFromPart(plot, part)
+local function placeableHitboxRootFromPart(plot, part)
 	local current = part
 	while current and current ~= plot do
 		local feedType = current:GetAttribute(State.Feed.Type)
 		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") then return current end
+			return nil
+		end
+		local cosmeticId = current:GetAttribute(State.Cosmetic.Id)
+		if type(cosmeticId) == "string" and cosmeticId ~= "" and current:GetAttribute(State.Cosmetic.Index) then
 			if current:IsA("BasePart") then return current end
 			if current:IsA("Model") then return current end
 			return nil
@@ -215,6 +223,8 @@ end
 function FeedPlacement.start()
 	local player           = Players.LocalPlayer
 	local PlayerGui        = player:WaitForChild("PlayerGui")
+	local PlaceCosmetic = Remotes.get(Remotes.Names.PlaceCosmetic)
+	local PlaceCosmeticResult = Remotes.get(Remotes.Names.PlaceCosmeticResult)
 	local PlaceFeedMachine = Remotes.get(Remotes.Names.PlaceFeedMachine)
 	local PlaceFeedMachineResult = Remotes.get(Remotes.Names.PlaceFeedMachineResult)
 	local uiFolder = ReplicatedStorage:FindFirstChild("UI")
@@ -251,6 +261,7 @@ function FeedPlacement.start()
 	local preview, currentRotation, placing = nil, 0, false
 	local activeFeedType = nil  -- set when a FeedMachine tool is equipped
 	local activeSeedId = nil
+	local activeCosmeticId = nil
 	local activeTool = nil
 	local activeToolGuid = nil
 	local selectedLX, selectedLZ = nil, nil
@@ -349,13 +360,20 @@ function FeedPlacement.start()
 	end
 
 	local function shouldUseTreeSaplingPreview()
-		return activeSeedId ~= nil and GrowingVisuals.FeedClassFor(activeFeedType) == "Tree"
+		return activeSeedId ~= nil and activeFeedType ~= nil and GrowingVisuals.FeedClassFor(activeFeedType) == "Tree"
+	end
+
+	local function activeTemplate()
+		if activeCosmeticId then
+			return Cosmetics.GetTemplate(activeCosmeticId)
+		end
+		return activeFeedType and findTemplate(activeFeedType) or nil
 	end
 
 	local function buildPreview()
 		if preview then preview:Destroy() end
 		previewPartColors = {}
-		local template = activeFeedType and findTemplate(activeFeedType)
+		local template = activeTemplate()
 		if not template then return end
 		-- Tree seeds preview as saplings, but reserve the mature tree footprint.
 		cachePlacementBounds(template)
@@ -363,7 +381,7 @@ function FeedPlacement.start()
 			and GrowingVisuals.BuildTreeSapling(activeFeedType)
 			or template:Clone()
 		if not clone then return end
-		clone.Name = "__FeedPreview"
+		clone.Name = "__PlacementPreview"
 		local function preparePreviewPart(part)
 			previewPartColors[part] = part.Color
 			setPreviewProps(part)
@@ -494,7 +512,7 @@ function FeedPlacement.start()
 		return previewFitsOnGridAt(selectedLX, selectedLZ)
 	end
 
-	local function previewOverlapsFeed()
+	local function previewOverlapsPlaceable()
 		local plot = getPlayerPlot()
 		if not plot then return true end
 		local boundsCF, boundsSize = getPreviewBounds()
@@ -510,7 +528,7 @@ function FeedPlacement.start()
 		params.FilterDescendantsInstances = { plot }
 
 		for _, part in ipairs(workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
-			if feedHitboxRootFromPart(plot, part) then
+			if placeableHitboxRootFromPart(plot, part) then
 				return true
 			end
 		end
@@ -518,7 +536,7 @@ function FeedPlacement.start()
 	end
 
 	local function previewPlacementBlocked()
-		return not previewFitsOnGrid() or previewOverlapsFeed()
+		return not previewFitsOnGrid() or previewOverlapsPlaceable()
 	end
 
 	local function screenHitsPreview(screenPosition)
@@ -698,7 +716,11 @@ function FeedPlacement.start()
 		setGridEffectEnabled(false)
 		setPlacementEditVisible(false)
 		setConfirmEnabled(false)
-		PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
+		if activeCosmeticId then
+			PlaceCosmetic:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
+		else
+			PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
+		end
 	end
 
 	local function beginMoving(input)
@@ -806,7 +828,7 @@ function FeedPlacement.start()
 		end)
 	end)
 
-	RuntimeGuard.Connect(PlaceFeedMachineResult.OnClientEvent, "FeedPlacement.PlaceResult", function(requestId, success, reason)
+	local function handlePlaceResult(requestId, success, reason)
 		if requestId ~= pendingPlacementRequestId then return end
 		pendingPlacementRequestId = nil
 		local placedCFrame = pendingPlacementCFrame
@@ -818,6 +840,7 @@ function FeedPlacement.start()
 			if unequippedWhilePending then
 				activeFeedType = nil
 				activeSeedId = nil
+				activeCosmeticId = nil
 				activeToolGuid = nil
 				destroyPreview()
 				return
@@ -843,6 +866,7 @@ function FeedPlacement.start()
 		if not preview then
 			activeFeedType = nil
 			activeSeedId = nil
+			activeCosmeticId = nil
 			activeToolGuid = nil
 			destroyPreview()
 			return
@@ -851,6 +875,7 @@ function FeedPlacement.start()
 		if not placedCFrame then
 			activeFeedType = nil
 			activeSeedId = nil
+			activeCosmeticId = nil
 			activeToolGuid = nil
 			destroyPreview()
 			return
@@ -863,15 +888,62 @@ function FeedPlacement.start()
 		setPreviewCFrame(preview, placedCFrame)
 		activeFeedType = nil
 		activeSeedId = nil
+		activeCosmeticId = nil
 		activeTool = nil
 		activeToolGuid = nil
 		destroyPreview()
-	end)
+	end
+
+	RuntimeGuard.Connect(PlaceFeedMachineResult.OnClientEvent, "FeedPlacement.PlaceFeedResult", handlePlaceResult)
+	RuntimeGuard.Connect(PlaceCosmeticResult.OnClientEvent, "FeedPlacement.PlaceCosmeticResult", handlePlaceResult)
 
 	local function bindTool(tool)
 		if not tool:IsA("Tool") or boundTools[tool] then return end
 		local toolGuid = tool:GetAttribute(State.Tool.Guid)
 		if not validToolGuid(toolGuid) then return end
+		local cosmeticId = tool:GetAttribute(State.Cosmetic.Id)
+		if type(cosmeticId) == "string" and cosmeticId ~= "" then
+			if not Cosmetics.GetTemplate(cosmeticId) then return end
+			boundTools[tool] = true
+
+			local function activateCosmeticTool()
+				activeTool = tool
+				activeToolGuid = toolGuid
+				activeFeedType = nil
+				activeSeedId = nil
+				activeCosmeticId = cosmeticId
+				placing = true
+				currentRotation = 0
+				selectedLX = nil
+				selectedLZ = nil
+				currentPlacementBlocked = true
+				setPlacementEditVisible(false)
+				setConfirmVisible(true)
+				setConfirmEnabled(false)
+				setGridEffectEnabled(true)
+			end
+
+			RuntimeGuard.Connect(tool.Equipped, "FeedPlacement.CosmeticToolEquipped", activateCosmeticTool)
+			if tool.Parent == player.Character then
+				activateCosmeticTool()
+			end
+
+			RuntimeGuard.Connect(tool.Unequipped, "FeedPlacement.CosmeticToolUnequipped", function()
+				if activeTool ~= tool then
+					return
+				end
+				activeTool = nil
+				activeToolGuid = nil
+				if pendingPlacementRequestId ~= nil then
+					unequippedWhilePending = true
+					setGridEffectEnabled(false)
+					return
+				end
+				destroyPreview()
+				activeCosmeticId = nil
+			end)
+			return
+		end
 		local seedId = tool:GetAttribute(State.Seed.Id)
 		local toolFeedType = nil
 		if type(seedId) == "string" and seedId ~= "" then
@@ -887,6 +959,7 @@ function FeedPlacement.start()
 			activeToolGuid = toolGuid
 			activeFeedType  = toolFeedType
 			activeSeedId = type(seedId) == "string" and seedId ~= "" and seedId or nil
+			activeCosmeticId = nil
 			placing         = true
 			currentRotation = 0
 			selectedLX      = nil
@@ -917,6 +990,7 @@ function FeedPlacement.start()
 			destroyPreview()
 			activeFeedType = nil
 			activeSeedId = nil
+			activeCosmeticId = nil
 		end)
 	end
 

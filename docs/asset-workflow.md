@@ -10,6 +10,8 @@ add game UI backups or Rojo mappings under `src/ui`.
 These gameplay assets live under `ReplicatedStorage.Assets` and are required by server/client code:
 
 - `ReplicatedStorage.Assets.PetModels`
+- `ReplicatedStorage.Assets.Cosmetics`
+- `ReplicatedStorage.Assets.CosmeticTool`
 - `ReplicatedStorage.Assets.FeedMachines`
 - `ReplicatedStorage.Assets.Food`
 - `ReplicatedStorage.Assets.Crates`
@@ -44,6 +46,8 @@ asset-backups/
     FeedMachineTool.rbxm
     SeedTool.rbxm
     Shovel.rbxm
+    Cosmetics.rbxm
+    CosmeticTool.rbxm
     Seeds.rbxm
     Misc.rbxm
     Workspace-PlotTemplates.rbxm
@@ -61,9 +65,10 @@ of truth.
 Move non-UI assets into Rojo/source ownership in small, tested commits:
 
 1. `ReplicatedStorage.Assets.FeedMachineTool`
-2. `ReplicatedStorage.Assets.PetModels`
-3. `ReplicatedStorage.Assets.FeedMachines`
-4. `ReplicatedStorage.Assets.Food`
+2. `ReplicatedStorage.Assets.CosmeticTool`
+3. `ReplicatedStorage.Assets.PetModels`
+4. `ReplicatedStorage.Assets.FeedMachines`
+5. `ReplicatedStorage.Assets.Food`
 
 Avoid migrating everything at once. Complex models can break if pivots,
 `PrimaryPart`s, welds, attributes, or tool handles are not preserved.
@@ -75,6 +80,9 @@ attributes, remotes, crates, tools, UI templates, roll areas, the plot template,
 numbered plot loading pads, and generated runtime plot structure at server startup.
 Seed templates used by crate rolls must include valid `RollChanceN`, `Price`,
 `GrowTime`, and `FeedType` attributes; `Rarity` is display-only when present.
+Cosmetic templates must be `BasePart` or `Model` instances under
+`ReplicatedStorage.Assets.Cosmetics`, have a unique `CosmeticID`, and models
+must have a `PrimaryPart`.
 Misc templates enter the roll pool only when they carry `MiscID`, and must then
 also include valid `RollChanceN`, `Price`, and optional display `Rarity`.
 Feed-machine templates should not duplicate seed-owned roll/economy/growth

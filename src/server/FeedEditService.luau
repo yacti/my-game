@@ -82,16 +82,19 @@ local function isPlayerOnFloor(player, floor)
 		and localPosition.Y <= floor.Size.Y / 2 + FLOOR_Y_TOLERANCE_ABOVE
 end
 
-local function resolveFeedTarget(plot, target)
+local function resolvePlaceableTarget(plot, target)
 	if typeof(target) ~= "Instance" or not target:IsDescendantOf(plot) then
 		return nil
 	end
 
 	local current = target
 	while current and current ~= plot do
-		if (current:IsA("BasePart") or current:IsA("Model"))
-			and type(current:GetAttribute(State.Feed.Type)) == "string"
-			and current:GetAttribute(State.Feed.Index) ~= nil then
+		local feedType = current:GetAttribute(State.Feed.Type)
+		local cosmeticId = current:GetAttribute(State.Cosmetic.Id)
+		if (current:IsA("BasePart") or current:IsA("Model")) and (
+			(type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) ~= nil)
+			or (type(cosmeticId) == "string" and cosmeticId ~= "" and current:GetAttribute(State.Cosmetic.Index) ~= nil)
+		) then
 			return current
 		end
 		current = current.Parent
@@ -106,6 +109,14 @@ local function isMatureFeed(feed)
 		and feed:GetAttribute(State.Feed.Type) ~= ""
 		and feed:GetAttribute(State.Feed.Index) ~= nil
 		and not FeedGrowthService.IsGrowing(feed)
+end
+
+local function isCosmetic(cosmetic)
+	return cosmetic ~= nil
+		and (cosmetic:IsA("BasePart") or cosmetic:IsA("Model"))
+		and type(cosmetic:GetAttribute(State.Cosmetic.Id)) == "string"
+		and cosmetic:GetAttribute(State.Cosmetic.Id) ~= ""
+		and cosmetic:GetAttribute(State.Cosmetic.Index) ~= nil
 end
 
 function FeedEditService.Start(config)
@@ -196,13 +207,16 @@ function FeedEditService.Start(config)
 				return
 			end
 
-			local feed = resolveFeedTarget(plot, target)
-			if not isMatureFeed(feed) then
+			local placeable = resolvePlaceableTarget(plot, target)
+			local movingFeed = isMatureFeed(placeable)
+			local movingCosmetic = isCosmetic(placeable)
+			if not (movingFeed or movingCosmetic) then
 				sendMoveResult(player, requestId, false, "invalid-target")
 				return
 			end
 
-			local feedType = feed:GetAttribute(State.Feed.Type)
+			local feedType = movingFeed and placeable:GetAttribute(State.Feed.Type) or nil
+			local cosmeticId = movingCosmetic and placeable:GetAttribute(State.Cosmetic.Id) or nil
 			local floor = PlotService.GetFloor(plot)
 			if not floor then
 				sendMoveResult(player, requestId, false, "no-floor")
@@ -229,24 +243,33 @@ function FeedEditService.Start(config)
 			if not isPlayerNearPosition(player, snappedWorldPosition, moveDistance) then
 				recordMoveReject(player, "too-far", {
 					feedType = feedType,
+					cosmeticId = cosmeticId,
 					plot = plot,
-					target = feed,
+					target = placeable,
 					position = snappedWorldPosition,
 				})
 				sendMoveResult(player, requestId, false, "too-far")
 				return
 			end
-			if not PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY) then
+			local fits = movingCosmetic
+				and PlotService.CosmeticPlacementFitsOnFloor(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY)
+				or PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+			if not fits then
 				sendMoveResult(player, requestId, false, "out-of-bounds")
 				return
 			end
-			if PlotService.FeedPlacementOverlapsExcept(plot, feedType, snappedLX, snappedLZ, snappedLRY, feed) then
+			local overlaps = movingCosmetic
+				and PlotService.CosmeticPlacementOverlapsExcept(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY, placeable)
+				or PlotService.FeedPlacementOverlapsExcept(plot, feedType, snappedLX, snappedLZ, snappedLRY, placeable)
+			if overlaps then
 				sendMoveResult(player, requestId, false, "overlap")
 				return
 			end
 
-			local oldLX, oldLZ, oldLRY = PlotService.WorldPivotToFloorLocal(floor, feed:GetPivot())
-			local movedCFrame = PlotService.RepositionFeed(plot, feed, snappedLX, snappedLZ, snappedLRY)
+			local oldLX, oldLZ, oldLRY = PlotService.WorldPivotToFloorLocal(floor, placeable:GetPivot())
+			local movedCFrame = movingCosmetic
+				and PlotService.RepositionCosmetic(plot, placeable, snappedLX, snappedLZ, snappedLRY)
+				or PlotService.RepositionFeed(plot, placeable, snappedLX, snappedLZ, snappedLRY)
 			if not movedCFrame then
 				sendMoveResult(player, requestId, false, "move-failed")
 				return
@@ -256,7 +279,11 @@ function FeedEditService.Start(config)
 			if type(snapshotProfileState) == "function" then
 				local snapshotOk = snapshotProfileState(player, plot, profile)
 				if not snapshotOk then
-					PlotService.RepositionFeed(plot, feed, oldLX, oldLZ, oldLRY)
+					if movingCosmetic then
+						PlotService.RepositionCosmetic(plot, placeable, oldLX, oldLZ, oldLRY)
+					else
+						PlotService.RepositionFeed(plot, placeable, oldLX, oldLZ, oldLRY)
+					end
 					PetMotionService.RefreshPlotRoutes(plot)
 					sendMoveResult(player, requestId, false, "save-failed")
 					return
@@ -265,7 +292,8 @@ function FeedEditService.Start(config)
 			sendMoveResult(player, requestId, true, nil, movedCFrame)
 			TelemetryService.Record("feed_move_succeeded", TelemetryService.ForPlayer(player, {
 				feedType = feedType,
-				target = feed,
+				cosmeticId = cosmeticId,
+				target = placeable,
 				plot = plot,
 			}))
 		end)

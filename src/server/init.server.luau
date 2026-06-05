@@ -23,6 +23,8 @@ local PlotService       = require(Server:WaitForChild("PlotService"))
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
+local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
+local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -159,23 +161,43 @@ local function collectFeedState(plot, player)
 	}
 end
 
-local function saveFeedState(plot, player, profile)
-	local state = collectFeedState(plot, player)
-	profile.Data.FeedPlacements = state.FeedPlacements
-	profile.Data.FeedInventory = state.FeedInventory
-	profile.Data.SeedInventory = state.SeedInventory
-	profile.Data.FoodInventory = state.FoodInventory
+local function collectCosmeticState(plot, player)
+	local floor = PlotService.GetFloor(plot)
+	local placements = {}
+	if floor then
+		for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
+			local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, cosmetic:GetPivot())
+			local cosmeticId = cosmetic:GetAttribute(State.Cosmetic.Id)
+			if type(cosmeticId) ~= "string" or cosmeticId == "" then
+				continue
+			end
+			table.insert(placements, {
+				id = cosmeticId,
+				lx = lx,
+				lz = lz,
+				lry = lry,
+			})
+		end
+	end
+
+	return {
+		CosmeticPlacements = placements,
+		CosmeticInventory = CosmeticTools.CountByCosmetic(player),
+	}
 end
 
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return false end
 	local petsOk, pets = RuntimeGuard.Run("snapshotProfileState.collectPets", collectPetsFromPlot, plot, profile)
 	local feedOk, feedState = RuntimeGuard.Run("snapshotProfileState.collectFeed", collectFeedState, plot, player)
-	if not (petsOk and feedOk) then
+	local cosmeticOk, cosmeticState = RuntimeGuard.Run("snapshotProfileState.collectCosmetics", collectCosmeticState, plot, player)
+	if not (petsOk and feedOk and cosmeticOk) then
 		return false
 	end
 	profile.Data.Pets = pets
 	profile.Data.FeedPlacements = feedState.FeedPlacements
+	profile.Data.CosmeticPlacements = cosmeticState.CosmeticPlacements
+	profile.Data.CosmeticInventory = cosmeticState.CosmeticInventory
 	profile.Data.FeedInventory = feedState.FeedInventory
 	profile.Data.SeedInventory = feedState.SeedInventory
 	profile.Data.FoodInventory = feedState.FoodInventory
@@ -534,6 +556,7 @@ local function teardownPlayerState(player, plot, profile, options)
 		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
 		RuntimeGuard.Run("PlayerTeardown.DestroyPets." .. label, PlotService.DestroyPets, plot)
 		RuntimeGuard.Run("PlayerTeardown.DestroyFeeds." .. label, PlotService.DestroyFeeds, plot)
+		RuntimeGuard.Run("PlayerTeardown.DestroyCosmetics." .. label, PlotService.DestroyCosmetics, plot)
 		RuntimeGuard.Run("PlayerTeardown.ResetGrid." .. label, PlotGridService.ResetVacantPlotState, plot)
 		RuntimeGuard.Run("PlayerTeardown.FreePlot." .. label, PlotService.FreePlot, player)
 	end
@@ -607,6 +630,13 @@ local function handlePlayerAdded(player)
 			end)
 		end
 
+		for index, placement in ipairs(profile.Data.CosmeticPlacements or {}) do
+			if type(placement) ~= "table" or type(placement.id) ~= "string" then
+				continue
+			end
+			PlotService.PlaceCosmeticWithIndex(plot, placement.id, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
+		end
+
 		applyOfflineEarnings(plot, profile)
 		PlayerReplicaService.Create(player, profile)
 
@@ -647,6 +677,14 @@ local function handlePlayerAdded(player)
 					if type(count) == "number" then
 						for _ = 1, count do
 							local tool = SeedTools.MakeSeedTool(seedId)
+							if tool then tool.Parent = player.Backpack end
+						end
+					end
+				end
+				for cosmeticId, count in pairs(profile.Data.CosmeticInventory or {}) do
+					if type(count) == "number" then
+						for _ = 1, count do
+							local tool = CosmeticTools.MakeCosmeticTool(cosmeticId)
 							if tool then tool.Parent = player.Backpack end
 						end
 					end
@@ -751,6 +789,13 @@ end)
 
 RuntimeGuard.Run("FeedPlacementService.Start", function()
 	FeedPlacementService.Start({
+		rateSeconds = PLACE_RATE_SECONDS,
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
+
+RuntimeGuard.Run("CosmeticPlacementService.Start", function()
+	CosmeticPlacementService.Start({
 		rateSeconds = PLACE_RATE_SECONDS,
 		snapshotProfileState = snapshotProfileState,
 	})
