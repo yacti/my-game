@@ -203,26 +203,6 @@ local function collectRollPool()
 	return entries
 end
 
-local function chanceTextForReward(weights, rewardKey)
-	local selectedWeight = weights and weights[rewardKey]
-	if type(selectedWeight) ~= "number" or selectedWeight <= 0 then
-		return nil
-	end
-
-	local totalWeight = 0
-	for _, weight in pairs(weights) do
-		if type(weight) == "number" and weight > 0 then
-			totalWeight += weight
-		end
-	end
-	if totalWeight <= 0 then
-		return nil
-	end
-
-	local oddsN = totalWeight / selectedWeight
-	return "1 in " .. tostring(math.max(math.floor(oddsN + 0.5), 1))
-end
-
 local function rollRewardForCrate(crateId, profile)
 	local entries = collectRollPool()
 	if #entries == 0 then
@@ -252,7 +232,7 @@ local function rollRewardForCrate(crateId, profile)
 	end
 
 	local rolled = table.clone(entry)
-	rolled.rngChanceText = chanceTextForReward(rewardWeights, rewardKey) or ("1 in " .. tostring(entry.chanceN))
+	rolled.rngChanceText = "1 in " .. tostring(entry.chanceN)
 	return rolled
 end
 

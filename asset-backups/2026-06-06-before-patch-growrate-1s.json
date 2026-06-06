@@ -1,0 +1,15 @@
+{
+  "createdAt": "2026-06-06T23:11:00Z",
+  "source": "Roblox Studio Edit DataModel before changing patch GrowRate from 3s to 1s",
+  "patches": [
+    { "FeedType": "PumpkinPatch", "XP": 2, "GrowRate": 3 },
+    { "FeedType": "CabbagePatch", "XP": 3, "GrowRate": 3 },
+    { "FeedType": "PotatoPatch", "XP": 8, "GrowRate": 3 },
+    { "FeedType": "WatermelonPatch", "XP": 21, "GrowRate": 3 },
+    { "FeedType": "CornPatch", "XP": 55, "GrowRate": 3 },
+    { "FeedType": "MushroomPatch", "XP": 145, "GrowRate": 3 },
+    { "FeedType": "PineapplePatch", "XP": 650, "GrowRate": 3 },
+    { "FeedType": "PurpleShroomPatch", "XP": 1900, "GrowRate": 3 },
+    { "FeedType": "GlowshroomPatch", "XP": 5800, "GrowRate": 3 }
+  ]
+}

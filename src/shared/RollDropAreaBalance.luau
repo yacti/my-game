@@ -3,10 +3,10 @@ local RollDropAreaBalance = {}
 RollDropAreaBalance.TotalPads = 5
 
 RollDropAreaBalance.Upgrades = {
-	[1] = { price = 1 },
-	[2] = { price = 1 },
-	[3] = { price = 1 },
-	[4] = { price = 1 },
+	[1] = { price = 10000 },
+	[2] = { price = 150000 },
+	[3] = { price = 1000000 },
+	[4] = { price = 5000000 },
 }
 
 local function isFiniteNumber(value)

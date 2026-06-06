@@ -2,7 +2,7 @@ local RebirthBalance = {}
 
 RebirthBalance.Tiers = {
 	[1] = {
-		Price = 1000,
+		Price = 100000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
@@ -12,7 +12,7 @@ RebirthBalance.Tiers = {
 		SkipProductId = 0,
 	},
 	[2] = {
-		Price = 5000,
+		Price = 500000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
@@ -22,13 +22,25 @@ RebirthBalance.Tiers = {
 		SkipProductId = 0,
 	},
 	[3] = {
-		Price = 15000,
+		Price = 5000000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 2 },
 		},
 		Rewards = {
 			{ kind = "FeedMachine", feedType = "CherryTree", amount = 1 },
 		},
+		SkipProductId = 0,
+	},
+	[4] = {
+		Price = 20000000,
+		SkipProductId = 0,
+	},
+	[5] = {
+		Price = 50000000,
+		SkipProductId = 0,
+	},
+	[6] = {
+		Price = 200000000,
 		SkipProductId = 0,
 	},
 }
