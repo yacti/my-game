@@ -14,6 +14,7 @@ local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
 local CURRENT_DATA_VERSION = 5
 local GROWING_SEED_PHASE = "GrowingSeed"
+local STARTING_CURRENCY = 100
 local STARTER_FEED_INVENTORY = {
 	JamBarrel = 1,
 }
@@ -39,7 +40,7 @@ local DATA_TEMPLATE = {
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
-	Currency = 0,
+	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
 	Rebirths = 0,
@@ -333,7 +334,7 @@ local function ensureValidData(profile)
 	profile.Data.ProcessedReceipts = processedReceipts
 
 	if type(profile.Data.Currency) ~= "number" then
-		profile.Data.Currency = 0
+		profile.Data.Currency = STARTING_CURRENCY
 	end
 	profile.Data.RollLuckLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	profile.Data.RollDropAreaLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
