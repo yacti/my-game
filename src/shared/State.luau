@@ -75,18 +75,22 @@ State.Feed = {
 	FoodDrop        = "FoodDrop",        -- Tree/Patch: exact food id produced by the machine
 	GrowRate        = "GrowRate",        -- Patch: seconds per XP interval
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
-	XP              = "XP",              -- Processor/Tree multiplier; Patch XP per growth interval
+	XP              = "XP",              -- Tree multiplier; Patch XP per growth interval
+	XPMultiplier    = "XPMultiplier",    -- Processor/JamBarrel multiplier applied to deposited food XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
 
 	-- Server-published runtime state (clients can read for UI).
 	QueueCount = "QueueCount", -- Processor
 	ReadyCount = "ReadyCount", -- Processor
+	QueueReadyAt = "QueueReadyAt", -- Processor/JamBarrel: wall-clock time when full queue is ready
 }
 
 State.Food = {
 	Id      = "FoodId",   -- exact template key, e.g. Pumpkin1
 	Type    = "FoodType", -- broad group/category, e.g. Fruit
 	XP      = "XP",
+	JamProducerFeedType = "JamProducerFeedType",
+	JamSourceFoodId = "JamSourceFoodId",
 }
 
 State.Seed = {

@@ -80,6 +80,7 @@ local function attach(pet)
 	local billboard = activeTemplates.Stats:Clone()
 	UiEffects.BindBillboardPop(billboard)
 	billboard.Parent = primary
+	UiEffects.BindBillboardDistancePop(billboard)
 	local stats = billboard:FindFirstChild("Stats")
 	local xpBar = billboard:FindFirstChild("XP")
 	local fill = xpBar and xpBar:FindFirstChild("Fill")

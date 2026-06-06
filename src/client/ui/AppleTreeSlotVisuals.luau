@@ -13,6 +13,7 @@ local Food    = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local AppleTreeSlotVisuals = {}
@@ -272,6 +273,7 @@ local function attachXPBillboard(food)
 	record.conns = conns
 
 	gui.Parent = adornee
+	UiEffects.BindBillboardDistancePop(gui)
 	billboards[food] = record
 
 	table.insert(conns, food.AncestryChanged:Connect(function()

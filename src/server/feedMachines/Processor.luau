@@ -7,13 +7,13 @@
 --   owner has wrong food group equipped    → error notification
 --
 -- Each item processes for ProcessDuration wall-clock seconds (so progress
--- accrues offline). Dispensed Tools have XP boosted by the machine's XP
--- attribute.
+-- accrues offline). Dispensed Tools preserve the deposited tool's XP, boosted
+-- by the machine's XPMultiplier attribute.
 --
 -- Tunable attributes on the template (see Shared.State.Feed):
 --   FoodType         (string,  default "Fruit")     accepted food group; "Any" accepts all food
 --   ProcessDuration  (number,  default 30 seconds)  per item
---   XP               (number,  default 2)           multiplier applied to dispensed XP
+--   XPMultiplier     (number,  default 2)           multiplier applied to dispensed XP
 --   MaxQueue         (number,  default 5)
 --
 -- Persistence: the queue (foodId + depositedAt as os.time() Unix seconds)
@@ -36,7 +36,7 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 local Processor = {}
 local ProcessorDepositEffect = Remotes.get(Remotes.Names.ProcessorDepositEffect)
 
--- [machine] = { owner, plot, queue: { { foodId, depositedAt }, ... } }
+-- [machine] = { owner, plot, queue: { { foodId, xp, depositedAt }, ... } }
 local state = {}
 
 local function acceptedFoodType(machine)
@@ -59,15 +59,32 @@ local function notifyWrongFoodType(machine, player, accepted)
 	))
 end
 
+local function xpMultiplierFor(machine)
+	local multiplier = machine:GetAttribute(State.Feed.XPMultiplier)
+	if type(multiplier) ~= "number" or multiplier <= 0 then
+		multiplier = machine:GetAttribute(State.Feed.XP)
+	end
+	if type(multiplier) ~= "number" or multiplier <= 0 then
+		return 2
+	end
+	return multiplier
+end
+
 local function refreshAttrs(machine, s)
 	local now      = os.time()
 	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
 	local ready    = 0
+	local queueReadyAt = nil
 	for _, item in ipairs(s.queue) do
-		if now - item.depositedAt >= duration then ready += 1 end
+		local readyAt = item.depositedAt + duration
+		if now >= readyAt then ready += 1 end
+		if queueReadyAt == nil or readyAt > queueReadyAt then
+			queueReadyAt = readyAt
+		end
 	end
 	machine:SetAttribute(State.Feed.QueueCount, #s.queue)
 	machine:SetAttribute(State.Feed.ReadyCount, ready)
+	machine:SetAttribute(State.Feed.QueueReadyAt, queueReadyAt)
 end
 
 -- Single shared heartbeat keeps replicated queue/ready counts fresh for
@@ -86,7 +103,7 @@ end)
 local function dispenseAllReady(machine, s, player)
 	local now      = os.time()
 	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
-	local mult     = machine:GetAttribute(State.Feed.XP) or 2
+	local mult     = xpMultiplierFor(machine)
 
 	local i = 1
 	while i <= #s.queue do
@@ -94,7 +111,8 @@ local function dispenseAllReady(machine, s, player)
 		if now - item.depositedAt >= duration then
 			table.remove(s.queue, i)
 			local foodId = item.foodId or item.foodType -- foodType kept for old saves
-			local boostXP = Food.BaseXP(foodId) * mult
+			local inputXP = tonumber(item.xp) or Food.BaseXP(foodId)
+			local boostXP = inputXP * mult
 			local tool    = Food.MakeTool(foodId, boostXP)
 			if tool then
 				tool.Parent = player.Backpack
@@ -114,9 +132,11 @@ local function depositOne(machine, s, player)
 	if not food then return end
 	local foodId = Food.IdOf(food)
 	if not foodId then return end
+	local foodXP = Food.XPOf(food)
+	if foodXP == nil then return end
 	local foodGuid = ToolIdentity.EnsureGuid(food)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
-	table.insert(s.queue, { foodId = foodId, depositedAt = os.time() })
+	table.insert(s.queue, { foodId = foodId, xp = foodXP, depositedAt = os.time() })
 	refreshAttrs(machine, s)
 	RuntimeGuard.Run("Processor.DepositEffect", function()
 		ProcessorDepositEffect:FireClient(player, machine, foodId)
@@ -171,7 +191,11 @@ function Processor.Serialize(machine)
 	if not s then return nil end
 	local queue = table.create(#s.queue)
 	for _, item in ipairs(s.queue) do
-		queue[#queue+1] = { foodId = item.foodId or item.foodType, depositedAt = item.depositedAt }
+		queue[#queue+1] = {
+			foodId = item.foodId or item.foodType,
+			xp = item.xp,
+			depositedAt = item.depositedAt,
+		}
 	end
 	return { queue = queue }
 end
@@ -182,7 +206,11 @@ function Processor.Apply(machine, placement)
 	if type(placement.queue) == "table" then
 		for _, item in ipairs(placement.queue) do
 			if type(item) == "table" and (item.foodId or item.foodType) and item.depositedAt then
-				table.insert(s.queue, { foodId = item.foodId or item.foodType, depositedAt = item.depositedAt })
+				table.insert(s.queue, {
+					foodId = item.foodId or item.foodType,
+					xp = item.xp,
+					depositedAt = item.depositedAt,
+				})
 			end
 		end
 		refreshAttrs(machine, s)

@@ -13,6 +13,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local ToolStatsBillboard = {}
@@ -42,6 +43,7 @@ local function build(tool)
 	tool:GetAttributeChangedSignal(State.Food.XP):Connect(render)
 
 	gui.Parent = handle
+	UiEffects.BindBillboardDistancePop(gui)
 end
 
 function ToolStatsBillboard.start()

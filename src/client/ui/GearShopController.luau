@@ -3,10 +3,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local State = require(Shared:WaitForChild("State"))
 
 local ShopPanelController = require(script.Parent:WaitForChild("ShopPanelController"))
 
 local GearShopController = {}
+local GEAR_PREVIEW_OPTIONS = {
+	targetMaxDimension = 5,
+	zoom = 1.755,
+}
 
 local function feedTemplate(feedType)
 	local assets = ReplicatedStorage:FindFirstChild("Assets")
@@ -32,6 +37,39 @@ local function displayNameFor(item)
 	return template and template.Name or item and item.FeedType or "Item"
 end
 
+local function formatMultiplier(value)
+	if value == math.floor(value) then
+		return tostring(value)
+	end
+	return string.format("%.2f", value):gsub("0+$", ""):gsub("%.$", "")
+end
+
+local function formatSeconds(value)
+	if value == math.floor(value) then
+		return tostring(value)
+	end
+	return string.format("%.2f", value):gsub("0+$", ""):gsub("%.$", "")
+end
+
+local function descriptionFor(item)
+	local description = item.Description or ""
+	local template = templateFor(item)
+	local feedClass = template and template:GetAttribute(State.Feed.Class)
+	if feedClass == "Processor" or feedClass == "JamBarrel" then
+		local multiplier = template:GetAttribute(State.Feed.XPMultiplier)
+		local processDuration = template:GetAttribute(State.Feed.ProcessDuration)
+		if type(multiplier) == "number" and multiplier > 0
+			and type(processDuration) == "number" and processDuration > 0 then
+			return string.format(
+				"%sx XP multiplier, %ss process time",
+				formatMultiplier(multiplier),
+				formatSeconds(processDuration)
+			)
+		end
+	end
+	return description
+end
+
 function GearShopController.start()
 	ShopPanelController.Start({
 		debugName = "GearShopController",
@@ -46,9 +84,7 @@ function GearShopController.start()
 			return item.FeedType
 		end,
 		getDisplayName = displayNameFor,
-		getDescription = function(item)
-			return item.Description or ""
-		end,
+		getDescription = descriptionFor,
 		getRarity = function(item)
 			return item.Rarity
 		end,
@@ -62,6 +98,9 @@ function GearShopController.start()
 			return item.DevProductId
 		end,
 		getPreviewTemplate = templateFor,
+		getPreviewOptions = function()
+			return GEAR_PREVIEW_OPTIONS
+		end,
 	})
 end
 

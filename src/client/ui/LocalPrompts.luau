@@ -307,8 +307,24 @@ local function gridUnlockContext(target)
 	return true, "Unlock"
 end
 
-local function isProcessor(machine)
-	return machine:GetAttribute(State.Feed.Class) == "Processor"
+local function feedMachineClass(machine)
+	local feedClass = machine:GetAttribute(State.Feed.Class)
+	if type(feedClass) == "string" and feedClass ~= "" then
+		return feedClass
+	end
+	return nil
+end
+
+local function isPromptedFeedMachine(machine)
+	local feedClass = feedMachineClass(machine)
+	return feedClass == "Processor" or feedClass == "JamBarrel"
+end
+
+local function feedMachineActionText(machine, defaultDepositText, defaultTakeText)
+	if feedMachineClass(machine) == "JamBarrel" then
+		return "Make Jam", "Collect Jam"
+	end
+	return defaultDepositText, defaultTakeText
 end
 
 local function acceptedFoodType(machine)
@@ -342,7 +358,8 @@ local function petCanGainXP(pet)
 end
 
 local function processorContext(machine)
-	if isEditMode() then return false, "Take Food" end
+	local depositText, takeText = feedMachineActionText(machine, "Deposit Food", "Take Food")
+	if isEditMode() then return false, takeText end
 	local accepted = acceptedFoodType(machine)
 	local maxQueue = machine:GetAttribute(State.Feed.MaxQueue) or 5
 	local queueCount = machine:GetAttribute(State.Feed.QueueCount) or 0
@@ -350,10 +367,10 @@ local function processorContext(machine)
 	local equippedFood = Food.GetEquipped(player, nil)
 	local foodMatches = equippedFood ~= nil and (accepted == nil or Food.TypeOf(equippedFood) == accepted)
 	local canDeposit = foodMatches and queueCount < maxQueue
-	if canDeposit then return true, "Deposit Food" end
-	if equippedFood ~= nil and not foodMatches then return true, "Deposit Food" end
-	if readyCount > 0 then return true, "Take Food" end
-	return true, "Deposit Food"
+	if canDeposit then return true, depositText end
+	if equippedFood ~= nil and not foodMatches then return true, depositText end
+	if readyCount > 0 then return true, takeText end
+	return true, depositText
 end
 
 local function promptActivationDistance(kind)
@@ -540,7 +557,7 @@ local function tryBind(instance)
 	end
 
 	if isFeedMachine(instance) then
-		if isProcessor(instance) then
+		if isPromptedFeedMachine(instance) then
 			addPrompt(instance, "FeedMachine", Interactions.Actions.FeedMachine)
 		end
 	end

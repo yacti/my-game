@@ -8,6 +8,10 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local ShopPanelController = require(script.Parent:WaitForChild("ShopPanelController"))
 
 local CosmeticShopController = {}
+local COSMETIC_PREVIEW_OPTIONS = {
+	targetMaxDimension = 5,
+	zoom = 1.755,
+}
 
 local function templateFor(item)
 	return Cosmetics.GetTemplate(item and item.ItemID)
@@ -44,6 +48,9 @@ function CosmeticShopController.start()
 			return item.DevProductId
 		end,
 		getPreviewTemplate = templateFor,
+		getPreviewOptions = function()
+			return COSMETIC_PREVIEW_OPTIONS
+		end,
 	})
 end
 

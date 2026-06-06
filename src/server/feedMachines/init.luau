@@ -2,7 +2,7 @@
 --
 -- Templates live at ReplicatedStorage.Assets.FeedMachines.<Class>.<DisplayName>.
 -- A template can be a BasePart or a Model. The template carries:
---   FeedClass  (string, broad behavior class, e.g. "Patch", "Processor", or "Tree")
+--   FeedClass  (string, broad behavior class, e.g. "Patch", "Processor", "JamBarrel", or "Tree")
 --   FeedType   (string, stable gameplay id; template/model Name is visual only)
 --   Rarity     (string, display rarity; see Shared.Rarities)
 --   FoodType   (string, accepted food category, see Shared.Food)
@@ -29,10 +29,12 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Trees = require(script:WaitForChild("Trees"))
 local Patches   = require(script:WaitForChild("Patches"))
+local JamBarrel = require(script:WaitForChild("JamBarrel"))
 local Processor = require(script:WaitForChild("Processor"))
 
 -- Class-level implementations.
 local CLASSES = {
+	JamBarrel = JamBarrel,
 	Patch     = Patches,
 	Processor = Processor,
 	Tree      = Trees,

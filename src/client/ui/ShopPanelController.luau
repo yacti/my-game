@@ -244,7 +244,8 @@ function ShopPanelController.Start(config)
 		UiEffects.BindAllButtons(rowGui)
 
 		local previewTemplate = valueFrom(config, "getPreviewTemplate", item, nil)
-		ViewportPreview.Render(findDescendant(rowGui, "ItemIcon", "ViewportFrame"), previewTemplate)
+		local previewOptions = valueFrom(config, "getPreviewOptions", item, nil)
+		ViewportPreview.Render(findDescendant(rowGui, "ItemIcon", "ViewportFrame"), previewTemplate, previewOptions)
 
 		local cashButton = findDescendant(rowGui, "CashBtn", "GuiButton")
 		local robuxButton = findDescendant(rowGui, "RobuxBtn", "GuiButton")

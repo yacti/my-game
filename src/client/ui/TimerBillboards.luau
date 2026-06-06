@@ -10,13 +10,14 @@ local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTe
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
-local GrowingSeedBillboards = {}
+local TimerBillboards = {}
 
 local TEMPLATE_WAIT_SECONDS = 8
-local TEMPLATE_NAME = "GrowingSeedBillboard"
+local TEMPLATE_NAME = "TimerBillboard"
 local TITLE_LABEL_NAME = "TitleLabel"
 local TIME_LABEL_NAME = "TimeLabel"
 local UPDATE_SECONDS = 0.25
+local SCAN_SECONDS = 1
 
 local player = Players.LocalPlayer
 local tracked = {}
@@ -33,7 +34,7 @@ local function getTemplate()
 	local found = BillboardGuiTemplates.WaitFor(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
 	if not (found and found:IsA("BillboardGui")) then
 		if not warnedTemplate then
-			warn("[GrowingSeedBillboards] Missing " .. BillboardGuiTemplates.Path(TEMPLATE_NAME) .. " BillboardGui")
+			warn("[TimerBillboards] Missing " .. BillboardGuiTemplates.Path(TEMPLATE_NAME) .. " BillboardGui")
 			warnedTemplate = true
 		end
 		template = false
@@ -71,15 +72,57 @@ local function adorneeFor(instance)
 	return nil
 end
 
-local function isGrowing(instance)
-	return (instance:IsA("BasePart") or instance:IsA("Model"))
-		and instance:GetAttribute(State.Seed.Phase) == "GrowingSeed"
-		and type(instance:GetAttribute(State.Seed.GrowEndAt)) == "number"
-end
-
 local function isInOwnPlot(instance)
 	local plot = PlotResolver.ResolveForPlayer(player)
 	return plot ~= nil and instance:IsDescendantOf(plot)
+end
+
+local function feedMachineClass(instance)
+	local feedClass = instance:GetAttribute(State.Feed.Class)
+	if type(feedClass) == "string" and feedClass ~= "" then
+		return feedClass
+	end
+	return nil
+end
+
+local function processingQueueEndAt(instance)
+	local feedClass = feedMachineClass(instance)
+	if feedClass ~= "Processor" and feedClass ~= "JamBarrel" then
+		return nil
+	end
+
+	local queueCount = instance:GetAttribute(State.Feed.QueueCount)
+	local readyCount = instance:GetAttribute(State.Feed.ReadyCount)
+	local queueReadyAt = instance:GetAttribute(State.Feed.QueueReadyAt)
+	if type(queueCount) ~= "number" or queueCount <= 0 then return nil end
+	if type(readyCount) == "number" and readyCount >= queueCount then return nil end
+	if type(queueReadyAt) ~= "number" or queueReadyAt <= os.time() then return nil end
+	return queueReadyAt
+end
+
+local function timerContext(instance)
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
+		return nil
+	end
+
+	if instance:GetAttribute(State.Seed.Phase) == "GrowingSeed" then
+		local growEndAt = instance:GetAttribute(State.Seed.GrowEndAt)
+		if type(growEndAt) == "number" then
+			return tostring(instance:GetAttribute(State.Seed.TargetDisplayName) or "Growing"), growEndAt
+		end
+	end
+
+	local queueReadyAt = processingQueueEndAt(instance)
+	if queueReadyAt then
+		return instance.Name, queueReadyAt
+	end
+
+	return nil
+end
+
+local function hasActiveTimer(instance)
+	local title, endAt = timerContext(instance)
+	return title ~= nil and type(endAt) == "number"
 end
 
 local function formatRemaining(seconds)
@@ -93,7 +136,14 @@ local function formatRemaining(seconds)
 end
 
 local function update(instance, gui)
-	if not isGrowing(instance) or not isInOwnPlot(instance) then
+	if not isInOwnPlot(instance) then
+		if gui then gui:Destroy() end
+		tracked[instance] = nil
+		return
+	end
+
+	local titleText, endAt = timerContext(instance)
+	if not titleText then
 		if gui then gui:Destroy() end
 		tracked[instance] = nil
 		return
@@ -103,7 +153,7 @@ local function update(instance, gui)
 	local time = label(gui, TIME_LABEL_NAME)
 	if not (title and time) then
 		if not warnedLabels then
-			warn("[GrowingSeedBillboards] GrowingSeedBillboard missing TitleLabel or TimeLabel")
+			warn("[TimerBillboards] TimerBillboard missing TitleLabel or TimeLabel")
 			warnedLabels = true
 		end
 		gui:Destroy()
@@ -111,12 +161,12 @@ local function update(instance, gui)
 		return
 	end
 
-	title.Text = tostring(instance:GetAttribute(State.Seed.TargetDisplayName) or "Growing")
-	time.Text = formatRemaining((instance:GetAttribute(State.Seed.GrowEndAt) or os.time()) - os.time())
+	title.Text = titleText
+	time.Text = formatRemaining(endAt - os.time())
 end
 
 local function attach(instance)
-	if tracked[instance] or not isGrowing(instance) or not isInOwnPlot(instance) then
+	if tracked[instance] or not hasActiveTimer(instance) or not isInOwnPlot(instance) then
 		return
 	end
 
@@ -130,10 +180,11 @@ local function attach(instance)
 	UiEffects.BindBillboardPop(gui)
 	gui.Adornee = adornee
 	gui.Parent = adornee
+	UiEffects.BindBillboardDistancePop(gui)
 	tracked[instance] = gui
 	update(instance, gui)
 
-	RuntimeGuard.Connect(instance.AncestryChanged, "GrowingSeedBillboards.AncestryChanged", function()
+	RuntimeGuard.Connect(instance.AncestryChanged, "TimerBillboards.AncestryChanged", function()
 		if not instance:IsDescendantOf(Workspace) then
 			if tracked[instance] then tracked[instance]:Destroy() end
 			tracked[instance] = nil
@@ -147,7 +198,7 @@ local function scan()
 		return
 	end
 	for _, instance in ipairs(plot:GetDescendants()) do
-		if isGrowing(instance) then
+		if hasActiveTimer(instance) then
 			attach(instance)
 		end
 	end
@@ -163,10 +214,10 @@ local function watchCurrentPlot()
 	if not plot then
 		return
 	end
-	plotDescendantAdded = RuntimeGuard.Connect(plot.DescendantAdded, "GrowingSeedBillboards.PlotDescendantAdded", function(instance)
+	plotDescendantAdded = RuntimeGuard.Connect(plot.DescendantAdded, "TimerBillboards.PlotDescendantAdded", function(instance)
 		task.defer(function()
-			RuntimeGuard.Run("GrowingSeedBillboards.AttachDeferred", function()
-				if isGrowing(instance) then
+			RuntimeGuard.Run("TimerBillboards.AttachDeferred", function()
+				if hasActiveTimer(instance) then
 					attach(instance)
 				end
 			end)
@@ -175,23 +226,29 @@ local function watchCurrentPlot()
 	scan()
 end
 
-function GrowingSeedBillboards.start()
+function TimerBillboards.start()
 	task.defer(function()
-		RuntimeGuard.Run("GrowingSeedBillboards.WatchInitialPlot", watchCurrentPlot)
+		RuntimeGuard.Run("TimerBillboards.WatchInitialPlot", watchCurrentPlot)
 	end)
-	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "GrowingSeedBillboards.AssignedPlotChanged", watchCurrentPlot)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "TimerBillboards.AssignedPlotChanged", watchCurrentPlot)
 
 	local elapsed = 0
-	RuntimeGuard.Connect(RunService.Heartbeat, "GrowingSeedBillboards.Heartbeat", function(dt)
+	local scanElapsed = 0
+	RuntimeGuard.Connect(RunService.Heartbeat, "TimerBillboards.Heartbeat", function(dt)
 		elapsed += dt
+		scanElapsed += dt
+		if scanElapsed >= SCAN_SECONDS then
+			scanElapsed = 0
+			RuntimeGuard.Run("TimerBillboards.Scan", scan)
+		end
 		if elapsed < UPDATE_SECONDS then
 			return
 		end
 		elapsed = 0
 		for instance, gui in pairs(tracked) do
-			RuntimeGuard.Run("GrowingSeedBillboards.Update", update, instance, gui)
+			RuntimeGuard.Run("TimerBillboards.Update", update, instance, gui)
 		end
 	end)
 end
 
-return GrowingSeedBillboards
+return TimerBillboards

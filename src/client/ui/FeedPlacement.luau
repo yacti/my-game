@@ -4,6 +4,7 @@
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
 local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -29,6 +30,7 @@ local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
+local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function isHiddenPreviewPart(part)
 	return part.Name:match("^BaseFood") ~= nil or part.Name == EDIT_SELECTION_HITBOX_NAME
@@ -283,6 +285,10 @@ function FeedPlacement.start()
 	local touchScreenPosition = nil
 	local ignoreWorldInputUntil = 0
 	local boundTools = setmetatable({}, { __mode = "k" })
+	local rotationTween = nil
+	local rotationTweenValue = nil
+	local rotationTweenConnection = nil
+	local rotationTweenToken = 0
 
 	local function snapToGrid(v) return math.round(v) end
 
@@ -408,7 +414,12 @@ function FeedPlacement.start()
 		preview = clone
 	end
 
+	local cancelRotationTween
+
 	local function destroyPreview()
+		if cancelRotationTween then
+			cancelRotationTween()
+		end
 		if preview then preview:Destroy() preview = nil end
 		placing         = false
 		currentRotation = 0
@@ -463,6 +474,63 @@ function FeedPlacement.start()
 		return floor.CFrame * localCF
 	end
 
+	function cancelRotationTween()
+		rotationTweenToken += 1
+		if rotationTween then
+			rotationTween:Cancel()
+			rotationTween = nil
+		end
+		if rotationTweenConnection then
+			rotationTweenConnection:Disconnect()
+			rotationTweenConnection = nil
+		end
+		if rotationTweenValue then
+			rotationTweenValue:Destroy()
+			rotationTweenValue = nil
+		end
+	end
+
+	local function tweenPreviewTo(cframe)
+		if not preview then return end
+		cancelRotationTween()
+
+		rotationTweenToken += 1
+		local token = rotationTweenToken
+		local value = Instance.new("CFrameValue")
+		value.Value = preview:GetPivot()
+		rotationTweenValue = value
+		rotationTweenConnection = RuntimeGuard.Connect(value:GetPropertyChangedSignal("Value"), "FeedPlacement.RotateTweenStep", function()
+			if preview then
+				setPreviewCFrame(preview, value.Value)
+				if shouldUseTreeSaplingPreview() then
+					GrowingVisuals.AlignBottomToFloorTop(preview, getPlayerFloor())
+				end
+			end
+		end)
+		rotationTween = TweenService:Create(value, ROTATION_TWEEN_INFO, { Value = cframe })
+		RuntimeGuard.Connect(rotationTween.Completed, "FeedPlacement.RotateTweenCompleted", function()
+			if rotationTweenToken ~= token then
+				return
+			end
+			if preview then
+				setPreviewCFrame(preview, cframe)
+				if shouldUseTreeSaplingPreview() then
+					GrowingVisuals.AlignBottomToFloorTop(preview, getPlayerFloor())
+				end
+			end
+			rotationTween = nil
+			if rotationTweenConnection then
+				rotationTweenConnection:Disconnect()
+				rotationTweenConnection = nil
+			end
+			if rotationTweenValue then
+				rotationTweenValue:Destroy()
+				rotationTweenValue = nil
+			end
+		end)
+		rotationTween:Play()
+	end
+
 	local function getPreviewBoundsAt(cframe)
 		if not preview or typeof(cframe) ~= "CFrame" then return nil, nil end
 		if previewBoundsSize then
@@ -484,6 +552,7 @@ function FeedPlacement.start()
 		if not preview then return end
 		local cf = getSelectedCFrame()
 		if not cf then return end
+		cancelRotationTween()
 		setPreviewCFrame(preview, cf)
 		if shouldUseTreeSaplingPreview() then
 			GrowingVisuals.AlignBottomToFloorTop(preview, getPlayerFloor())
@@ -593,7 +662,11 @@ function FeedPlacement.start()
 	local function rotatePreview()
 		currentRotation = (currentRotation + 90) % 360
 		if preview and selectedLX ~= nil and selectedLZ ~= nil then
-			applyPreviewCFrame()
+			local cframe = getSelectedCFrame()
+			if cframe then
+				tweenPreviewTo(cframe)
+				updatePlacementEditOffset()
+			end
 			setPreviewBlocked(previewPlacementBlocked())
 		end
 	end

@@ -39,7 +39,7 @@ local CONTROLLERS = {
 	"ToolStatsBillboard",
 	"SlotXPBillboard",
 	"AppleTreeSlotVisuals",
-	"GrowingSeedBillboards",
+	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",
 	"FeedPlacement",

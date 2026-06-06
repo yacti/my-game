@@ -589,6 +589,7 @@ local function addRevealBillboard(model, payload)
 		setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
 		setLabel(card, "PriceLabel", formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
 		billboard.Parent = anchor
+		UiEffects.BindBillboardDistancePop(billboard)
 		return
 	end
 
@@ -599,6 +600,7 @@ local function addRevealBillboard(model, payload)
 	setLabel(card, "RarityLabel", tostring(payload.rarity or "Unknown"), rarityColor)
 
 	billboard.Parent = anchor
+	UiEffects.BindBillboardDistancePop(billboard)
 end
 
 local function scaleClone(clone, scale)

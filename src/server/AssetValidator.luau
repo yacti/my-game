@@ -58,6 +58,7 @@ local REQUIRED_FEEDS = {
 	"Processor1",
 	"AppleTree",
 	"CherryTree",
+	"JamBarrel",
 	"PumpkinPatch",
 }
 
@@ -84,10 +85,6 @@ local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
 	"PurchasePrice",
 }
 
-local DEPRECATED_FEED_ATTRIBUTES = {
-	XPMultiplier = State.Feed.XP,
-}
-
 local SEED_OWNED_FEED_ATTRIBUTES = {
 	Seeds.Attributes.RollChanceN,
 	Seeds.Attributes.Price,
@@ -102,6 +99,10 @@ local TEMPLATE_SIZE_TOLERANCE = 0.01
 local DEPRECATED_FOOD_ATTRIBUTES = {
 	MaxXP = State.Food.XP,
 }
+
+local JAM_BARREL_FEED_TYPE = "JamBarrel"
+local JAM_JAR_TEMPLATE_NAME = "JamJar"
+local JAM_FILL_NAME = "Fill"
 
 local function add(errors, message)
 	errors[#errors + 1] = message
@@ -361,23 +362,22 @@ local function validateFeedTemplateIdentity(root, errors)
 				end
 			end
 
-			for attributeName, replacement in pairs(DEPRECATED_FEED_ATTRIBUTES) do
-				if template:GetAttribute(attributeName) ~= nil then
-					add(errors, string.format(
-						"%s has deprecated feed attribute %s; use %s",
-						template:GetFullName(),
-						attributeName,
-						replacement
-					))
-				end
-			end
-
 			local feedXP = template:GetAttribute(State.Feed.XP)
 			if feedXP ~= nil and (type(feedXP) ~= "number" or feedXP <= 0) then
 				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.XP, tostring(feedXP)))
 			end
 			if feedClass == "Patch" and feedXP == nil then
 				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XP))
+			end
+			if (feedClass == "Processor" or feedClass == "JamBarrel") and feedXP ~= nil then
+				add(errors, string.format("%s has processor multiplier attribute %s; use %s", template:GetFullName(), State.Feed.XP, State.Feed.XPMultiplier))
+			end
+			local xpMultiplier = template:GetAttribute(State.Feed.XPMultiplier)
+			if xpMultiplier ~= nil and (type(xpMultiplier) ~= "number" or xpMultiplier <= 0) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+			end
+			if (feedClass == "Processor" or feedClass == "JamBarrel") and xpMultiplier == nil then
+				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XPMultiplier))
 			end
 			if feedClass == "Patch" then
 				validatePatchEditSelectionHitbox(template, errors)
@@ -403,6 +403,34 @@ local function validateFeedTemplates(errors)
 			add(errors, "Missing feed machine template " .. feedType)
 		elseif template:IsA("Model") and not template.PrimaryPart then
 			add(errors, template:GetFullName() .. " missing PrimaryPart")
+		end
+	end
+
+	local jamBarrel = FeedMachines.GetTemplate(JAM_BARREL_FEED_TYPE)
+	if jamBarrel then
+		local feedClass = FeedMachines.GetClass(JAM_BARREL_FEED_TYPE)
+		if feedClass ~= "JamBarrel" then
+			add(errors, string.format("%s must use %s=%q", jamBarrel:GetFullName(), State.Feed.Class, "JamBarrel"))
+		end
+
+		local foodType = jamBarrel:GetAttribute(State.Feed.FoodType)
+		if type(foodType) ~= "string" or foodType == "" then
+			add(errors, string.format("%s missing valid %s", jamBarrel:GetFullName(), State.Feed.FoodType))
+		end
+
+		local duration = jamBarrel:GetAttribute(State.Feed.ProcessDuration)
+		if type(duration) ~= "number" or duration <= 0 then
+			add(errors, string.format("%s has invalid %s %q", jamBarrel:GetFullName(), State.Feed.ProcessDuration, tostring(duration)))
+		end
+
+		local xpMultiplier = jamBarrel:GetAttribute(State.Feed.XPMultiplier)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 then
+			add(errors, string.format("%s has invalid %s %q", jamBarrel:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+
+		local maxQueue = jamBarrel:GetAttribute(State.Feed.MaxQueue)
+		if type(maxQueue) ~= "number" or maxQueue <= 0 then
+			add(errors, string.format("%s has invalid %s %q", jamBarrel:GetFullName(), State.Feed.MaxQueue, tostring(maxQueue)))
 		end
 	end
 end
@@ -616,6 +644,17 @@ local function validateMisc(errors)
 		if not hasBasePart(sapling) then
 			add(errors, sapling:GetFullName() .. " has no BasePart descendants")
 		end
+	end
+
+	local jamJar = child(misc, JAM_JAR_TEMPLATE_NAME, "Model", errors)
+	if jamJar then
+		if not jamJar.PrimaryPart then
+			add(errors, jamJar:GetFullName() .. " missing PrimaryPart")
+		end
+		if not hasBasePart(jamJar) then
+			add(errors, jamJar:GetFullName() .. " has no BasePart descendants")
+		end
+		descendant(jamJar, JAM_FILL_NAME, "BasePart", errors)
 	end
 
 	local brick = child(misc, "Brick", nil, errors)
@@ -1149,9 +1188,9 @@ local function validateUi(errors)
 	if billboardFolder then
 		validatePetMoneyBillboard(billboardFolder, errors)
 		validateBillboardTemplate(billboardFolder, "XPBillboard", "XPLabel", errors)
-		local growingSeed = validateBillboardTemplate(billboardFolder, "GrowingSeedBillboard", "TitleLabel", errors)
-		if growingSeed then
-			descendant(growingSeed, "TimeLabel", "TextLabel", errors)
+		local timer = validateBillboardTemplate(billboardFolder, "TimerBillboard", "TitleLabel", errors)
+		if timer then
+			descendant(timer, "TimeLabel", "TextLabel", errors)
 		end
 		validateRollBillboards(billboardFolder, errors)
 	end

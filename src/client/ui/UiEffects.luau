@@ -1,6 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RuntimeGuard"))
 
@@ -15,7 +17,9 @@ local CLOSE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirect
 local HOVER_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PRESS_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local BILLBOARD_POP_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local BILLBOARD_HIDE_TWEEN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local BILLBOARD_POP_START_SCALE = 0.18
+local BILLBOARD_MANAGED_MAX_DISTANCE = 100000
 
 local function darken(color, amount)
 	return Color3.new(
@@ -66,7 +70,9 @@ end
 local pressedButtons = setmetatable({}, { __mode = "k" })
 local billboardBaseSizes = setmetatable({}, { __mode = "k" })
 local billboardPopTokens = setmetatable({}, { __mode = "k" })
+local distanceBillboards = setmetatable({}, { __mode = "k" })
 local inputEndedConnection = nil
+local billboardDistanceConnection = nil
 
 local function ensureInputEndedConnection()
 	if inputEndedConnection then
@@ -178,6 +184,10 @@ function UiEffects.PlayBillboardPop(billboard)
 	if not (billboard and billboard:IsA("BillboardGui")) then
 		return nil
 	end
+	local distanceRecord = distanceBillboards[billboard]
+	if distanceRecord and distanceRecord.allowPop ~= true then
+		return nil
+	end
 
 	local baseSize = billboardBaseSizes[billboard] or billboard.Size
 	billboardBaseSizes[billboard] = baseSize
@@ -226,6 +236,146 @@ function UiEffects.BindBillboardPop(billboard)
 			end
 		end)
 	end
+end
+
+local function billboardBaseSize(billboard)
+	local baseSize = billboardBaseSizes[billboard] or billboard.Size
+	billboardBaseSizes[billboard] = baseSize
+	return baseSize
+end
+
+local function nextBillboardToken(billboard)
+	local token = (billboardPopTokens[billboard] or 0) + 1
+	billboardPopTokens[billboard] = token
+	return token
+end
+
+local function billboardWorldPosition(billboard)
+	local target = billboard.Adornee or billboard.Parent
+	if not target then
+		return nil
+	end
+	if target:IsA("Attachment") then
+		return target.WorldPosition
+	end
+	if target:IsA("BasePart") then
+		return target.Position
+	end
+	if target:IsA("Model") then
+		return target:GetPivot().Position
+	end
+	return nil
+end
+
+local function distanceBillboardInRange(billboard, record)
+	local camera = Workspace.CurrentCamera
+	local position = camera and billboardWorldPosition(billboard)
+	if not position then
+		return true
+	end
+	return (camera.CFrame.Position - position).Magnitude <= record.maxDistance
+end
+
+local function distanceBillboardShouldShow(billboard, record)
+	return record.desiredEnabled == true and distanceBillboardInRange(billboard, record)
+end
+
+local function playBillboardHide(billboard, record)
+	local baseSize = billboardBaseSize(billboard)
+	local token = nextBillboardToken(billboard)
+	record.visible = false
+	record.closing = true
+
+	local hideTween = tween(billboard, BILLBOARD_HIDE_TWEEN, {
+		Size = scaleUDim2(baseSize, BILLBOARD_POP_START_SCALE),
+	})
+	RuntimeGuard.Connect(hideTween.Completed, "UiEffects.BillboardHideCompleted", function()
+		if billboardPopTokens[billboard] ~= token then
+			return
+		end
+		record.closing = false
+		if billboard.Parent and not distanceBillboardShouldShow(billboard, record) then
+			billboard.Size = scaleUDim2(baseSize, 0)
+		end
+	end)
+end
+
+local function updateDistanceBillboard(billboard)
+	local record = distanceBillboards[billboard]
+	if not record then
+		return
+	end
+
+	if record.desiredEnabled ~= true then
+		record.visible = false
+		record.closing = false
+		billboard.Size = billboardBaseSize(billboard)
+		return
+	end
+
+	if distanceBillboardShouldShow(billboard, record) then
+		if record.visible == true and billboard.Enabled then
+			return
+		end
+		record.visible = true
+		record.closing = false
+		record.allowPop = true
+		UiEffects.PlayBillboardPop(billboard)
+		record.allowPop = false
+	elseif record.visible == true then
+		playBillboardHide(billboard, record)
+	elseif not record.closing then
+		billboard.Size = scaleUDim2(billboardBaseSize(billboard), 0)
+	end
+end
+
+local function ensureBillboardDistanceConnection()
+	if billboardDistanceConnection then
+		return
+	end
+
+	billboardDistanceConnection = RuntimeGuard.Connect(RunService.RenderStepped, "UiEffects.BillboardDistance", function()
+		for billboard in pairs(distanceBillboards) do
+			if billboard.Parent == nil then
+				distanceBillboards[billboard] = nil
+			else
+				updateDistanceBillboard(billboard)
+			end
+		end
+	end)
+end
+
+function UiEffects.BindBillboardDistancePop(billboard)
+	if not (billboard and billboard:IsA("BillboardGui")) then
+		return
+	end
+
+	local maxDistance = billboard.MaxDistance
+	if type(maxDistance) ~= "number" or maxDistance <= 0 then
+		return
+	end
+
+	UiEffects.BindBillboardPop(billboard)
+
+	local record = {
+		maxDistance = maxDistance,
+		desiredEnabled = billboard.Enabled,
+		visible = false,
+		closing = false,
+	}
+	distanceBillboards[billboard] = record
+	billboard.MaxDistance = BILLBOARD_MANAGED_MAX_DISTANCE
+
+	RuntimeGuard.Connect(billboard:GetPropertyChangedSignal("Enabled"), "UiEffects.DistanceBillboardEnabled", function()
+		record.desiredEnabled = billboard.Enabled
+		updateDistanceBillboard(billboard)
+	end)
+	RuntimeGuard.Connect(billboard.Destroying, "UiEffects.DistanceBillboardDestroying", function()
+		distanceBillboards[billboard] = nil
+	end)
+
+	ensureBillboardDistanceConnection()
+	updateDistanceBillboard(billboard)
 end
 
 function UiEffects.SetTextStack(root, text)

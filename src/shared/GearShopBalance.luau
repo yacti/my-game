@@ -7,8 +7,26 @@ GearShopBalance.Kinds = {
 GearShopBalance.Items = {
 	{
 		Kind = GearShopBalance.Kinds.FeedMachine,
-		FeedType = "Processor1",
-		Description = "Processes food into better rewards.",
+		FeedType = "JamBarrel",
+		Description = "Processes fruit into jam.",
+		Rarity = "Common",
+		Price = 1,
+		DevProductId = 0,
+		RequiredRebirths = 0,
+	},
+	{
+		Kind = GearShopBalance.Kinds.FeedMachine,
+		FeedType = "UpgradedJamBarrel",
+		Description = "Processes fruit into jam.",
+		Rarity = "Common",
+		Price = 1,
+		DevProductId = 0,
+		RequiredRebirths = 0,
+	},
+	{
+		Kind = GearShopBalance.Kinds.FeedMachine,
+		FeedType = "GoldenJamBarrel",
+		Description = "Processes fruit into jam.",
 		Rarity = "Common",
 		Price = 1,
 		DevProductId = 0,

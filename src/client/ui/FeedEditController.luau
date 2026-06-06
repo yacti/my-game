@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -33,6 +34,7 @@ local PLACEMENT_EDIT_FLOOR_OFFSET = 3
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
+local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local MOVE_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before moving another machine.",
@@ -363,6 +365,10 @@ function FeedEditController.start()
 	local exitEditButtonOpen = false
 	local editButtonTransitionToken = 0
 	local exitEditButtonTransitionToken = 0
+	local rotationTween = nil
+	local rotationTweenValue = nil
+	local rotationTweenConnection = nil
+	local rotationTweenToken = 0
 
 	local placementEdit = placementEditTemplate:Clone()
 	UiEffects.BindBillboardPop(placementEdit)
@@ -436,6 +442,57 @@ function FeedEditController.start()
 		return cframe * selectedPrimaryOffset, selectedPrimary.Size
 	end
 
+	local function cancelRotationTween()
+		rotationTweenToken += 1
+		if rotationTween then
+			rotationTween:Cancel()
+			rotationTween = nil
+		end
+		if rotationTweenConnection then
+			rotationTweenConnection:Disconnect()
+			rotationTweenConnection = nil
+		end
+		if rotationTweenValue then
+			rotationTweenValue:Destroy()
+			rotationTweenValue = nil
+		end
+	end
+
+	local function tweenSelectedTo(cframe)
+		if not selectedFeed then return end
+		cancelRotationTween()
+
+		rotationTweenToken += 1
+		local token = rotationTweenToken
+		local value = Instance.new("CFrameValue")
+		value.Value = selectedFeed:GetPivot()
+		rotationTweenValue = value
+		rotationTweenConnection = RuntimeGuard.Connect(value:GetPropertyChangedSignal("Value"), "FeedEditController.RotateTweenStep", function()
+			if selectedFeed then
+				setObjectCFrame(selectedFeed, value.Value)
+			end
+		end)
+		rotationTween = TweenService:Create(value, ROTATION_TWEEN_INFO, { Value = cframe })
+		RuntimeGuard.Connect(rotationTween.Completed, "FeedEditController.RotateTweenCompleted", function()
+			if rotationTweenToken ~= token then
+				return
+			end
+			if selectedFeed then
+				setObjectCFrame(selectedFeed, cframe)
+			end
+			rotationTween = nil
+			if rotationTweenConnection then
+				rotationTweenConnection:Disconnect()
+				rotationTweenConnection = nil
+			end
+			if rotationTweenValue then
+				rotationTweenValue:Destroy()
+				rotationTweenValue = nil
+			end
+		end)
+		rotationTween:Play()
+	end
+
 	local function selectedPlacementBlocked(cframe)
 		local floor = getPlayerFloor()
 		local plot = getPlayerPlot()
@@ -473,6 +530,7 @@ function FeedEditController.start()
 		if not selectedFeed then return end
 		local cframe = selectedTargetCFrame()
 		if not cframe then return end
+		cancelRotationTween()
 		setObjectCFrame(selectedFeed, cframe)
 		updatePlacementEditOffset()
 		setSelectionBlocked(selectedPlacementBlocked(cframe))
@@ -486,6 +544,7 @@ function FeedEditController.start()
 
 	local function clearSelection(restore)
 		if pendingRequestId ~= nil then return end
+		cancelRotationTween()
 		moving = false
 		if restore and selectedFeed and committedCFrame then
 			setObjectCFrame(selectedFeed, committedCFrame)
@@ -612,7 +671,11 @@ function FeedEditController.start()
 	local function rotateSelected()
 		if not selectedFeed or pendingRequestId ~= nil then return end
 		selectedLRY = (selectedLRY + math.pi / 2) % (math.pi * 2)
-		applySelectionPreview()
+		local cframe = selectedTargetCFrame()
+		if not cframe then return end
+		tweenSelectedTo(cframe)
+		updatePlacementEditOffset()
+		setSelectionBlocked(selectedPlacementBlocked(cframe))
 		sendMoveRequest()
 	end
 
@@ -763,6 +826,7 @@ function FeedEditController.start()
 		local targetCFrame = typeof(snappedCFrame) == "CFrame" and snappedCFrame or pendingTargetCFrame
 		if success then
 			if selectedFeed and targetCFrame then
+				cancelRotationTween()
 				setObjectCFrame(selectedFeed, targetCFrame)
 				committedCFrame = targetCFrame
 				applySelectionPreview()
@@ -775,6 +839,7 @@ function FeedEditController.start()
 		end
 
 		if selectedFeed and pendingOriginalCFrame then
+			cancelRotationTween()
 			setObjectCFrame(selectedFeed, pendingOriginalCFrame)
 			committedCFrame = pendingOriginalCFrame
 			local floor = getPlayerFloor()
