@@ -1,10 +1,10 @@
--- Processor FeedMachine: client-local prompts context-switch between Deposit
--- and Take based on what the owner has equipped. The server only validates
--- and performs the requested action.
+-- Processor FeedMachine: client-local prompts stay available and context-switch
+-- between Deposit and Take based on what the owner has equipped. The server
+-- only validates and performs the requested action.
 --
 --   owner has accepted food group equipped → "Deposit Food", queues one
 --   owner empty-handed and ReadyCount > 0  → "Take Food", dispenses all ready
---   neither                                → prompt disabled
+--   owner has wrong food group equipped    → error notification
 --
 -- Each item processes for ProcessDuration wall-clock seconds (so progress
 -- accrues offline). Dispensed Tools have XP boosted by the machine's XP
@@ -22,6 +22,9 @@
 -- finish processing while the player is offline.
 --
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Server = script.Parent.Parent
+local NotificationService = require(Server:WaitForChild("NotificationService"))
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
@@ -45,6 +48,15 @@ local function acceptedFoodType(machine)
 		return "Fruit"
 	end
 	return foodType
+end
+
+local function notifyWrongFoodType(machine, player, accepted)
+	local processorName = machine.Name
+	NotificationService.Error(player, string.format(
+		"This won't work, you can only place \"%s\" inside the \"%s\"!",
+		tostring(accepted or "Food"),
+		tostring(processorName)
+	))
 end
 
 local function refreshAttrs(machine, s)
@@ -140,7 +152,13 @@ function Processor.Interact(machine, player)
 
 	local accepted   = acceptedFoodType(machine)
 	local maxQueue   = machine:GetAttribute(State.Feed.MaxQueue) or 5
-	local canDeposit = Food.GetEquipped(player, accepted) ~= nil and #s.queue < maxQueue
+	local equippedFood = Food.GetEquipped(player, nil)
+	if equippedFood ~= nil and accepted ~= nil and Food.TypeOf(equippedFood) ~= accepted then
+		notifyWrongFoodType(machine, player, accepted)
+		return
+	end
+
+	local canDeposit = equippedFood ~= nil and #s.queue < maxQueue
 	if canDeposit then
 		depositOne(machine, s, player)
 	else

@@ -14,6 +14,9 @@ local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
 local CURRENT_DATA_VERSION = 5
 local GROWING_SEED_PHASE = "GrowingSeed"
+local STARTER_FEED_INVENTORY = {
+	JamBarrel = 1,
+}
 local STARTER_COSMETIC_INVENTORY = {
 	Fountain = 1,
 }
@@ -32,7 +35,7 @@ local DATA_TEMPLATE = {
 	FeedPlacements = {},
 	CosmeticPlacements = {},
 	CosmeticInventory = STARTER_COSMETIC_INVENTORY, -- { [CosmeticID] = count }
-	FeedInventory = {},
+	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},

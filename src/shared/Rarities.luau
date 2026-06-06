@@ -19,7 +19,7 @@ Rarities.Order = {
 local DEFINITIONS = {
 	[Rarities.Common] = {
 		Name = Rarities.Common,
-		Color = Color3.fromRGB(128, 128, 128),
+		Color = Color3.fromRGB(186, 186, 186),
 		Animated = false,
 	},
 	[Rarities.Rare] = {

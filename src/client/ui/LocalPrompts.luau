@@ -347,10 +347,13 @@ local function processorContext(machine)
 	local maxQueue = machine:GetAttribute(State.Feed.MaxQueue) or 5
 	local queueCount = machine:GetAttribute(State.Feed.QueueCount) or 0
 	local readyCount = machine:GetAttribute(State.Feed.ReadyCount) or 0
-	local canDeposit = Food.GetEquipped(player, accepted) ~= nil and queueCount < maxQueue
+	local equippedFood = Food.GetEquipped(player, nil)
+	local foodMatches = equippedFood ~= nil and (accepted == nil or Food.TypeOf(equippedFood) == accepted)
+	local canDeposit = foodMatches and queueCount < maxQueue
 	if canDeposit then return true, "Deposit Food" end
+	if equippedFood ~= nil and not foodMatches then return true, "Deposit Food" end
 	if readyCount > 0 then return true, "Take Food" end
-	return false, "Take Food"
+	return true, "Deposit Food"
 end
 
 local function promptActivationDistance(kind)

@@ -251,25 +251,34 @@ function FeedEditService.Start(config)
 				sendMoveResult(player, requestId, false, "too-far")
 				return
 			end
-			local fits = movingCosmetic
-				and PlotService.CosmeticPlacementFitsOnFloor(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY)
-				or PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+			local fits
+			if movingCosmetic then
+				fits = PlotService.CosmeticPlacementFitsOnFloor(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY)
+			else
+				fits = PlotService.FeedPlacementFitsOnFloor(plot, feedType, snappedLX, snappedLZ, snappedLRY)
+			end
 			if not fits then
 				sendMoveResult(player, requestId, false, "out-of-bounds")
 				return
 			end
-			local overlaps = movingCosmetic
-				and PlotService.CosmeticPlacementOverlapsExcept(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY, placeable)
-				or PlotService.FeedPlacementOverlapsExcept(plot, feedType, snappedLX, snappedLZ, snappedLRY, placeable)
+			local overlaps
+			if movingCosmetic then
+				overlaps = PlotService.CosmeticPlacementOverlapsExcept(plot, cosmeticId, snappedLX, snappedLZ, snappedLRY, placeable)
+			else
+				overlaps = PlotService.FeedPlacementOverlapsExcept(plot, feedType, snappedLX, snappedLZ, snappedLRY, placeable)
+			end
 			if overlaps then
 				sendMoveResult(player, requestId, false, "overlap")
 				return
 			end
 
 			local oldLX, oldLZ, oldLRY = PlotService.WorldPivotToFloorLocal(floor, placeable:GetPivot())
-			local movedCFrame = movingCosmetic
-				and PlotService.RepositionCosmetic(plot, placeable, snappedLX, snappedLZ, snappedLRY)
-				or PlotService.RepositionFeed(plot, placeable, snappedLX, snappedLZ, snappedLRY)
+			local movedCFrame
+			if movingCosmetic then
+				movedCFrame = PlotService.RepositionCosmetic(plot, placeable, snappedLX, snappedLZ, snappedLRY)
+			else
+				movedCFrame = PlotService.RepositionFeed(plot, placeable, snappedLX, snappedLZ, snappedLRY)
+			end
 			if not movedCFrame then
 				sendMoveResult(player, requestId, false, "move-failed")
 				return

@@ -113,7 +113,7 @@ function RebirthController.start()
 	local tierLabel = findDescendant(rebirthFrame, "TierLabel", "TextLabel")
 	local cashLabel = findDescendant(rebirthFrame, "CashLabel", "TextLabel")
 	local progressBar = findDescendant(rebirthFrame, "ProgressBar", "GuiObject")
-	local progressFill = progressBar and findDescendant(progressBar, "Fill", "GuiObject") or findDescendant(rebirthFrame, "Fill", "GuiObject")
+	local progressFill = progressBar and findDescendant(progressBar, "Fill", "CanvasGroup") or findDescendant(rebirthFrame, "Fill", "CanvasGroup")
 	local rewardList = findDescendant(rebirthFrame, "RewardList", "GuiObject")
 	local rewardTemplate = rewardList and findDescendant(rewardList, "RewardTemplate", "GuiObject")
 	local petHolderTemplate = rewardList and findDescendant(rewardList, "PetHolder", "GuiObject")
@@ -134,6 +134,10 @@ function RebirthController.start()
 	rewardTemplate.Visible = false
 	petHolderTemplate.Visible = false
 	rebirthFrame.Visible = false
+	progressFill.BackgroundTransparency = 1
+	progressFill.AnchorPoint = Vector2.new(0, 0.5)
+	progressFill.Position = UDim2.new(0, 0, 0.5, 0)
+	local progressFillHeight = UDim.new(progressFill.Size.Y.Scale, progressFill.Size.Y.Offset)
 	local panelState = UiEffects.PreparePanel(panel)
 
 	local RebirthRequest = Remotes.get(Remotes.Names.RebirthRequest)
@@ -185,7 +189,8 @@ function RebirthController.start()
 
 	local function setProgress(progress)
 		progress = math.clamp(tonumber(progress) or 0, 0, 1)
-		progressFill.Size = UDim2.new(progress, 0, progressFill.Size.Y.Scale, progressFill.Size.Y.Offset)
+		progressFill.Size = UDim2.new(progress, 0, progressFillHeight.Scale, progressFillHeight.Offset)
+		progressFill.Visible = progress > 0
 	end
 
 	local function clearGeneratedRewards()
