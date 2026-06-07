@@ -12,19 +12,19 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Server = script.Parent.Parent
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
+
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local PatchScale = require(ReplicatedStorage.Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Patches = {}
 
-local DEFAULT_XP = 1
 local DEFAULT_GROW_RATE = 1
 local HARVEST_RESPAWN_DELAY = 3
 local OFFLINE_GROW_FRACTION = 0.001
-local SCALE_MIN = 0.3
-local SCALE_MAX = 2.75
-local SCALE_MAX_BASE_XP_MULTIPLIER = 500
 local EDIT_MODE_ATTR = "EditMode"
 
 -- Offline progress runs at this fraction of the online rate. With default
@@ -32,9 +32,8 @@ local EDIT_MODE_ATTR = "EditMode"
 -- while the player is away. Tunable in one place; not on the machine
 -- attribute since it's an economy-wide knob for patch machines.
 
--- Every freshly-spawned slot food starts at SCALE_MIN and grows linearly to
--- SCALE_MAX as its XP climbs from the patch's XP to patchXP * 500. Only
--- applies to Model templates (Model:ScaleTo).
+-- Mature slot fruit scale is rendered locally by PatchSlotVisuals. Harvested
+-- tools still use the shared scale formula on the server.
 
 -- [machine] = {
 --   owner, plot, foodId, patchXP, lastTick,
@@ -56,11 +55,7 @@ local function foodDropFor(machine)
 end
 
 local function patchXPFor(machine)
-	local patchXP = machine:GetAttribute(State.Feed.XP)
-	if type(patchXP) ~= "number" or patchXP <= 0 then
-		return DEFAULT_XP
-	end
-	return patchXP
+	return PatchScale.NormalizePatchXP(machine:GetAttribute(State.Feed.XP))
 end
 
 local function configureSlotPart(part)
@@ -85,23 +80,11 @@ local function spawnFoodAtSlot(slot)
 			if d:IsA("BasePart") then configureSlotPart(d) end
 		end
 		clone:PivotTo(slot.anchor.CFrame)
+		-- Initialize before parenting so clients never see a full-size flash.
+		clone:ScaleTo(PatchScale.ComputeScale(slot.xp or 0, slot.patchXP))
 	end
 	clone.Parent = slot.anchor
 	return clone
-end
-
-local function scaleProgress(slot)
-	local minXP = slot.patchXP
-	local maxXP = slot.patchXP * SCALE_MAX_BASE_XP_MULTIPLIER
-	local range = maxXP - minXP
-	if range <= 0 then return 1 end
-	return math.clamp((slot.xp - minXP) / range, 0, 1)
-end
-
-local function applySlotScale(slot)
-	if not slot.foodPart or not slot.foodPart:IsA("Model") then return end
-	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * scaleProgress(slot)
-	slot.foodPart:ScaleTo(scale)
 end
 
 local function refreshSlotVisual(slot)
@@ -110,7 +93,6 @@ local function refreshSlotVisual(slot)
 	end
 	if slot.foodPart then
 		slot.foodPart:SetAttribute(State.Food.XP, slot.xp)
-		applySlotScale(slot)
 	end
 end
 
@@ -127,7 +109,6 @@ local function materializeRespawn(slot, deferVisualRefresh)
 	slot.growthElapsed = 0
 	if deferVisualRefresh then return end
 	slot.foodPart  = spawnFoodAtSlot(slot)
-	applySlotScale(slot)
 end
 
 local function applyGrowth(machine, s, seconds)
@@ -186,7 +167,7 @@ end)
 local function scaleToolToSlot(tool, slot)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
 	-- handle + welded sub-parts scale together.
-	local scale = SCALE_MIN + (SCALE_MAX - SCALE_MIN) * scaleProgress(slot)
+	local scale = PatchScale.ComputeScale(slot.xp, slot.patchXP)
 	tool:ScaleTo(scale)
 end
 
@@ -200,7 +181,10 @@ local function harvest(machine, s, slotIndex, player)
 	local tool = Food.MakeTool(foodId, slot.xp)
 	if not tool then return end
 	scaleToolToSlot(tool, slot)
-	tool.Parent = player.Backpack
+	if not ToolGrantService.GrantTool(player, tool) then
+		tool:Destroy()
+		return
+	end
 
 	-- Empty the slot, start respawn timer; materializeRespawn restores it.
 	if slot.foodPart then slot.foodPart:Destroy() end
@@ -270,7 +254,6 @@ function Patches.Setup(machine, plot, owner)
 				respawnAt = nil,
 			}
 			slot.foodPart = spawnFoodAtSlot(slot)
-			applySlotScale(slot)
 			table.insert(s.slots, slot)
 		end
 	end

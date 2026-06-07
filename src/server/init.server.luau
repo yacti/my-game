@@ -58,6 +58,7 @@ local PET_COLLECTION_INTERVAL = 0.25
 local PET_FEED_REACTION_SECONDS = 2
 local PET_FEED_PROMPT_DISTANCE = 8
 local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
+local OFFLINE_PET_EARN_FRACTION = 0.001
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
 
@@ -437,7 +438,7 @@ local function applyOfflineEarnings(plot, profile)
 		local petData = profile.Data.Pets[idx]
 		if petData then
 			local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
-			petData.money = (petData.money or 0) + rate * elapsed
+			petData.money = (petData.money or 0) + rate * elapsed * OFFLINE_PET_EARN_FRACTION
 		end
 	end
 end

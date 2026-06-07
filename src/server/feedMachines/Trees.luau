@@ -27,6 +27,9 @@ local PhysicsService    = game:GetService("PhysicsService")
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Server = script.Parent.Parent
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
+
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -313,7 +316,10 @@ pickupSlotGround = function(machine, s, slot, player)
 	if not slot.ground then return end
 	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
 	if not tool then return end
-	tool.Parent = player.Backpack
+	if not ToolGrantService.GrantTool(player, tool) then
+		tool:Destroy()
+		return
+	end
 	destroySlotGround(slot)
 end
 

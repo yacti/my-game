@@ -256,7 +256,12 @@ local function curvedSegmentPosition(segment, alpha)
 end
 
 local function triggerCollectJump(record)
-	record.collectJumpStartClock = os.clock()
+	local now = os.clock()
+	local startClock = record.collectJumpStartClock
+	if startClock and now - startClock < COLLECT_JUMP_SECONDS then
+		return
+	end
+	record.collectJumpStartClock = now
 end
 
 local function renderPet(record, dt)

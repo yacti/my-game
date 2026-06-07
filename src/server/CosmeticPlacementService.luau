@@ -7,6 +7,7 @@ local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
@@ -100,8 +101,7 @@ function CosmeticPlacementService.Start(config)
 		if not replacement then
 			return false
 		end
-		replacement.Parent = backpack
-		return true
+		return ToolGrantService.GrantTool(player, replacement)
 	end
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "CosmeticPlacementService.PlayerRemoving", function(player)

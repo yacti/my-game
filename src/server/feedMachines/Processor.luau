@@ -25,6 +25,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent.Parent
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
@@ -115,7 +116,9 @@ local function dispenseAllReady(machine, s, player)
 			local boostXP = inputXP * mult
 			local tool    = Food.MakeTool(foodId, boostXP)
 			if tool then
-				tool.Parent = player.Backpack
+				if not ToolGrantService.GrantTool(player, tool) then
+					tool:Destroy()
+				end
 			end
 		else
 			i += 1

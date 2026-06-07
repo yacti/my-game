@@ -4,6 +4,7 @@ local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
+local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local SeedTools = {}
 
@@ -186,10 +187,7 @@ function SeedTools.ApplyPrepared(player, profile, prepared)
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
 	profile.Data.SeedInventory[seedId] = (profile.Data.SeedInventory[seedId] or 0) + amount
 
-	for _, tool in ipairs(prepared.tools or {}) do
-		tool.Parent = backpack
-	end
-	return true
+	return ToolGrantService.GrantTools(player, prepared.tools)
 end
 
 function SeedTools.DestroyPrepared(prepared)

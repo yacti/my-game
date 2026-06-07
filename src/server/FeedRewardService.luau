@@ -1,4 +1,5 @@
 local FeedMachineTools = require(script.Parent:WaitForChild("FeedMachineTools"))
+local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local FeedRewardService = {}
 
@@ -67,10 +68,7 @@ function FeedRewardService.ApplyPrepared(player, profile, prepared)
 	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 	profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + amount
 
-	for _, tool in ipairs(prepared.tools or {}) do
-		tool.Parent = backpack
-	end
-	return true
+	return ToolGrantService.GrantTools(player, prepared.tools)
 end
 
 function FeedRewardService.DestroyPrepared(prepared)

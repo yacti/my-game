@@ -5,6 +5,7 @@ local Assets = require(Shared:WaitForChild("Assets"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
+local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local CosmeticTools = {}
 
@@ -125,10 +126,7 @@ function CosmeticTools.ApplyPrepared(player, profile, prepared)
 	profile.Data.CosmeticInventory = profile.Data.CosmeticInventory or {}
 	profile.Data.CosmeticInventory[cosmeticId] = (profile.Data.CosmeticInventory[cosmeticId] or 0) + amount
 
-	for _, tool in ipairs(prepared.tools or {}) do
-		tool.Parent = backpack
-	end
-	return true
+	return ToolGrantService.GrantTools(player, prepared.tools)
 end
 
 function CosmeticTools.DestroyPrepared(prepared)

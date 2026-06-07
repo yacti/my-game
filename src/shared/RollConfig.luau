@@ -37,7 +37,6 @@ RollConfig.Reveal = {
 	ActiveVfxDistance = 60,
 	LocalParticleLifetime = 15,
 	BuyPromptDistance = 10,
-	BillboardMaxDistance = 32,
 	OfferAnchorTopOffset = 0.55,
 }
 

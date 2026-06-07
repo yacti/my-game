@@ -7,8 +7,8 @@
 -- Identification: patch slot food is any BasePart/Model with a FoodType
 -- attribute that lives under a Patch machine's SlotAnchor. Tree machines also
 -- use SlotAnchor for on-branch fruit, but those visuals should not get this UI.
--- Server keeps the XP attribute in sync, so the billboard just listens to
--- attribute changes.
+-- Server keeps the XP attribute in sync. Distant billboards mark their label
+-- stale and render only when they become visible again.
 --
 -- Per-viewer rendered locally; no replication of GUI instances.
 
@@ -25,7 +25,8 @@ local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTempl
 local RANGE = 10
 
 local player    = Players.LocalPlayer
-local tracked   = {}  -- [food] = gui
+local playerGui = player:WaitForChild("PlayerGui")
+local tracked   = {}  -- [food] = { gui, label, conns, dirty, visible }
 
 local SlotXPBillboard = {}
 
@@ -56,6 +57,24 @@ local function foodHeight(food)
 	return 1
 end
 
+local function cleanup(food)
+	local record = tracked[food]
+	if not record then return end
+	for _, conn in ipairs(record.conns) do
+		conn:Disconnect()
+	end
+	if record.gui then
+		record.gui:Destroy()
+	end
+	tracked[food] = nil
+end
+
+local function addConnection(record, conn)
+	if conn then
+		table.insert(record.conns, conn)
+	end
+end
+
 local function build(food)
 	if tracked[food] then return end
 	local adornee = adorneeFor(food)
@@ -68,19 +87,35 @@ local function build(food)
 	gui.Adornee = adornee
 	gui.Enabled = false  -- gated by Heartbeat below
 
+	local record = {
+		gui = gui,
+		label = label,
+		conns = {},
+		dirty = true,
+		visible = false,
+	}
+
 	local function render()
 		local xp = food:GetAttribute(State.Food.XP) or 0
 		label.Text = string.format("%dxp", math.floor(xp))
+		record.dirty = false
 	end
-	render()
-	RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.Render", render)
+	addConnection(record, RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.MarkDirty", function()
+		record.dirty = true
+		if record.visible then
+			render()
+		end
+	end))
 
-	gui.Parent = food
-	tracked[food] = gui
+	gui.Parent = playerGui
+	tracked[food] = record
 
-	RuntimeGuard.Connect(food.AncestryChanged, "SlotXPBillboard.AncestryChanged", function()
-		if not food:IsDescendantOf(Workspace) then tracked[food] = nil end
-	end)
+	addConnection(record, RuntimeGuard.Connect(gui.AncestryChanged, "SlotXPBillboard.GuiAncestryChanged", function()
+		if not gui:IsDescendantOf(playerGui) then cleanup(food) end
+	end))
+	addConnection(record, RuntimeGuard.Connect(food.AncestryChanged, "SlotXPBillboard.AncestryChanged", function()
+		if not food:IsDescendantOf(Workspace) then cleanup(food) end
+	end))
 end
 
 function SlotXPBillboard.start()
@@ -94,12 +129,18 @@ function SlotXPBillboard.start()
 	RuntimeGuard.Connect(RunService.Heartbeat, "SlotXPBillboard.Heartbeat", function()
 		local char = player.Character
 		local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-		for food, gui in pairs(tracked) do
+		for food, record in pairs(tracked) do
 			RuntimeGuard.Run("SlotXPBillboard.UpdateVisibility", function()
 				if hrp and food:IsDescendantOf(Workspace) then
-					gui.Enabled = (foodPosition(food) - hrp.Position).Magnitude <= RANGE
+					record.visible = (foodPosition(food) - hrp.Position).Magnitude <= RANGE
+					record.gui.Enabled = record.visible
+					if record.visible and record.dirty then
+						local xp = food:GetAttribute(State.Food.XP) or 0
+						record.label.Text = string.format("%dxp", math.floor(xp))
+						record.dirty = false
+					end
 				else
-					gui.Enabled = false
+					cleanup(food)
 				end
 			end)
 		end

@@ -15,12 +15,8 @@ local USE_MOCK_STORE_IN_STUDIO = true
 local CURRENT_DATA_VERSION = 5
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
-local STARTER_FEED_INVENTORY = {
-	JamBarrel = 1,
-}
-local STARTER_COSMETIC_INVENTORY = {
-	Fountain = 1,
-}
+local STARTER_FEED_INVENTORY = {}
+local STARTER_COSMETIC_INVENTORY = {}
 
 local DEPRECATED_FEED_TYPES = {
 	Clicker1 = true,

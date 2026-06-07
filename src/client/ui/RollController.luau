@@ -52,7 +52,6 @@ local IDLE_ROTATION_DEGREES_PER_SECOND = RollConfig.Reveal.IdleRotationDegreesPe
 local ACTIVE_VFX_DISTANCE = RollConfig.Reveal.ActiveVfxDistance
 local LOCAL_PARTICLE_LIFETIME = RollConfig.Reveal.LocalParticleLifetime
 local BUY_PROMPT_DISTANCE = RollConfig.Reveal.BuyPromptDistance
-local BILLBOARD_MAX_DISTANCE = RollConfig.Reveal.BillboardMaxDistance
 local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
 local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
@@ -576,7 +575,6 @@ local function addRevealBillboard(model, payload)
 	billboard.Name = "RollRevealBillboard"
 	billboard.Adornee = anchor
 	billboard.AlwaysOnTop = true
-	billboard.MaxDistance = BILLBOARD_MAX_DISTANCE
 	billboard.StudsOffsetWorldSpace = Vector3.zero
 	local card = billboardCard(billboard)
 	if not card then

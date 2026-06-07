@@ -1,0 +1,15 @@
+{
+  "createdAt": "2026-06-07T20:13:00Z",
+  "source": "Roblox Studio Edit DataModel before rounding patch XP values to whole numbers",
+  "patches": [
+    { "FeedType": "PumpkinPatch", "XP": 0.6666666666666666, "GrowRate": 1 },
+    { "FeedType": "CabbagePatch", "XP": 1, "GrowRate": 1 },
+    { "FeedType": "PotatoPatch", "XP": 2.6666666666666665, "GrowRate": 1 },
+    { "FeedType": "WatermelonPatch", "XP": 7, "GrowRate": 1 },
+    { "FeedType": "CornPatch", "XP": 18.333333333333332, "GrowRate": 1 },
+    { "FeedType": "MushroomPatch", "XP": 48.333333333333336, "GrowRate": 1 },
+    { "FeedType": "PineapplePatch", "XP": 216.66666666666666, "GrowRate": 1 },
+    { "FeedType": "PurpleShroomPatch", "XP": 633.3333333333334, "GrowRate": 1 },
+    { "FeedType": "GlowshroomPatch", "XP": 1933.3333333333333, "GrowRate": 1 }
+  ]
+}
