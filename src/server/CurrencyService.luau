@@ -9,6 +9,7 @@ local PlayerReplicaService = require(script.Parent:WaitForChild("PlayerReplicaSe
 local CurrencyService = {}
 
 local currencyLocks = {}
+local currencyChangedCallbacks = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -31,6 +32,12 @@ local function publish(player, profile)
 		local amount = balance(profile)
 		PlayerReplicaService.PublishCurrency(player, amount)
 	end)
+end
+
+local function notifyChanged(player, profile, amount)
+	for _, callback in ipairs(currencyChangedCallbacks) do
+		RuntimeGuard.Run("CurrencyService.CurrencyChangedCallback", callback, player, profile, amount)
+	end
 end
 
 local function acquire(player)
@@ -59,6 +66,19 @@ function CurrencyService.Publish(player, profile)
 	publish(player, profile)
 end
 
+function CurrencyService.RegisterChangedCallback(callback)
+	if type(callback) ~= "function" then
+		return nil
+	end
+	table.insert(currencyChangedCallbacks, callback)
+	local index = #currencyChangedCallbacks
+	return function()
+		if currencyChangedCallbacks[index] == callback then
+			table.remove(currencyChangedCallbacks, index)
+		end
+	end
+end
+
 function CurrencyService.Add(player, profile, amount, deferPublish)
 	amount = spendAmount(amount)
 	if not profile or amount <= 0 then
@@ -71,6 +91,7 @@ function CurrencyService.Add(player, profile, amount, deferPublish)
 	profile.Data.Currency = balance(profile) + amount
 	local updated = profile.Data.Currency
 	release(player)
+	notifyChanged(player, profile, updated)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
 	end
@@ -98,6 +119,7 @@ function CurrencyService.TrySpend(player, profile, amount, deferPublish)
 	profile.Data.Currency = current - amount
 	local updated = profile.Data.Currency
 	release(player)
+	notifyChanged(player, profile, updated)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
 	end
@@ -121,6 +143,7 @@ function CurrencyService.ResetToZeroForRebirth(player, profile, expectedMinimum,
 
 	profile.Data.Currency = 0
 	release(player)
+	notifyChanged(player, profile, 0)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
 	end
@@ -138,6 +161,7 @@ function CurrencyService.SetBalanceForServer(player, profile, amount, deferPubli
 
 	profile.Data.Currency = amount
 	release(player)
+	notifyChanged(player, profile, amount)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
 	end

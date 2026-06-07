@@ -1,23 +1,24 @@
 local Onboarding = {}
 
 Onboarding.Stages = {
-	RollPumpkinSeed = "RollPumpkinSeed",
-	BuyPumpkinSeed = "BuyPumpkinSeed",
-	PlantPumpkinSeed = "PlantPumpkinSeed",
-	GatherPumpkinXP = "GatherPumpkinXP",
-	HarvestPumpkin = "HarvestPumpkin",
-	FeedPetPumpkin = "FeedPetPumpkin",
 	RollAppleTreeSeed = "RollAppleTreeSeed",
 	BuyAppleTreeSeed = "BuyAppleTreeSeed",
 	PlantAppleTreeSeed = "PlantAppleTreeSeed",
 	ShakeAppleTree = "ShakeAppleTree",
 	CollectApple = "CollectApple",
 	FeedPetApple = "FeedPetApple",
+	MakeCurrency500 = "MakeCurrency500",
+	RollPumpkinSeed = "RollPumpkinSeed",
+	BuyPumpkinSeed = "BuyPumpkinSeed",
+	PlantPumpkinSeed = "PlantPumpkinSeed",
+	GatherPumpkinXP = "GatherPumpkinXP",
+	HarvestPumpkin = "HarvestPumpkin",
+	FeedPetPumpkin = "FeedPetPumpkin",
 	Complete = "Complete",
 }
 
 Onboarding.ProgressKeys = {
-	AppleCashGranted = "AppleCashGranted",
+	PumpkinXPGained = "PumpkinXPGained",
 	TreeClickCount = "TreeClickCount",
 	TreeDroppedSlots = "TreeDroppedSlots",
 	TreeFruitTarget = "TreeFruitTarget",
@@ -39,38 +40,41 @@ Onboarding.FoodIds = {
 	Apple = "Apple",
 }
 
-Onboarding.PumpkinXPRequired = 10
+Onboarding.CurrencyRequired = 500
+Onboarding.PumpkinXPRequired = 500
 Onboarding.TreeClicksRequired = 4
 
 local ORDERED_STAGES = {
-	Onboarding.Stages.RollPumpkinSeed,
-	Onboarding.Stages.BuyPumpkinSeed,
-	Onboarding.Stages.PlantPumpkinSeed,
-	Onboarding.Stages.GatherPumpkinXP,
-	Onboarding.Stages.HarvestPumpkin,
-	Onboarding.Stages.FeedPetPumpkin,
 	Onboarding.Stages.RollAppleTreeSeed,
 	Onboarding.Stages.BuyAppleTreeSeed,
 	Onboarding.Stages.PlantAppleTreeSeed,
 	Onboarding.Stages.ShakeAppleTree,
 	Onboarding.Stages.CollectApple,
 	Onboarding.Stages.FeedPetApple,
+	Onboarding.Stages.MakeCurrency500,
+	Onboarding.Stages.RollPumpkinSeed,
+	Onboarding.Stages.BuyPumpkinSeed,
+	Onboarding.Stages.PlantPumpkinSeed,
+	Onboarding.Stages.GatherPumpkinXP,
+	Onboarding.Stages.HarvestPumpkin,
+	Onboarding.Stages.FeedPetPumpkin,
 	Onboarding.Stages.Complete,
 }
 
 local STAGE_TEXT = {
-	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
-	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the pumpkin seed",
-	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the pumpkin seed",
-	[Onboarding.Stages.GatherPumpkinXP] = "Gather 10 XP",
-	[Onboarding.Stages.HarvestPumpkin] = "Harvest pumpkin",
-	[Onboarding.Stages.FeedPetPumpkin] = "Feed pet",
 	[Onboarding.Stages.RollAppleTreeSeed] = "Press the button",
-	[Onboarding.Stages.BuyAppleTreeSeed] = "Buy the apple tree seed",
+	[Onboarding.Stages.BuyAppleTreeSeed] = "Buy tree",
 	[Onboarding.Stages.PlantAppleTreeSeed] = "Plant tree",
 	[Onboarding.Stages.ShakeAppleTree] = "Shake tree",
 	[Onboarding.Stages.CollectApple] = "Collect fruit",
 	[Onboarding.Stages.FeedPetApple] = "Feed pet",
+	[Onboarding.Stages.MakeCurrency500] = "Make $500",
+	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
+	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the pumpkin seed",
+	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the pumpkin seed",
+	[Onboarding.Stages.GatherPumpkinXP] = "Gather 500 XP",
+	[Onboarding.Stages.HarvestPumpkin] = "Harvest pumpkin",
+	[Onboarding.Stages.FeedPetPumpkin] = "Feed pet",
 	[Onboarding.Stages.Complete] = "",
 }
 
@@ -123,10 +127,6 @@ function Onboarding.CompleteState()
 	}
 end
 
-local function sanitizeBoolean(value)
-	return value == true
-end
-
 local function sanitizeCount(value)
 	value = tonumber(value)
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
@@ -169,10 +169,10 @@ end
 function Onboarding.SanitizeProgress(progress)
 	local clean = {}
 	if type(progress) ~= "table" then
-		return clean
+		progress = {}
 	end
 
-	clean[Onboarding.ProgressKeys.AppleCashGranted] = sanitizeBoolean(progress[Onboarding.ProgressKeys.AppleCashGranted])
+	clean[Onboarding.ProgressKeys.PumpkinXPGained] = sanitizeCount(progress[Onboarding.ProgressKeys.PumpkinXPGained])
 	clean[Onboarding.ProgressKeys.TreeDroppedSlots] = sanitizeSlotMap(progress[Onboarding.ProgressKeys.TreeDroppedSlots])
 	clean[Onboarding.ProgressKeys.TreeClickCount] = countSlotMap(clean[Onboarding.ProgressKeys.TreeDroppedSlots])
 	clean[Onboarding.ProgressKeys.TreeFruitTarget] = sanitizeCount(progress[Onboarding.ProgressKeys.TreeFruitTarget])
@@ -195,6 +195,9 @@ function Onboarding.SanitizeState(value, fallback)
 	end
 
 	local progress = Onboarding.SanitizeProgress(state.Progress)
+	if stage ~= Onboarding.Stages.GatherPumpkinXP then
+		progress[Onboarding.ProgressKeys.PumpkinXPGained] = 0
+	end
 	if stage ~= Onboarding.Stages.ShakeAppleTree and stage ~= Onboarding.Stages.CollectApple then
 		progress[Onboarding.ProgressKeys.TreeClickCount] = 0
 		progress[Onboarding.ProgressKeys.TreeDroppedSlots] = {}

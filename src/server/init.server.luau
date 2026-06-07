@@ -52,6 +52,10 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 
+CurrencyService.RegisterChangedCallback(function(player, profile, amount)
+	OnboardingService.OnCurrencyChanged(player, profile, amount)
+end)
+
 local PROMPT_RATE_SECONDS = 0.12
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5

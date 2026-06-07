@@ -350,7 +350,11 @@ local function applyMainArrowScale(scale)
 end
 
 local function updateMainTarget()
-	if currentStage == Onboarding.Stages.CollectApple or currentStage == Onboarding.Stages.ShakeAppleTree or not Onboarding.IsActive(currentStage) then
+	if currentStage == Onboarding.Stages.CollectApple
+		or currentStage == Onboarding.Stages.ShakeAppleTree
+		or currentStage == Onboarding.Stages.MakeCurrency500
+		or currentStage == Onboarding.Stages.GatherPumpkinXP
+		or not Onboarding.IsActive(currentStage) then
 		destroyMainArrow()
 		return
 	end

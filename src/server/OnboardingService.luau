@@ -1,12 +1,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
-local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
-local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
 local OnboardingService = {}
@@ -35,12 +33,11 @@ local function publishOnboarding(player, profile)
 	PlayerReplicaService.PublishOnboarding(player, profile)
 end
 
-local function publishProfile(player, profile)
-	PlayerReplicaService.PublishProfile(player, profile)
-end
-
 local function resetStageProgressFor(state, nextStage)
 	local progress = Onboarding.SanitizeProgress(state.Progress)
+	if nextStage ~= Onboarding.Stages.GatherPumpkinXP then
+		progress[Onboarding.ProgressKeys.PumpkinXPGained] = 0
+	end
 	if nextStage ~= Onboarding.Stages.ShakeAppleTree and nextStage ~= Onboarding.Stages.CollectApple then
 		progress[Onboarding.ProgressKeys.TreeClickCount] = 0
 		progress[Onboarding.ProgressKeys.TreeDroppedSlots] = {}
@@ -75,31 +72,37 @@ local function countDroppedSlots(droppedSlots)
 	return count
 end
 
-local function ensureAppleCash(player, profile)
-	local progress = progressFor(profile)
-	if progress[Onboarding.ProgressKeys.AppleCashGranted] == true then
+local function activeDroppedSlotsFor(machine, expectedFoodId)
+	local droppedSlots = {}
+	if not machine then
+		return droppedSlots
+	end
+	for _, descendant in ipairs(machine:GetDescendants()) do
+		if (descendant:IsA("BasePart") or descendant:IsA("Model"))
+			and descendant:GetAttribute(State.TreeClicker.GroundPile) == true
+			and descendant:GetAttribute(State.Food.Id) == expectedFoodId then
+			local slotIndex = normalizeTreeSlotIndex(descendant:GetAttribute(State.TreeClicker.SlotIndex))
+			if slotIndex then
+				droppedSlots[tostring(slotIndex)] = true
+			end
+		end
+	end
+	return droppedSlots
+end
+
+local setStage
+
+local function maybeCompleteMakeCurrency(player, profile, currency)
+	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency500 then
 		return false
 	end
-
-	progress[Onboarding.ProgressKeys.AppleCashGranted] = true
-	local price = Seeds.PriceFor(Onboarding.Seeds.AppleTree) or 0
-	local current = tonumber(profile.Data.Currency) or 0
-	local grantAmount = math.max(math.floor(price - current), 0)
-	if grantAmount > 0 then
-		CurrencyService.Add(player, profile, grantAmount, true)
-		return true
+	if (tonumber(currency) or 0) < Onboarding.CurrencyRequired then
+		return false
 	end
-	return false
+	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.MakeCurrency500))
 end
 
-local function applyStageEntryEffects(player, profile, stage)
-	if stage == Onboarding.Stages.RollAppleTreeSeed then
-		return ensureAppleCash(player, profile)
-	end
-	return false
-end
-
-local function setStage(player, profile, nextStage)
+setStage = function(player, profile, nextStage)
 	if not (profile and profile.Data and Onboarding.IsStage(nextStage)) then
 		return false
 	end
@@ -111,11 +114,9 @@ local function setStage(player, profile, nextStage)
 
 	state.Stage = nextStage
 	resetStageProgressFor(state, nextStage)
-	local profileChanged = applyStageEntryEffects(player, profile, nextStage)
-	if profileChanged then
-		publishProfile(player, profile)
-	else
-		publishOnboarding(player, profile)
+	publishOnboarding(player, profile)
+	if nextStage == Onboarding.Stages.MakeCurrency500 then
+		maybeCompleteMakeCurrency(player, profile, profile.Data.Currency)
 	end
 	return true
 end
@@ -180,11 +181,7 @@ function OnboardingService.SetStage(player, profile, nextStage)
 end
 
 function OnboardingService.ApplyCurrentStageEntry(player, profile)
-	local changed = applyStageEntryEffects(player, profile, stageFor(profile))
-	if changed then
-		publishProfile(player, profile)
-	end
-	return changed
+	return maybeCompleteMakeCurrency(player, profile, profile and profile.Data and profile.Data.Currency)
 end
 
 function OnboardingService.Advance(player, profile, expectedStage)
@@ -199,37 +196,34 @@ function OnboardingService.Advance(player, profile, expectedStage)
 	return setStage(player, profile, nextStage)
 end
 
+function OnboardingService.OnCurrencyChanged(player, profile, currency)
+	return maybeCompleteMakeCurrency(player, profile, currency)
+end
+
 function OnboardingService.GuaranteedRollSeed(profile)
 	local stage = stageFor(profile)
-	if stage == Onboarding.Stages.RollPumpkinSeed then
-		return Onboarding.Seeds.Pumpkin
-	end
 	if stage == Onboarding.Stages.RollAppleTreeSeed then
 		return Onboarding.Seeds.AppleTree
+	end
+	if stage == Onboarding.Stages.RollPumpkinSeed then
+		return Onboarding.Seeds.Pumpkin
 	end
 	return nil
 end
 
 function OnboardingService.RequiredBuySeed(profile)
 	local stage = stageFor(profile)
-	if stage == Onboarding.Stages.BuyPumpkinSeed then
-		return Onboarding.Seeds.Pumpkin
-	end
 	if stage == Onboarding.Stages.BuyAppleTreeSeed then
 		return Onboarding.Seeds.AppleTree
+	end
+	if stage == Onboarding.Stages.BuyPumpkinSeed then
+		return Onboarding.Seeds.Pumpkin
 	end
 	return nil
 end
 
 function OnboardingService.ResolveRollAttempt(player, profile, hasRequiredOffer)
 	local stage = stageFor(profile)
-	if stage == Onboarding.Stages.BuyPumpkinSeed then
-		if hasRequiredOffer then
-			return false, "tutorial-buy-pending"
-		end
-		setStage(player, profile, Onboarding.Stages.RollPumpkinSeed)
-		return true
-	end
 	if stage == Onboarding.Stages.BuyAppleTreeSeed then
 		if hasRequiredOffer then
 			return false, "tutorial-buy-pending"
@@ -237,54 +231,73 @@ function OnboardingService.ResolveRollAttempt(player, profile, hasRequiredOffer)
 		setStage(player, profile, Onboarding.Stages.RollAppleTreeSeed)
 		return true
 	end
+	if stage == Onboarding.Stages.BuyPumpkinSeed then
+		if hasRequiredOffer then
+			return false, "tutorial-buy-pending"
+		end
+		setStage(player, profile, Onboarding.Stages.RollPumpkinSeed)
+		return true
+	end
 	return true
 end
 
 function OnboardingService.OnRollCreated(player, profile, seedId)
-	if seedId == Onboarding.Seeds.Pumpkin then
-		return OnboardingService.Advance(player, profile, Onboarding.Stages.RollPumpkinSeed)
-	end
 	if seedId == Onboarding.Seeds.AppleTree then
 		return OnboardingService.Advance(player, profile, Onboarding.Stages.RollAppleTreeSeed)
+	end
+	if seedId == Onboarding.Seeds.Pumpkin then
+		return OnboardingService.Advance(player, profile, Onboarding.Stages.RollPumpkinSeed)
 	end
 	return false
 end
 
 function OnboardingService.OnSeedPurchased(player, profile, seedId)
-	if seedId == Onboarding.Seeds.Pumpkin then
-		return OnboardingService.Advance(player, profile, Onboarding.Stages.BuyPumpkinSeed)
-	end
 	if seedId == Onboarding.Seeds.AppleTree then
 		return OnboardingService.Advance(player, profile, Onboarding.Stages.BuyAppleTreeSeed)
+	end
+	if seedId == Onboarding.Seeds.Pumpkin then
+		return OnboardingService.Advance(player, profile, Onboarding.Stages.BuyPumpkinSeed)
 	end
 	return false
 end
 
 function OnboardingService.OnSeedPlaced(player, profile, plot, placedFeed, seedId, feedType)
-	if seedId == Onboarding.Seeds.Pumpkin
-		and feedType == Onboarding.FeedTypes.Pumpkin
-		and isInsideStarterArea(plot, placedFeed) then
-		return OnboardingService.Advance(player, profile, Onboarding.Stages.PlantPumpkinSeed)
-	end
 	if seedId == Onboarding.Seeds.AppleTree
 		and feedType == Onboarding.FeedTypes.AppleTree
 		and isInsideStarterArea(plot, placedFeed) then
 		return OnboardingService.Advance(player, profile, Onboarding.Stages.PlantAppleTreeSeed)
 	end
+	if seedId == Onboarding.Seeds.Pumpkin
+		and feedType == Onboarding.FeedTypes.Pumpkin
+		and isInsideStarterArea(plot, placedFeed) then
+		return OnboardingService.Advance(player, profile, Onboarding.Stages.PlantPumpkinSeed)
+	end
 	return false
 end
 
-function OnboardingService.OnPatchXPChanged(player, profile, machine, xp)
+function OnboardingService.OnPatchXPGained(player, profile, machine, xpGained)
 	if stageFor(profile) ~= Onboarding.Stages.GatherPumpkinXP then
 		return false
 	end
 	if feedTypeOf(machine) ~= Onboarding.FeedTypes.Pumpkin then
 		return false
 	end
-	if (tonumber(xp) or 0) < Onboarding.PumpkinXPRequired then
+	xpGained = tonumber(xpGained) or 0
+	if xpGained <= 0 then
 		return false
 	end
-	return OnboardingService.Advance(player, profile, Onboarding.Stages.GatherPumpkinXP)
+
+	local progress = progressFor(profile)
+	local total = math.min(
+		(progress[Onboarding.ProgressKeys.PumpkinXPGained] or 0) + xpGained,
+		Onboarding.PumpkinXPRequired
+	)
+	progress[Onboarding.ProgressKeys.PumpkinXPGained] = total
+	if total >= Onboarding.PumpkinXPRequired then
+		return OnboardingService.Advance(player, profile, Onboarding.Stages.GatherPumpkinXP)
+	end
+	publishOnboarding(player, profile)
+	return true
 end
 
 function OnboardingService.OnPatchHarvested(player, profile, machine, foodId)
@@ -327,18 +340,10 @@ function OnboardingService.OnTreeClicked(player, profile, machine, foodId, slotI
 	end
 
 	local progress = progressFor(profile)
-	local droppedSlots = progress[Onboarding.ProgressKeys.TreeDroppedSlots]
-	if type(droppedSlots) ~= "table" then
-		droppedSlots = {}
-		progress[Onboarding.ProgressKeys.TreeDroppedSlots] = droppedSlots
-	end
-
 	local slotKey = tostring(slotIndex)
-	if droppedSlots[slotKey] == true then
-		return false
-	end
-
+	local droppedSlots = activeDroppedSlotsFor(machine, Onboarding.FoodIds.Apple)
 	droppedSlots[slotKey] = true
+	progress[Onboarding.ProgressKeys.TreeDroppedSlots] = droppedSlots
 	local droppedCount = math.min(countDroppedSlots(droppedSlots), Onboarding.TreeClicksRequired)
 	progress[Onboarding.ProgressKeys.TreeClickCount] = droppedCount
 	progress[Onboarding.ProgressKeys.TreeFruitTarget] = math.max(

@@ -60,10 +60,10 @@ local function patchXPFor(machine)
 	return PatchScale.NormalizePatchXP(machine:GetAttribute(State.Feed.XP))
 end
 
-local function reportSlotXP(machine, owner, xp)
+local function reportSlotXPGained(machine, owner, xpGained)
 	local profile = owner and PlayerDataService.GetProfile(owner)
 	if profile then
-		OnboardingService.OnPatchXPChanged(owner, profile, machine, xp)
+		OnboardingService.OnPatchXPGained(owner, profile, machine, xpGained)
 	end
 end
 
@@ -144,8 +144,9 @@ local function applyGrowth(machine, s, seconds)
 			local intervals = math.floor(slot.growthElapsed / growRate)
 			if intervals > 0 then
 				slot.growthElapsed -= intervals * growRate
-				slot.xp += intervals * xpPerInterval
-				reportSlotXP(machine, s.owner, slot.xp)
+				local gainedXP = intervals * xpPerInterval
+				slot.xp += gainedXP
+				reportSlotXPGained(machine, s.owner, gainedXP)
 				if deferVisualRefresh then
 					s.deferVisualRefresh = true
 				else
