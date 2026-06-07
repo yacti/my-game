@@ -1,0 +1,33 @@
+{
+  "createdAt": "2026-06-07T22:15:00Z",
+  "source": "Roblox Studio Edit DataModel before swapping Pumpkin seed/patch with Apple Tree seed/tree balance slots",
+  "seeds": {
+    "PumpkinSeed": {
+      "path": "ReplicatedStorage.Assets.Seeds.Patches.Pumpkin Seed",
+      "FeedType": "PumpkinPatch",
+      "Rarity": "Common",
+      "RollChanceN": 3,
+      "Price": 100
+    },
+    "AppleTreeSeed": {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Apple Tree Seed",
+      "FeedType": "AppleTree",
+      "Rarity": "Common",
+      "RollChanceN": 26,
+      "Price": 1500
+    }
+  },
+  "feeds": {
+    "PumpkinPatch": {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Pumpkin Patch",
+      "FeedClass": "Patch",
+      "XP": 1,
+      "GrowRate": 1
+    },
+    "AppleTree": {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Apple Tree",
+      "FeedClass": "Tree",
+      "XP": 2
+    }
+  }
+}

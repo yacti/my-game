@@ -279,6 +279,29 @@ local function validatePatchEditSelectionHitbox(template, errors)
 		return
 	end
 
+	if dirt.CanCollide ~= false then
+		add(errors, dirt:GetFullName() .. " must have CanCollide=false")
+	end
+	if dirt.CanQuery ~= false then
+		add(errors, dirt:GetFullName() .. " must have CanQuery=false; use " .. EDIT_SELECTION_HITBOX_NAME .. " for placement/edit queries")
+	end
+	if dirt.CanTouch ~= false then
+		add(errors, dirt:GetFullName() .. " must have CanTouch=false")
+	end
+
+	if baseFood.CanCollide ~= false then
+		add(errors, baseFood:GetFullName() .. " must have CanCollide=false")
+	end
+	if baseFood.CanQuery ~= false then
+		add(errors, baseFood:GetFullName() .. " must have CanQuery=false")
+	end
+	if baseFood.CanTouch ~= false then
+		add(errors, baseFood:GetFullName() .. " must have CanTouch=false")
+	end
+	if baseFood.Transparency < 1 then
+		add(errors, baseFood:GetFullName() .. " must be fully transparent")
+	end
+
 	local hitbox = template:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
 	if not (hitbox and hitbox:IsA("BasePart")) then
 		add(errors, string.format("%s missing %s BasePart", template:GetFullName(), EDIT_SELECTION_HITBOX_NAME))

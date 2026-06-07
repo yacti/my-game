@@ -17,6 +17,7 @@ local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local ROLL_AREA_NAME = "RollArea"
+local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local petNicknameRandom = Random.new()
 
 local ROLL_AREA_VISIBILITY_OPTIONS = {
@@ -260,6 +261,33 @@ local function applyFeedIdentity(instance, feedType, feedIndex)
 	end
 end
 
+local function configurePatchRuntimeParts(instance, feedType)
+	if FeedMachines.GetClass(feedType) ~= "Patch" then
+		return
+	end
+
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+
+			if descendant.Name == EDIT_SELECTION_HITBOX_NAME then
+				descendant.CanQuery = true
+				descendant.Transparency = 1
+				descendant.CastShadow = false
+			else
+				descendant.CanQuery = false
+			end
+
+			if descendant.Name == "BaseFood" then
+				descendant.Transparency = 1
+				descendant.CastShadow = false
+			end
+		end
+	end
+end
+
 local function applyCosmeticIdentity(instance, cosmeticId, cosmeticIndex)
 	instance:SetAttribute(State.Cosmetic.Id, cosmeticId)
 	instance:SetAttribute(State.Cosmetic.Index, cosmeticIndex)
@@ -426,6 +454,21 @@ function localToWorldOnFloorTop(floor, lx, lz, halfHeight, lry)
 	return floor.CFrame * localCF
 end
 
+local function placementBoundsPart(model)
+	local hitbox = model:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
+	if hitbox and hitbox:IsA("BasePart") then
+		return hitbox
+	end
+	return model.PrimaryPart
+end
+
+local function modelPlacementBounds(model, placementCF)
+	local boundsPart = placementBoundsPart(model)
+	if not boundsPart then return nil, nil end
+	local boundsOffset = model:GetPivot():ToObjectSpace(boundsPart.CFrame)
+	return placementCF * boundsOffset, boundsPart.Size
+end
+
 local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 	local template = FeedMachines.GetTemplate(feedType)
 	if not template then return nil, nil end
@@ -436,10 +479,7 @@ local function feedPlacementBounds(floor, feedType, lx, lz, lry)
 		return placementCF, template.Size
 	end
 	if template:IsA("Model") then
-		local primary = template.PrimaryPart
-		if not primary then return nil, nil end
-		local primaryOffset = template:GetPivot():ToObjectSpace(primary.CFrame)
-		return placementCF * primaryOffset, primary.Size
+		return modelPlacementBounds(template, placementCF)
 	end
 	return nil, nil
 end
@@ -454,10 +494,7 @@ local function cosmeticPlacementBounds(floor, cosmeticId, lx, lz, lry)
 		return placementCF, template.Size
 	end
 	if template:IsA("Model") then
-		local primary = template.PrimaryPart
-		if not primary then return nil, nil end
-		local primaryOffset = template:GetPivot():ToObjectSpace(primary.CFrame)
-		return placementCF * primaryOffset, primary.Size
+		return modelPlacementBounds(template, placementCF)
 	end
 	return nil, nil
 end
@@ -686,6 +723,7 @@ function PlotService.PlaceFeedWithIndex(plot, feedType, feedIndex, lx, lz, lry, 
 	local clone = template:Clone()
 	stripPromptTemplates(clone)
 	applyFeedIdentity(clone, feedType, feedIndex)
+	configurePatchRuntimeParts(clone, feedType)
 
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
@@ -864,9 +902,9 @@ function PlotService.GetNavigationObstacleBounds(plot)
 		if instance:IsA("BasePart") then
 			boundsCF, boundsSize = instance.CFrame, instance.Size
 		elseif instance:IsA("Model") then
-			local primary = instance.PrimaryPart
-			if primary then
-				boundsCF, boundsSize = primary.CFrame, primary.Size
+			local boundsPart = placementBoundsPart(instance)
+			if boundsPart then
+				boundsCF, boundsSize = boundsPart.CFrame, boundsPart.Size
 			end
 		end
 

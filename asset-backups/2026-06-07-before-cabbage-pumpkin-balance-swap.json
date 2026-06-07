@@ -1,0 +1,30 @@
+{
+  "createdAt": "2026-06-07T22:18:00Z",
+  "source": "Roblox Studio Edit DataModel before swapping Cabbage seed/patch with Pumpkin seed/patch balance slots",
+  "seeds": {
+    "PumpkinSeed": {
+      "FeedType": "PumpkinPatch",
+      "Rarity": "Common",
+      "RollChanceN": 26,
+      "Price": 1500
+    },
+    "CabbageSeed": {
+      "FeedType": "CabbagePatch",
+      "Rarity": "Common",
+      "RollChanceN": 4,
+      "Price": 500
+    }
+  },
+  "feeds": {
+    "PumpkinPatch": {
+      "FeedClass": "Patch",
+      "XP": 2,
+      "GrowRate": 1
+    },
+    "CabbagePatch": {
+      "FeedClass": "Patch",
+      "XP": 2,
+      "GrowRate": 1
+    }
+  }
+}

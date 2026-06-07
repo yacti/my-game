@@ -220,6 +220,14 @@ local function firstBasePart(root)
 	return nil
 end
 
+local function placementBoundsPart(model)
+	local hitbox = model:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
+	if hitbox and hitbox:IsA("BasePart") then
+		return hitbox
+	end
+	return model.PrimaryPart
+end
+
 local function validToolGuid(guid)
 	return type(guid) == "string" and guid ~= ""
 end
@@ -270,7 +278,6 @@ function FeedPlacement.start()
 	local activeToolGuid = nil
 	local selectedLX, selectedLZ = nil, nil
 	local previewPlacementHeight = nil
-	local previewPrimaryOffset = CFrame.new()
 	local previewBoundsOffset = CFrame.new()
 	local previewBoundsSize = nil
 	local previewPartColors = {}
@@ -361,9 +368,12 @@ function FeedPlacement.start()
 		if not template then return end
 		if template:IsA("BasePart") then
 			previewBoundsSize = template.Size
-		elseif template:IsA("Model") and template.PrimaryPart then
-			previewBoundsOffset = template:GetPivot():ToObjectSpace(template.PrimaryPart.CFrame)
-			previewBoundsSize = template.PrimaryPart.Size
+		elseif template:IsA("Model") then
+			local boundsPart = placementBoundsPart(template)
+			if boundsPart then
+				previewBoundsOffset = template:GetPivot():ToObjectSpace(boundsPart.CFrame)
+				previewBoundsSize = boundsPart.Size
+			end
 		end
 	end
 
@@ -396,15 +406,9 @@ function FeedPlacement.start()
 		end
 		if clone:IsA("BasePart") then
 			preparePreviewPart(clone)
-			previewPrimaryOffset = CFrame.new()
 			-- strip ClickDetectors / ProximityPrompts so the preview is purely visual
 			for _, c in ipairs(clone:GetChildren()) do c:Destroy() end
 		elseif clone:IsA("Model") then
-			if clone.PrimaryPart then
-				previewPrimaryOffset = clone:GetPivot():ToObjectSpace(clone.PrimaryPart.CFrame)
-			else
-				previewPrimaryOffset = CFrame.new()
-			end
 			for _, d in ipairs(clone:GetDescendants()) do
 				if d:IsA("BasePart") then preparePreviewPart(d) end
 				if d:IsA("ClickDetector") or d:IsA("ProximityPrompt") then d:Destroy() end
@@ -426,7 +430,6 @@ function FeedPlacement.start()
 		selectedLX      = nil
 		selectedLZ      = nil
 		previewPlacementHeight = nil
-		previewPrimaryOffset = CFrame.new()
 		previewBoundsOffset = CFrame.new()
 		previewBoundsSize = nil
 		previewPartColors = {}
@@ -540,9 +543,10 @@ function FeedPlacement.start()
 			return cframe, preview.Size
 		end
 		if preview:IsA("Model") then
-			local primary = preview.PrimaryPart
-			if primary then
-				return cframe * previewPrimaryOffset, primary.Size
+			local boundsPart = placementBoundsPart(preview)
+			if boundsPart then
+				local boundsOffset = preview:GetPivot():ToObjectSpace(boundsPart.CFrame)
+				return cframe * boundsOffset, boundsPart.Size
 			end
 		end
 		return nil, nil

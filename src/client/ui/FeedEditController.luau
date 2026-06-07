@@ -34,6 +34,7 @@ local PLACEMENT_EDIT_FLOOR_OFFSET = 3
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
+local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local MOVE_FAILURE_MESSAGES = {
@@ -56,6 +57,10 @@ end
 local function firstBasePart(instance)
 	if instance:IsA("BasePart") then return instance end
 	if instance:IsA("Model") then
+		local hitbox = instance:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
+		if hitbox and hitbox:IsA("BasePart") then
+			return hitbox
+		end
 		return instance.PrimaryPart
 	end
 	return nil
@@ -155,6 +160,53 @@ local function placeableHitboxRootFromPart(plot, part)
 	return nil
 end
 
+local function placeableBounds(instance)
+	if instance:IsA("BasePart") then
+		return instance.CFrame, instance.Size
+	end
+	if instance:IsA("Model") then
+		local boundsPart = firstBasePart(instance)
+		if boundsPart then
+			return boundsPart.CFrame, boundsPart.Size
+		end
+	end
+	return nil, nil
+end
+
+local function rayBoxDistance(ray, boundsCF, boundsSize)
+	local origin = boundsCF:PointToObjectSpace(ray.Origin)
+	local direction = boundsCF:VectorToObjectSpace(ray.Direction)
+	local half = boundsSize / 2
+	local tMin = -math.huge
+	local tMax = math.huge
+
+	for _, axis in ipairs({
+		{ origin = origin.X, direction = direction.X, half = half.X },
+		{ origin = origin.Y, direction = direction.Y, half = half.Y },
+		{ origin = origin.Z, direction = direction.Z, half = half.Z },
+	}) do
+		local axisOrigin = axis.origin
+		local axisDirection = axis.direction
+		local axisHalf = axis.half
+		if math.abs(axisDirection) < 0.0001 then
+			if axisOrigin < -axisHalf or axisOrigin > axisHalf then
+				return nil
+			end
+		else
+			local t1 = (-axisHalf - axisOrigin) / axisDirection
+			local t2 = (axisHalf - axisOrigin) / axisDirection
+			tMin = math.max(tMin, math.min(t1, t2))
+			tMax = math.min(tMax, math.max(t1, t2))
+			if tMin > tMax then
+				return nil
+			end
+		end
+	end
+
+	if tMax < 0 then return nil end
+	return math.max(tMin, 0)
+end
+
 local function placeableRootFromScreen(plot, screenPosition)
 	local camera = Workspace.CurrentCamera
 	if not plot or not camera then return nil end
@@ -172,7 +224,17 @@ local function placeableRootFromScreen(plot, screenPosition)
 		return placeableRootFromInstance(plot, hit.Instance) or growingFeedRootFromInstance(plot, hit.Instance)
 	end
 
-	return nil
+	local bestRoot = nil
+	local bestDistance = math.huge
+	for _, root in ipairs(roots) do
+		local boundsCF, boundsSize = placeableBounds(root)
+		local distance = boundsCF and boundsSize and rayBoxDistance(ray, boundsCF, boundsSize) or nil
+		if distance and distance < bestDistance then
+			bestRoot = root
+			bestDistance = distance
+		end
+	end
+	return bestRoot
 end
 
 local function plotGridParts(plot, unlockedOnly)
