@@ -33,6 +33,7 @@ local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
@@ -387,34 +388,34 @@ local function triggerPetFeedReaction(pet, faceLX, faceLZ)
 end
 
 local function feedPet(plot, player, profile, pet)
-	if not pet or not pet:IsA("Model") or not pet:IsDescendantOf(plot) then return end
+	if not pet or not pet:IsA("Model") or not pet:IsDescendantOf(plot) then return false end
 	local primary = pet.PrimaryPart
-	if not primary then return end
-	if player:GetAttribute("EditMode") == true then return end
-	if not isPlayerNearInstance(player, pet, PET_FEED_PROMPT_DISTANCE) then return end
+	if not primary then return false end
+	if player:GetAttribute("EditMode") == true then return false end
+	if not isPlayerNearInstance(player, pet, PET_FEED_PROMPT_DISTANCE) then return false end
 
 	local idx = pet:GetAttribute(State.Pet.Index)
 	local petData = profile.Data.Pets[idx]
-	if not petData then return end
+	if not petData then return false end
 
 	local maxXP = pet:GetAttribute(State.Pet.MaxXP)
-	if type(maxXP) ~= "number" or maxXP <= 0 then return end
-	if (petData.xp or 0) >= maxXP and PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) == nil then return end
+	if type(maxXP) ~= "number" or maxXP <= 0 then return false end
+	if (petData.xp or 0) >= maxXP and PetCatalog.NextPetId(pet:GetAttribute(State.Pet.Id)) == nil then return false end
 
 	local food = Food.FindForPetFeed(player)
-	if not food then return end
+	if not food then return false end
 
 	local foodXP = Food.XPOf(food)
-	if not foodXP then return end
+	if not foodXP then return false end
 	local foodGuid = ToolIdentity.EnsureGuid(food)
-	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
+	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return false end
 
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet
 	local evolved = false
 	if petData.xp >= maxXP then
 		activePet, evolved = tryEvolvePet(plot, pet, profile)
-		if not activePet or not activePet.Parent then return end
+		if not activePet or not activePet.Parent then return false end
 	else
 		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
 		PlotService.RescalePet(pet, petData.xp, logicalPivot)
@@ -423,6 +424,7 @@ local function feedPet(plot, player, profile, pet)
 	local faceLX, faceLZ = playerFloorLocal(plot, player)
 	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ, evolved and PET_EVOLUTION_IDLE_HOLD_SECONDS or nil)
 	triggerPetFeedReaction(activePet, faceLX, faceLZ)
+	return true
 end
 
 -- ── Currency / offline helpers ────────────────────────────────────────────────
@@ -643,6 +645,7 @@ local function handlePlayerAdded(player)
 
 		applyOfflineEarnings(plot, profile)
 		PlayerReplicaService.Create(player, profile)
+		OnboardingService.ApplyCurrentStageEntry(player, profile)
 
 		for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 			local idx = pet:GetAttribute(State.Pet.Index)
@@ -746,7 +749,9 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 		end,
 		handlers = {
 			[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
-				feedPet(plot, player, profile, target)
+				if feedPet(plot, player, profile, target) then
+					OnboardingService.OnPetFed(player, profile)
+				end
 			end,
 			[Interactions.Actions.FeedMachine] = function(player, target, plot)
 				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
@@ -768,7 +773,7 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			end,
 			[Interactions.Actions.CrateRoll] = function(player, target, plot, profile)
 				local ok, code = RollService.Roll(player, target, plot, profile)
-				if not ok and code ~= "cooldown" and code ~= "busy" then
+				if not ok and code ~= "cooldown" and code ~= "busy" and code ~= "tutorial-buy-pending" then
 					NotificationService.Error(player, "Could not roll that crate.")
 				end
 			end,

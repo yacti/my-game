@@ -13,6 +13,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent.Parent
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
+local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
@@ -56,6 +58,13 @@ end
 
 local function patchXPFor(machine)
 	return PatchScale.NormalizePatchXP(machine:GetAttribute(State.Feed.XP))
+end
+
+local function reportSlotXP(machine, owner, xp)
+	local profile = owner and PlayerDataService.GetProfile(owner)
+	if profile then
+		OnboardingService.OnPatchXPChanged(owner, profile, machine, xp)
+	end
 end
 
 local function configureSlotPart(part)
@@ -136,6 +145,7 @@ local function applyGrowth(machine, s, seconds)
 			if intervals > 0 then
 				slot.growthElapsed -= intervals * growRate
 				slot.xp += intervals * xpPerInterval
+				reportSlotXP(machine, s.owner, slot.xp)
 				if deferVisualRefresh then
 					s.deferVisualRefresh = true
 				else
@@ -172,18 +182,23 @@ local function scaleToolToSlot(tool, slot)
 end
 
 local function harvest(machine, s, slotIndex, player)
-	if player ~= s.owner then return end
-	if player:GetAttribute("EditMode") == true then return end
+	if player ~= s.owner then return false end
+	if player:GetAttribute("EditMode") == true then return false end
 	local slot = s.slots[slotIndex]
-	if not slot or slot.respawnAt then return end  -- empty during respawn delay
+	if not slot or slot.respawnAt then return false end  -- empty during respawn delay
 	local foodId = s.foodId
-	if not foodId then return end
+	if not foodId then return false end
 	local tool = Food.MakeTool(foodId, slot.xp)
-	if not tool then return end
+	if not tool then return false end
 	scaleToolToSlot(tool, slot)
 	if not ToolGrantService.GrantTool(player, tool) then
 		tool:Destroy()
-		return
+		return false
+	end
+
+	local profile = PlayerDataService.GetProfile(player)
+	if profile then
+		OnboardingService.OnPatchHarvested(player, profile, machine, foodId)
 	end
 
 	-- Empty the slot, start respawn timer; materializeRespawn restores it.
@@ -192,6 +207,7 @@ local function harvest(machine, s, slotIndex, player)
 	slot.xp        = 0
 	slot.growthElapsed = 0
 	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
+	return true
 end
 
 -- Anchor the slot at the BaseFood's bottom face. Patch food templates are
@@ -326,8 +342,7 @@ function Patches.HarvestAnchor(anchor, player)
 		if machine.Parent then
 			for i, slot in ipairs(s.slots) do
 				if slot.anchor == anchor then
-					harvest(machine, s, i, player)
-					return true
+					return harvest(machine, s, i, player)
 				end
 			end
 		end

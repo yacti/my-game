@@ -28,6 +28,8 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent.Parent
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
+local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -311,25 +313,41 @@ local function addXPToSlotGround(slot, deltaXP)
 end
 
 pickupSlotGround = function(machine, s, slot, player)
-	if player ~= s.owner then return end
-	if s.owner:GetAttribute("EditMode") == true then return end
-	if not slot.ground then return end
+	if player ~= s.owner then return false end
+	if s.owner:GetAttribute("EditMode") == true then return false end
+	if not slot.ground then return false end
 	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
-	if not tool then return end
+	if not tool then return false end
 	if not ToolGrantService.GrantTool(player, tool) then
 		tool:Destroy()
-		return
+		return false
+	end
+	local groundModel = slot.ground.model
+	local profile = PlayerDataService.GetProfile(player)
+	if profile then
+		OnboardingService.OnTreeFruitPicked(player, profile, machine, groundModel)
 	end
 	destroySlotGround(slot)
+	return true
 end
 
-local function applyDrop(machine, s, slot, foodId)
+local function applyDrop(machine, s, slot, foodId, player)
 	if not state[machine] then return end
 	local dropXP = dropXPFor(foodId) * xpMultiplierFor(machine)
+	local dropped = false
 	if slot.ground then
 		addXPToSlotGround(slot, dropXP)
+		dropped = true
 	else
 		spawnSlotGround(machine, s, slot, foodId, dropXP)
+		dropped = slot.ground ~= nil
+	end
+	if not dropped then
+		return
+	end
+	local profile = player and PlayerDataService.GetProfile(player)
+	if profile then
+		OnboardingService.OnTreeClicked(player, profile, machine, foodId, slot.n)
 	end
 end
 
@@ -408,7 +426,7 @@ local function onTreeClicked(machine, s, player)
 	local foodId = s.foodDrop
 	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId)
 	task.delay(s.balance.DropEffectDuration, function()
-		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId)
+		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId, player)
 	end)
 end
 
@@ -571,8 +589,7 @@ function TreeClicker.PickupGround(ground, player)
 			for _, slot in ipairs(s.slots) do
 				local model = slot.ground and slot.ground.model
 				if model and (ground == model or ground:IsDescendantOf(model)) then
-					pickupSlotGround(machine, s, slot, player)
-					return true
+					return pickupSlotGround(machine, s, slot, player)
 				end
 			end
 		end

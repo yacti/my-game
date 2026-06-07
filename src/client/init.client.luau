@@ -47,6 +47,7 @@ local CONTROLLERS = {
 	"RebirthController",
 	"GridUnlockEffects",
 	"RollController",
+	"OnboardingController",
 }
 
 local function startController(name)

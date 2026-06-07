@@ -6,6 +6,7 @@ local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local InstanceVisibility = require(Server:WaitForChild("InstanceVisibility"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
@@ -148,7 +149,7 @@ local function rollForButton(player, buttonPart, PlotService, PlayerDataService)
 	local plot = PlotService.GetPlayerPlot(player)
 	local profile = PlayerDataService.GetProfile(player)
 	local ok, code = RollService.Roll(player, buttonPart, plot, profile)
-	if not ok and code ~= "cooldown" and code ~= "busy" then
+	if not ok and code ~= "cooldown" and code ~= "busy" and code ~= "tutorial-buy-pending" then
 		NotificationService.Error(player, "Could not roll that crate.")
 	end
 end
@@ -201,6 +202,22 @@ local function collectRollPool()
 	end)
 
 	return entries
+end
+
+local function rollEntryForSeed(seedId)
+	if type(seedId) ~= "string" or seedId == "" then
+		return nil, "invalid-seed"
+	end
+	local rewardKey = RollRewards.RewardKey(RollRewards.Categories.Seed, seedId)
+	for _, entry in ipairs(collectRollPool()) do
+		if entry.id == rewardKey then
+			local rolled = table.clone(entry)
+			rolled.rngChanceText = "Tutorial reward"
+			rolled.tutorialGuaranteed = true
+			return rolled
+		end
+	end
+	return nil, "missing-tutorial-seed"
 end
 
 local function rollRewardForCrate(crateId, profile)
@@ -339,6 +356,24 @@ local function activeOffer(player, offerId)
 	return offer
 end
 
+local function hasRequiredTutorialOffer(player, profile)
+	local requiredSeedId = OnboardingService.RequiredBuySeed(profile)
+	if not requiredSeedId then
+		return false
+	end
+	local key = userKey(player)
+	local offers = key and pendingOffers[key] or nil
+	if not offers then
+		return false
+	end
+	for _, offer in pairs(offers) do
+		if offer.category == RollRewards.Categories.Seed and offer.seedId == requiredSeedId then
+			return true
+		end
+	end
+	return false
+end
+
 local function consumeRateLimit(map, player, interval)
 	local key = userKey(player)
 	if key == nil then
@@ -420,6 +455,12 @@ function RollService.Roll(player, target, plot, profile)
 		return false, "too-far"
 	end
 
+	local canRoll, rollGateCode = OnboardingService.ResolveRollAttempt(player, profile, hasRequiredTutorialOffer(player, profile))
+	if not canRoll then
+		NotificationService.Info(player, "Buy the tutorial seed before rolling again.")
+		return false, rollGateCode or "tutorial-buy-pending"
+	end
+
 	local dropAreas, dropAreaCode = unlockedDropAreas(profile, plot)
 	if not dropAreas or #dropAreas == 0 then
 		return false, dropAreaCode or "no-unlocked-drop-areas"
@@ -434,10 +475,12 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	locks[key] = true
-	local ok, success, codeOrOffers, batchIdOrNil, publicOffersOrNil = pcall(function()
+	local ok, success, codeOrOffers, batchIdOrNil, publicOffersOrNil, tutorialSeedIdOrNil = pcall(function()
 		local offerMap = {}
 		local effectOffers = {}
 		local publicOffers = {}
+		local guaranteedSeedId = OnboardingService.GuaranteedRollSeed(profile)
+		local usedGuaranteedSeedId = nil
 
 		for _, dropArea in ipairs(dropAreas) do
 			local crateId = RollChances.RollCrate(rng)
@@ -445,7 +488,15 @@ function RollService.Roll(player, target, plot, profile)
 				return false, "crate-roll-failed"
 			end
 
-			local rolled, rollCode = rollRewardForCrate(crateId, profile)
+			local rolled, rollCode
+			if guaranteedSeedId and not usedGuaranteedSeedId then
+				rolled, rollCode = rollEntryForSeed(guaranteedSeedId)
+				if rolled then
+					usedGuaranteedSeedId = guaranteedSeedId
+				end
+			else
+				rolled, rollCode = rollRewardForCrate(crateId, profile)
+			end
 			if not rolled then
 				return false, rollCode or "reward-roll-failed"
 			end
@@ -464,6 +515,7 @@ function RollService.Roll(player, target, plot, profile)
 				price = rolled.price,
 				crateFloor = dropArea.crateFloor,
 				dropAreaIndex = dropArea.index,
+				tutorialGuaranteed = rolled.tutorialGuaranteed == true,
 			}
 			effectOffers[#effectOffers + 1] = {
 				offerId = offerId,
@@ -483,6 +535,7 @@ function RollService.Roll(player, target, plot, profile)
 				price = rolled.price,
 				chanceN = rolled.chanceN,
 				rngChanceText = rolled.rngChanceText,
+				tutorialGuaranteed = rolled.tutorialGuaranteed == true,
 			}
 			publicOffers[#publicOffers + 1] = {
 				offerId = offerId,
@@ -500,6 +553,7 @@ function RollService.Roll(player, target, plot, profile)
 				price = rolled.price,
 				chanceN = rolled.chanceN,
 				rngChanceText = rolled.rngChanceText,
+				tutorialGuaranteed = rolled.tutorialGuaranteed == true,
 			}
 		end
 
@@ -515,7 +569,7 @@ function RollService.Roll(player, target, plot, profile)
 		clearPendingOffers(player)
 		pendingOffers[key] = offerMap
 		rollCooldownUntil[key] = os.clock() + RollConfig.RollVisualDuration()
-		return true, effectOffers, rollBatchId, publicOffers
+		return true, effectOffers, rollBatchId, publicOffers, usedGuaranteedSeedId
 	end)
 	locks[key] = nil
 
@@ -534,6 +588,9 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	local effectOffers = codeOrOffers
+	if tutorialSeedIdOrNil then
+		OnboardingService.OnRollCreated(player, profile, tutorialSeedIdOrNil)
+	end
 	sendClearOwnerOffers(player)
 	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers)
 	task.delay(RollConfig.RollVisualDuration(), function()
@@ -658,6 +715,9 @@ function RollService.Purchase(player, offerId, profile)
 	end
 
 	if success then
+		if offer.category == RollRewards.Categories.Seed then
+			OnboardingService.OnSeedPurchased(player, profile, offer.seedId)
+		end
 		NotificationService.Success(player, string.format("Purchased %s!", offer.displayName or offer.rewardId or offer.feedType))
 		PlayerReplicaService.PublishProfile(player, profile)
 		sendPurchaseResult(player, offerId, true, "ok", {

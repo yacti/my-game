@@ -71,6 +71,7 @@ local SEED_POP_OUT_TWEEN = TweenInfo.new(SEED_POP_OUT_DURATION, Enum.EasingStyle
 
 local activeRollToken = 0
 local activeReveals = {}
+local activeRevealInfoByOfferId = {}
 local activeRevealOwnerByOfferId = {}
 local activeOfferIdsByOwner = {}
 local activeRollEffectsByOfferId = {}
@@ -100,12 +101,20 @@ local function trackRollEffect(instance, offerId)
 	effects[#effects + 1] = instance
 end
 
-local function trackActiveReveal(instance, offerId, ownerUserId)
+local function trackActiveReveal(instance, offerId, ownerUserId, payload)
 	if offerId == nil then
 		return
 	end
 
 	activeReveals[offerId] = instance
+	if type(payload) == "table" then
+		activeRevealInfoByOfferId[offerId] = {
+			category = payload.category,
+			seedId = payload.seedId,
+			tutorialGuaranteed = payload.tutorialGuaranteed == true,
+			ownerUserId = ownerUserId,
+		}
+	end
 	if type(ownerUserId) ~= "number" then
 		return
 	end
@@ -457,6 +466,7 @@ local function clearActiveReveal(offerId)
 			end
 			activeRevealOwnerByOfferId[offerId] = nil
 		end
+		activeRevealInfoByOfferId[offerId] = nil
 
 		local reveal = activeReveals[offerId]
 		if reveal then
@@ -482,6 +492,7 @@ local function clearActiveReveal(offerId)
 		clearOfferEffects(activeOfferId)
 	end
 	activeRevealOwnerByOfferId = {}
+	activeRevealInfoByOfferId = {}
 	activeOfferIdsByOwner = {}
 end
 
@@ -974,7 +985,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	end
 
 	clone.Parent = Workspace
-	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload), payload)
 	trackRollEffect(clone, payload.offerId)
 	pivotTo(clone, liftedCFrame)
 	fadeIn(clone)
@@ -1015,7 +1026,7 @@ local function playMiscReveal(payload, crateFloor, token)
 	end
 
 	clone.Parent = Workspace
-	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload), payload)
 	trackRollEffect(clone, payload.offerId)
 	local floorCFrame = floorLandingCFrame(clone, crateFloor, 0)
 	local liftedCFrame = floorCFrame + Vector3.new(0, MISC_LIFT_HEIGHT, 0)
@@ -1075,7 +1086,7 @@ local function showPublicOffer(payload)
 	end
 
 	clone.Parent = Workspace
-	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload))
+	trackActiveReveal(clone, payload.offerId, ownerUserIdFromPayload(payload), payload)
 	trackRollEffect(clone, payload.offerId)
 	local liftHeight = payload.category == RollRewards.Categories.Seed and SEED_LIFT_HEIGHT or MISC_LIFT_HEIGHT
 	local baseCFrame = floorLandingCFrame(clone, crateFloor, liftHeight)
@@ -1238,6 +1249,21 @@ function RollController.start()
 			prompt.Enabled = false
 		end
 	end)
+end
+
+function RollController.GetActiveTutorialReveal(seedId)
+	for offerId, info in pairs(activeRevealInfoByOfferId) do
+		local reveal = activeReveals[offerId]
+		if reveal
+			and reveal.Parent
+			and info.ownerUserId == Players.LocalPlayer.UserId
+			and info.category == RollRewards.Categories.Seed
+			and info.seedId == seedId
+			and info.tutorialGuaranteed == true then
+			return reveal
+		end
+	end
+	return nil
 end
 
 return RollController

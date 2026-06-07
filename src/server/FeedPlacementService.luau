@@ -6,6 +6,7 @@ local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
@@ -257,6 +258,12 @@ function FeedPlacementService.Start(config)
 					restoreConsumedTool(player, placingSeed, seedId, feedType)
 					sendPlaceResult(player, requestId, false, "save-failed")
 					return
+				end
+			end
+			if placingSeed then
+				local advanced = OnboardingService.OnSeedPlaced(player, profile, plot, feedPart, seedId, feedType)
+				if advanced and type(snapshotProfileState) == "function" then
+					RuntimeGuard.Run("FeedPlacementService.SnapshotAfterOnboarding", snapshotProfileState, player, plot, profile)
 				end
 			end
 			sendPlaceResult(player, requestId, true)

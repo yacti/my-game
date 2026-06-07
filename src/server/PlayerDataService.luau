@@ -9,10 +9,11 @@ local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckB
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
+local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 5
+local CURRENT_DATA_VERSION = 6
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
 local STARTER_FEED_INVENTORY = {}
@@ -41,6 +42,7 @@ local DATA_TEMPLATE = {
 	RollDropAreaLevel = 0,
 	Rebirths = 0,
 	UnlockedGridKeys = {},
+	Onboarding = Onboarding.DefaultState(),
 	LastSeen = 0,
 }
 
@@ -144,6 +146,12 @@ local function migrateData(data)
 				if data.CosmeticInventory[cosmeticId] == nil then
 					data.CosmeticInventory[cosmeticId] = count
 				end
+			end
+		elseif nextVersion == 6 then
+			-- Existing profiles skip onboarding; fresh v6 profiles receive the
+			-- default onboarding state from DATA_TEMPLATE.
+			if data.Onboarding == nil then
+				data.Onboarding = Onboarding.CompleteState()
 			end
 		end
 
@@ -341,6 +349,7 @@ local function ensureValidData(profile)
 	end
 	profile.Data.UnlockedGridKeys = unlockedGridKeys
 	profile.Data.UnlockedGridIds = nil
+	profile.Data.Onboarding = Onboarding.SanitizeState(profile.Data.Onboarding, Onboarding.CompleteState())
 
 	if type(profile.Data.LastSeen) ~= "number" then
 		profile.Data.LastSeen = 0

@@ -13,6 +13,7 @@ PlayerState.Fields = {
 	SeedInventory = "SeedInventory",
 	FoodInventory = "FoodInventory",
 	UnlockedGridKeys = "UnlockedGridKeys",
+	Onboarding = "Onboarding",
 }
 
 return PlayerState

@@ -5,6 +5,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Replica = require(ServerScriptService:WaitForChild("ReplicaServer"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
@@ -57,6 +58,10 @@ local function copyStringArray(array)
 	return copy
 end
 
+local function copyOnboardingState(value)
+	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
+end
+
 local function stateFromProfile(profile)
 	local data = profile and profile.Data or {}
 	return {
@@ -70,6 +75,7 @@ local function stateFromProfile(profile)
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
 		[PlayerState.Fields.FoodInventory] = copyCountMap(data.FoodInventory),
 		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
+		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 	}
 end
 
@@ -225,6 +231,11 @@ end
 function PlayerReplicaService.PublishUnlockedGridKeys(player, profile)
 	local data = profile and profile.Data or {}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.UnlockedGridKeys, copyStringArray(data.UnlockedGridKeys))
+end
+
+function PlayerReplicaService.PublishOnboarding(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.Onboarding, copyOnboardingState(data.Onboarding))
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)

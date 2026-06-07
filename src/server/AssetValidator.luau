@@ -927,6 +927,27 @@ local function validateYesNoWarningUi(menu, errors)
 	descendant(warning, "CloseButton", "GuiButton", errors)
 end
 
+local function validateOnboardingPresentation(ui, hud, billboardFolder, warnings)
+	local onboarding = hud and child(hud, "Onboarding", "Frame", warnings)
+	if onboarding then
+		child(onboarding, "OnboardingText", "TextLabel", warnings)
+	end
+
+	if billboardFolder then
+		validateBillboardTemplate(billboardFolder, "ClickerOnboarding", nil, warnings)
+	end
+
+	local misc = Assets.Find(Assets.Names.Misc)
+	local arrow = misc and misc:FindFirstChild("OnboardingArrow")
+	if not arrow then
+		add(warnings, "Missing ReplicatedStorage.Assets.Misc.OnboardingArrow")
+	elseif not arrow:IsA("Model") then
+		add(warnings, string.format("%s is %s, expected Model", arrow:GetFullName(), arrow.ClassName))
+	elseif not arrow:FindFirstChildWhichIsA("BasePart", true) then
+		add(warnings, arrow:GetFullName() .. " has no BasePart descendants")
+	end
+end
+
 local function validateRebirthBalance(errors)
 	local seenProducts = {}
 	local tiers = RebirthBalance.Tiers
@@ -1196,6 +1217,7 @@ local function validateUi(errors)
 	end
 
 	validateFeedEditUi(ui, hud, billboardFolder, errors)
+	validateOnboardingPresentation(ui, hud, billboardFolder, errors)
 
 	validatePromptTemplates(ui, errors)
 end
