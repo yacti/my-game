@@ -26,6 +26,10 @@ local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
 
 local LocalPrompts = {}
+LocalPrompts.AutoModes = {
+	Feed = "Feed",
+	Collect = "Collect",
+}
 
 local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
@@ -47,6 +51,11 @@ local CRATE_ROLL_PROMPT_Y_OFFSET = -3
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
+local AUTO_PROMPT_ACTIONS = {
+	PetFeed = Interactions.Actions.PetFeed,
+	PatchHarvest = Interactions.Actions.PatchHarvest,
+	TreeGroundPickup = Interactions.Actions.TreeGroundPickup,
+}
 
 local function isLocalPromptAttachment(instance)
 	return instance:IsA("Attachment") and instance.Name:sub(1, #PROMPT_ATTACHMENT_PREFIX) == PROMPT_ATTACHMENT_PREFIX
@@ -277,6 +286,16 @@ local function promptDistance(prompt, rootPosition)
 	return position and (position - rootPosition).Magnitude or nil
 end
 
+local function autoModeForKind(kind)
+	if kind == "PetFeed" then
+		return LocalPrompts.AutoModes.Feed
+	end
+	if kind == "PatchHarvest" or kind == "TreeGroundPickup" then
+		return LocalPrompts.AutoModes.Collect
+	end
+	return nil
+end
+
 local function promptParentFor(instance, kind)
 	local anchor = promptAnchorInstance(instance, kind)
 	local part = anchor and promptPartFor(anchor, kind) or nil
@@ -467,6 +486,10 @@ local function clonePrompt(kind)
 	return template and template:Clone() or nil
 end
 
+local scanPlot
+local refreshPrompt
+local refreshAll
+
 function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 	if not (prompt and prompt:IsA("ProximityPrompt")) then
 		return function() end
@@ -496,6 +519,75 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 			destroyingConnection = nil
 		end
 	end
+end
+
+function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
+	if mode ~= nil and mode ~= LocalPrompts.AutoModes.Feed and mode ~= LocalPrompts.AutoModes.Collect then
+		return nil
+	end
+	if lockedTarget ~= nil and typeof(lockedTarget) ~= "Instance" then
+		return nil
+	end
+	if isShovelEquipped() then
+		return nil
+	end
+
+	local rootPosition = playerRootPosition()
+	if not rootPosition then
+		return nil
+	end
+
+	local closest = nil
+	local closestDistance = math.huge
+	for target, bucket in pairs(byTarget) do
+		if lockedTarget ~= nil and target ~= lockedTarget then
+			continue
+		end
+		for kind, prompt in pairs(bucket) do
+			local action = AUTO_PROMPT_ACTIONS[kind]
+			local candidateMode = autoModeForKind(kind)
+			if not action or not candidateMode or (mode ~= nil and candidateMode ~= mode) then
+				continue
+			end
+
+			refreshPrompt(target, kind, prompt)
+			if prompt.Parent == nil or target.Parent == nil or not prompt.Enabled then
+				continue
+			end
+
+			local distance = promptDistance(prompt, rootPosition)
+			if distance and distance <= prompt.MaxActivationDistance and distance < closestDistance then
+				closest = {
+					mode = candidateMode,
+					kind = kind,
+					action = action,
+					target = target,
+					distance = distance,
+				}
+				closestDistance = distance
+			end
+		end
+	end
+
+	refreshAll(false)
+	return closest
+end
+
+function LocalPrompts.TriggerAutoPrompt(candidate)
+	if type(candidate) ~= "table" then
+		return false
+	end
+	local action = candidate.action
+	local target = candidate.target
+	local kind = candidate.kind
+	if AUTO_PROMPT_ACTIONS[kind] ~= action then
+		return false
+	end
+	if typeof(target) ~= "Instance" or target.Parent == nil then
+		return false
+	end
+	PromptInteract:FireServer(action, target)
+	return true
 end
 
 local function removePrompt(target, kind)
@@ -626,7 +718,7 @@ local function tryBind(instance)
 
 end
 
-local function scanPlot()
+scanPlot = function()
 	local plot = getPlot()
 	if not plot then return end
 	for _, descendant in ipairs(plot:GetDescendants()) do
@@ -634,7 +726,7 @@ local function scanPlot()
 	end
 end
 
-local function refreshPrompt(target, kind, prompt)
+refreshPrompt = function(target, kind, prompt)
 	if prompt.Parent == nil or target.Parent == nil then
 		removePrompt(target, kind)
 		return
@@ -702,7 +794,7 @@ local function refreshPrompt(target, kind, prompt)
 	end
 end
 
-local function refreshAll(shouldScan)
+refreshAll = function(shouldScan)
 	if shouldScan then scanPlot() end
 
 	local rootPosition = playerRootPosition()

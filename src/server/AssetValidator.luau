@@ -933,6 +933,16 @@ local function validateHudCurrency(hud, errors)
 	child(currency, "CurrencyLabel", "TextLabel", errors)
 end
 
+local function validateAutoPromptButton(hud, errors)
+	local button = child(hud, "AutoPromptButton", "GuiButton", errors)
+	if not button then return end
+	if button.Visible ~= false then
+		add(errors, button:GetFullName() .. " should be hidden template UI (Visible=false)")
+	end
+	child(button, "Icon", "GuiObject", errors)
+	child(button, "UIAspectRatioConstraint", "UIAspectRatioConstraint", errors)
+end
+
 local function validateRollUpgradeButton(frame, errors)
 	local button = descendant(frame, "UpgradeButton", "GuiButton", errors)
 	if button and not button:IsA("TextButton") then
@@ -1267,6 +1277,7 @@ local function validateUi(errors)
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
 		validateHudCurrency(hud, errors)
+		validateAutoPromptButton(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
 		if rollButtons then
 			validateRollLuckHud(rollButtons, errors)

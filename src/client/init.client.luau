@@ -26,6 +26,7 @@ local CONTROLLERS = {
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
+	"AutoPromptButtonController",
 	"GearShopController",
 	"CosmeticShopController",
 	"YesNoWarning",
