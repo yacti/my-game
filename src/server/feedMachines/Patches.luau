@@ -8,7 +8,7 @@
 -- Tunable attribute on the model:
 --   FoodDrop (string, required) exact food id produced by each slot
 --   XP       (number, default 1) XP gained per growth interval
---   GrowRate (number, default 1) seconds per growth interval
+--   GrowRate (number, default 1/1000) seconds per growth interval
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -24,7 +24,7 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Patches = {}
 
-local DEFAULT_GROW_RATE = 1
+local DEFAULT_GROW_RATE = 1 / 1000
 local HARVEST_RESPAWN_DELAY = 3
 local OFFLINE_GROW_FRACTION = 1
 local EDIT_MODE_ATTR = "EditMode"

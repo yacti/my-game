@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-06-08",
+  "source": "Roblox Studio Edit DataModel before changing patch GrowRate from 1s to 1/1000s",
+  "templates": [
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Cabbage Patch", "FeedType": "CabbagePatch", "FeedClass": "Patch", "FoodDrop": "Cabbage", "XP": 2, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Corn Patch", "FeedType": "CornPatch", "FeedClass": "Patch", "FoodDrop": "Corn", "XP": 18, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Glowshroom Patch", "FeedType": "GlowshroomPatch", "FeedClass": "Patch", "FoodDrop": "Glowshroom", "XP": 1933, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Mushroom Patch", "FeedType": "MushroomPatch", "FeedClass": "Patch", "FoodDrop": "Mushroom", "XP": 48, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Pineapple Patch", "FeedType": "PineapplePatch", "FeedClass": "Patch", "FoodDrop": "Pineapple", "XP": 217, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Potato Patch", "FeedType": "PotatoPatch", "FeedClass": "Patch", "FoodDrop": "Potato", "XP": 3, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Pumpkin Patch", "FeedType": "PumpkinPatch", "FeedClass": "Patch", "FoodDrop": "Pumpkin", "XP": 2, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Purple Shroom Patch", "FeedType": "PurpleShroomPatch", "FeedClass": "Patch", "FoodDrop": "PurpleShroom", "XP": 633, "GrowRate": 1 },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Watermelon Patch", "FeedType": "WatermelonPatch", "FeedClass": "Patch", "FoodDrop": "Watermelon", "XP": 7, "GrowRate": 1 }
+  ]
+}

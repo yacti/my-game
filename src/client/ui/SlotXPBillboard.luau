@@ -98,7 +98,7 @@ local function build(food)
 
 	local function render()
 		local xp = food:GetAttribute(State.Food.XP) or 0
-		label.Text = NumberFormatter.XP(xp, "xp")
+		label.Text = NumberFormatter.XP(xp, " xp")
 		record.dirty = false
 	end
 	addConnection(record, RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.MarkDirty", function()
@@ -137,7 +137,7 @@ function SlotXPBillboard.start()
 					record.gui.Enabled = record.visible
 					if record.visible and record.dirty then
 						local xp = food:GetAttribute(State.Food.XP) or 0
-						record.label.Text = NumberFormatter.XP(xp, "xp")
+						record.label.Text = NumberFormatter.XP(xp, " xp")
 						record.dirty = false
 					end
 				else
