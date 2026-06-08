@@ -109,7 +109,7 @@ local function placeMature(plot, feedType, feedIndex, lx, lz, lry, owner, should
 	return machine
 end
 
-local function matureInstance(instance)
+local function matureInstance(instance, notify)
 	local data = state[instance]
 	if not data or not instance.Parent then
 		return nil
@@ -130,7 +130,7 @@ local function matureInstance(instance)
 	instance:Destroy()
 
 	local mature = placeMature(plot, feedType, feedIndex, lx, lz, lry, owner)
-	if mature and onMatureCallback then
+	if mature and notify ~= false and onMatureCallback then
 		RuntimeGuard.Run("FeedGrowthService.OnMature", onMatureCallback, owner, plot, mature)
 	end
 	return mature
@@ -163,10 +163,12 @@ function FeedGrowthService.PlaceSeed(plot, owner, seedId, lx, lz, lry, feedIndex
 	return visual, "ok"
 end
 
-function FeedGrowthService.RestorePlacement(plot, owner, placement, feedIndex)
+function FeedGrowthService.RestorePlacement(plot, owner, placement, feedIndex, options)
 	if type(placement) ~= "table" or placement.phase ~= GROWING_PHASE then
 		return nil, "not-growing"
 	end
+	options = type(options) == "table" and options or {}
+	local deferOfflineProgress = options.deferOfflineProgress == true
 
 	local seedId = placement.seedId
 	local feedType = seedTemplateFeedType(seedId) or placement.type
@@ -179,7 +181,7 @@ function FeedGrowthService.RestorePlacement(plot, owner, placement, feedIndex)
 	local lx = tonumber(placement.lx) or 0
 	local lz = tonumber(placement.lz) or 0
 	local lry = tonumber(placement.lry) or 0
-	if plantedAt + growTime <= now() then
+	if not deferOfflineProgress and plantedAt + growTime <= now() then
 		return placeMature(plot, feedType, feedIndex, lx, lz, lry, owner, false), "mature"
 	end
 
@@ -195,8 +197,35 @@ function FeedGrowthService.RestorePlacement(plot, owner, placement, feedIndex)
 		owner = owner,
 		plantedAt = plantedAt,
 		growTime = growTime,
+		offlineProgressPending = deferOfflineProgress,
 	})
 	return visual, "growing"
+end
+
+function FeedGrowthService.ApplyOfflineProgress(context)
+	context = type(context) == "table" and context or {}
+	local player = context.player
+	local plot = context.plot
+	local joinTime = tonumber(context.joinTime) or now()
+	local applyTime = tonumber(context.applyTime) or now()
+	local pendingDuration = math.max(applyTime - joinTime, 0)
+	local matured = 0
+
+	for instance, data in pairs(state) do
+		if instance.Parent and data.owner == player and data.plot == plot and data.offlineProgressPending == true then
+			if data.plantedAt + data.growTime <= joinTime then
+				if matureInstance(instance, false) then
+					matured += 1
+				end
+			else
+				data.plantedAt += pendingDuration
+				data.offlineProgressPending = false
+				setGrowingAttributes(instance, data.seedId, data.feedType, data.plantedAt + data.growTime)
+			end
+		end
+	end
+
+	return true, matured
 end
 
 function FeedGrowthService.Serialize(instance)
@@ -236,7 +265,7 @@ function FeedGrowthService.Start(config)
 				RuntimeGuard.Run("FeedGrowthService.MaturityTick", function()
 					if not instance.Parent then
 						state[instance] = nil
-					elseif data.plantedAt + data.growTime <= now() then
+					elseif data.offlineProgressPending ~= true and data.plantedAt + data.growTime <= now() then
 						matureInstance(instance)
 					end
 				end)

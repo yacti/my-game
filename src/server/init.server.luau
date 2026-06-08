@@ -33,6 +33,7 @@ local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
@@ -87,6 +88,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)
+RuntimeGuard.Run("OfflineProgressService.Start", OfflineProgressService.Start)
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
 
@@ -225,6 +227,12 @@ end
 
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return false end
+	if OfflineProgressService.IsPending(player) then
+		local applied = OfflineProgressService.ApplyPendingBeforeSnapshot(player)
+		if applied ~= true then
+			return false
+		end
+	end
 	local petsOk, pets = RuntimeGuard.Run("snapshotProfileState.collectPets", collectPetsFromPlot, plot, profile)
 	local feedOk, feedState = RuntimeGuard.Run("snapshotProfileState.collectFeed", collectFeedState, plot, player)
 	local cosmeticOk, cosmeticState = RuntimeGuard.Run("snapshotProfileState.collectCosmetics", collectCosmeticState, plot, player)
@@ -248,6 +256,9 @@ end
 
 local function snapshotFoodCollection(player, plot, profile, feed)
 	if not plot or not profile then return false end
+	if OfflineProgressService.IsPending(player) then
+		return false
+	end
 	if not feed then return false end
 	local feedIndex = feed:GetAttribute(State.Feed.Index)
 	local placement = collectFeedPlacementRecord(plot, feed)
@@ -485,11 +496,11 @@ end
 
 -- ── Currency / offline helpers ────────────────────────────────────────────────
 
-local function applyOfflineEarnings(plot, profile)
-	local lastSeen = profile.Data.LastSeen or 0
-	if lastSeen == 0 then return end
-	local elapsed = os.time() - lastSeen
-	if elapsed <= 0 then return end
+local function applyOfflineEarnings(plot, profile, lastSeen, joinTime)
+	lastSeen = tonumber(lastSeen) or profile.Data.LastSeen or 0
+	if lastSeen == 0 then return true end
+	local elapsed = (tonumber(joinTime) or os.time()) - lastSeen
+	if elapsed <= 0 then return true end
 
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
@@ -497,9 +508,34 @@ local function applyOfflineEarnings(plot, profile)
 		if petData then
 			local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
 			petData.money = (petData.money or 0) + rate * elapsed * OFFLINE_PET_EARN_FRACTION
+			pet:SetAttribute(State.Pet.Money, petData.money)
 		end
 	end
+	return true
 end
+
+OfflineProgressService.RegisterSystem("PetMoney", function(context)
+	return applyOfflineEarnings(context.plot, context.profile, context.lastSeen, context.joinTime)
+end)
+
+OfflineProgressService.RegisterSystem("FeedMachines", function(context)
+	for _, feed in ipairs(PlotService.GetSortedFeeds(context.plot)) do
+		if not FeedGrowthService.IsGrowing(feed) then
+			if not FeedMachines.ApplyOfflineProgress(feed, context) then
+				return false, "feed-machine-failed"
+			end
+		end
+	end
+	return true
+end)
+
+OfflineProgressService.RegisterSystem("GrowingSeeds", function(context)
+	local ok = FeedGrowthService.ApplyOfflineProgress(context)
+	if ok then
+		PetMotionService.RefreshPlotRoutes(context.plot)
+	end
+	return ok
+end)
 
 local function startPetMoneyLoop(player, plot, profile)
 	local label = userLabel(player)
@@ -507,6 +543,9 @@ local function startPetMoneyLoop(player, plot, profile)
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(1)
 			RuntimeGuard.Run("PetMoneyTick." .. label, function()
+				if OfflineProgressService.IsPending(player) then
+					return
+				end
 				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 					local idx = pet:GetAttribute(State.Pet.Index)
 					local petData = profile.Data.Pets[idx]
@@ -527,6 +566,9 @@ local function startPetCollectionLoop(player, plot, profile)
 		while PlotService.GetPlayerPlot(player) == plot do
 			task.wait(PET_COLLECTION_INTERVAL)
 			RuntimeGuard.Run("PetCollectionTick." .. label, function()
+				if OfflineProgressService.IsPending(player) then
+					return
+				end
 				local character = player.Character
 				local root = character and character:FindFirstChild("HumanoidRootPart")
 				if not (root and root:IsA("BasePart")) then
@@ -622,8 +664,10 @@ local function teardownPlayerState(player, plot, profile, options)
 	options = options or {}
 	local label = userLabel(player)
 	if options.snapshot == true and plot and profile then
+		RuntimeGuard.Run("PlayerTeardown.ApplyPendingOffline." .. label, OfflineProgressService.ApplyPendingBeforeSnapshot, player)
 		RuntimeGuard.Run("PlayerTeardown.Snapshot." .. label, snapshotProfileState, player, plot, profile)
 	end
+	RuntimeGuard.Run("PlayerTeardown.ClearOfflineProgress." .. label, OfflineProgressService.Clear, player)
 	if plot then
 		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
 		RuntimeGuard.Run("PlayerTeardown.DestroyPets." .. label, PlotService.DestroyPets, plot)
@@ -664,6 +708,8 @@ local function handlePlayerAdded(player)
 
 	local label = userLabel(player)
 	local setupOk = RuntimeGuard.Run("PlayerAdded.Setup." .. label, function()
+		local offlineSession = OfflineProgressService.Begin(player, plot, profile)
+		local deferOfflineProgress = offlineSession ~= nil
 		local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
 		if not applied then
 			warn(string.format("[init] Failed to apply user %s plot grid state: %s", userLabel(player), tostring(applyReason)))
@@ -675,7 +721,9 @@ local function handlePlayerAdded(player)
 		local maturedOnLoad = {}
 		for index, placement in ipairs(profile.Data.FeedPlacements or {}) do
 			if type(placement) == "table" and placement.phase == FeedGrowthService.Phase then
-				local restored, status = FeedGrowthService.RestorePlacement(plot, player, placement, index)
+				local restored, status = FeedGrowthService.RestorePlacement(plot, player, placement, index, {
+					deferOfflineProgress = deferOfflineProgress,
+				})
 				if restored and status == "mature" then
 					maturedOnLoad[#maturedOnLoad + 1] = restored
 				end
@@ -694,7 +742,12 @@ local function handlePlayerAdded(player)
 			end
 			local idx   = feed:GetAttribute(State.Feed.Index)
 			local saved = idx and profile.Data.FeedPlacements[idx] or nil
-			if saved and saved.phase ~= FeedGrowthService.Phase then FeedMachines.Apply(feed, saved) end
+			if saved and saved.phase ~= FeedGrowthService.Phase then
+				FeedMachines.Apply(feed, saved, {
+					deferOfflineProgress = deferOfflineProgress,
+					freezeAt = offlineSession and offlineSession.lastSeen or nil,
+				})
+			end
 		end
 		for _, feed in ipairs(maturedOnLoad) do
 			task.defer(function()
@@ -709,8 +762,8 @@ local function handlePlayerAdded(player)
 			PlotService.PlaceCosmeticWithIndex(plot, placement.id, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 		end
 
-		applyOfflineEarnings(plot, profile)
 		PlayerReplicaService.Create(player, profile)
+		OfflineProgressService.Publish(player)
 		OnboardingService.ApplyCurrentStageEntry(player, profile)
 
 		for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
@@ -811,6 +864,9 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 	PromptInteractionService.Start({
 		rateSeconds = PROMPT_RATE_SECONDS,
 		getContext = function(player)
+			if OfflineProgressService.IsPending(player) then
+				return nil, nil
+			end
 			return PlotService.GetPlayerPlot(player), PlayerDataService.GetProfile(player)
 		end,
 		handlers = {
@@ -859,6 +915,9 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			end,
 		},
 		afterInteraction = function(player, plot, profile, action, _target, handlerResult)
+			if OfflineProgressService.IsPending(player) then
+				return
+			end
 			if action == Interactions.Actions.PatchHarvest or action == Interactions.Actions.TreeGroundPickup then
 				if type(handlerResult) ~= "table" or handlerResult.snapshot ~= FOOD_COLLECTION_SNAPSHOT then
 					return
@@ -876,12 +935,14 @@ end)
 RuntimeGuard.Run("FeedEditService.Start", function()
 	FeedEditService.Start({
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = OfflineProgressService.IsPending,
 	})
 end)
 
 RuntimeGuard.Run("ShovelService.Start", function()
 	ShovelService.Start({
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = OfflineProgressService.IsPending,
 	})
 end)
 
@@ -889,6 +950,7 @@ RuntimeGuard.Run("FeedPlacementService.Start", function()
 	FeedPlacementService.Start({
 		rateSeconds = PLACE_RATE_SECONDS,
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = OfflineProgressService.IsPending,
 	})
 end)
 
@@ -896,5 +958,6 @@ RuntimeGuard.Run("CosmeticPlacementService.Start", function()
 	CosmeticPlacementService.Start({
 		rateSeconds = PLACE_RATE_SECONDS,
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = OfflineProgressService.IsPending,
 	})
 end)

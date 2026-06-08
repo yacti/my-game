@@ -185,6 +185,9 @@ end
 function ShovelService.Start(config)
 	config = config or {}
 	local snapshotProfileState = config.snapshotProfileState
+	local isGameplayBlocked = type(config.isGameplayBlocked) == "function" and config.isGameplayBlocked or function()
+		return false
+	end
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
 	local deleteDistance = tonumber(config.deleteDistance) or DEFAULT_DELETE_DISTANCE
 
@@ -215,6 +218,10 @@ function ShovelService.Start(config)
 	end)
 
 	RuntimeGuard.Connect(ShovelDeleteRequest.OnServerEvent, "ShovelService.DeleteRequest", function(player, requestId, target, toolGuid)
+		if isGameplayBlocked(player) then
+			sendResult(player, requestId, false, "busy")
+			return
+		end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendResult(player, requestId, false, "rate-limited")
 			return

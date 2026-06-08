@@ -1,5 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local replicaShared = ReplicatedStorage:WaitForChild("ReplicaShared", 10)
+assert(replicaShared and replicaShared:IsA("Folder"), "Missing ReplicatedStorage.ReplicaShared Folder")
 local Replica = require(ReplicatedStorage:WaitForChild("ReplicaClient"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")

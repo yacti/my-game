@@ -67,8 +67,8 @@ local function xpMultiplierFor(machine)
 	return multiplier
 end
 
-local function refreshAttrs(machine, s)
-	local now = os.time()
+local function refreshAttrs(machine, s, nowOverride)
+	local now = tonumber(nowOverride) or s.freezeNow or os.time()
 	local ready = 0
 	local queueReadyAt = nil
 	for _, item in ipairs(s.queue) do
@@ -235,10 +235,11 @@ function JamBarrel.Serialize(machine)
 	return { queue = queue }
 end
 
-function JamBarrel.Apply(machine, placement)
+function JamBarrel.Apply(machine, placement, options)
 	local s = state[machine]
 	if not s then return end
 	if type(placement.queue) ~= "table" then return end
+	options = type(options) == "table" and options or {}
 
 	local duration = durationFor(machine)
 	for _, item in ipairs(placement.queue) do
@@ -258,7 +259,28 @@ function JamBarrel.Apply(machine, placement)
 			end
 		end
 	end
+	if options.deferOfflineProgress == true then
+		s.freezeNow = tonumber(options.freezeAt) or os.time()
+	end
 	refreshAttrs(machine, s)
+end
+
+function JamBarrel.ApplyOfflineProgress(machine, context)
+	local s = state[machine]
+	if not s then return true end
+	context = type(context) == "table" and context or {}
+	local joinTime = tonumber(context.joinTime) or os.time()
+	local applyTime = tonumber(context.applyTime) or os.time()
+	local pendingDuration = math.max(applyTime - joinTime, 0)
+	for _, item in ipairs(s.queue) do
+		local readyAt = tonumber(item.readyAt)
+		if readyAt and readyAt > joinTime then
+			item.readyAt = readyAt + pendingDuration
+		end
+	end
+	s.freezeNow = nil
+	refreshAttrs(machine, s)
+	return true
 end
 
 return JamBarrel

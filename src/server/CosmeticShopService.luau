@@ -6,6 +6,7 @@ local Server = script.Parent
 local CosmeticTools = require(Server:WaitForChild("CosmeticTools"))
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
@@ -158,6 +159,10 @@ function CosmeticShopService.PurchaseWithCurrency(player, requestId, itemId)
 	if not profile then
 		sendResult(player, requestId, itemId, false, "no-profile")
 		return false, "no-profile"
+	end
+	if OfflineProgressService.IsPending(player) then
+		sendResult(player, requestId, itemId, false, "busy")
+		return false, "busy"
 	end
 	if not nearShop(player) then
 		sendResult(player, requestId, itemId, false, "too-far")

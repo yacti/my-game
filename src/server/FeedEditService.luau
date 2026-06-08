@@ -122,6 +122,9 @@ end
 function FeedEditService.Start(config)
 	config = config or {}
 	local snapshotProfileState = config.snapshotProfileState
+	local isGameplayBlocked = type(config.isGameplayBlocked) == "function" and config.isGameplayBlocked or function()
+		return false
+	end
 	local toggleRateSeconds = tonumber(config.toggleRateSeconds) or DEFAULT_TOGGLE_RATE_SECONDS
 	local moveRateSeconds = tonumber(config.moveRateSeconds) or DEFAULT_MOVE_RATE_SECONDS
 	local moveDistance = tonumber(config.moveDistance) or DEFAULT_MOVE_DISTANCE
@@ -157,6 +160,10 @@ function FeedEditService.Start(config)
 
 	RuntimeGuard.Connect(FeedEditModeRequest.OnServerEvent, "FeedEditService.EditModeRequest", function(player, enabled)
 		if type(enabled) ~= "boolean" then return end
+		if isGameplayBlocked(player) then
+			player:SetAttribute(EDIT_MODE_ATTR, false)
+			return
+		end
 		if not consumeRateLimit(toggleLastFire, player, toggleRateSeconds) then return end
 
 		if not enabled then
@@ -176,6 +183,11 @@ function FeedEditService.Start(config)
 	end)
 
 	RuntimeGuard.Connect(FeedMoveRequest.OnServerEvent, "FeedEditService.MoveRequest", function(player, requestId, target, cframe)
+		if isGameplayBlocked(player) then
+			player:SetAttribute(EDIT_MODE_ATTR, false)
+			sendMoveResult(player, requestId, false, "busy")
+			return
+		end
 		if not consumeRateLimit(moveLastFire, player, moveRateSeconds) then
 			sendMoveResult(player, requestId, false, "rate-limited")
 			return

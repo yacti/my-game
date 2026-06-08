@@ -45,6 +45,7 @@ State.Pet = {
 
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
+	OfflineProgressPending = "OfflineProgressPending",
 }
 
 State.Tool = {

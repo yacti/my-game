@@ -5,6 +5,7 @@ local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
@@ -531,6 +532,10 @@ function RebirthService.Start()
 		end
 		if not consumeRateLimit(requestLastFire, player, REQUEST_RATE_SECONDS) then
 			sendResult(player, requestId, false, "rate-limited")
+			return
+		end
+		if OfflineProgressService.IsPending(player) then
+			sendResult(player, requestId, false, "busy")
 			return
 		end
 

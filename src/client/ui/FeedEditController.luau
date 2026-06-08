@@ -463,6 +463,10 @@ function FeedEditController.start()
 		return PlotResolver.ResolveForPlayer(player)
 	end
 
+	local function isOfflineProgressPending()
+		return player:GetAttribute(State.Player.OfflineProgressPending) == true
+	end
+
 	local function getPlayerFloor()
 		local plot = getPlayerPlot()
 		local floor = plot and plot:FindFirstChild("Floor")
@@ -624,6 +628,7 @@ function FeedEditController.start()
 
 	local function sendMoveRequest()
 		if not selectedFeed or pendingRequestId ~= nil then return end
+		if isOfflineProgressPending() then return end
 		local targetCFrame = selectedTargetCFrame()
 		if not targetCFrame then return end
 
@@ -786,7 +791,7 @@ function FeedEditController.start()
 
 	local function refreshButtonVisibility()
 		local floor = getPlayerFloor()
-		local visible = floor ~= nil and isOnFloor(floor)
+		local visible = floor ~= nil and isOnFloor(floor) and not isOfflineProgressPending()
 		buttonVisible = visible
 		refreshEditButtonVisibility()
 		if not visible and editEnabled then
@@ -809,6 +814,7 @@ function FeedEditController.start()
 	end
 
 	RuntimeGuard.Connect(editButton.Activated, "FeedEditController.EditButtonActivated", function()
+		if isOfflineProgressPending() then return end
 		if not buttonVisible or editEnabled then return end
 		FeedEditModeRequest:FireServer(true)
 	end)
@@ -840,6 +846,7 @@ function FeedEditController.start()
 	RuntimeGuard.Connect(rotateButton.Activated, "FeedEditController.RotateActivated", rotateSelected)
 
 	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedEditController.InputBegan", function(input, gameProcessed)
+		if isOfflineProgressPending() then return end
 		if gameProcessed or not editEnabled or moving or pendingRequestId ~= nil then return end
 		if os.clock() < ignoreWorldInputUntil then return end
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -925,6 +932,16 @@ function FeedEditController.start()
 	end)
 
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(EDIT_MODE_ATTR), "FeedEditController.EditModeChanged", refreshEditState)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "FeedEditController.OfflineProgressPendingChanged", function()
+		if isOfflineProgressPending() then
+			clearSelection(true)
+			setGridEnabled(false)
+			if editEnabled then
+				FeedEditModeRequest:FireServer(false)
+			end
+		end
+		refreshButtonVisibility()
+	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "FeedEditController.AssignedPlotChanged", function()
 		refreshButtonVisibility()
 		refreshEditState()

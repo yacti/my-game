@@ -178,12 +178,21 @@ function FeedMachines.Serialize(machine)
 	return nil
 end
 
-function FeedMachines.Apply(machine, placement)
+function FeedMachines.Apply(machine, placement, options)
 	if not placement then return end
 	local mod = impl(machine)
 	if mod and mod.Apply then
-		RuntimeGuard.Run("FeedMachines.Apply", mod.Apply, machine, placement)
+		RuntimeGuard.Run("FeedMachines.Apply", mod.Apply, machine, placement, options)
 	end
+end
+
+function FeedMachines.ApplyOfflineProgress(machine, context)
+	local mod = impl(machine)
+	if mod and mod.ApplyOfflineProgress then
+		local ok, result = RuntimeGuard.Run("FeedMachines.ApplyOfflineProgress", mod.ApplyOfflineProgress, machine, context)
+		return ok == true and result ~= false
+	end
+	return true
 end
 
 function FeedMachines.Interact(machine, player)

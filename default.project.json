@@ -78,6 +78,12 @@
         "ShovelDeleteResult": {
           "$className": "RemoteEvent"
         },
+        "JoinBackShowcaseRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
         "PromptInteract": {
           "$className": "RemoteEvent"
         },

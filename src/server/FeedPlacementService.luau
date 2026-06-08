@@ -77,6 +77,9 @@ end
 function FeedPlacementService.Start(config)
 	config = config or {}
 	local snapshotProfileState = config.snapshotProfileState
+	local isGameplayBlocked = type(config.isGameplayBlocked) == "function" and config.isGameplayBlocked or function()
+		return false
+	end
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
 	local placeDistance = tonumber(config.placeDistance) or DEFAULT_PLACE_DISTANCE
 	local lastFire = {}
@@ -118,6 +121,10 @@ function FeedPlacementService.Start(config)
 	end)
 
 	RuntimeGuard.Connect(PlaceFeedMachine.OnServerEvent, "FeedPlacementService.PlaceFeedMachine", function(player, requestId, cframe, toolGuid)
+		if isGameplayBlocked(player) then
+			sendPlaceResult(player, requestId, false, "busy")
+			return
+		end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then
 			sendPlaceResult(player, requestId, false, "rate-limited")
 			return

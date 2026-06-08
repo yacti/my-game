@@ -299,6 +299,10 @@ function FeedPlacement.start()
 
 	local function snapToGrid(v) return math.round(v) end
 
+	local function isOfflineProgressPending()
+		return player:GetAttribute(State.Player.OfflineProgressPending) == true
+	end
+
 	local function setGridEffectEnabled(enabled)
 		if placementGrid then placementGrid:SetEnabled(enabled) end
 	end
@@ -771,6 +775,7 @@ function FeedPlacement.start()
 
 	local function confirmPlacement(showBlockedError)
 		if pendingPlacementRequestId ~= nil then return end
+		if isOfflineProgressPending() then return end
 		if not placing or not preview or selectedLX == nil or selectedLZ == nil then return end
 		if currentPlacementBlocked then
 			if showBlockedError ~= false then
@@ -828,6 +833,7 @@ function FeedPlacement.start()
 	end
 
 	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedPlacement.InputBegan", function(input, gpe)
+		if isOfflineProgressPending() then return end
 		if gpe or not placing then return end
 		if input.KeyCode == Enum.KeyCode.R then
 			rotatePreview()
@@ -873,6 +879,7 @@ function FeedPlacement.start()
 		end
 	end)
 	RuntimeGuard.Connect(rotateBtn.Activated, "FeedPlacement.RotateActivated", function()
+		if isOfflineProgressPending() then return end
 		rotatePreview()
 	end)
 
@@ -885,6 +892,11 @@ function FeedPlacement.start()
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			stopMoving()
+		end
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "FeedPlacement.OfflineProgressPendingChanged", function()
+		if isOfflineProgressPending() then
+			destroyPreview()
 		end
 	end)
 	RuntimeGuard.Connect(RunService.RenderStepped, "FeedPlacement.RenderStepped", function()

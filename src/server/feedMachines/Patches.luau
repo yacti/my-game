@@ -26,12 +26,11 @@ local Patches = {}
 
 local DEFAULT_GROW_RATE = 1
 local HARVEST_RESPAWN_DELAY = 3
-local OFFLINE_GROW_FRACTION = 0.001
+local OFFLINE_GROW_FRACTION = 1
 local EDIT_MODE_ATTR = "EditMode"
 
--- Offline progress runs at this fraction of the online rate. With default
--- XP=1 and GrowRate=1, 0.001 means a slot earns ~1 xp per 1000s (~17 min)
--- while the player is away. Tunable in one place; not on the machine
+-- Offline progress runs at this fraction of the online rate. Temporarily set
+-- to full speed for testing. Tunable in one place; not on the machine
 -- attribute since it's an economy-wide knob for patch machines.
 
 -- Mature slot fruit scale is rendered locally by PatchSlotVisuals. Harvested
@@ -157,6 +156,10 @@ local function applyGrowth(machine, s, seconds)
 	end
 end
 
+local function isOfflineProgressPending(s)
+	return s.owner and s.owner:GetAttribute(State.Player.OfflineProgressPending) == true
+end
+
 -- Single shared heartbeat across all patch-style machines (1Hz tick).
 RuntimeGuard.Spawn("Patches.GrowthLoop", function()
 	while true do
@@ -164,6 +167,9 @@ RuntimeGuard.Spawn("Patches.GrowthLoop", function()
 		for machine, s in pairs(state) do
 			RuntimeGuard.Run("Patches.GrowthTick", function()
 				if machine.Parent then
+					if isOfflineProgressPending(s) then
+						return
+					end
 					if s.deferVisualRefresh and not (s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true) then
 						refreshAllSlotVisuals(s)
 					end
@@ -302,17 +308,19 @@ function Patches.Serialize(machine)
 	return { slots = slots, lastTick = s.lastTick }
 end
 
-function Patches.Apply(machine, placement)
+function Patches.Apply(machine, placement, options)
 	local s = state[machine]
 	if not s then return end
 	if type(placement.slots) ~= "table" then return end
+	options = type(options) == "table" and options or {}
+	local deferOfflineProgress = options.deferOfflineProgress == true
 
 	local now = os.time()
 	for i, savedSlot in ipairs(placement.slots) do
 		local slot = s.slots[i]
 		if slot and type(savedSlot) == "table" then
 			local respawnAt = tonumber(savedSlot.respawnAt)
-			if respawnAt and respawnAt > now then
+			if respawnAt and (deferOfflineProgress or respawnAt > now) then
 				-- Still in the post-harvest delay; keep slot empty.
 				if slot.foodPart then slot.foodPart:Destroy() end
 				slot.foodPart  = nil
@@ -333,12 +341,36 @@ function Patches.Apply(machine, placement)
 	end
 
 	local lastTick = tonumber(placement.lastTick) or now
+	if deferOfflineProgress then
+		s.lastTick = lastTick
+		return
+	end
 	local elapsed  = now - lastTick
 	-- Offline credit runs at OFFLINE_GROW_FRACTION of the online rate.
 -- applyGrowth receives effective online seconds, so scaling here is
 -- equivalent to scaling the amount of interval progress for this single call.
 	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
 	s.lastTick = os.time()
+end
+
+function Patches.ApplyOfflineProgress(machine, context)
+	local s = state[machine]
+	if not s then return true end
+	context = type(context) == "table" and context or {}
+	local joinTime = tonumber(context.joinTime) or os.time()
+	local applyTime = tonumber(context.applyTime) or os.time()
+	local pendingDuration = math.max(applyTime - joinTime, 0)
+
+	for _, slot in ipairs(s.slots) do
+		if type(slot.respawnAt) == "number" and slot.respawnAt > joinTime then
+			slot.respawnAt += pendingDuration
+		end
+	end
+
+	local elapsed = math.max(joinTime - (tonumber(s.lastTick) or joinTime), 0)
+	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
+	s.lastTick = os.time()
+	return true
 end
 
 function Patches.HarvestAnchor(anchor, player)

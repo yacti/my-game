@@ -209,6 +209,10 @@ function ShovelController.start()
 		return equippedTool ~= nil and equippedTool.Parent == player.Character
 	end
 
+	local function isOfflineProgressPending()
+		return player:GetAttribute(State.Player.OfflineProgressPending) == true
+	end
+
 	local function cancelPrompt()
 		promptToken += 1
 		promptOpen = false
@@ -220,6 +224,9 @@ function ShovelController.start()
 
 	local function requestDelete(target)
 		if pendingRequestId ~= nil or not target or not target.Parent then
+			return
+		end
+		if isOfflineProgressPending() then
 			return
 		end
 		local shovelGuid = ToolIdentity.GuidOf(equippedTool)
@@ -241,6 +248,9 @@ function ShovelController.start()
 
 	local function promptDelete(target)
 		if promptOpen or pendingRequestId ~= nil or not target then
+			return
+		end
+		if isOfflineProgressPending() then
 			return
 		end
 
@@ -385,7 +395,7 @@ function ShovelController.start()
 
 	refreshDeletePrompts = function(shouldScan)
 		local plot = PlotResolver.ResolveForPlayer(player)
-		if not isEquipped() or not plot then
+		if isOfflineProgressPending() or not isEquipped() or not plot then
 			clearDeletePrompts()
 			return
 		end
@@ -490,6 +500,14 @@ function ShovelController.start()
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "ShovelController.AssignedPlotChanged", function()
 		if isEquipped() then
 			clearDeletePrompts()
+			refreshDeletePrompts(true)
+		end
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "ShovelController.OfflineProgressPendingChanged", function()
+		cancelPrompt()
+		if isOfflineProgressPending() then
+			clearDeletePrompts()
+		elseif isEquipped() then
 			refreshDeletePrompts(true)
 		end
 	end)

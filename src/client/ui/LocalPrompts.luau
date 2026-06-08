@@ -88,6 +88,10 @@ local function isEditMode()
 	return player:GetAttribute("EditMode") == true
 end
 
+local function isOfflineProgressPending()
+	return player:GetAttribute(State.Player.OfflineProgressPending) == true
+end
+
 local function applyTutorialState(state)
 	state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
 	tutorialActive = Onboarding.IsActive(state.Stage)
@@ -531,6 +535,9 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 	if isShovelEquipped() then
 		return nil
 	end
+	if isOfflineProgressPending() then
+		return nil
+	end
 
 	local rootPosition = playerRootPosition()
 	if not rootPosition then
@@ -584,6 +591,9 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 		return false
 	end
 	if typeof(target) ~= "Instance" or target.Parent == nil then
+		return false
+	end
+	if isOfflineProgressPending() then
 		return false
 	end
 	PromptInteract:FireServer(action, target)
@@ -744,6 +754,10 @@ refreshPrompt = function(target, kind, prompt)
 		prompt.Enabled = false
 		return
 	end
+	if isOfflineProgressPending() then
+		prompt.Enabled = false
+		return
+	end
 	prompt.ObjectText = ""
 
 	if kind == "PetFeed" then
@@ -799,12 +813,13 @@ refreshAll = function(shouldScan)
 
 	local rootPosition = playerRootPosition()
 	local shovelEquipped = isShovelEquipped()
+	local offlinePending = isOfflineProgressPending()
 	local closestPrompt = nil
 	local closestDistance = math.huge
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
-			if shovelEquipped then
+			if shovelEquipped or offlinePending then
 				prompt.Enabled = false
 				continue
 			end
@@ -829,7 +844,7 @@ refreshAll = function(shouldScan)
 			continue
 		end
 
-		if shovelEquipped and not record.allowWhileShovelEquipped then
+		if offlinePending or (shovelEquipped and not record.allowWhileShovelEquipped) then
 			prompt.Enabled = false
 			continue
 		end
@@ -881,6 +896,9 @@ function LocalPrompts.start()
 		refreshAll(true)
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal("EditMode"), "LocalPrompts.EditModeChanged", function()
+		refreshAll(false)
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "LocalPrompts.OfflineProgressPendingChanged", function()
 		refreshAll(false)
 	end)
 	applyTutorialState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))

@@ -71,8 +71,8 @@ local function xpMultiplierFor(machine)
 	return multiplier
 end
 
-local function refreshAttrs(machine, s)
-	local now      = os.time()
+local function refreshAttrs(machine, s, nowOverride)
+	local now      = tonumber(nowOverride) or s.freezeNow or os.time()
 	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
 	local ready    = 0
 	local queueReadyAt = nil
@@ -203,9 +203,10 @@ function Processor.Serialize(machine)
 	return { queue = queue }
 end
 
-function Processor.Apply(machine, placement)
+function Processor.Apply(machine, placement, options)
 	local s = state[machine]
 	if not s then return end
+	options = type(options) == "table" and options or {}
 	if type(placement.queue) == "table" then
 		for _, item in ipairs(placement.queue) do
 			if type(item) == "table" and (item.foodId or item.foodType) and item.depositedAt then
@@ -216,8 +217,30 @@ function Processor.Apply(machine, placement)
 				})
 			end
 		end
+		if options.deferOfflineProgress == true then
+			s.freezeNow = tonumber(options.freezeAt) or os.time()
+		end
 		refreshAttrs(machine, s)
 	end
+end
+
+function Processor.ApplyOfflineProgress(machine, context)
+	local s = state[machine]
+	if not s then return true end
+	context = type(context) == "table" and context or {}
+	local joinTime = tonumber(context.joinTime) or os.time()
+	local applyTime = tonumber(context.applyTime) or os.time()
+	local pendingDuration = math.max(applyTime - joinTime, 0)
+	local duration = machine:GetAttribute(State.Feed.ProcessDuration) or 30
+	for _, item in ipairs(s.queue) do
+		local depositedAt = tonumber(item.depositedAt)
+		if depositedAt and depositedAt + duration > joinTime then
+			item.depositedAt = depositedAt + pendingDuration
+		end
+	end
+	s.freezeNow = nil
+	refreshAttrs(machine, s)
+	return true
 end
 
 return Processor

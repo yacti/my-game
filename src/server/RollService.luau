@@ -6,6 +6,7 @@ local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local InstanceVisibility = require(Server:WaitForChild("InstanceVisibility"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
@@ -441,6 +442,9 @@ function RollService.Roll(player, target, plot, profile)
 	if key == nil then
 		return false, "invalid-player"
 	end
+	if OfflineProgressService.IsPending(player) then
+		return false, "busy"
+	end
 
 	local buttonPart, targetCode = resolveRollButton(target)
 	if not buttonPart then
@@ -610,6 +614,10 @@ function RollService.Purchase(player, offerId, profile)
 	if key == nil then
 		return false, "invalid-player"
 	end
+	if OfflineProgressService.IsPending(player) then
+		sendPurchaseResult(player, type(offerId) == "number" and offerId or nil, false, "busy")
+		return false, "busy"
+	end
 
 	if not consumePurchaseRate(player) then
 		sendPurchaseResult(player, type(offerId) == "number" and offerId or nil, false, "rate-limited")
@@ -769,6 +777,10 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	if key == nil then
 		return false, "invalid-player"
 	end
+	if OfflineProgressService.IsPending(player) then
+		sendLuckResult(player, type(requestId) == "number" and requestId or nil, false, "busy")
+		return false, "busy"
+	end
 
 	if type(requestId) ~= "number" then
 		requestId = nil
@@ -898,6 +910,10 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	local key = userKey(player)
 	if key == nil then
 		return false, "invalid-player"
+	end
+	if OfflineProgressService.IsPending(player) then
+		sendDropAreaResult(player, type(requestId) == "number" and requestId or nil, false, "busy")
+		return false, "busy"
 	end
 
 	if type(requestId) ~= "number" then

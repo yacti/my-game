@@ -253,6 +253,17 @@ function PlayerReplicaService.PublishOnboarding(player, profile)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.Onboarding, copyOnboardingState(data.Onboarding))
 end
 
+function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
+	if type(payload) ~= "table" then
+		return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, nil)
+	end
+	local safePayload = {
+		seq = integer(payload.seq, 0),
+		phase = type(payload.phase) == "string" and payload.phase or "pending",
+	}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, safePayload)
+end
+
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)
 	PlayerReplicaService.Destroy(player)
 end)

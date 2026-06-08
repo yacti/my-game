@@ -6,6 +6,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local function requireReplicaClient()
+	local replicaShared = ReplicatedStorage:WaitForChild("ReplicaShared", 10)
+	assert(replicaShared and replicaShared:IsA("Folder"), "Missing ReplicatedStorage.ReplicaShared Folder")
 	local moduleScript = ReplicatedStorage:WaitForChild("ReplicaClient", 10)
 	assert(moduleScript and moduleScript:IsA("ModuleScript"), "Missing ReplicatedStorage.ReplicaClient ModuleScript")
 	return require(moduleScript)
@@ -26,6 +28,7 @@ local CONTROLLERS = {
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
+	"JoinBackShowcaseController",
 	"AutoPromptButtonController",
 	"GearShopController",
 	"CosmeticShopController",

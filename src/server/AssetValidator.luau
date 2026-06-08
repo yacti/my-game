@@ -1,3 +1,4 @@
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
@@ -933,6 +934,23 @@ local function validateHudCurrency(hud, errors)
 	child(currency, "CurrencyLabel", "TextLabel", errors)
 end
 
+local function validateJoinBackShowcaseUi(hud, warnings)
+	local textFrame = hud:FindFirstChild("JoinBackText")
+	if not (textFrame and textFrame:IsA("GuiObject")) then
+		add(warnings, "Missing ReplicatedStorage.UI.HUD.JoinBackText GuiObject")
+	else
+		local textLabel = textFrame:FindFirstChild("JoinBackText", true)
+		if not (textLabel and textLabel:IsA("TextLabel")) then
+			add(warnings, "Missing ReplicatedStorage.UI.HUD.JoinBackText.JoinBackText TextLabel")
+		end
+	end
+
+	local flash = hud:FindFirstChild("JoinBackFlash")
+	if not (flash and flash:IsA("GuiObject")) then
+		add(warnings, "Missing ReplicatedStorage.UI.HUD.JoinBackFlash GuiObject")
+	end
+end
+
 local function validateAutoPromptButton(hud, errors)
 	local button = child(hud, "AutoPromptButton", "GuiButton", errors)
 	if not button then return end
@@ -1270,13 +1288,14 @@ local function validateFoodTemplates(errors)
 	end
 end
 
-local function validateUi(errors)
+local function validateUi(errors, warnings)
 	local ui = child(ReplicatedStorage, "UI", "Folder", errors)
 	if not ui then return end
 
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
 		validateHudCurrency(hud, errors)
+		validateJoinBackShowcaseUi(hud, warnings)
 		validateAutoPromptButton(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
 		if rollButtons then
@@ -1539,6 +1558,18 @@ local function validatePlots(errors)
 	end
 end
 
+local function validateLoadingScreenSource(warnings)
+	local loadingScreen = ReplicatedFirst:FindFirstChild("LoadingScreen")
+	if not (loadingScreen and loadingScreen:IsA("ScreenGui")) then
+		add(warnings, "Missing ReplicatedFirst.LoadingScreen ScreenGui for join-back showcase timing")
+	end
+
+	local loader = ReplicatedFirst:FindFirstChild("LoadingScreenLoader")
+	if not (loader and loader:IsA("LocalScript")) then
+		add(warnings, "Missing ReplicatedFirst.LoadingScreenLoader LocalScript for join-back showcase timing")
+	end
+end
+
 function AssetValidator.validate()
 	local errors = {}
 	local warnings = {}
@@ -1573,7 +1604,8 @@ function AssetValidator.validate()
 	validateShopProductIds(errors)
 	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)
-	validateUi(warnings)
+	validateUi(warnings, warnings)
+	validateLoadingScreenSource(warnings)
 	validatePlots(errors)
 
 	if #warnings > 0 then
