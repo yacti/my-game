@@ -14,6 +14,13 @@ Run this checklist before publishing a live build.
   `UI`, `Assets.Cosmetics`, `Assets.CosmeticTool`, `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
   `Assets.Seeds`, `Assets.Misc.Sapling`, `Assets.Misc.Brick`, and
   `Assets.VFX.RarityParticle`.
+- Studio-owned `ReplicatedFirst.LoadingScreen` exists with `Root`,
+  `Root.LoadingBar.Fill`, `Root.PercentLabel`, `Root.TapToPlayLabel`, and
+  `Root.TapCaptureButton`; `ReplicatedFirst.LoadingScreenLoader` is present and
+  there is no Rojo `ReplicatedFirst` mapping unless ownership intentionally
+  changes.
+- `Workspace.Map.LoadingScreenCamera` is an anchored, invisible,
+  non-collidable, non-touchable, non-queryable camera marker.
 - `ReplicatedStorage.UI.YesNoWarning` has `Description`, `Item`, `Yes`,
   `No`, and `CloseButton` descendants.
 - Risky Studio/MCP asset edits have a matching `.rbxm` or `.rbxmx` checkpoint
@@ -64,6 +71,10 @@ Run this checklist before publishing a live build.
   `RollChanceN`, `Price`, or `Rarity` attributes.
 - Confirm any missing `ReplicatedStorage.UI` warnings are intentional; missing UI
   should skip the affected UI path and should never create fallback UI.
+- Confirm the custom loading screen appears from `ReplicatedFirst`, removes the
+  default Roblox loader, uses `Lighting.UiBlur`, points the camera at
+  `Workspace.Map.LoadingScreenCamera`, reaches tap-to-play after readiness or
+  timeout, and restores camera/blur cleanly after dismissal.
 - Confirm cosmetic templates under `ReplicatedStorage.Assets.Cosmetics` have
   unique `CosmeticID` attributes and model `PrimaryPart`s.
 - Confirm `ReplicatedStorage.UI.BillboardGUIs` has `SeedRoll` and `MiscRoll`
