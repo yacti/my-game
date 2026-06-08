@@ -1,4 +1,4 @@
--- Shared tree-clicker FeedMachine implementation for AppleTree/CherryTree.
+-- Shared tree-clicker FeedMachine implementation for FeedClass=Tree machines.
 --
 -- Server owns gameplay state: click validation, per-slot piles, XP, pickup,
 -- and persistence. Clients own transient visuals:
@@ -13,10 +13,11 @@
 -- after the balance module's drop effect duration so replicated state lands
 -- with the animation.
 --
--- Ground pile models replicate with TreeClickerGroundPile, FoodId, FoodType,
--- XP, and TreeClickerSlotIndex attributes.
--- Clients render XP billboards from those attributes. Pickup gives a Tool with
--- the pile's current foodId + accumulated XP and clears that slot only.
+-- Ground pile state replicates on the invisible BaseFoodGround marker with
+-- TreeClickerGroundPile, FoodId, FoodType, XP, and TreeClickerSlotIndex
+-- attributes. Clients render close-range fruit visuals and XP billboards from
+-- those attributes. Pickup gives a Tool with the pile's current foodId +
+-- accumulated XP and clears that slot only.
 --
 -- Tunable attributes on the template:
 --   FoodDrop           (string, food id dropped by each accepted click)
@@ -53,8 +54,8 @@ local DEFAULT_BALANCE = {
 }
 
 -- Collision groups: tree-clicker fruits and ground markers physically collide
--- only with the plot Floor. Drops are now visual client tweens, but ground
--- fruit still uses this setup so prompts and floor placement behave cleanly.
+-- only with the plot Floor. Ground fruit geometry is now local client
+-- presentation, while server markers remain invisible authority/prompt targets.
 local FRUIT_GROUP = "AppleTreeFruit"
 local FLOOR_GROUP = "PlotFloor"
 
@@ -88,10 +89,12 @@ local BALANCES = {
 --     marker,        -- BaseFoodGroundN part (invisible, used as CFrame ref)
 --     foodPart,      -- on-tree visual, respawning
 --     respawnAt,
---     ground,        -- { foodId, xp, model, primary, prompt, conn } | nil
+--     ground,        -- { foodId, xp, marker } | nil
+--     respawnToken,
 --   } },
 -- }
 local state = {}
+local groundToSlot = {}
 
 local function feedTypeOf(machine)
 	local feedType = machine:GetAttribute(State.Feed.Type)
@@ -144,17 +147,6 @@ end
 
 local function clickIntervalFor()
 	return 1 / MAX_CLICKS_PER_SECOND
-end
-
-local function groundFolder(machine)
-	local folder = machine:FindFirstChild(State.TreeClicker.GroundFolder)
-	if folder and folder:IsA("Folder") then return folder end
-
-	if folder then folder:Destroy() end
-	folder = Instance.new("Folder")
-	folder.Name = State.TreeClicker.GroundFolder
-	folder.Parent = machine
-	return folder
 end
 
 -- ── Slot visuals (cosmetic on-tree fruits) ────────────────────────────────────
@@ -225,91 +217,51 @@ local function configureMarker(marker)
 	marker.CollisionGroup = FRUIT_GROUP
 end
 
--- ── Ground fruit ──────────────────────────────────────────────────────────────
+-- ── Ground fruit state ────────────────────────────────────────────────────────
 
-local function configureGroundPart(part, isPrimary)
-	part.Anchored       = true
-	-- Primary remains queryable for client-local prompts and click targeting.
-	-- CanCollide stays true on the primary, but FRUIT_GROUP rules mean it only
-	-- physical-collides with the Floor it sits on.
-	part.CanCollide     = isPrimary
-	part.CanQuery       = isPrimary
-	part.CanTouch       = isPrimary
-	part.CollisionGroup = FRUIT_GROUP
+local function setGroundMarkerState(marker, slot, foodId, xp)
+	marker:SetAttribute(State.TreeClicker.GroundPile, true)
+	marker:SetAttribute(State.TreeClicker.SlotIndex, slot.n)
+	marker:SetAttribute(State.Food.Id, foodId)
+	marker:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
+	marker:SetAttribute(State.Food.XP, xp)
 end
 
-local function fruitHalfHeight(foodId)
-	local template = Food.GetTemplate(foodId)
-	if not template then return 0 end
-	if template:IsA("BasePart") then return template.Size.Y / 2 end
-	if template:IsA("Model") and template.PrimaryPart then return template.PrimaryPart.Size.Y / 2 end
-	return 0
-end
-
-local function groundCFrame(marker, foodId)
-	-- Snap the ground fruit so its bottom aligns with the marker's
-	-- bottom (the marker sits on the floor at design time, so this puts
-	-- the fruit cleanly on the floor too).
-	local dy = fruitHalfHeight(foodId) - marker.Size.Y / 2
-	return marker.CFrame * CFrame.new(0, dy, 0)
-end
-
-local function makeGroundFruitVisual(foodId, worldCF)
-	local template = Food.GetTemplate(foodId)
-	if not template then return nil, nil end
-	local visual, primary
-	if template:IsA("BasePart") then
-		visual  = template:Clone()
-		primary = visual
-		configureGroundPart(visual, true)
-		visual.CFrame = worldCF
-	elseif template:IsA("Model") then
-		if not template.PrimaryPart then return nil, nil end
-		visual  = template:Clone()
-		primary = visual.PrimaryPart
-		for _, d in ipairs(visual:GetDescendants()) do
-			if d:IsA("BasePart") then configureGroundPart(d, d == primary) end
-		end
-		visual:PivotTo(worldCF)
-	end
-	if not visual or not primary then
-		if visual then visual:Destroy() end
-		return nil, nil
-	end
-	return visual, primary
+local function clearGroundMarkerState(marker)
+	marker:SetAttribute(State.TreeClicker.GroundPile, nil)
+	marker:SetAttribute(State.TreeClicker.SlotIndex, nil)
+	marker:SetAttribute(State.Food.Id, nil)
+	marker:SetAttribute(State.Food.Type, nil)
+	marker:SetAttribute(State.Food.XP, nil)
 end
 
 local function destroySlotGround(slot)
 	if not slot.ground then return end
-	if slot.ground.model and slot.ground.model.Parent then slot.ground.model:Destroy() end
+	groundToSlot[slot.ground.marker] = nil
+	clearGroundMarkerState(slot.ground.marker)
 	slot.ground = nil
 end
 
 -- forward decl so handlers can call each other
 local pickupSlotGround
 local function spawnSlotGround(machine, s, slot, foodId, xp)
-	local visual, primary = makeGroundFruitVisual(foodId, groundCFrame(slot.marker, foodId))
-	if not visual then return end
-
-	visual:SetAttribute(State.TreeClicker.GroundPile, true)
-	visual:SetAttribute(State.TreeClicker.SlotIndex, slot.n)
-	visual:SetAttribute(State.Food.Id, foodId)
-	visual:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
-	visual:SetAttribute(State.Food.XP, xp)
-	visual.Parent = groundFolder(machine)
-
+	setGroundMarkerState(slot.marker, slot, foodId, xp)
 	slot.ground = {
 		foodId   = foodId,
 		xp       = xp,
-		model    = visual,
-		primary  = primary,
+		marker   = slot.marker,
+	}
+	groundToSlot[slot.marker] = {
+		machine = machine,
+		state = s,
+		slot = slot,
 	}
 end
 
 local function addXPToSlotGround(slot, deltaXP)
 	if not slot.ground then return end
 	slot.ground.xp = slot.ground.xp + deltaXP
-	slot.ground.model:SetAttribute(State.Food.XP, slot.ground.xp)
+	slot.ground.marker:SetAttribute(State.Food.XP, slot.ground.xp)
 end
 
 pickupSlotGround = function(machine, s, slot, player)
@@ -326,10 +278,10 @@ pickupSlotGround = function(machine, s, slot, player)
 		tool:Destroy()
 		return false
 	end
-	local groundModel = slot.ground.model
+	local groundMarker = slot.ground.marker
 	local profile = PlayerDataService.GetProfile(player)
 	if profile then
-		OnboardingService.OnTreeFruitPicked(player, profile, machine, groundModel)
+		OnboardingService.OnTreeFruitPicked(player, profile, machine, groundMarker)
 	end
 	destroySlotGround(slot)
 	return true, machine
@@ -366,16 +318,6 @@ local function findReadySlot(s)
 	return ready[math.random(1, #ready)]
 end
 
-local function tickRespawns(s)
-	local now = os.clock()
-	for _, slot in ipairs(s.slots) do
-		if slot.respawnAt and now >= slot.respawnAt then
-			slot.respawnAt = nil
-			slot.foodPart  = spawnSlotVisual(slot, s.foodDrop)
-		end
-	end
-end
-
 local function isPlayerNear(player, origin, radius)
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -400,17 +342,21 @@ local function fireEffectNearby(machine, balance, anchor, marker, foodId)
 	end
 end
 
--- Single 4Hz heartbeat across all AppleTree machines.
-RuntimeGuard.Spawn("TreeClicker.RespawnLoop", function()
-	while true do
-		task.wait(0.25)
-		for machine, s in pairs(state) do
-			if machine.Parent then
-				RuntimeGuard.Run("TreeClicker.TickRespawns", tickRespawns, s)
+local function scheduleSlotRespawn(machine, s, slot)
+	slot.respawnToken = (slot.respawnToken or 0) + 1
+	local token = slot.respawnToken
+	slot.respawnAt = os.clock() + s.balance.SlotRespawn
+
+	task.delay(s.balance.SlotRespawn, function()
+		RuntimeGuard.Run("TreeClicker.SlotRespawn", function()
+			if state[machine] ~= s or slot.respawnToken ~= token or not slot.respawnAt then
+				return
 			end
-		end
-	end
-end)
+			slot.respawnAt = nil
+			slot.foodPart = spawnSlotVisual(slot, s.foodDrop)
+		end)
+	end)
+end
 
 local function onTreeClicked(machine, s, player)
 	if player ~= s.owner then return end
@@ -424,7 +370,7 @@ local function onTreeClicked(machine, s, player)
 	if not slot then return end
 
 	clearSlotVisual(slot)
-	slot.respawnAt = now + s.balance.SlotRespawn
+	scheduleSlotRespawn(machine, s, slot)
 	s.lastClick = now
 
 	local foodId = s.foodDrop
@@ -545,6 +491,7 @@ function TreeClicker.Teardown(machine)
 	if not s then return end
 	for _, c in ipairs(s.conns) do c:Disconnect() end
 	for _, slot in ipairs(s.slots) do
+		slot.respawnToken = (slot.respawnToken or 0) + 1
 		destroySlotGround(slot)
 	end
 	state[machine] = nil
@@ -588,15 +535,13 @@ end
 
 function TreeClicker.PickupGround(ground, player)
 	if not ground then return false end
-	for machine, s in pairs(state) do
-		if machine.Parent then
-			for _, slot in ipairs(s.slots) do
-				local model = slot.ground and slot.ground.model
-				if model and (ground == model or ground:IsDescendantOf(model)) then
-					return pickupSlotGround(machine, s, slot, player)
-				end
-			end
+	local current = ground
+	while current do
+		local record = groundToSlot[current]
+		if record and record.machine.Parent and state[record.machine] == record.state then
+			return pickupSlotGround(record.machine, record.state, record.slot, player)
 		end
+		current = current.Parent
 	end
 	return false
 end

@@ -115,11 +115,143 @@ local plots       = collectPlots()
 local plotOwners  = {}
 local playerPlots = {}
 local localToWorldOnFloorTop
+local plotPlacementRecords = setmetatable({}, { __mode = "k" })
 
 local PlotService = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
+end
+
+local function placementRecord(plot)
+	local record = plotPlacementRecords[plot]
+	if record then
+		return record
+	end
+	record = {
+		feeds = {},
+		feedSet = {},
+		feedConns = {},
+		cosmetics = {},
+		cosmeticSet = {},
+		cosmeticConns = {},
+		navObstacleBounds = nil,
+		navObstacleDirty = true,
+	}
+	plotPlacementRecords[plot] = record
+	return record
+end
+
+local function markPlacementBoundsDirty(plot)
+	local record = plot and plotPlacementRecords[plot]
+	if record then
+		record.navObstacleBounds = nil
+		record.navObstacleDirty = true
+	end
+end
+
+local function disconnectConnections(connections)
+	if not connections then return end
+	for _, connection in ipairs(connections) do
+		connection:Disconnect()
+	end
+end
+
+local function removeFromArray(array, value)
+	for index = #array, 1, -1 do
+		if array[index] == value then
+			table.remove(array, index)
+			return
+		end
+	end
+end
+
+local unregisterFeedRoot
+local unregisterCosmeticRoot
+
+local function sortedIndexedCopy(array, indexAttribute)
+	local result = {}
+	for _, instance in ipairs(array) do
+		if instance.Parent and instance:GetAttribute(indexAttribute) ~= nil then
+			result[#result + 1] = instance
+		end
+	end
+	table.sort(result, function(a, b)
+		return (a:GetAttribute(indexAttribute) or 0) < (b:GetAttribute(indexAttribute) or 0)
+	end)
+	return result
+end
+
+local function registerFeedRoot(plot, root)
+	if not (plot and root and root:IsDescendantOf(plot)) then return end
+	local record = placementRecord(plot)
+	if record.feedSet[root] then return end
+	record.feedSet[root] = true
+	record.feeds[#record.feeds + 1] = root
+	markPlacementBoundsDirty(plot)
+	local connections = {}
+	connections[#connections + 1] = root.Destroying:Connect(function()
+		unregisterFeedRoot(plot, root)
+	end)
+	connections[#connections + 1] = root.AncestryChanged:Connect(function()
+		if not root:IsDescendantOf(plot) then
+			unregisterFeedRoot(plot, root)
+		end
+	end)
+	record.feedConns[root] = connections
+end
+
+unregisterFeedRoot = function(plot, root)
+	local record = plot and plotPlacementRecords[plot]
+	if not (record and record.feedSet[root]) then return end
+	record.feedSet[root] = nil
+	removeFromArray(record.feeds, root)
+	disconnectConnections(record.feedConns[root])
+	record.feedConns[root] = nil
+	markPlacementBoundsDirty(plot)
+end
+
+local function registerCosmeticRoot(plot, root)
+	if not (plot and root and root:IsDescendantOf(plot)) then return end
+	local record = placementRecord(plot)
+	if record.cosmeticSet[root] then return end
+	record.cosmeticSet[root] = true
+	record.cosmetics[#record.cosmetics + 1] = root
+	markPlacementBoundsDirty(plot)
+	local connections = {}
+	connections[#connections + 1] = root.Destroying:Connect(function()
+		unregisterCosmeticRoot(plot, root)
+	end)
+	connections[#connections + 1] = root.AncestryChanged:Connect(function()
+		if not root:IsDescendantOf(plot) then
+			unregisterCosmeticRoot(plot, root)
+		end
+	end)
+	record.cosmeticConns[root] = connections
+end
+
+unregisterCosmeticRoot = function(plot, root)
+	local record = plot and plotPlacementRecords[plot]
+	if not (record and record.cosmeticSet[root]) then return end
+	record.cosmeticSet[root] = nil
+	removeFromArray(record.cosmetics, root)
+	disconnectConnections(record.cosmeticConns[root])
+	record.cosmeticConns[root] = nil
+	markPlacementBoundsDirty(plot)
+end
+
+local function clearPlacementRecord(plot)
+	local record = plot and plotPlacementRecords[plot]
+	if not record then return end
+	for root, connections in pairs(record.feedConns) do
+		disconnectConnections(connections)
+		record.feedSet[root] = nil
+	end
+	for root, connections in pairs(record.cosmeticConns) do
+		disconnectConnections(connections)
+		record.cosmeticSet[root] = nil
+	end
+	plotPlacementRecords[plot] = nil
 end
 
 function PlotService.AssignPlot(player)
@@ -157,6 +289,7 @@ function PlotService.FreePlot(player)
 		local plot = plots[i]
 		plotOwners[i]       = nil
 		playerPlots[key] = nil
+		clearPlacementRecord(plot)
 		setPlotVacantPresentation(plot, true)
 	end
 end
@@ -185,38 +318,14 @@ end
 -- sorted by FeedIndex (which is assigned per-plot and matches the
 -- placement array index in profile data).
 function PlotService.GetSortedFeeds(plot)
-	local feeds = {}
-	for _, obj in pairs(plot:GetDescendants()) do
-		local feedType = obj:GetAttribute(State.Feed.Type)
-		if (obj:IsA("BasePart") or obj:IsA("Model"))
-			and type(feedType) == "string"
-			and feedType ~= ""
-			and obj:GetAttribute(State.Feed.Index) then
-			table.insert(feeds, obj)
-		end
-	end
-	table.sort(feeds, function(a, b)
-		return (a:GetAttribute(State.Feed.Index) or 0) < (b:GetAttribute(State.Feed.Index) or 0)
-	end)
-	return feeds
+	if not plot then return {} end
+	return sortedIndexedCopy(placementRecord(plot).feeds, State.Feed.Index)
 end
 
 -- Returns all cosmetic instances on the plot, sorted by CosmeticIndex.
 function PlotService.GetSortedCosmetics(plot)
-	local cosmetics = {}
-	for _, obj in pairs(plot:GetDescendants()) do
-		local cosmeticId = obj:GetAttribute(State.Cosmetic.Id)
-		if (obj:IsA("BasePart") or obj:IsA("Model"))
-			and type(cosmeticId) == "string"
-			and cosmeticId ~= ""
-			and obj:GetAttribute(State.Cosmetic.Index) then
-			table.insert(cosmetics, obj)
-		end
-	end
-	table.sort(cosmetics, function(a, b)
-		return (a:GetAttribute(State.Cosmetic.Index) or 0) < (b:GetAttribute(State.Cosmetic.Index) or 0)
-	end)
-	return cosmetics
+	if not plot then return {} end
+	return sortedIndexedCopy(placementRecord(plot).cosmetics, State.Cosmetic.Index)
 end
 
 -- Templates can be either BasePart or Model. Returns the Y-extent used
@@ -728,6 +837,7 @@ function PlotService.PlaceFeedWithIndex(plot, feedType, feedIndex, lx, lz, lry, 
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
+	registerFeedRoot(plot, clone)
 	return clone
 end
 
@@ -755,6 +865,7 @@ function PlotService.PlaceCosmeticWithIndex(plot, cosmeticId, cosmeticIndex, lx,
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
 	clone.Parent = plot
+	registerCosmeticRoot(plot, clone)
 	return clone
 end
 
@@ -845,6 +956,7 @@ function PlotService.RepositionFeed(plot, feed, lx, lz, lry)
 	local height = templateHeight(feed)
 	local cframe = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
 	anchorAndPlace(feed, cframe)
+	markPlacementBoundsDirty(plot)
 	return cframe
 end
 
@@ -856,6 +968,7 @@ function PlotService.RepositionCosmetic(plot, cosmetic, lx, lz, lry)
 	local height = templateHeight(cosmetic)
 	local cframe = localToWorldOnFloorTop(floor, lx, lz, height / 2, lry)
 	anchorAndPlace(cosmetic, cframe)
+	markPlacementBoundsDirty(plot)
 	return cframe
 end
 
@@ -895,6 +1008,10 @@ end
 function PlotService.GetNavigationObstacleBounds(plot)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return {} end
+	local record = placementRecord(plot)
+	if record.navObstacleDirty == false and record.navObstacleBounds then
+		return record.navObstacleBounds
+	end
 
 	local obstacles = {}
 	local function addObstacle(instance)
@@ -929,6 +1046,8 @@ function PlotService.GetNavigationObstacleBounds(plot)
 		addObstacle(cosmetic)
 	end
 
+	record.navObstacleBounds = obstacles
+	record.navObstacleDirty = false
 	return obstacles
 end
 

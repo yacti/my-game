@@ -1087,7 +1087,8 @@ local function bindRollButton(buttonPart, PlotService, PlayerDataService)
 end
 
 local function scanRollButtons(PlotService, PlayerDataService)
-	for _, descendant in ipairs(workspace:GetDescendants()) do
+	local root = workspace:FindFirstChild("Plots") or workspace
+	for _, descendant in ipairs(root:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			bindRollButton(descendant, PlotService, PlayerDataService)
 		end
@@ -1099,7 +1100,8 @@ function RollService.Start()
 	local PlotService = require(Server:WaitForChild("PlotService"))
 
 	scanRollButtons(PlotService, PlayerDataService)
-	RuntimeGuard.Connect(workspace.DescendantAdded, "RollService.DescendantAdded", function(descendant)
+	local rollButtonRoot = workspace:FindFirstChild("Plots") or workspace
+	RuntimeGuard.Connect(rollButtonRoot.DescendantAdded, "RollService.DescendantAdded", function(descendant)
 		if descendant:IsA("BasePart") then
 			bindRollButton(descendant, PlotService, PlayerDataService)
 		end

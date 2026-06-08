@@ -5,11 +5,7 @@
 -- Server owns the XP data; this module only reads it and rebuilds the label
 -- when it changes.
 --
--- We watch Workspace descendants — a Tool only reaches Workspace when it's
--- equipped (parented to a Character), which is exactly when the badge
--- should be visible.
-
-local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -19,13 +15,37 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local ToolStatsBillboard = {}
+local player = Players.LocalPlayer
+local trackedTools = setmetatable({}, { __mode = "k" })
 
 local function isFoodTool(obj)
 	return obj:IsA("Tool")
 		and (obj:GetAttribute(State.Food.Id) ~= nil or obj:GetAttribute(State.Food.Type) ~= nil)
 end
 
+local function cleanup(tool, destroyGui)
+	local record = trackedTools[tool]
+	if not record then
+		return
+	end
+	trackedTools[tool] = nil
+	for _, connection in ipairs(record.connections) do
+		connection:Disconnect()
+	end
+	if destroyGui ~= false and record.gui and record.gui.Parent then
+		record.gui:Destroy()
+	end
+end
+
 local function build(tool)
+	if tool.Parent ~= player.Character then return end
+	local existing = trackedTools[tool]
+	if existing and existing.gui and existing.gui.Parent then
+		return
+	elseif existing then
+		cleanup(tool, true)
+	end
+
 	local handle = tool:FindFirstChild("Handle")
 	if not handle then return end
 	if handle:FindFirstChild("Stats") then return end
@@ -42,19 +62,44 @@ local function build(tool)
 		label.Text = NumberFormatter.XP(xp, "xp")
 	end
 	render()
-	tool:GetAttributeChangedSignal(State.Food.XP):Connect(render)
+
+	local record = {
+		gui = gui,
+		connections = {},
+	}
+	trackedTools[tool] = record
+	record.connections[#record.connections + 1] = tool:GetAttributeChangedSignal(State.Food.XP):Connect(render)
+	record.connections[#record.connections + 1] = tool.Destroying:Connect(function()
+		cleanup(tool, true)
+	end)
+	record.connections[#record.connections + 1] = tool.AncestryChanged:Connect(function()
+		if tool.Parent ~= player.Character then
+			cleanup(tool, true)
+		end
+	end)
+	record.connections[#record.connections + 1] = gui.Destroying:Connect(function()
+		cleanup(tool, false)
+	end)
 
 	gui.Parent = handle
 	UiEffects.BindBillboardDistancePop(gui)
 end
 
 function ToolStatsBillboard.start()
-	for _, d in ipairs(Workspace:GetDescendants()) do
-		if isFoodTool(d) then build(d) end
+	local function watchCharacter(character)
+		if not character then return end
+		for _, child in ipairs(character:GetChildren()) do
+			if isFoodTool(child) then build(child) end
+		end
+		character.ChildAdded:Connect(function(child)
+			if isFoodTool(child) then build(child) end
+		end)
+		character.ChildRemoved:Connect(function(child)
+			if isFoodTool(child) then cleanup(child, true) end
+		end)
 	end
-	Workspace.DescendantAdded:Connect(function(d)
-		if isFoodTool(d) then build(d) end
-	end)
+	player.CharacterAdded:Connect(watchCharacter)
+	watchCharacter(player.Character)
 end
 
 return ToolStatsBillboard

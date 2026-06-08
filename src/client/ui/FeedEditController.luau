@@ -36,6 +36,7 @@ local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local placeableIndex = nil
 
 local MOVE_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before moving another machine.",
@@ -125,14 +126,74 @@ local function hasPlaceableRootAncestor(plot, instance)
 	return false
 end
 
+local function disconnectPlaceableIndex()
+	if not placeableIndex then return end
+	for _, conn in ipairs(placeableIndex.conns) do
+		conn:Disconnect()
+	end
+	placeableIndex = nil
+end
+
+local function removePlaceableRoot(index, instance)
+	if not index.rootSet[instance] then return end
+	index.rootSet[instance] = nil
+	for i = #index.roots, 1, -1 do
+		if index.roots[i] == instance then
+			table.remove(index.roots, i)
+		end
+	end
+end
+
+local function addPlaceableCandidate(index, instance)
+	local plot = index.plot
+	if not (plot and instance and instance:IsDescendantOf(plot)) then return end
+	if instance:GetAttribute(State.TreeClicker.LocalVisual) == true then return end
+	if (isMatureFeed(instance) or isGrowingFeed(instance) or isCosmetic(instance))
+		and not hasPlaceableRootAncestor(plot, instance) then
+		if not index.rootSet[instance] then
+			index.rootSet[instance] = true
+			index.roots[#index.roots + 1] = instance
+		end
+	end
+end
+
+local function ensurePlaceableIndex(plot)
+	if not plot then
+		disconnectPlaceableIndex()
+		return nil
+	end
+	if placeableIndex and placeableIndex.plot == plot then
+		return placeableIndex
+	end
+
+	disconnectPlaceableIndex()
+	local index = {
+		plot = plot,
+		roots = {},
+		rootSet = {},
+		conns = {},
+	}
+	placeableIndex = index
+	for _, descendant in ipairs(plot:GetDescendants()) do
+		addPlaceableCandidate(index, descendant)
+	end
+	index.conns[#index.conns + 1] = RuntimeGuard.Connect(plot.DescendantAdded, "FeedEditController.PlaceableDescendantAdded", function(descendant)
+		addPlaceableCandidate(index, descendant)
+	end)
+	index.conns[#index.conns + 1] = RuntimeGuard.Connect(plot.DescendantRemoving, "FeedEditController.PlaceableDescendantRemoving", function(descendant)
+		removePlaceableRoot(index, descendant)
+	end)
+	return index
+end
+
 local function placeableRoots(plot)
 	local roots = {}
-	if not plot then return roots end
+	local index = ensurePlaceableIndex(plot)
+	if not index then return roots end
 
-	for _, descendant in ipairs(plot:GetDescendants()) do
-		if (isMatureFeed(descendant) or isGrowingFeed(descendant) or isCosmetic(descendant))
-			and not hasPlaceableRootAncestor(plot, descendant) then
-			roots[#roots + 1] = descendant
+	for _, root in ipairs(index.roots) do
+		if root.Parent and root:IsDescendantOf(plot) then
+			roots[#roots + 1] = root
 		end
 	end
 
@@ -966,6 +1027,7 @@ function FeedEditController.start()
 		refreshButtonVisibility()
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "FeedEditController.AssignedPlotChanged", function()
+		disconnectPlaceableIndex()
 		refreshButtonVisibility()
 		refreshEditState()
 	end)

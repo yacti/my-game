@@ -442,6 +442,12 @@ local function tryProcessFoodTool(tool, retriesRemaining)
 end
 
 local function processFoodTool(tool)
+	if not (tool and tool:IsA("Tool")) then
+		return
+	end
+	if seenFoodTools[foodToolKey(tool)] then
+		return
+	end
 	RuntimeGuard.Spawn("ItemAddedDisplay.ProcessFoodTool", tryProcessFoodTool, tool, FOOD_TOOL_ATTRIBUTE_RETRIES)
 end
 

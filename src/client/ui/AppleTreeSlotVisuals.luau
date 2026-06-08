@@ -1,8 +1,9 @@
--- Client-only polish for tree-clicker visuals (AppleTree/CherryTree).
+-- Client-only polish for FeedClass=Tree visuals.
 -- Server owns gameplay state; this module renders transient shake, drop,
--- slot respawn effects, and AppleTree ground XP billboards locally from
--- replicated attributes.
+-- slot respawn effects, close-range ground fruit, and ground XP billboards
+-- locally from replicated marker attributes.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local TweenService      = game:GetService("TweenService")
@@ -17,8 +18,9 @@ local State   = require(Shared:WaitForChild("State"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
-local AppleTreeSlotVisuals = {}
+local TreeVisuals = {}
 
+local LOCAL_GROUND_VISUAL_FOLDER = "__ClientTreeGroundVisuals"
 local RESPAWN_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local DROP_TWEEN_INFO    = TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local XP_COUNT_TWEEN_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -27,21 +29,24 @@ local SHAKE_DURATION     = 0.25
 local SHAKE_ANGLE        = math.rad(5)
 local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
-local GROUND_FOOD_RESCAN_DELAYS = { 0.25, 1, 3 }
+local GROUND_VISUAL_RANGE = 90
+local GROUND_VISUAL_CHECK_INTERVAL = 0.2
 
+local player = Players.LocalPlayer
 local animated = {}
 local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
 local shakeIds = {}
+local groundMarkers = {}
+local shakeTargetCache = {}
 
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
-	local feedType = tree:GetAttribute(State.Feed.Type)
-	return feedType == "AppleTree" or feedType == "CherryTree"
+	return tree:GetAttribute(State.Feed.Class) == "Tree"
 end
 
-local function isAppleTreeSlotFood(obj)
+local function isTreeSlotFood(obj)
 	local parent = obj.Parent
 	if not parent or parent.Name ~= "SlotAnchor" then return false end
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -50,17 +55,27 @@ local function isAppleTreeSlotFood(obj)
 	return isTreeClicker(tree)
 end
 
-local function isAppleTreeGroundFood(obj)
+local function isTreeGroundMarker(obj)
 	return (obj:IsA("BasePart") or obj:IsA("Model"))
 		and obj:GetAttribute(State.TreeClicker.GroundPile) == true
 		and obj:GetAttribute(State.TreeClicker.SlotIndex) ~= nil
 		and obj:GetAttribute(State.Food.Id) ~= nil
+		and obj:GetAttribute(State.TreeClicker.LocalVisual) ~= true
 end
 
-local function isAppleTreeGroundCandidate(obj)
+local function isTreeGroundCandidate(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
+	if obj:GetAttribute(State.TreeClicker.LocalVisual) == true then return false end
 	if obj:GetAttribute(State.TreeClicker.GroundPile) == true then return true end
-	return obj.Parent ~= nil and obj.Parent.Name == State.TreeClicker.GroundFolder
+	if obj.Name:match("^BaseFoodGround%d+$") == nil then return false end
+	local ancestor = obj.Parent
+	while ancestor do
+		if isTreeClicker(ancestor) then
+			return true
+		end
+		ancestor = ancestor.Parent
+	end
+	return false
 end
 
 local function partsOf(obj)
@@ -123,6 +138,74 @@ local function configureEffectPart(part)
 	part.CanCollide = false
 	part.CanQuery = false
 	part.CanTouch = false
+end
+
+local function localGroundVisualFolder()
+	local folder = Workspace:FindFirstChild(LOCAL_GROUND_VISUAL_FOLDER)
+	if folder and folder:IsA("Folder") then
+		return folder
+	end
+	if folder then folder:Destroy() end
+	folder = Instance.new("Folder")
+	folder.Name = LOCAL_GROUND_VISUAL_FOLDER
+	folder.Parent = Workspace
+	return folder
+end
+
+local function clearGameplayAttributes(instance)
+	instance:SetAttribute(State.TreeClicker.GroundPile, nil)
+	instance:SetAttribute(State.TreeClicker.SlotIndex, nil)
+	instance:SetAttribute(State.Food.Id, nil)
+	instance:SetAttribute(State.Food.Type, nil)
+	instance:SetAttribute(State.Food.XP, nil)
+	instance:SetAttribute(State.TreeClicker.LocalVisual, true)
+end
+
+local function configureLocalGroundPart(part)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+end
+
+local function localGroundHalfHeight(visual)
+	if visual:IsA("BasePart") then return visual.Size.Y / 2 end
+	if visual:IsA("Model") and visual.PrimaryPart then return visual.PrimaryPart.Size.Y / 2 end
+	return 0
+end
+
+local function localGroundCFrame(marker, visual)
+	local dy = localGroundHalfHeight(visual) - marker.Size.Y / 2
+	return marker.CFrame * CFrame.new(0, dy, 0)
+end
+
+local function cloneLocalGroundVisual(marker)
+	local foodId = marker:GetAttribute(State.Food.Id)
+	if type(foodId) ~= "string" then return nil end
+	local template = Food.GetTemplate(foodId)
+	if not template then return nil end
+
+	local clone = template:Clone()
+	clearGameplayAttributes(clone)
+	if clone:IsA("BasePart") then
+		configureLocalGroundPart(clone)
+		clone.CFrame = localGroundCFrame(marker, clone)
+	elseif clone:IsA("Model") then
+		if not clone.PrimaryPart then
+			clone:Destroy()
+			return nil
+		end
+		for _, d in ipairs(clone:GetDescendants()) do
+			if d:IsA("BasePart") then configureLocalGroundPart(d) end
+		end
+		clone:PivotTo(localGroundCFrame(marker, clone))
+	else
+		clone:Destroy()
+		return nil
+	end
+	clone.Name = "__TreeGroundVisual"
+	clone.Parent = localGroundVisualFolder()
+	return clone
 end
 
 local function cloneFoodEffect(foodId)
@@ -244,7 +327,7 @@ local function attachXPBillboard(food)
 	local adornee = adorneeFor(food)
 	if not adornee then return false end
 
-	local gui, label = XPBillboardTemplate.Clone("AppleTreeSlotVisuals")
+	local gui, label = XPBillboardTemplate.Clone("TreeVisuals")
 	if not gui then return false end
 	gui.Name = "XPBillboard"
 	gui.Adornee = adornee
@@ -288,26 +371,56 @@ local function attachXPBillboard(food)
 		end
 	end))
 
-	clearPendingGroundFood(food)
+	return true
+end
+
+local function cleanupGroundMarker(marker)
+	local record = groundMarkers[marker]
+	if not record then return end
+	if record.visual then
+		record.visual:Destroy()
+	end
+	groundMarkers[marker] = nil
+	local billboard = billboards[marker]
+	if billboard then
+		for _, conn in ipairs(billboard.conns) do
+			conn:Disconnect()
+		end
+		stopXPCounter(billboard)
+		if billboard.gui then billboard.gui:Destroy() end
+		billboards[marker] = nil
+	end
+end
+
+local function trackGroundMarker(marker)
+	if not isTreeGroundMarker(marker) then
+		cleanupGroundMarker(marker)
+		return false
+	end
+	if not groundMarkers[marker] then
+		groundMarkers[marker] = {
+			visual = nil,
+			foodId = marker:GetAttribute(State.Food.Id),
+		}
+	end
+	attachXPBillboard(marker)
 	return true
 end
 
 local function trackGroundFoodCandidate(obj)
-	if not isAppleTreeGroundCandidate(obj) then return end
-	if isAppleTreeGroundFood(obj) and attachXPBillboard(obj) then return end
+	if not isTreeGroundCandidate(obj) then return end
 	if pendingGroundFood[obj] then return end
 
 	local conns = {}
 	local function tryAttach()
-		if isAppleTreeGroundFood(obj) and attachXPBillboard(obj) then
-			clearPendingGroundFood(obj)
-		end
+		trackGroundMarker(obj)
 	end
 
 	table.insert(conns, obj:GetAttributeChangedSignal(State.TreeClicker.GroundPile):Connect(tryAttach))
 	table.insert(conns, obj:GetAttributeChangedSignal(State.TreeClicker.SlotIndex):Connect(tryAttach))
 	table.insert(conns, obj:GetAttributeChangedSignal(State.Food.Type):Connect(tryAttach))
 	table.insert(conns, obj:GetAttributeChangedSignal(State.Food.Id):Connect(tryAttach))
+	table.insert(conns, obj:GetAttributeChangedSignal(State.Food.XP):Connect(tryAttach))
 	if obj:IsA("Model") then
 		table.insert(conns, obj.DescendantAdded:Connect(function()
 			tryAttach()
@@ -315,25 +428,71 @@ local function trackGroundFoodCandidate(obj)
 	end
 	table.insert(conns, obj.AncestryChanged:Connect(function()
 		if not obj:IsDescendantOf(Workspace) then
+			cleanupGroundMarker(obj)
 			clearPendingGroundFood(obj)
 		end
 	end))
 	pendingGroundFood[obj] = conns
 
 	task.defer(tryAttach)
-	for _, delaySeconds in ipairs(GROUND_FOOD_RESCAN_DELAYS) do
-		task.delay(delaySeconds, function()
-			if pendingGroundFood[obj] and obj:IsDescendantOf(Workspace) then
-				tryAttach()
+end
+
+local function playerRootPosition()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root:IsA("BasePart") and root.Position or nil
+end
+
+local function markerPosition(marker)
+	if marker:IsA("BasePart") then return marker.Position end
+	if marker:IsA("Model") then return marker:GetPivot().Position end
+	return nil
+end
+
+local function updateGroundVisuals()
+	local rootPosition = playerRootPosition()
+	for marker, record in pairs(groundMarkers) do
+		RuntimeGuard.Run("TreeVisuals.UpdateGroundVisual", function()
+			if not isTreeGroundMarker(marker) or not marker:IsDescendantOf(Workspace) then
+				cleanupGroundMarker(marker)
+				return
+			end
+
+			local position = rootPosition and markerPosition(marker) or nil
+			local inRange = position ~= nil and (position - rootPosition).Magnitude <= GROUND_VISUAL_RANGE
+			local foodId = marker:GetAttribute(State.Food.Id)
+			if (not inRange) or type(foodId) ~= "string" then
+				if record.visual then
+					record.visual:Destroy()
+					record.visual = nil
+				end
+				record.foodId = foodId
+				return
+			end
+
+			if record.visual and record.foodId ~= foodId then
+				record.visual:Destroy()
+				record.visual = nil
+			end
+			if not record.visual then
+				record.visual = cloneLocalGroundVisual(marker)
+				record.foodId = foodId
+			elseif record.visual:IsA("BasePart") then
+				record.visual.CFrame = localGroundCFrame(marker, record.visual)
+			elseif record.visual:IsA("Model") then
+				record.visual:PivotTo(localGroundCFrame(marker, record.visual))
 			end
 		end)
 	end
 end
 
-local function scanGroundFoods()
-	for _, obj in ipairs(Workspace:GetDescendants()) do
-		if isAppleTreeGroundFood(obj) then
+local function scanTreeVisualRoot(root)
+	if not root then return end
+	for _, obj in ipairs(root:GetDescendants()) do
+		if isTreeGroundMarker(obj) then
 			trackGroundFoodCandidate(obj)
+		elseif isTreeSlotFood(obj) then
+			animate(obj)
 		end
 	end
 end
@@ -451,6 +610,51 @@ local function collectShakeTargets(tree)
 	return targets
 end
 
+local function clearShakeTargetCache(tree)
+	local record = shakeTargetCache[tree]
+	if not record then return end
+	for _, conn in ipairs(record.conns) do
+		conn:Disconnect()
+	end
+	local activeTargets = activeShakeTargets[tree]
+	if activeTargets then
+		restoreTargets(activeTargets)
+		activeShakeTargets[tree] = nil
+	end
+	shakeIds[tree] = (shakeIds[tree] or 0) + 1
+	shakeTargetCache[tree] = nil
+end
+
+local function cachedShakeTargets(tree)
+	local record = shakeTargetCache[tree]
+	if record then
+		for _, target in ipairs(record.targets) do
+			if target.instance.Parent then
+				target.baseCFrame = targetCFrame(target.instance)
+			end
+		end
+		return record.targets
+	end
+
+	local targets = collectShakeTargets(tree)
+	local conns = {}
+	local function invalidate()
+		clearShakeTargetCache(tree)
+	end
+	table.insert(conns, tree.DescendantAdded:Connect(invalidate))
+	table.insert(conns, tree.DescendantRemoving:Connect(invalidate))
+	table.insert(conns, tree.AncestryChanged:Connect(function()
+		if not tree:IsDescendantOf(Workspace) then
+			invalidate()
+		end
+	end))
+	shakeTargetCache[tree] = {
+		targets = targets,
+		conns = conns,
+	}
+	return targets
+end
+
 local function shakeTree(tree)
 	if not tree or not tree.Parent then return end
 
@@ -459,7 +663,7 @@ local function shakeTree(tree)
 		restoreTargets(previousTargets)
 	end
 
-	local targets = collectShakeTargets(tree)
+	local targets = cachedShakeTargets(tree)
 	if #targets == 0 then return end
 
 	shakeIds[tree] = (shakeIds[tree] or 0) + 1
@@ -509,29 +713,52 @@ local function animate(food)
 		tweenModelGrow(food)
 	end
 
-	RuntimeGuard.Connect(food.AncestryChanged, "AppleTreeSlotVisuals.FoodAncestryChanged", function()
+	RuntimeGuard.Connect(food.AncestryChanged, "TreeVisuals.FoodAncestryChanged", function()
 		if not food:IsDescendantOf(Workspace) then
 			animated[food] = nil
 		end
 	end)
 end
 
-function AppleTreeSlotVisuals.start()
-	scanGroundFoods()
-	for _, delaySeconds in ipairs(GROUND_FOOD_RESCAN_DELAYS) do
-		task.delay(delaySeconds, function()
-			RuntimeGuard.Run("AppleTreeSlotVisuals.RescanGroundFoods", scanGroundFoods)
+function TreeVisuals.start()
+	local function bindVisualRoot(root)
+		if not root then return end
+		RuntimeGuard.Run("TreeVisuals.ScanRoot", scanTreeVisualRoot, root)
+		RuntimeGuard.Connect(root.DescendantAdded, "TreeVisuals.RootDescendantAdded", function(obj)
+			if isTreeSlotFood(obj) then
+				animate(obj)
+			end
+			trackGroundFoodCandidate(obj)
 		end)
 	end
 
-	RuntimeGuard.Connect(Workspace.DescendantAdded, "AppleTreeSlotVisuals.DescendantAdded", function(obj)
-		if isAppleTreeSlotFood(obj) then
-			animate(obj)
+	local plotsFolder = Workspace:FindFirstChild("Plots")
+	if plotsFolder then
+		bindVisualRoot(plotsFolder)
+	else
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			end
 		end
-		trackGroundFoodCandidate(obj)
+		RuntimeGuard.Connect(Workspace.ChildAdded, "TreeVisuals.WorkspaceChildAdded", function(child)
+			if child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			elseif child.Name == "Plots" then
+				bindVisualRoot(child)
+			end
+		end)
+	end
+
+	local elapsed = 0
+	RuntimeGuard.Connect(RunService.Heartbeat, "TreeVisuals.GroundVisualHeartbeat", function(dt)
+		elapsed += dt
+		if elapsed < GROUND_VISUAL_CHECK_INTERVAL then return end
+		elapsed = 0
+		updateGroundVisuals()
 	end)
 
-	RuntimeGuard.Connect(Remotes.get(Remotes.Names.TreeClickerEffect).OnClientEvent, "AppleTreeSlotVisuals.TreeClickerEffect", function(payload)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.TreeClickerEffect).OnClientEvent, "TreeVisuals.TreeClickerEffect", function(payload)
 		if type(payload) ~= "table" then return end
 		local tree = payload.machine
 		local anchor = payload.anchor
@@ -547,4 +774,4 @@ function AppleTreeSlotVisuals.start()
 	end)
 end
 
-return AppleTreeSlotVisuals
+return TreeVisuals

@@ -17,10 +17,10 @@ local TEMPLATE_NAME = "TimerBillboard"
 local TITLE_LABEL_NAME = "TitleLabel"
 local TIME_LABEL_NAME = "TimeLabel"
 local UPDATE_SECONDS = 0.25
-local SCAN_SECONDS = 1
 
 local player = Players.LocalPlayer
 local tracked = {}
+local candidateConnections = {}
 local template = nil
 local warnedTemplate = false
 local warnedLabels = false
@@ -192,15 +192,69 @@ local function attach(instance)
 	end)
 end
 
+local function refreshCandidate(instance)
+	if hasActiveTimer(instance) then
+		attach(instance)
+	elseif tracked[instance] then
+		update(instance, tracked[instance])
+	end
+end
+
+local function clearCandidateWatch(instance)
+	local conns = candidateConnections[instance]
+	if not conns then return end
+	for _, conn in ipairs(conns) do
+		conn:Disconnect()
+	end
+	candidateConnections[instance] = nil
+end
+
+local function clearAllCandidateWatches()
+	local instances = {}
+	for instance in pairs(candidateConnections) do
+		instances[#instances + 1] = instance
+	end
+	for _, instance in ipairs(instances) do
+		clearCandidateWatch(instance)
+	end
+end
+
+local function watchCandidate(instance)
+	if candidateConnections[instance] then return end
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then return end
+	if not isInOwnPlot(instance) then return end
+
+	local conns = {}
+	local function refresh()
+		refreshCandidate(instance)
+	end
+	for _, attributeName in ipairs({
+		State.Seed.Phase,
+		State.Seed.GrowEndAt,
+		State.Seed.TargetDisplayName,
+		State.Feed.Class,
+		State.Feed.QueueCount,
+		State.Feed.ReadyCount,
+		State.Feed.QueueReadyAt,
+	}) do
+		conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(attributeName), "TimerBillboards.CandidateAttributeChanged", refresh)
+	end
+	conns[#conns + 1] = RuntimeGuard.Connect(instance.AncestryChanged, "TimerBillboards.CandidateAncestryChanged", function()
+		if not instance:IsDescendantOf(Workspace) then
+			clearCandidateWatch(instance)
+		end
+	end)
+	candidateConnections[instance] = conns
+	refresh()
+end
+
 local function scan()
 	local plot = PlotResolver.ResolveForPlayer(player)
 	if not plot then
 		return
 	end
 	for _, instance in ipairs(plot:GetDescendants()) do
-		if hasActiveTimer(instance) then
-			attach(instance)
-		end
+		watchCandidate(instance)
 	end
 end
 
@@ -208,6 +262,11 @@ local function watchCurrentPlot()
 	if plotDescendantAdded then
 		plotDescendantAdded:Disconnect()
 		plotDescendantAdded = nil
+	end
+	clearAllCandidateWatches()
+	for instance, gui in pairs(tracked) do
+		if gui then gui:Destroy() end
+		tracked[instance] = nil
 	end
 
 	local plot = PlotResolver.ResolveForPlayer(player)
@@ -217,9 +276,7 @@ local function watchCurrentPlot()
 	plotDescendantAdded = RuntimeGuard.Connect(plot.DescendantAdded, "TimerBillboards.PlotDescendantAdded", function(instance)
 		task.defer(function()
 			RuntimeGuard.Run("TimerBillboards.AttachDeferred", function()
-				if hasActiveTimer(instance) then
-					attach(instance)
-				end
+				watchCandidate(instance)
 			end)
 		end)
 	end)
@@ -233,14 +290,8 @@ function TimerBillboards.start()
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "TimerBillboards.AssignedPlotChanged", watchCurrentPlot)
 
 	local elapsed = 0
-	local scanElapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "TimerBillboards.Heartbeat", function(dt)
 		elapsed += dt
-		scanElapsed += dt
-		if scanElapsed >= SCAN_SECONDS then
-			scanElapsed = 0
-			RuntimeGuard.Run("TimerBillboards.Scan", scan)
-		end
 		if elapsed < UPDATE_SECONDS then
 			return
 		end

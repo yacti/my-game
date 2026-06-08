@@ -201,9 +201,13 @@ function ShovelController.start()
 	local pendingTarget = nil
 	local boundTools = setmetatable({}, { __mode = "k" })
 	local deletePrompts = {}
+	local deleteTargets = {}
+	local deleteTargetConnections = {}
+	local plotDescendantConnection = nil
 
 	local refreshDeletePrompts
 	local clearDeletePrompts
+	local unregisterDeleteTarget
 
 	local function isEquipped()
 		return equippedTool ~= nil and equippedTool.Parent == player.Character
@@ -308,6 +312,16 @@ function ShovelController.start()
 		deletePrompts[target] = nil
 	end
 
+	unregisterDeleteTarget = function(target)
+		removeDeletePrompt(target)
+		local connection = deleteTargetConnections[target]
+		if connection then
+			connection:Disconnect()
+			deleteTargetConnections[target] = nil
+		end
+		deleteTargets[target] = nil
+	end
+
 	clearDeletePrompts = function()
 		local targets = {}
 		for target in pairs(deletePrompts) do
@@ -315,6 +329,16 @@ function ShovelController.start()
 		end
 		for _, target in ipairs(targets) do
 			removeDeletePrompt(target)
+		end
+	end
+
+	local function clearDeleteTargetIndex()
+		local targets = {}
+		for target in pairs(deleteTargets) do
+			targets[#targets + 1] = target
+		end
+		for _, target in ipairs(targets) do
+			unregisterDeleteTarget(target)
 		end
 	end
 
@@ -373,23 +397,84 @@ function ShovelController.start()
 		deletePrompts[target] = record
 	end
 
-	local function tryBindDeletePrompt(instance, plot)
+	local function registerDeleteTarget(target, plot)
+		if not target or deleteTargets[target] then
+			return
+		end
+		if not target.Parent then
+			return
+		end
+		plot = plot or PlotResolver.ResolveForPlayer(player)
+		if not plot or not target:IsDescendantOf(plot) then
+			return
+		end
+		if not (isFeedPlacement(target) or isCosmeticPlacement(target)) then
+			return
+		end
+
+		deleteTargets[target] = true
+		deleteTargetConnections[target] = RuntimeGuard.Connect(target.AncestryChanged, "ShovelController.IndexedTargetAncestryChanged", function()
+			local currentPlot = PlotResolver.ResolveForPlayer(player)
+			if not target.Parent or not currentPlot or not target:IsDescendantOf(currentPlot) then
+				unregisterDeleteTarget(target)
+			end
+		end)
+	end
+
+	local function tryIndexDeleteTarget(instance, plot)
 		plot = plot or PlotResolver.ResolveForPlayer(player)
 		if not plot then
 			return
 		end
 		local target = deleteTargetRootFromInstance(plot, instance)
 		if target then
-			addDeletePrompt(target)
+			registerDeleteTarget(target, plot)
 		end
 	end
 
-	local function scanDeleteTargets(plot)
+	local function rebuildDeleteTargetIndex()
+		clearDeleteTargetIndex()
+		local plot = PlotResolver.ResolveForPlayer(player)
 		if not plot then
 			return
 		end
 		for _, descendant in ipairs(plot:GetDescendants()) do
-			tryBindDeletePrompt(descendant, plot)
+			tryIndexDeleteTarget(descendant, plot)
+		end
+	end
+
+	local function bindPlotIndexWatcher()
+		if plotDescendantConnection then
+			plotDescendantConnection:Disconnect()
+			plotDescendantConnection = nil
+		end
+		local plot = PlotResolver.ResolveForPlayer(player)
+		if not plot then
+			return
+		end
+		plotDescendantConnection = RuntimeGuard.Connect(plot.DescendantAdded, "ShovelController.PlotDescendantAdded", function(instance)
+			tryIndexDeleteTarget(instance, plot)
+			if not isEquipped() then
+				return
+			end
+			task.defer(function()
+				RuntimeGuard.Run("ShovelController.TryBindDeferred", tryIndexDeleteTarget, instance, plot)
+				RuntimeGuard.Run("ShovelController.RefreshPromptsDeferred", refreshDeletePrompts, false)
+			end)
+		end)
+	end
+
+	local function bindIndexedDeleteTargets()
+		local targets = {}
+		for target in pairs(deleteTargets) do
+			targets[#targets + 1] = target
+		end
+		for _, target in ipairs(targets) do
+			if not target.Parent then
+				unregisterDeleteTarget(target)
+			elseif isDeletePromptAvailable(target) then
+				addDeletePrompt(target)
+			end
 		end
 	end
 
@@ -401,14 +486,15 @@ function ShovelController.start()
 		end
 
 		if shouldScan then
-			scanDeleteTargets(plot)
+			rebuildDeleteTargetIndex()
 		end
+		bindIndexedDeleteTargets()
 
 		for target, record in pairs(deletePrompts) do
 			if not target.Parent
 				or not target:IsDescendantOf(plot)
 				or not (isFeedPlacement(target) or isCosmeticPlacement(target)) then
-				removeDeletePrompt(target)
+				unregisterDeleteTarget(target)
 				continue
 			end
 
@@ -427,7 +513,7 @@ function ShovelController.start()
 
 		local function activateTool()
 			equippedTool = tool
-			refreshDeletePrompts(true)
+			refreshDeletePrompts(false)
 		end
 
 		RuntimeGuard.Connect(tool.Equipped, "ShovelController.ToolEquipped", activateTool)
@@ -463,9 +549,9 @@ function ShovelController.start()
 		pendingTarget = nil
 		if success then
 			if target then
-				removeDeletePrompt(target)
+				unregisterDeleteTarget(target)
 			end
-			refreshDeletePrompts(true)
+			refreshDeletePrompts(false)
 			return
 		end
 		refreshDeletePrompts(false)
@@ -488,19 +574,12 @@ function ShovelController.start()
 	if player.Character then
 		RuntimeGuard.Connect(player.Character.ChildAdded, "ShovelController.InitialCharacterChildAdded", bindTool)
 	end
-	RuntimeGuard.Connect(Workspace.DescendantAdded, "ShovelController.DescendantAdded", function(instance)
-		if not isEquipped() then
-			return
-		end
-		task.defer(function()
-			RuntimeGuard.Run("ShovelController.TryBindDeferred", tryBindDeletePrompt, instance)
-			RuntimeGuard.Run("ShovelController.RefreshPromptsDeferred", refreshDeletePrompts, false)
-		end)
-	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "ShovelController.AssignedPlotChanged", function()
+		rebuildDeleteTargetIndex()
+		bindPlotIndexWatcher()
 		if isEquipped() then
 			clearDeletePrompts()
-			refreshDeletePrompts(true)
+			refreshDeletePrompts(false)
 		end
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "ShovelController.OfflineProgressPendingChanged", function()
@@ -508,9 +587,11 @@ function ShovelController.start()
 		if isOfflineProgressPending() then
 			clearDeletePrompts()
 		elseif isEquipped() then
-			refreshDeletePrompts(true)
+			refreshDeletePrompts(false)
 		end
 	end)
+	rebuildDeleteTargetIndex()
+	bindPlotIndexWatcher()
 	RuntimeGuard.Run("ShovelController.ScanToolsInitial", scanTools)
 end
 

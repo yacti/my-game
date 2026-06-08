@@ -36,6 +36,7 @@ local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
+local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
 local tutorialActive = false
 local tutorialStage = Onboarding.Stages.Complete
 
@@ -48,6 +49,7 @@ local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local GRID_UNLOCK_PROMPT_DISTANCE = 5
 local CRATE_ROLL_PROMPT_DISTANCE = RollConfig.Button.InteractionDistance
 local CRATE_ROLL_PROMPT_Y_OFFSET = -3
+local FAR_PROMPT_REFRESH_BUFFER = 12
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
@@ -331,8 +333,25 @@ end
 local function isTreeGroundPickupTarget(instance)
 	return (instance:IsA("BasePart") or instance:IsA("Model"))
 		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
+		and instance:GetAttribute(State.TreeClicker.LocalVisual) ~= true
+		and instance:GetAttribute(State.TreeClicker.SlotIndex) ~= nil
+		and instance:GetAttribute(State.Food.Id) ~= nil
 		and instance.Parent ~= nil
-		and instance.Parent.Name == State.TreeClicker.GroundFolder
+end
+
+local function isTreeGroundCandidate(instance)
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then return false end
+	if instance:GetAttribute(State.TreeClicker.LocalVisual) == true then return false end
+	if instance:GetAttribute(State.TreeClicker.GroundPile) == true then return true end
+	if instance.Name:match("^BaseFoodGround%d+$") == nil then return false end
+	local current = instance.Parent
+	while current do
+		if current:GetAttribute(State.Feed.Class) == "Tree" then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
 end
 
 local function isFeedMachine(instance)
@@ -493,6 +512,9 @@ end
 local scanPlot
 local refreshPrompt
 local refreshAll
+local boundPlot = nil
+local boundPlotConnections = {}
+local clearTreeGroundCandidates
 
 function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 	if not (prompt and prompt:IsA("ProximityPrompt")) then
@@ -626,7 +648,49 @@ local function removePrompt(target, kind)
 	end
 end
 
+local function clearInternalPrompts()
+	local targets = {}
+	for target, bucket in pairs(byTarget) do
+		for kind in pairs(bucket) do
+			targets[#targets + 1] = { target = target, kind = kind }
+		end
+	end
+	for _, entry in ipairs(targets) do
+		removePrompt(entry.target, entry.kind)
+	end
+end
+
+local function disconnectPlotBindings()
+	for _, connection in ipairs(boundPlotConnections) do
+		connection:Disconnect()
+	end
+	table.clear(boundPlotConnections)
+	if clearTreeGroundCandidates then
+		clearTreeGroundCandidates()
+	end
+	boundPlot = nil
+end
+
 local addPrompt
+
+local function clearTreeGroundCandidate(target)
+	local conns = treeGroundCandidateConnections[target]
+	if not conns then return end
+	for _, conn in ipairs(conns) do
+		conn:Disconnect()
+	end
+	treeGroundCandidateConnections[target] = nil
+end
+
+clearTreeGroundCandidates = function()
+	local targets = {}
+	for target in pairs(treeGroundCandidateConnections) do
+		targets[#targets + 1] = target
+	end
+	for _, target in ipairs(targets) do
+		clearTreeGroundCandidate(target)
+	end
+end
 
 local function waitForPromptParent(target, kind, action)
 	if not target:IsA("Model") then return end
@@ -696,6 +760,7 @@ end
 
 local function tryBind(instance)
 	if isInOwnPlot(instance) ~= true then return end
+	if instance:GetAttribute(State.TreeClicker.LocalVisual) == true then return end
 
 	if instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
 		addPrompt(instance, "PetFeed", Interactions.Actions.PetFeed)
@@ -712,6 +777,26 @@ local function tryBind(instance)
 		if machine and machine:GetAttribute(State.Feed.Class) == "Patch" then
 			addPrompt(instance, "PatchHarvest", Interactions.Actions.PatchHarvest)
 		end
+	end
+
+	if isTreeGroundCandidate(instance) and not treeGroundCandidateConnections[instance] then
+		local conns = {}
+		local function retry()
+			if isTreeGroundPickupTarget(instance) then
+				addPrompt(instance, "TreeGroundPickup", Interactions.Actions.TreeGroundPickup)
+			else
+				removePrompt(instance, "TreeGroundPickup")
+			end
+		end
+		conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(State.TreeClicker.GroundPile), "LocalPrompts.TreeGroundPileChanged", retry)
+		conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(State.TreeClicker.SlotIndex), "LocalPrompts.TreeGroundSlotChanged", retry)
+		conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(State.Food.Id), "LocalPrompts.TreeGroundFoodChanged", retry)
+		conns[#conns + 1] = RuntimeGuard.Connect(instance.AncestryChanged, "LocalPrompts.TreeGroundCandidateAncestryChanged", function()
+			if not instance:IsDescendantOf(Workspace) then
+				clearTreeGroundCandidate(instance)
+			end
+		end)
+		treeGroundCandidateConnections[instance] = conns
 	end
 
 	if isTreeGroundPickupTarget(instance) then
@@ -731,9 +816,24 @@ end
 scanPlot = function()
 	local plot = getPlot()
 	if not plot then return end
+	if boundPlot == plot then return end
+	disconnectPlotBindings()
+	clearInternalPrompts()
+	boundPlot = plot
 	for _, descendant in ipairs(plot:GetDescendants()) do
 		tryBind(descendant)
 	end
+	boundPlotConnections[#boundPlotConnections + 1] = RuntimeGuard.Connect(plot.DescendantAdded, "LocalPrompts.PlotDescendantAdded", function(instance)
+		task.defer(function()
+			RuntimeGuard.Run("LocalPrompts.TryBindPlotDeferred", tryBind, instance)
+		end)
+	end)
+	boundPlotConnections[#boundPlotConnections + 1] = RuntimeGuard.Connect(plot.AncestryChanged, "LocalPrompts.PlotAncestryChanged", function()
+		if not plot:IsDescendantOf(Workspace) then
+			disconnectPlotBindings()
+			clearInternalPrompts()
+		end
+	end)
 end
 
 refreshPrompt = function(target, kind, prompt)
@@ -823,9 +923,14 @@ refreshAll = function(shouldScan)
 				prompt.Enabled = false
 				continue
 			end
+			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+			if distance and distance > prompt.MaxActivationDistance + FAR_PROMPT_REFRESH_BUFFER then
+				prompt.Enabled = false
+				continue
+			end
 			refreshPrompt(target, kind, prompt)
 			if prompt.Parent ~= nil and prompt.Enabled then
-				local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+				distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 				if distance and distance <= prompt.MaxActivationDistance then
 					if distance < closestDistance then
 						closestPrompt = prompt
@@ -878,18 +983,31 @@ refreshAll = function(shouldScan)
 	end
 end
 
+local toolRefreshScheduled = false
+local scheduledToolRefreshShouldScan = false
+local function scheduleToolRefresh(shouldScan)
+	scheduledToolRefreshShouldScan = scheduledToolRefreshShouldScan or shouldScan == true
+	if toolRefreshScheduled then
+		return
+	end
+
+	toolRefreshScheduled = true
+	task.defer(function()
+		toolRefreshScheduled = false
+		local runScan = scheduledToolRefreshShouldScan
+		scheduledToolRefreshShouldScan = false
+		RuntimeGuard.Run("LocalPrompts.ScheduledToolRefresh", refreshAll, runScan)
+	end)
+end
+
 function LocalPrompts.start()
 	pcall(function()
 		ProximityPromptService.MaxPromptsVisible = 1
 	end)
 
-	RuntimeGuard.Connect(Workspace.DescendantAdded, "LocalPrompts.DescendantAdded", function(instance)
-		task.defer(function()
-			RuntimeGuard.Run("LocalPrompts.TryBindDeferred", tryBind, instance)
-		end)
-	end)
-
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "LocalPrompts.AssignedPlotChanged", function()
+		disconnectPlotBindings()
+		clearInternalPrompts()
 		refreshAll(true)
 	end)
 	RuntimeGuard.Connect(player:GetPropertyChangedSignal("RespawnLocation"), "LocalPrompts.RespawnLocationChanged", function()
@@ -913,20 +1031,20 @@ function LocalPrompts.start()
 	local function watchCharacter(character)
 		if not character then return end
 		RuntimeGuard.Connect(character.ChildAdded, "LocalPrompts.CharacterChildAdded", function(child)
-			if child:IsA("Tool") then refreshAll(false) end
+			if child:IsA("Tool") then scheduleToolRefresh(false) end
 		end)
 		RuntimeGuard.Connect(character.ChildRemoved, "LocalPrompts.CharacterChildRemoved", function(child)
-			if child:IsA("Tool") then refreshAll(false) end
+			if child:IsA("Tool") then scheduleToolRefresh(false) end
 		end)
 		refreshAll(true)
 	end
 	RuntimeGuard.Connect(player.CharacterAdded, "LocalPrompts.CharacterAdded", watchCharacter)
 	RuntimeGuard.Run("LocalPrompts.InitialCharacter", watchCharacter, player.Character)
 	RuntimeGuard.Connect(backpack.ChildAdded, "LocalPrompts.BackpackChildAdded", function()
-		refreshAll(false)
+		scheduleToolRefresh(false)
 	end)
 	RuntimeGuard.Connect(backpack.ChildRemoved, "LocalPrompts.BackpackChildRemoved", function()
-		refreshAll(false)
+		scheduleToolRefresh(false)
 	end)
 
 	task.defer(function()

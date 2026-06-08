@@ -119,13 +119,37 @@ local function build(food)
 	end))
 end
 
-function SlotXPBillboard.start()
-	for _, d in ipairs(Workspace:GetDescendants()) do
+local function scanRoot(root)
+	if not root then return end
+	for _, d in ipairs(root:GetDescendants()) do
 		if isSlotFood(d) then RuntimeGuard.Run("SlotXPBillboard.BuildInitial", build, d) end
 	end
-	RuntimeGuard.Connect(Workspace.DescendantAdded, "SlotXPBillboard.DescendantAdded", function(d)
+end
+
+local function bindVisualRoot(root)
+	if not root then return end
+	scanRoot(root)
+	RuntimeGuard.Connect(root.DescendantAdded, "SlotXPBillboard.RootDescendantAdded", function(d)
 		if isSlotFood(d) then RuntimeGuard.Run("SlotXPBillboard.Build", build, d) end
 	end)
+end
+
+function SlotXPBillboard.start()
+	local plotsFolder = Workspace:FindFirstChild("Plots")
+	if plotsFolder then
+		bindVisualRoot(plotsFolder)
+	else
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			end
+		end
+		RuntimeGuard.Connect(Workspace.ChildAdded, "SlotXPBillboard.WorkspaceChildAdded", function(child)
+			if child.Name == "Plots" or child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			end
+		end)
+	end
 
 	RuntimeGuard.Connect(RunService.Heartbeat, "SlotXPBillboard.Heartbeat", function()
 		local char = player.Character

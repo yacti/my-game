@@ -49,6 +49,7 @@ local warnedMissingClicker = false
 local finalNoteToken = 0
 local finalNoteTweens = {}
 local finalNoteTransparency = setmetatable({}, { __mode = "k" })
+local targetCache = nil
 
 local function playerGui()
 	return player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui")
@@ -323,6 +324,141 @@ local function plot()
 	return PlotResolver.ResolveForPlayer(player)
 end
 
+local function disconnectTargetCache()
+	if not targetCache then return end
+	for _, conn in ipairs(targetCache.conns) do
+		conn:Disconnect()
+	end
+	targetCache = nil
+end
+
+local function isCachedFeed(instance)
+	local feedType = instance and instance:GetAttribute(State.Feed.Type)
+	return (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(feedType) == "string"
+		and feedType ~= ""
+		and instance:GetAttribute(State.Feed.Index) ~= nil
+end
+
+local function isCachedPet(instance)
+	return instance and instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil
+end
+
+local function isAppleGroundFruit(instance)
+	return (instance:IsA("BasePart") or instance:IsA("Model"))
+		and instance:GetAttribute(State.TreeClicker.GroundPile) == true
+		and instance:GetAttribute(State.Food.Id) == Onboarding.FoodIds.Apple
+		and instance:GetAttribute(State.TreeClicker.LocalVisual) ~= true
+end
+
+local function removeArrayValue(array, value)
+	for index = #array, 1, -1 do
+		if array[index] == value then
+			table.remove(array, index)
+		end
+	end
+end
+
+local function watchGroundCandidate(cache, instance)
+	if cache.groundCandidateConns[instance] then return end
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then return end
+	local name = instance.Name
+	if name:match("^BaseFoodGround%d+$") == nil and instance:GetAttribute(State.TreeClicker.GroundPile) ~= true then
+		return
+	end
+
+	local function refresh()
+		if isAppleGroundFruit(instance) then
+			if not table.find(cache.appleGroundFruits, instance) then
+				cache.appleGroundFruits[#cache.appleGroundFruits + 1] = instance
+			end
+		else
+			removeArrayValue(cache.appleGroundFruits, instance)
+		end
+	end
+
+	local conns = {}
+	conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(State.TreeClicker.GroundPile), "OnboardingController.GroundPileChanged", refresh)
+	conns[#conns + 1] = RuntimeGuard.Connect(instance:GetAttributeChangedSignal(State.Food.Id), "OnboardingController.GroundFoodChanged", refresh)
+	conns[#conns + 1] = RuntimeGuard.Connect(instance.AncestryChanged, "OnboardingController.GroundAncestryChanged", function()
+		if not instance:IsDescendantOf(cache.plot) then
+			removeArrayValue(cache.appleGroundFruits, instance)
+			for _, conn in ipairs(conns) do
+				conn:Disconnect()
+			end
+			cache.groundCandidateConns[instance] = nil
+		end
+	end)
+	cache.groundCandidateConns[instance] = conns
+	for _, conn in ipairs(conns) do
+		cache.conns[#cache.conns + 1] = conn
+	end
+	refresh()
+end
+
+local function addTargetCandidate(cache, instance)
+	if isCachedFeed(instance) then
+		cache.feedByType[instance:GetAttribute(State.Feed.Type)] = instance
+	end
+	if isCachedPet(instance) and not cache.firstPet then
+		cache.firstPet = instance
+	end
+	if instance:IsA("BasePart") or instance:IsA("Model") then
+		local parent = instance.Parent
+		local machine = parent and parent.Parent
+		if machine and machine:GetAttribute(State.Feed.Type) == Onboarding.FeedTypes.Pumpkin
+			and instance:GetAttribute(State.Food.Id) == Onboarding.FoodIds.Pumpkin then
+			cache.pumpkinTarget = instance
+		end
+		watchGroundCandidate(cache, instance)
+	end
+end
+
+local function removeTargetCandidate(cache, instance)
+	for feedType, feed in pairs(cache.feedByType) do
+		if feed == instance then
+			cache.feedByType[feedType] = nil
+		end
+	end
+	if cache.firstPet == instance then
+		cache.firstPet = nil
+	end
+	if cache.pumpkinTarget == instance then
+		cache.pumpkinTarget = nil
+	end
+	removeArrayValue(cache.appleGroundFruits, instance)
+end
+
+local function ensureTargetCache()
+	local currentPlot = plot()
+	if targetCache and targetCache.plot == currentPlot then
+		return targetCache
+	end
+	disconnectTargetCache()
+	if not currentPlot then return nil end
+
+	local cache = {
+		plot = currentPlot,
+		feedByType = {},
+		firstPet = nil,
+		pumpkinTarget = nil,
+		appleGroundFruits = {},
+		groundCandidateConns = {},
+		conns = {},
+	}
+	targetCache = cache
+	for _, descendant in ipairs(currentPlot:GetDescendants()) do
+		addTargetCandidate(cache, descendant)
+	end
+	cache.conns[#cache.conns + 1] = RuntimeGuard.Connect(currentPlot.DescendantAdded, "OnboardingController.PlotDescendantAdded", function(descendant)
+		addTargetCandidate(cache, descendant)
+	end)
+	cache.conns[#cache.conns + 1] = RuntimeGuard.Connect(currentPlot.DescendantRemoving, "OnboardingController.PlotDescendantRemoving", function(descendant)
+		removeTargetCandidate(cache, descendant)
+	end)
+	return cache
+end
+
 local function firstBasePart(instance)
 	if not instance then
 		return nil
@@ -486,18 +622,9 @@ local function starterAreaCenter()
 end
 
 local function feedMachine(feedType)
-	local currentPlot = plot()
-	if not currentPlot then
-		return nil
-	end
-	for _, descendant in ipairs(currentPlot:GetDescendants()) do
-		if (descendant:IsA("BasePart") or descendant:IsA("Model"))
-			and descendant:GetAttribute(State.Feed.Type) == feedType
-			and descendant:GetAttribute(State.Feed.Index) ~= nil then
-			return descendant
-		end
-	end
-	return nil
+	local cache = ensureTargetCache()
+	local machine = cache and cache.feedByType[feedType] or nil
+	return machine and machine.Parent and machine or nil
 end
 
 local function isGrowingSeedFeed(instance)
@@ -509,26 +636,15 @@ local function pumpkinTarget()
 	if not machine then
 		return nil
 	end
-	for _, descendant in ipairs(machine:GetDescendants()) do
-		if (descendant:IsA("BasePart") or descendant:IsA("Model"))
-			and descendant:GetAttribute(State.Food.Id) == Onboarding.FoodIds.Pumpkin then
-			return descendant
-		end
-	end
-	return machine
+	local cache = ensureTargetCache()
+	local target = cache and cache.pumpkinTarget or nil
+	return target and target.Parent and target or machine
 end
 
 local function petTarget()
-	local currentPlot = plot()
-	if not currentPlot then
-		return nil
-	end
-	for _, descendant in ipairs(currentPlot:GetDescendants()) do
-		if descendant:IsA("Model") and descendant:GetAttribute(State.Pet.Index) ~= nil then
-			return descendant
-		end
-	end
-	return nil
+	local cache = ensureTargetCache()
+	local target = cache and cache.firstPet or nil
+	return target and target.Parent and target or nil
 end
 
 local function expandFarmTarget()
@@ -563,11 +679,10 @@ local function appleGroundFruits()
 	if not tree then
 		return fruits
 	end
-	for _, descendant in ipairs(tree:GetDescendants()) do
-		if (descendant:IsA("BasePart") or descendant:IsA("Model"))
-			and descendant:GetAttribute(State.TreeClicker.GroundPile) == true
-			and descendant:GetAttribute(State.Food.Id) == Onboarding.FoodIds.Apple then
-			fruits[#fruits + 1] = descendant
+	local cache = ensureTargetCache()
+	for _, fruit in ipairs(cache and cache.appleGroundFruits or {}) do
+		if fruit.Parent and fruit:IsDescendantOf(tree) and isAppleGroundFruit(fruit) then
+			fruits[#fruits + 1] = fruit
 		end
 	end
 	return fruits
@@ -822,6 +937,7 @@ local function applyState(state)
 	state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
 	currentStage = state.Stage
 	currentProgress = state.Progress or {}
+	ensureTargetCache()
 	setHudText(currentStage)
 	if not Onboarding.IsActive(currentStage) then
 		destroyMainArrow()
@@ -842,6 +958,10 @@ function OnboardingController.start()
 	end)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
 		updateHudProgressBar(currentStage)
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "OnboardingController.AssignedPlotChanged", function()
+		disconnectTargetCache()
+		ensureTargetCache()
 	end)
 	RuntimeGuard.Connect(RunService.RenderStepped, "OnboardingController.RenderStepped", step)
 end

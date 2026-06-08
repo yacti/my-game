@@ -112,12 +112,23 @@ local function track(food)
 	end))
 end
 
-local function scanExisting()
-	for _, obj in ipairs(Workspace:GetDescendants()) do
+local function scanRoot(root)
+	if not root then return end
+	for _, obj in ipairs(root:GetDescendants()) do
 		if isPatchSlotFood(obj) then
 			track(obj)
 		end
 	end
+end
+
+local function bindVisualRoot(root)
+	if not root then return end
+	scanRoot(root)
+	RuntimeGuard.Connect(root.DescendantAdded, "PatchSlotVisuals.RootDescendantAdded", function(obj)
+		if isPatchSlotFood(obj) then
+			track(obj)
+		end
+	end)
 end
 
 local function updateVisibleScales()
@@ -144,13 +155,21 @@ local function updateVisibleScales()
 end
 
 function PatchSlotVisuals.start()
-	scanExisting()
-
-	RuntimeGuard.Connect(Workspace.DescendantAdded, "PatchSlotVisuals.DescendantAdded", function(obj)
-		if isPatchSlotFood(obj) then
-			track(obj)
+	local plotsFolder = Workspace:FindFirstChild("Plots")
+	if plotsFolder then
+		bindVisualRoot(plotsFolder)
+	else
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			end
 		end
-	end)
+		RuntimeGuard.Connect(Workspace.ChildAdded, "PatchSlotVisuals.WorkspaceChildAdded", function(child)
+			if child.Name == "Plots" or child.Name:match("^Plot%d+$") then
+				bindVisualRoot(child)
+			end
+		end)
+	end
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "PatchSlotVisuals.Heartbeat", function(dt)

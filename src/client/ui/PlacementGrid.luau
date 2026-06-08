@@ -78,6 +78,8 @@ function PlacementGrid.new(getFloor)
 		_effectClones = {},
 		_connections = {},
 		_tweenByInstance = {},
+		_visible = false,
+		_dirty = true,
 	}, PlacementGrid)
 
 	self:_hideWorkspaceEffects()
@@ -106,6 +108,10 @@ function PlacementGrid:_destroyClones()
 		self._effectFolder:Destroy()
 		self._effectFolder = nil
 	end
+end
+
+function PlacementGrid:_markDirty()
+	self._dirty = true
 end
 
 function PlacementGrid:_effectForFloor(floor, config)
@@ -209,7 +215,9 @@ function PlacementGrid:_syncClones(template, floor, config, animated)
 		end
 
 		if clone then
-			self:_syncCloneToGridPart(clone, gridPart)
+			if self._dirty then
+				self:_syncCloneToGridPart(clone, gridPart)
+			end
 			self:_setEffectTransparency(clone, config, true, animated)
 		end
 	end
@@ -246,7 +254,11 @@ function PlacementGrid:_setVisible(visible, animated)
 	local floor = visible and self._getFloor() or self._floor
 
 	if not floor then
-		if not visible then self:_destroyClones() end
+		self._visible = false
+		return
+	end
+
+	if visible and self._visible and not self._dirty then
 		return
 	end
 
@@ -264,10 +276,9 @@ function PlacementGrid:_setVisible(visible, animated)
 		end
 	end
 
-	if not visible then
-		task.delay(0.18, function()
-			if not self._enabled then self:_destroyClones() end
-		end)
+	self._visible = visible
+	if visible then
+		self._dirty = false
 	end
 end
 
@@ -276,18 +287,23 @@ function PlacementGrid:_bindFloor(floor)
 	self:_destroyClones()
 	self:_disconnectFloor()
 	self._floor = floor
+	self._visible = false
+	self:_markDirty()
 
 	if not floor then return end
 	table.insert(self._connections, floor:GetPropertyChangedSignal("Size"):Connect(function()
+		self:_markDirty()
 		if self._enabled then self:_setVisible(true) end
 	end))
 	table.insert(self._connections, floor:GetPropertyChangedSignal("CFrame"):Connect(function()
+		self:_markDirty()
 		if self._enabled then self:_setVisible(true) end
 	end))
 
 	local plot = floor.Parent
 	for _, gridPart in ipairs(plotGridParts(plot, false)) do
 		table.insert(self._connections, gridPart:GetAttributeChangedSignal(State.Grid.Unlocked):Connect(function()
+			self:_markDirty()
 			if self._enabled then self:_setVisible(true) end
 		end))
 	end
@@ -305,7 +321,6 @@ function PlacementGrid:SetEnabled(enabled)
 	if not enabled then
 		self._enabled = false
 		self:_setVisible(false, true)
-		self:_disconnectFloor()
 		return
 	end
 
@@ -316,7 +331,9 @@ function PlacementGrid:SetEnabled(enabled)
 end
 
 function PlacementGrid:Destroy()
-	self:SetEnabled(false)
+	self._enabled = false
+	self:_disconnectFloor()
+	self:_destroyClones()
 end
 
 return PlacementGrid

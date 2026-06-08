@@ -109,9 +109,9 @@ State.Cosmetic = {
 }
 
 State.TreeClicker = {
-	GroundFolder = "TreeClickerGroundPiles",
 	GroundPile = "TreeClickerGroundPile",
 	SlotIndex  = "TreeClickerSlotIndex",
+	LocalVisual = "TreeClickerLocalVisual",
 }
 
 return State
