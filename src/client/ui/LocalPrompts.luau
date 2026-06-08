@@ -34,6 +34,7 @@ local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local tutorialActive = false
+local tutorialStage = Onboarding.Stages.Complete
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
@@ -82,9 +83,27 @@ end
 local function applyTutorialState(state)
 	state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
 	tutorialActive = Onboarding.IsActive(state.Stage)
+	tutorialStage = state.Stage
 end
 
-local function isHiddenByTutorial(kind)
+local function isExpandFarmGridTarget(target)
+	local gridPart = PlotGrid.GridPartFromInstance(target)
+	if not gridPart then
+		return false
+	end
+	return Onboarding.IsExpandFarmGridCoordinate(
+		PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.X)),
+		PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.Z))
+	)
+end
+
+local function isHiddenByTutorial(kind, target)
+	if not tutorialActive then
+		return false
+	end
+	if kind == "GridPartUnlock" and tutorialStage == Onboarding.Stages.ExpandFarm then
+		return not isExpandFarmGridTarget(target)
+	end
 	return tutorialActive and Onboarding.ShouldHidePromptKindDuringActiveTutorial(kind)
 end
 
@@ -631,7 +650,7 @@ local function refreshPrompt(target, kind, prompt)
 		removePrompt(target, kind)
 		return
 	end
-	if isHiddenByTutorial(kind) then
+	if isHiddenByTutorial(kind, target) then
 		prompt.Enabled = false
 		return
 	end
@@ -778,8 +797,9 @@ function LocalPrompts.start()
 	applyTutorialState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(state)
 		local wasTutorialActive = tutorialActive
+		local previousTutorialStage = tutorialStage
 		applyTutorialState(state)
-		if tutorialActive ~= wasTutorialActive then
+		if tutorialActive ~= wasTutorialActive or tutorialStage ~= previousTutorialStage then
 			refreshAll(false)
 		end
 	end)

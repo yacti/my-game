@@ -1,0 +1,18 @@
+{
+  "createdAt": "2026-06-08T13:35:17Z",
+  "source": "Roblox Studio Edit DataModel before applying grid_parts_balance.xlsx prices to PlotTemplate",
+  "notes": [
+    "Starter cell GridX=3 GridZ=1 was non-purchasable.",
+    "Only unlockable GridX=2 GridZ=1 had a non-default price of 100.",
+    "All other unlockable GridAreas cells had UnlockPrice 3."
+  ],
+  "starter": {
+    "GridX": 3,
+    "GridZ": 1,
+    "UnlockPrice": 3
+  },
+  "unlockablePriceOverrides": [
+    { "GridX": 2, "GridZ": 1, "UnlockPrice": 100 }
+  ],
+  "defaultUnlockablePrice": 3
+}

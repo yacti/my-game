@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -335,6 +336,21 @@ local function firstBasePart(instance)
 	return nil
 end
 
+local function instanceWorldCenter(instance)
+	if not instance then
+		return nil
+	end
+	if instance:IsA("BasePart") then
+		return instance.Position
+	end
+	if instance:IsA("Model") then
+		local cframe = instance:GetBoundingBox()
+		return cframe.Position
+	end
+	local part = firstBasePart(instance)
+	return part and part.Position or nil
+end
+
 local function instancePosition(instance)
 	if not instance then
 		return nil
@@ -346,6 +362,98 @@ local function instancePosition(instance)
 		return instance:GetPivot().Position
 	end
 	return nil
+end
+
+local function isVisibleTarget(instance)
+	if instance:IsA("BasePart") then
+		return instance.Transparency < 1
+	end
+	if instance:IsA("Model") then
+		for _, descendant in ipairs(instance:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.Transparency < 1 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function playerRootPosition()
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root:IsA("BasePart") and root.Position or nil
+end
+
+local function gridPartAt(currentPlot, x, z)
+	if not currentPlot then return nil end
+	for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+		local folder = currentPlot:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart")
+					and PlotGrid.NormalizeInteger(child:GetAttribute(PlotGrid.Attributes.X)) == x
+					and PlotGrid.NormalizeInteger(child:GetAttribute(PlotGrid.Attributes.Z)) == z then
+					return child
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function addVisibleFenceCandidate(candidates, fence)
+	if fence and (fence:IsA("BasePart") or fence:IsA("Model")) and isVisibleTarget(fence) then
+		candidates[#candidates + 1] = fence
+	end
+end
+
+local function visibleFencesForGridPart(gridPart)
+	local candidates = {}
+	if not PlotGrid.IsUnlockableGridPart(gridPart) then
+		return candidates
+	end
+
+	for _, sideNumber in ipairs(PlotGrid.SideNumbers) do
+		addVisibleFenceCandidate(candidates, gridPart:FindFirstChild("Fence" .. tostring(sideNumber)))
+	end
+
+	local currentPlot = gridPart.Parent and gridPart.Parent.Parent or nil
+	local x = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.X))
+	local z = PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.Z))
+	if not x or not z then
+		return candidates
+	end
+
+	for _, sideNumber in ipairs(PlotGrid.SideNumbers) do
+		local side = PlotGrid.SideByNumber[sideNumber]
+		local neighbor = gridPartAt(currentPlot, x + side.dx, z + side.dz)
+		local fence = neighbor and neighbor:FindFirstChild("Fence" .. tostring(side.opposite)) or nil
+		addVisibleFenceCandidate(candidates, fence)
+	end
+
+	return candidates
+end
+
+local function nearestVisibleFenceForGridPart(gridPart)
+	local candidates = visibleFencesForGridPart(gridPart)
+	if #candidates == 0 then return nil end
+
+	local rootPosition = playerRootPosition()
+	if not rootPosition then
+		return candidates[1]
+	end
+
+	local bestFence = candidates[1]
+	local bestDistance = math.huge
+	for _, fence in ipairs(candidates) do
+		local center = instanceWorldCenter(fence)
+		local distance = center and (center - rootPosition).Magnitude or math.huge
+		if distance < bestDistance then
+			bestFence = fence
+			bestDistance = distance
+		end
+	end
+	return bestFence
 end
 
 local function rollButton()
@@ -423,6 +531,19 @@ local function petTarget()
 	return nil
 end
 
+local function expandFarmTarget()
+	local targetGrid = Onboarding.ExpandFarmGrid
+	local gridPart = gridPartAt(plot(), targetGrid.X, targetGrid.Z)
+	if not gridPart then
+		return nil
+	end
+	local fence = nearestVisibleFenceForGridPart(gridPart)
+	local position = instanceWorldCenter(fence or gridPart)
+	return position and {
+		position = position,
+	} or nil
+end
+
 local function appleTree()
 	local tree = feedMachine(Onboarding.FeedTypes.AppleTree)
 	if isGrowingSeedFeed(tree) then
@@ -472,6 +593,9 @@ local function singleArrowTarget()
 	end
 	if currentStage == Onboarding.Stages.HarvestPumpkin then
 		return pumpkinTarget()
+	end
+	if currentStage == Onboarding.Stages.ExpandFarm then
+		return expandFarmTarget()
 	end
 	if currentStage == Onboarding.Stages.FeedPetPumpkin or currentStage == Onboarding.Stages.FeedPetApple then
 		return petTarget()

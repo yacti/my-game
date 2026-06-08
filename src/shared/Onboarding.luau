@@ -16,6 +16,7 @@ Onboarding.Stages = {
 	GatherPumpkinXP = "GatherPumpkinXP",
 	HarvestPumpkin = "HarvestPumpkin",
 	FeedPetPumpkin = "FeedPetPumpkin",
+	ExpandFarm = "ExpandFarm",
 	FinalNote = "FinalNote",
 	Complete = "Complete",
 }
@@ -46,6 +47,10 @@ Onboarding.FoodIds = {
 Onboarding.CurrencyRequired = 500
 Onboarding.PumpkinXPRequired = 250
 Onboarding.TreeClicksRequired = 8
+Onboarding.ExpandFarmGrid = {
+	X = 2,
+	Z = 1,
+}
 Onboarding.FinalNoteDisplaySeconds = 8
 Onboarding.FinalNoteFadeSeconds = 0.45
 
@@ -72,6 +77,7 @@ local ORDERED_STAGES = {
 	Onboarding.Stages.GatherPumpkinXP,
 	Onboarding.Stages.HarvestPumpkin,
 	Onboarding.Stages.FeedPetPumpkin,
+	Onboarding.Stages.ExpandFarm,
 	Onboarding.Stages.FinalNote,
 	Onboarding.Stages.Complete,
 }
@@ -83,14 +89,15 @@ local STAGE_TEXT = {
 	[Onboarding.Stages.ShakeAppleTree] = "Shake tree!",
 	[Onboarding.Stages.CollectApple] = "Collect all the fruit!",
 	[Onboarding.Stages.FeedPetApple] = "Feed your pet!",
-	[Onboarding.Stages.MakeCurrency500] = "Make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
+	[Onboarding.Stages.MakeCurrency500] = "Feed your pet and make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
 	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
 	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the seed!",
 	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the Pumpkin Seed!",
 	[Onboarding.Stages.GatherPumpkinXP] = "Gather " .. NumberFormatter.XP(Onboarding.PumpkinXPRequired),
 	[Onboarding.Stages.HarvestPumpkin] = "Harvest your Pumpkin!",
 	[Onboarding.Stages.FeedPetPumpkin] = "Feed your pet",
-	[Onboarding.Stages.FinalNote] = "Have fun! Roll for seeds, feed your pets, and Build a Pet Farm!",
+	[Onboarding.Stages.ExpandFarm] = "Expand your farm",
+	[Onboarding.Stages.FinalNote] = "Roll for seeds, feed your pets, and Build a Pet Farm!",
 	[Onboarding.Stages.Complete] = "",
 }
 
@@ -163,6 +170,19 @@ end
 
 function Onboarding.ShouldHidePromptKindDuringActiveTutorial(kind)
 	return listContains(HIDDEN_DURING_ACTIVE_TUTORIAL.LocalPromptKinds, kind)
+end
+
+function Onboarding.IsExpandFarmGridCoordinate(x, z)
+	x = tonumber(x)
+	z = tonumber(z)
+	if type(x) ~= "number" or x ~= x or math.abs(x) == math.huge then
+		return false
+	end
+	if type(z) ~= "number" or z ~= z or math.abs(z) == math.huge then
+		return false
+	end
+	return math.floor(x) == Onboarding.ExpandFarmGrid.X
+		and math.floor(z) == Onboarding.ExpandFarmGrid.Z
 end
 
 function Onboarding.DefaultState()

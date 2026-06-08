@@ -571,6 +571,15 @@ end
 
 local function unlockGridPart(target, plot, player, profile)
 	local gridPart = PlotGridService.ResolveGridPart(target)
+	if not OnboardingService.CanUnlockGridPart(profile, gridPart) then
+		TelemetryService.Warn("grid_unlock_failed", TelemetryService.ForPlayer(player, {
+			reason = "tutorial-target-mismatch",
+			target = target,
+			plot = plot,
+		}))
+		return
+	end
+
 	local ok, code, _, price = PlotGridService.TryPurchaseCell(player, plot, profile, target)
 	if not ok then
 		if code ~= "already-unlocked" and code ~= "busy" then
@@ -592,6 +601,7 @@ local function unlockGridPart(target, plot, player, profile)
 
 	PetMotionService.RefreshPlotRoutes(plot)
 	PlayerReplicaService.PublishUnlockedGridKeys(player, profile)
+	OnboardingService.OnGridPartUnlocked(player, profile, gridPart)
 	if gridPart then
 		RuntimeGuard.Run("GridUnlockEffect.FireAllClients", function()
 			GridUnlockEffect:FireAllClients(gridPart)

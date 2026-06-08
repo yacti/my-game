@@ -6,6 +6,7 @@ local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -132,6 +133,29 @@ local function scheduleFinalNoteCompletion(player, profile)
 	end)
 end
 
+local function expandFarmCoordKey()
+	return PlotGrid.CoordKey(Onboarding.ExpandFarmGrid.X, Onboarding.ExpandFarmGrid.Z)
+end
+
+local function hasExpandFarmGridUnlocked(profile)
+	if not (profile and profile.Data) then
+		return false
+	end
+
+	local targetKey = expandFarmCoordKey()
+	for _, key in ipairs(PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)) do
+		if key == targetKey then
+			return true
+		end
+	end
+	for _, key in ipairs(PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridIds)) do
+		if key == targetKey then
+			return true
+		end
+	end
+	return false
+end
+
 local function maybeCompleteMakeCurrency(player, profile, currency)
 	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency500 then
 		return false
@@ -140,6 +164,16 @@ local function maybeCompleteMakeCurrency(player, profile, currency)
 		return false
 	end
 	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.MakeCurrency500))
+end
+
+local function maybeCompleteExpandFarm(player, profile)
+	if stageFor(profile) ~= Onboarding.Stages.ExpandFarm then
+		return false
+	end
+	if not hasExpandFarmGridUnlocked(profile) then
+		return false
+	end
+	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.ExpandFarm))
 end
 
 setStage = function(player, profile, nextStage)
@@ -162,6 +196,8 @@ setStage = function(player, profile, nextStage)
 	end
 	if nextStage == Onboarding.Stages.MakeCurrency500 then
 		maybeCompleteMakeCurrency(player, profile, profile.Data.Currency)
+	elseif nextStage == Onboarding.Stages.ExpandFarm then
+		maybeCompleteExpandFarm(player, profile)
 	end
 	return true
 end
@@ -209,6 +245,16 @@ local function foodIdOf(instance)
 	return type(foodId) == "string" and foodId or nil
 end
 
+local function isExpandFarmGridPart(gridPart)
+	if not (gridPart and gridPart:IsA("BasePart")) then
+		return false
+	end
+	return Onboarding.IsExpandFarmGridCoordinate(
+		PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.X)),
+		PlotGrid.NormalizeInteger(gridPart:GetAttribute(PlotGrid.Attributes.Z))
+	)
+end
+
 function OnboardingService.GetState(profile)
 	return profileState(profile)
 end
@@ -230,7 +276,8 @@ function OnboardingService.ApplyCurrentStageEntry(player, profile)
 		scheduleFinalNoteCompletion(player, profile)
 		return false
 	end
-	return maybeCompleteMakeCurrency(player, profile, profile and profile.Data and profile.Data.Currency)
+	return maybeCompleteExpandFarm(player, profile)
+		or maybeCompleteMakeCurrency(player, profile, profile and profile.Data and profile.Data.Currency)
 end
 
 function OnboardingService.Advance(player, profile, expectedStage)
@@ -247,6 +294,13 @@ end
 
 function OnboardingService.OnCurrencyChanged(player, profile, currency)
 	return maybeCompleteMakeCurrency(player, profile, currency)
+end
+
+function OnboardingService.CanUnlockGridPart(profile, gridPart)
+	if stageFor(profile) ~= Onboarding.Stages.ExpandFarm then
+		return true
+	end
+	return isExpandFarmGridPart(gridPart)
 end
 
 function OnboardingService.GuaranteedRollSeed(profile)
@@ -371,6 +425,16 @@ function OnboardingService.OnPetFed(player, profile)
 		return OnboardingService.Advance(player, profile, Onboarding.Stages.FeedPetApple)
 	end
 	return false
+end
+
+function OnboardingService.OnGridPartUnlocked(player, profile, gridPart)
+	if stageFor(profile) ~= Onboarding.Stages.ExpandFarm then
+		return false
+	end
+	if not isExpandFarmGridPart(gridPart) then
+		return false
+	end
+	return OnboardingService.Advance(player, profile, Onboarding.Stages.ExpandFarm)
 end
 
 function OnboardingService.OnTreeClicked(player, profile, machine, foodId, slotIndex)
