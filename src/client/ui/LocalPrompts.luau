@@ -12,7 +12,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
-local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
@@ -332,20 +331,12 @@ end
 local function gridUnlockContext(target)
 	local gridPart = owningGridPart(target)
 	if not gridPart or gridPart:GetAttribute(State.Grid.Purchasable) ~= true then
-		return false, "Unlock"
+		return false
 	end
 	if not nearestVisibleFenceForGridPart(gridPart) then
-		return false, "Unlock"
+		return false
 	end
-
-	local price = gridPart:GetAttribute(State.Grid.Price)
-	if type(price) ~= "number" then
-		price = gridPart:GetAttribute(PlotGrid.Attributes.UnlockPrice)
-	end
-	if type(price) == "number" then
-		return true, "Unlock: " .. NumberFormatter.Currency(price)
-	end
-	return true, "Unlock"
+	return true
 end
 
 local function feedMachineClass(machine)
@@ -363,7 +354,7 @@ end
 
 local function feedMachineActionText(machine, defaultDepositText, defaultTakeText)
 	if feedMachineClass(machine) == "JamBarrel" then
-		return "Make Jam", "Collect Jam"
+		return "Make", "Collect"
 	end
 	return defaultDepositText, defaultTakeText
 end
@@ -399,7 +390,7 @@ local function petCanGainXP(pet)
 end
 
 local function processorContext(machine)
-	local depositText, takeText = feedMachineActionText(machine, "Deposit Food", "Take Food")
+	local depositText, takeText = feedMachineActionText(machine, "Feed", "Collect")
 	if isEditMode() then return false, takeText end
 	local accepted = acceptedFoodType(machine)
 	local maxQueue = machine:GetAttribute(State.Feed.MaxQueue) or 5
@@ -425,9 +416,14 @@ end
 local function configurePrompt(prompt, kind)
 	prompt.Name = "__LocalPrompt_" .. kind
 	prompt.HoldDuration = 0
+	prompt.ObjectText = ""
 	prompt.MaxActivationDistance = promptActivationDistance(kind)
 	prompt.RequiresLineOfSight = false
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
+	prompt.Style = Enum.ProximityPromptStyle.Custom
+	if prompt:GetAttribute("Theme") == nil then
+		prompt:SetAttribute("Theme", kind)
+	end
 	if kind == "GridPartUnlock" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.HoldDuration = 0.25
@@ -476,6 +472,8 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 		return function() end
 	end
 	prompt.Enabled = false
+	prompt.ObjectText = ""
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	options = type(options) == "table" and options or {}
 	externalPrompts[prompt] = {
 		isAvailable = type(isAvailable) == "function" and isAvailable or function()
@@ -654,6 +652,7 @@ local function refreshPrompt(target, kind, prompt)
 		prompt.Enabled = false
 		return
 	end
+	prompt.ObjectText = ""
 
 	if kind == "PetFeed" then
 		prompt.ActionText = "Feed"
@@ -666,7 +665,7 @@ local function refreshPrompt(target, kind, prompt)
 		prompt.ActionText = actionText
 		prompt.Enabled = enabled
 	elseif kind == "PatchHarvest" then
-		prompt.ActionText = "Harvest"
+		prompt.ActionText = "Collect"
 		prompt.Enabled = not isEditMode()
 			and not isGrowingSeedFeed(target.Parent)
 			and hasSlotFood(target)
@@ -675,7 +674,7 @@ local function refreshPrompt(target, kind, prompt)
 			removePrompt(target, kind)
 			return
 		end
-		prompt.ActionText = "Pick Up"
+		prompt.ActionText = "Collect"
 		prompt.Enabled = not isEditMode()
 	elseif kind == "GridPartUnlock" then
 		local parent = promptParentFor(target, kind)
@@ -690,16 +689,14 @@ local function refreshPrompt(target, kind, prompt)
 				previousParent:Destroy()
 			end
 		end
-		local canUnlock, actionText = gridUnlockContext(target)
-		prompt.ObjectText = "Plot Area"
-		prompt.ActionText = actionText
+		local canUnlock = gridUnlockContext(target)
+		prompt.ActionText = "Buy"
 		prompt.Enabled = not isEditMode() and canUnlock
 	elseif kind == "CrateRoll" then
 		if not isRollButton(target) then
 			removePrompt(target, kind)
 			return
 		end
-		prompt.ObjectText = "Crate"
 		prompt.ActionText = "Roll"
 		prompt.Enabled = not isEditMode() and target:GetAttribute(ROLL_BUTTON_UNAVAILABLE_ATTR) ~= true
 	end

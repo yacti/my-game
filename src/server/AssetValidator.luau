@@ -873,19 +873,58 @@ local function validateItemAddedDisplayBillboard(billboardFolder, errors)
 end
 
 local function validatePromptTemplates(ui, errors)
+	local function validatePromptTemplate(prompt)
+		if prompt and prompt:IsA("ProximityPrompt") and prompt.Style ~= Enum.ProximityPromptStyle.Custom then
+			add(errors, prompt:GetFullName() .. " should use Style=Custom for ProximityPromptCustomizer")
+		end
+	end
+
 	local generic = ui:FindFirstChild("LocalPrompt")
 	if generic then
 		if not generic:IsA("ProximityPrompt") then
 			add(errors, string.format("%s is %s, expected ProximityPrompt", generic:GetFullName(), generic.ClassName))
+		else
+			validatePromptTemplate(generic)
 		end
 	else
 		local templates = child(ui, "PromptTemplates", "Folder", errors)
 		if not templates then return end
 
 		for _, kind in ipairs(PROMPT_TEMPLATE_KINDS) do
-			child(templates, kind, "ProximityPrompt", errors)
+			validatePromptTemplate(child(templates, kind, "ProximityPrompt", errors))
 		end
 	end
+end
+
+local function validateProximityPromptCustomizerUi(ui, errors)
+	local customizer = child(ui, "ProximityPromptCustomizer", "Folder", errors)
+	local defaultTheme = child(customizer, "Default", "BillboardGui", errors)
+	if not defaultTheme then return end
+	if defaultTheme.Enabled ~= false then
+		add(errors, defaultTheme:GetFullName() .. " should be disabled template UI (Enabled=false)")
+	end
+
+	child(defaultTheme, "TextButton", "TextButton", errors)
+	local frame = child(defaultTheme, "PromptFrame", "GuiObject", errors)
+	if not frame then return end
+
+	local inputFrame = child(frame, "InputFrame", "Frame", errors)
+	child(frame, "ActionText", "TextLabel", errors)
+	child(frame, "Background", "GuiObject", errors)
+
+	local inputInner = child(inputFrame, "Frame", "Frame", errors)
+	child(inputInner, "UIScale", "UIScale", errors)
+	child(inputInner, "ButtonFrame", "GuiObject", errors)
+	child(inputInner, "ButtonImage", "ImageLabel", errors)
+	child(inputInner, "ButtonTextImage", "ImageLabel", errors)
+	child(inputInner, "ButtonText", "TextLabel", errors)
+
+	local progressBar = child(inputInner, "ProgressBar", "Frame", errors)
+	local leftGradient = child(progressBar, "LeftGradient", "Frame", errors)
+	local rightGradient = child(progressBar, "RightGradient", "Frame", errors)
+	child(progressBar, "Progress", "NumberValue", errors)
+	child(child(leftGradient, "ProgressBarImage", "ImageLabel", errors), "UIGradient", "UIGradient", errors)
+	child(child(rightGradient, "ProgressBarImage", "ImageLabel", errors), "UIGradient", "UIGradient", errors)
 end
 
 local function validateHudCurrency(hud, errors)
@@ -1268,6 +1307,7 @@ local function validateUi(errors)
 	validateOnboardingPresentation(ui, hud, billboardFolder, errors)
 
 	validatePromptTemplates(ui, errors)
+	validateProximityPromptCustomizerUi(ui, errors)
 end
 
 local function validateRemotes(errors)

@@ -23,6 +23,7 @@ local CONTROLLERS = {
 	"PlayerStateStore",
 	"SatchelController",
 	"ItemAddedDisplayController",
+	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
 	"GearShopController",

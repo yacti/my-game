@@ -910,8 +910,8 @@ local function addPurchasePrompt(model, payload)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "RollOfferBuyPrompt"
-	prompt.ActionText = "Buy " .. formatPrice(payload.price)
-	prompt.ObjectText = tostring(payload.displayName or payload.rewardId or payload.feedType or "Reward")
+	prompt.ActionText = "Buy"
+	prompt.ObjectText = ""
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = BUY_PROMPT_DISTANCE

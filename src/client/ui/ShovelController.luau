@@ -331,7 +331,7 @@ function ShovelController.start()
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.Name = "ShovelDeletePrompt"
 		prompt.ActionText = "Delete"
-		prompt.ObjectText = displayNameForTarget(target)
+		prompt.ObjectText = ""
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.HoldDuration = 0.25
 		prompt.MaxActivationDistance = DELETE_PROMPT_DISTANCE
@@ -402,7 +402,7 @@ function ShovelController.start()
 				continue
 			end
 
-			record.prompt.ObjectText = displayNameForTarget(target)
+			record.prompt.ObjectText = ""
 			if not isDeletePromptAvailable(target) then
 				record.prompt.Enabled = false
 			end
