@@ -113,9 +113,18 @@ local SEARCH_IMAGE_X: string = "rbxasset://textures/ui/InspectMenu/x.png"
 local SEARCH_BUFFER_PIXELS: number = 5
 local SEARCH_WIDTH_PIXELS: number = 200
 
+-- Inventory category filters
+local CATEGORY_ALL: string = "All"
+local CATEGORY_SEEDS: string = "Seeds"
+local CATEGORY_FOOD: string = "Food"
+local CATEGORY_BUTTON_WIDTH: number = 88
+local CATEGORY_BUTTON_HEIGHT: number = 34
+local CATEGORY_BUTTON_GAP: number = 6
+local CATEGORY_SELECTED_COLOR: Color3 = Color3.new(0 / 255, 162 / 255, 1)
+
 -- Misc
 local FONT_FAMILY: Font = targetScript:GetAttribute("FontFace")
-	or Font.new("rbxasset://fonts/families/BuilderSans.json")
+	or Font.new("rbxasset://fonts/families/ComicNeueAngular.json")
 local FONT_SIZE: number = targetScript:GetAttribute("TextSize") or 16
 local DROP_HOTKEY_VALUE: number = Enum.KeyCode.Backspace.Value
 local ZERO_KEY_VALUE: number = Enum.KeyCode.Zero.Value
@@ -188,6 +197,7 @@ local Player: Player = Players.LocalPlayer
 local MainFrame: Frame = nil
 local HotbarFrame: Frame = nil
 local InventoryFrame: Frame = nil
+local CategoryFilterFrame: Frame = nil
 local VRInventorySelector: any = nil
 local ScrollingFrame: ScrollingFrame = nil
 local UIGridFrame: Frame = nil
@@ -210,7 +220,10 @@ local ActiveHopper = nil -- NOTE: HopperBin
 local StarterToolFound: boolean = false -- Special handling is required for the gear currently equipped on the site
 local WholeThingEnabled: boolean = false
 local TextBoxFocused: boolean = false -- ANY TextBox, not just the search box
-local ViewingSearchResults: boolean = false -- If the results of a search are currently being viewed
+local ViewingSearchResults: boolean = false -- If inventory slots are currently filtered by search or category
+local ActiveInventoryCategory: string = CATEGORY_ALL
+local InventorySearchTerms = {}
+local CategoryButtons = {}
 -- local HotkeyStrings = {} -- Used for eating/releasing hotkeys
 local CharConns: { RBXScriptConnection } = {} -- Holds character Connections to be cleared later
 local GamepadEnabled: boolean = false -- determines if our gui needs to be gamepad friendly
@@ -282,13 +295,116 @@ local function UpdateScrollingFrameCanvasSize(): ()
 	ScrollingFrame.CanvasSize = UDim2.fromOffset(0, canvasSizeY)
 end
 
+local function hasSearchTerms(): boolean
+	for _ in pairs(InventorySearchTerms) do
+		return true
+	end
+	return false
+end
+
+local function slotMatchesCategory(slot: any): boolean
+	local tool = slot and slot.Tool
+	if not tool then
+		return false
+	end
+	if ActiveInventoryCategory == CATEGORY_ALL then
+		return true
+	end
+	if ActiveInventoryCategory == CATEGORY_SEEDS then
+		local seedId = tool:GetAttribute(State.Seed.Id)
+		return type(seedId) == "string" and seedId ~= ""
+	end
+	if ActiveInventoryCategory == CATEGORY_FOOD then
+		local foodId = tool:GetAttribute(State.Food.Id)
+		return type(foodId) == "string" and foodId ~= ""
+	end
+	return true
+end
+
+local function updateCategoryButtonStyles(): ()
+	for category, button in pairs(CategoryButtons) do
+		if button and button:IsA("TextButton") then
+			local active = category == ActiveInventoryCategory
+			button.BackgroundTransparency = active and BACKGROUND_TRANSPARENCY or SLOT_LOCKED_TRANSPARENCY
+			button.BackgroundColor3 = active and CATEGORY_SELECTED_COLOR or BACKGROUND_COLOR
+			button.TextColor3 = TEXT_COLOR
+
+			local stroke = button:FindFirstChild("Border")
+			if stroke and stroke:IsA("UIStroke") then
+				stroke.Color = active and CATEGORY_SELECTED_COLOR or SEARCH_BORDER_COLOR
+				stroke.Transparency = active and 0.15 or SEARCH_BORDER_TRANSPARENCY
+			end
+		end
+	end
+end
+
 local function AdjustInventoryFrames(): ()
+	local searchActive = hasSearchTerms()
+	local filterActive = searchActive or ActiveInventoryCategory ~= CATEGORY_ALL
+	ViewingSearchResults = filterActive
+
+	if searchActive then
+		local hitTable = {}
+		for i: number = NumberOfHotbarSlots + 1, #Slots do
+			local slot: any = Slots[i]
+			local hits = slotMatchesCategory(slot) and slot:CheckTerms(InventorySearchTerms) or 0
+			table.insert(hitTable, { slot, hits })
+			slot.Frame.Visible = false
+			slot.Frame.Parent = InventoryFrame
+		end
+
+		table.sort(hitTable, function(left: any, right: any): boolean
+			if left[2] == right[2] then
+				return left[1].Index < right[1].Index
+			end
+			return left[2] > right[2]
+		end)
+
+		local hitCount: number = 0
+		for _, data in ipairs(hitTable) do
+			local slot, hits: any = data[1], data[2]
+			if hits > 0 then
+				slot.Frame.Visible = true
+				slot.Frame.Parent = UIGridFrame
+				slot.Frame.LayoutOrder = NumberOfHotbarSlots + hitCount
+				hitCount = hitCount + 1
+			end
+		end
+		UpdateScrollingFrameCanvasSize()
+		return
+	end
+
+	local visibleIndex = 0
 	for i: number = NumberOfHotbarSlots + 1, #Slots do
 		local slot: any = Slots[i]
-		slot.Frame.LayoutOrder = slot.Index
-		slot.Frame.Visible = (slot.Tool ~= nil)
+		local visible = slotMatchesCategory(slot)
+		if filterActive then
+			slot.Frame.Visible = visible
+			slot.Frame.Parent = visible and UIGridFrame or InventoryFrame
+			if visible then
+				slot.Frame.LayoutOrder = NumberOfHotbarSlots + visibleIndex
+				visibleIndex = visibleIndex + 1
+			end
+		else
+			slot.Frame.LayoutOrder = slot.Index
+			slot.Frame.Parent = UIGridFrame
+			slot.Frame.Visible = (slot.Tool ~= nil)
+		end
 	end
 	UpdateScrollingFrameCanvasSize()
+end
+
+local function setActiveInventoryCategory(category: string): ()
+	if ActiveInventoryCategory == category then
+		if category == CATEGORY_ALL then
+			return
+		end
+		category = CATEGORY_ALL
+	end
+	ActiveInventoryCategory = category
+	updateCategoryButtonStyles()
+	ScrollingFrame.CanvasPosition = Vector2.new(0, 0)
+	AdjustInventoryFrames()
 end
 
 local function UpdateBackpackLayout(): ()
@@ -313,6 +429,14 @@ local function UpdateBackpackLayout(): ()
 		1,
 		HotbarFrame.Position.Y.Offset - InventoryFrame.Size.Y.Offset
 	)
+	if CategoryFilterFrame then
+		CategoryFilterFrame.Position = UDim2.new(
+			InventoryFrame.Position.X.Scale,
+			InventoryFrame.Position.X.Offset - CATEGORY_BUTTON_WIDTH - ICON_BUFFER_PIXELS,
+			InventoryFrame.Position.Y.Scale,
+			InventoryFrame.Position.Y.Offset
+		)
+	end
 
 	ScrollingFrame.Size = UDim2.new(
 		1,
@@ -813,10 +937,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 				if IsEquipped(tool) then -- Also unequip it --NOTE: HopperBin
 					UnequipAllTools()
 				end
-				-- Also hide the inventory slot if we're showing results right now
 				if ViewingSearchResults then
-					newSlot.Frame.Visible = false
-					newSlot.Parent = InventoryFrame
+					AdjustInventoryFrames()
 				end
 			end
 		end
@@ -959,10 +1081,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 							if IsEquipped(tool) then --NOTE: HopperBin
 								UnequipAllTools()
 							end
-							-- Also hide the inventory slot if we're showing results right now
 							if ViewingSearchResults then
-								slot.Frame.Visible = false
-								slot.Frame.Parent = InventoryFrame
+								AdjustInventoryFrames()
 							end
 						end
 					end
@@ -987,8 +1107,12 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	Slots[index] = slot
 
 	if index > NumberOfHotbarSlots then
-		UpdateScrollingFrameCanvasSize()
-		-- Scroll to new inventory slot, if we're open and not viewing search results
+		if ViewingSearchResults then
+			AdjustInventoryFrames()
+		else
+			UpdateScrollingFrameCanvasSize()
+		end
+		-- Scroll to new inventory slot, if we're open and not filtering inventory results
 		if InventoryFrame.Visible and not ViewingSearchResults then
 			local offset: number = ScrollingFrame.CanvasSize.Y.Offset - ScrollingFrame.AbsoluteSize.Y
 			ScrollingFrame.CanvasPosition = Vector2.new(0, math.max(0, offset))
@@ -1654,6 +1778,50 @@ corner.Name = "Corner"
 corner.CornerRadius = BACKGROUND_CORNER_RADIUS
 corner.Parent = InventoryFrame
 
+CategoryFilterFrame = Instance.new("Frame")
+CategoryFilterFrame.Name = "CategoryFilters"
+CategoryFilterFrame.BackgroundTransparency = 1
+CategoryFilterFrame.Size = UDim2.fromOffset(
+	CATEGORY_BUTTON_WIDTH,
+	(3 * CATEGORY_BUTTON_HEIGHT) + (2 * CATEGORY_BUTTON_GAP)
+)
+CategoryFilterFrame.Visible = false
+CategoryFilterFrame.Parent = MainFrame
+
+local categoryList = { CATEGORY_ALL, CATEGORY_SEEDS, CATEGORY_FOOD }
+for categoryIndex, category in ipairs(categoryList) do
+	local button: TextButton = Instance.new("TextButton")
+	button.Name = category .. "Filter"
+	button.Text = category
+	button.BackgroundColor3 = BACKGROUND_COLOR
+	button.BorderSizePixel = 0
+	button.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	button.TextSize = FONT_SIZE
+	button.TextColor3 = TEXT_COLOR
+	button.TextStrokeTransparency = 0.25
+	button.TextStrokeColor3 = Color3.new(0, 0, 0)
+	button.Size = UDim2.fromOffset(CATEGORY_BUTTON_WIDTH, CATEGORY_BUTTON_HEIGHT)
+	button.Position = UDim2.fromOffset(0, (categoryIndex - 1) * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP))
+	button.Parent = CategoryFilterFrame
+
+	local buttonCorner: UICorner = Instance.new("UICorner")
+	buttonCorner.Name = "Corner"
+	buttonCorner.CornerRadius = SEARCH_CORNER_RADIUS
+	buttonCorner.Parent = button
+
+	local buttonBorder: UIStroke = Instance.new("UIStroke")
+	buttonBorder.Name = "Border"
+	buttonBorder.Thickness = SEARCH_BORDER_THICKNESS
+	buttonBorder.Parent = button
+
+	button.MouseButton1Click:Connect(function(): ()
+		setActiveInventoryCategory(category)
+	end)
+
+	CategoryButtons[category] = button
+end
+updateCategoryButtonStyles()
+
 VRInventorySelector = Instance.new("TextButton")
 VRInventorySelector.Name = "VRInventorySelector"
 VRInventorySelector.Position = UDim2.new(0, 0, 0, 0)
@@ -1954,55 +2122,19 @@ do -- Search stuff
 	xImage.BorderSizePixel = 0
 	xImage.Parent = xButton
 
-	local function search(): ()
-		local terms: { [string]: boolean } = {}
-		for word: string in searchBox.Text:gmatch("%S+") do
+	local function updateSearchTerms(text: string): ()
+		local terms = {}
+		for word: string in text:gmatch("%S+") do
 			terms[word:lower()] = true
 		end
-
-		local hitTable = {}
-		for i: number = NumberOfHotbarSlots + 1, #Slots do -- Only search inventory slots
-			local slot = Slots[i]
-			local hits: any = slot:CheckTerms(terms)
-			table.insert(hitTable, { slot, hits })
-			slot.Frame.Visible = false
-			slot.Frame.Parent = InventoryFrame
-		end
-
-		table.sort(hitTable, function(left: any, right: any): boolean
-			return left[2] > right[2]
-		end)
-		ViewingSearchResults = true
-
-		local hitCount: number = 0
-		for _, data in ipairs(hitTable) do
-			local slot, hits: any = data[1], data[2]
-			if hits > 0 then
-				slot.Frame.Visible = true
-				slot.Frame.Parent = UIGridFrame
-				slot.Frame.LayoutOrder = NumberOfHotbarSlots + hitCount
-				hitCount = hitCount + 1
-			end
-		end
-
+		InventorySearchTerms = terms
 		ScrollingFrame.CanvasPosition = Vector2.new(0, 0)
-		UpdateScrollingFrameCanvasSize()
-
-		xButton.ZIndex = 3
+		AdjustInventoryFrames()
+		xButton.ZIndex = text ~= "" and 3 or 0
 	end
 
 	local function clearResults(): ()
-		if xButton.ZIndex > 0 then
-			ViewingSearchResults = false
-			for i: number = NumberOfHotbarSlots + 1, #Slots do
-				local slot = Slots[i]
-				slot.Frame.LayoutOrder = slot.Index
-				slot.Frame.Parent = UIGridFrame
-				slot.Frame.Visible = true
-			end
-			xButton.ZIndex = 0
-		end
-		UpdateScrollingFrameCanvasSize()
+		updateSearchTerms("")
 	end
 
 	local function reset(): ()
@@ -2018,7 +2150,7 @@ do -- Search stuff
 				clearResults()
 			elseif text ~= SEARCH_TEXT then
 				searchBox.TextTransparency = 0
-				search()
+				updateSearchTerms(text)
 			end
 			xButton.Visible = text ~= "" and text ~= SEARCH_TEXT
 		end
@@ -2027,7 +2159,7 @@ do -- Search stuff
 	local function focusLost(enterPressed: boolean): ()
 		if enterPressed then
 			--TODO: Could optimize
-			search()
+			updateSearchTerms(searchBox.Text)
 		end
 	end
 
@@ -2092,6 +2224,9 @@ do -- Make the Inventory expand/collapse arrow (unless TopBar)
 		if not next(Dragging) then -- Only continue if nothing is being dragged
 			InventoryFrame.Visible = not InventoryFrame.Visible
 			local nowOpen: boolean = InventoryFrame.Visible
+			if CategoryFilterFrame then
+				CategoryFilterFrame.Visible = nowOpen
+			end
 			AdjustHotbarFrames()
 			HotbarFrame.Active = not HotbarFrame.Active
 			for i: number = 1, NumberOfHotbarSlots do

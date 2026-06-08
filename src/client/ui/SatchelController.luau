@@ -7,6 +7,7 @@ function SatchelController.start()
 	local loader = satchelRoot:WaitForChild("SatchelLoader")
 	local satchelModule = loader:WaitForChild("Satchel")
 
+	-- The vendored RunContext loader is disabled; the app controller owns startup.
 	require(satchelModule)
 end
 

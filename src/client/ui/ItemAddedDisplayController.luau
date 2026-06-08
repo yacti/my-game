@@ -331,7 +331,7 @@ end
 
 local function foodDisplayInfo(foodId, xp)
 	local name = displayNameForFood(foodId)
-	local xpText = NumberFormatter.XP(xp, " XP")
+	local xpText = NumberFormatter.XP(xp, "xp")
 	return string.format("%s %s", name, xpText), nil
 end
 

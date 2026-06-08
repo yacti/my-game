@@ -1,5 +1,4 @@
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -15,6 +14,7 @@ local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
+local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local YesNoWarning = require(script.Parent:WaitForChild("YesNoWarning"))
 
@@ -22,7 +22,6 @@ local ShovelController = {}
 
 local DELETE_PROMPT_ATTACHMENT_NAME = "__ShovelDeletePromptAttachment"
 local DELETE_PROMPT_DISTANCE = 18
-local SHOVEL_MAX_PROMPTS_VISIBLE = 100
 
 local DELETE_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before deleting another item.",
@@ -202,30 +201,12 @@ function ShovelController.start()
 	local pendingTarget = nil
 	local boundTools = setmetatable({}, { __mode = "k" })
 	local deletePrompts = {}
-	local previousMaxPromptsVisible = nil
 
 	local refreshDeletePrompts
 	local clearDeletePrompts
 
 	local function isEquipped()
 		return equippedTool ~= nil and equippedTool.Parent == player.Character
-	end
-
-	local function setShovelPromptLimit(active)
-		if active then
-			if previousMaxPromptsVisible == nil then
-				previousMaxPromptsVisible = ProximityPromptService.MaxPromptsVisible
-			end
-			pcall(function()
-				ProximityPromptService.MaxPromptsVisible = SHOVEL_MAX_PROMPTS_VISIBLE
-			end)
-		elseif previousMaxPromptsVisible ~= nil then
-			local restoreValue = previousMaxPromptsVisible
-			previousMaxPromptsVisible = nil
-			pcall(function()
-				ProximityPromptService.MaxPromptsVisible = restoreValue
-			end)
-		end
 	end
 
 	local function cancelPrompt()
@@ -305,6 +286,9 @@ function ShovelController.start()
 		for _, connection in ipairs(record.connections) do
 			connection:Disconnect()
 		end
+		if record.unregisterExternalPrompt then
+			record.unregisterExternalPrompt()
+		end
 		if record.prompt then
 			record.prompt:Destroy()
 		end
@@ -322,6 +306,16 @@ function ShovelController.start()
 		for _, target in ipairs(targets) do
 			removeDeletePrompt(target)
 		end
+	end
+
+	local function isDeletePromptAvailable(target)
+		if promptOpen or pendingRequestId ~= nil or not isEquipped() or not target or not target.Parent then
+			return false
+		end
+		local plot = PlotResolver.ResolveForPlayer(player)
+		return plot ~= nil
+			and target:IsDescendantOf(plot)
+			and (isFeedPlacement(target) or isCosmeticPlacement(target))
 	end
 
 	local function addDeletePrompt(target)
@@ -351,6 +345,11 @@ function ShovelController.start()
 			attachment = parent:IsA("Attachment") and parent or nil,
 			connections = {},
 		}
+		record.unregisterExternalPrompt = LocalPrompts.RegisterExternalPrompt(prompt, function()
+			return isDeletePromptAvailable(target)
+		end, {
+			allowWhileShovelEquipped = true,
+		})
 		record.connections[#record.connections + 1] = RuntimeGuard.Connect(prompt.Triggered, "ShovelController.DeletePromptTriggered", function()
 			if isEquipped() and target.Parent then
 				promptDelete(target)
@@ -388,11 +387,9 @@ function ShovelController.start()
 		local plot = PlotResolver.ResolveForPlayer(player)
 		if not isEquipped() or not plot then
 			clearDeletePrompts()
-			setShovelPromptLimit(false)
 			return
 		end
 
-		setShovelPromptLimit(true)
 		if shouldScan then
 			scanDeleteTargets(plot)
 		end
@@ -406,7 +403,9 @@ function ShovelController.start()
 			end
 
 			record.prompt.ObjectText = displayNameForTarget(target)
-			record.prompt.Enabled = not promptOpen and pendingRequestId == nil
+			if not isDeletePromptAvailable(target) then
+				record.prompt.Enabled = false
+			end
 		end
 	end
 
@@ -430,7 +429,6 @@ function ShovelController.start()
 				equippedTool = nil
 				cancelPrompt()
 				clearDeletePrompts()
-				setShovelPromptLimit(false)
 			end
 		end)
 	end
@@ -472,7 +470,6 @@ function ShovelController.start()
 		equippedTool = nil
 		cancelPrompt()
 		clearDeletePrompts()
-		setShovelPromptLimit(false)
 		RuntimeGuard.Connect(character.ChildAdded, "ShovelController.CharacterChildAdded", bindTool)
 		task.defer(function()
 			RuntimeGuard.Run("ShovelController.ScanToolsDeferred", scanTools)
