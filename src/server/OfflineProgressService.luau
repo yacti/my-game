@@ -12,6 +12,7 @@ local State = require(Shared:WaitForChild("State"))
 local OfflineProgressService = {}
 
 local FLASH_ACK_TIMEOUT_SECONDS = 10
+local DEFAULT_STARTER_PET_ID = "Pet1"
 
 local sessions = {}
 local systems = {}
@@ -46,8 +47,18 @@ local function hasPotentialOfflineProgress(profile, elapsed)
 	if type(data) ~= "table" then
 		return false
 	end
-	if type(data.Pets) == "table" and #data.Pets > 0 then
-		return true
+	if type(data.Pets) == "table" then
+		for index, pet in ipairs(data.Pets) do
+			if type(pet) == "table" then
+				local petId = type(pet.petId) == "string" and pet.petId or DEFAULT_STARTER_PET_ID
+				if index > 1
+					or petId ~= DEFAULT_STARTER_PET_ID
+					or (tonumber(pet.xp) or 0) > 0
+					or (tonumber(pet.money) or 0) > 0 then
+					return true
+				end
+			end
+		end
 	end
 	if type(data.FeedPlacements) == "table" then
 		for _, placement in ipairs(data.FeedPlacements) do

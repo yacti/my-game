@@ -8,7 +8,7 @@
 -- Tunable attribute on the model:
 --   FoodDrop (string, required) exact food id produced by each slot
 --   XP       (number, default 1) XP gained per growth interval
---   GrowRate (number, default 1/1000) seconds per growth interval
+--   GrowRate (number, default 3) seconds per growth interval
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -24,14 +24,14 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Patches = {}
 
-local DEFAULT_GROW_RATE = 1 / 1000
+local DEFAULT_GROW_RATE = 3
 local HARVEST_RESPAWN_DELAY = 3
-local OFFLINE_GROW_FRACTION = 1
+local OFFLINE_GROW_FRACTION = 1 / 1000
 local EDIT_MODE_ATTR = "EditMode"
 
--- Offline progress runs at this fraction of the online rate. Temporarily set
--- to full speed for testing. Tunable in one place; not on the machine
--- attribute since it's an economy-wide knob for patch machines.
+-- Offline progress runs at this fraction of the online rate. Tunable in one
+-- place; not on the machine attribute since it's an economy-wide knob for
+-- patch machines.
 
 -- Mature slot fruit scale is rendered locally by PatchSlotVisuals. Harvested
 -- tools still use the shared scale formula on the server.

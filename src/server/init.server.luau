@@ -762,6 +762,10 @@ local function handlePlayerAdded(player)
 			PlotService.PlaceCosmeticWithIndex(plot, placement.id, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 		end
 
+		if not deferOfflineProgress then
+			applyOfflineEarnings(plot, profile)
+		end
+
 		PlayerReplicaService.Create(player, profile)
 		OfflineProgressService.Publish(player)
 		OnboardingService.ApplyCurrentStageEntry(player, profile)
