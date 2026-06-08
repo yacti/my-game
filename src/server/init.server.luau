@@ -67,6 +67,7 @@ local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local OFFLINE_PET_EARN_FRACTION = 0.001
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
+local FOOD_COLLECTION_SNAPSHOT = "FoodCollection"
 
 local function userLabel(player)
 	return tostring(player and player.UserId or "unknown")
@@ -171,6 +172,32 @@ local function collectFeedState(plot, player)
 	}
 end
 
+local function collectFeedPlacementRecord(plot, feed)
+	local floor = PlotService.GetFloor(plot)
+	if not (floor and feed and feed:IsDescendantOf(plot)) then
+		return nil
+	end
+	local feedType = feed:GetAttribute(State.Feed.Type)
+	if type(feedType) ~= "string" or feedType == "" then
+		return nil
+	end
+
+	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, feed:GetPivot())
+	local rec = {
+		type = feedType,
+		lx = lx,
+		lz = lz,
+		lry = lry,
+	}
+	local extras = FeedGrowthService.IsGrowing(feed)
+		and FeedGrowthService.Serialize(feed)
+		or FeedMachines.Serialize(feed)
+	if type(extras) == "table" then
+		for k, v in pairs(extras) do rec[k] = v end
+	end
+	return rec
+end
+
 local function collectCosmeticState(plot, player)
 	local floor = PlotService.GetFloor(plot)
 	local placements = {}
@@ -215,6 +242,30 @@ local function snapshotProfileState(player, plot, profile)
 	local publishRunOk, published = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
 	if publishRunOk and published ~= true then
 		warn("[init] Snapshot saved but PlayerState replica was not updated for user " .. userLabel(player))
+	end
+	return true
+end
+
+local function snapshotFoodCollection(player, plot, profile, feed)
+	if not plot or not profile then return false end
+	if not feed then return false end
+	local feedIndex = feed:GetAttribute(State.Feed.Index)
+	local placement = collectFeedPlacementRecord(plot, feed)
+	if type(feedIndex) ~= "number" or feedIndex < 1 or not placement then
+		return false
+	end
+	profile.Data.FeedPlacements = profile.Data.FeedPlacements or {}
+	profile.Data.FeedPlacements[feedIndex] = placement
+	profile.Data.FoodInventory = Food.CountByType(player)
+	profile.Data.LastSeen = os.time()
+	local publishRunOk, published = RuntimeGuard.Run(
+		"snapshotFoodCollection.publishFoodInventory",
+		PlayerReplicaService.PublishFoodInventory,
+		player,
+		profile
+	)
+	if publishRunOk and published ~= true then
+		warn("[init] Food collection snapshot saved but food inventory replica was not updated for user " .. userLabel(player))
 	end
 	return true
 end
@@ -765,13 +816,27 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			end,
 			[Interactions.Actions.PatchHarvest] = function(player, target, plot)
 				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
-					FeedMachines.HarvestPatchAnchor(target, player)
+					local ok, feed = FeedMachines.HarvestPatchAnchor(target, player)
+					if ok then
+						return {
+							snapshot = FOOD_COLLECTION_SNAPSHOT,
+							feed = feed,
+						}
+					end
 				end
+				return false
 			end,
 			[Interactions.Actions.TreeGroundPickup] = function(player, target, plot)
 				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, FOOD_PICKUP_PROMPT_DISTANCE) then
-					FeedMachines.PickupTreeGround(target, player)
+					local ok, feed = FeedMachines.PickupTreeGround(target, player)
+					if ok then
+						return {
+							snapshot = FOOD_COLLECTION_SNAPSHOT,
+							feed = feed,
+						}
+					end
 				end
+				return false
 			end,
 			[Interactions.Actions.GridPartUnlock] = function(player, target, plot, profile)
 				unlockGridPart(target, plot, player, profile)
@@ -783,7 +848,16 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 				end
 			end,
 		},
-		afterInteraction = function(player, plot, profile)
+		afterInteraction = function(player, plot, profile, action, _target, handlerResult)
+			if action == Interactions.Actions.PatchHarvest or action == Interactions.Actions.TreeGroundPickup then
+				if type(handlerResult) ~= "table" or handlerResult.snapshot ~= FOOD_COLLECTION_SNAPSHOT then
+					return
+				end
+				if snapshotFoodCollection(player, plot, profile, handlerResult.feed) then
+					return
+				end
+				warn("[init] Falling back to full snapshot after food collection for user " .. userLabel(player))
+			end
 			snapshotProfileState(player, plot, profile)
 		end,
 	})

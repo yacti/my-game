@@ -318,7 +318,11 @@ pickupSlotGround = function(machine, s, slot, player)
 	if not slot.ground then return false end
 	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
 	if not tool then return false end
-	if not ToolGrantService.GrantTool(player, tool) then
+	if not ToolGrantService.GrantTool(player, tool, {
+		deferAutoEquip = true,
+		autoEquipPolicy = "firstInBurst",
+		autoEquipBurstGap = 3,
+	}) then
 		tool:Destroy()
 		return false
 	end
@@ -328,7 +332,7 @@ pickupSlotGround = function(machine, s, slot, player)
 		OnboardingService.OnTreeFruitPicked(player, profile, machine, groundModel)
 	end
 	destroySlotGround(slot)
-	return true
+	return true, machine
 end
 
 local function applyDrop(machine, s, slot, foodId, player)

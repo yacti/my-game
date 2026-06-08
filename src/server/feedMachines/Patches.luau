@@ -192,7 +192,11 @@ local function harvest(machine, s, slotIndex, player)
 	local tool = Food.MakeTool(foodId, slot.xp)
 	if not tool then return false end
 	scaleToolToSlot(tool, slot)
-	if not ToolGrantService.GrantTool(player, tool) then
+	if not ToolGrantService.GrantTool(player, tool, {
+		deferAutoEquip = true,
+		autoEquipPolicy = "firstInBurst",
+		autoEquipBurstGap = 3,
+	}) then
 		tool:Destroy()
 		return false
 	end
@@ -208,7 +212,7 @@ local function harvest(machine, s, slotIndex, player)
 	slot.xp        = 0
 	slot.growthElapsed = 0
 	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
-	return true
+	return true, machine
 end
 
 -- Anchor the slot at the BaseFood's bottom face. Patch food templates are

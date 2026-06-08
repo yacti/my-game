@@ -75,15 +75,16 @@ function PromptInteractionService.Start(config)
 			return
 		end
 
+		local handlerResult = nil
 		withPlayerLock(locks, player, function()
 			local handler = handlers[action]
 			if handler then
-				handler(player, target, plot, profile)
+				handlerResult = handler(player, target, plot, profile)
 			end
 		end)
 
 		if type(afterInteraction) == "function" then
-			RuntimeGuard.Run("PromptInteractionService.AfterInteraction", afterInteraction, player, plot, profile)
+			RuntimeGuard.Run("PromptInteractionService.AfterInteraction", afterInteraction, player, plot, profile, action, target, handlerResult)
 		end
 	end)
 end

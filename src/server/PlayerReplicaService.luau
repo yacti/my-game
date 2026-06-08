@@ -222,10 +222,25 @@ end
 
 function PlayerReplicaService.PublishInventories(player, profile)
 	local data = profile and profile.Data or {}
-	PlayerReplicaService.PublishField(player, PlayerState.Fields.CosmeticInventory, copyCountMap(data.CosmeticInventory))
-	PlayerReplicaService.PublishField(player, PlayerState.Fields.FeedInventory, copyCountMap(data.FeedInventory))
-	PlayerReplicaService.PublishField(player, PlayerState.Fields.SeedInventory, copyCountMap(data.SeedInventory))
-	PlayerReplicaService.PublishField(player, PlayerState.Fields.FoodInventory, copyCountMap(data.FoodInventory))
+	local success = true
+	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.CosmeticInventory, copyCountMap(data.CosmeticInventory)) then
+		success = false
+	end
+	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.FeedInventory, copyCountMap(data.FeedInventory)) then
+		success = false
+	end
+	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.SeedInventory, copyCountMap(data.SeedInventory)) then
+		success = false
+	end
+	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.FoodInventory, copyCountMap(data.FoodInventory)) then
+		success = false
+	end
+	return success
+end
+
+function PlayerReplicaService.PublishFoodInventory(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.FoodInventory, copyCountMap(data.FoodInventory))
 end
 
 function PlayerReplicaService.PublishUnlockedGridKeys(player, profile)

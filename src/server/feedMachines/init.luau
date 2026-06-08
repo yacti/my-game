@@ -196,13 +196,19 @@ function FeedMachines.Interact(machine, player)
 end
 
 function FeedMachines.HarvestPatchAnchor(anchor, player)
-	local ok, result = RuntimeGuard.Run("FeedMachines.HarvestPatchAnchor", Patches.HarvestAnchor, anchor, player)
-	return ok and result or nil
+	local results = table.pack(RuntimeGuard.Run("FeedMachines.HarvestPatchAnchor", Patches.HarvestAnchor, anchor, player))
+	if results[1] ~= true then
+		return nil
+	end
+	return table.unpack(results, 2, results.n)
 end
 
 function FeedMachines.PickupTreeGround(ground, player)
-	local ok, result = RuntimeGuard.Run("FeedMachines.PickupTreeGround", Trees.PickupGround, ground, player)
-	return ok and result or nil
+	local results = table.pack(RuntimeGuard.Run("FeedMachines.PickupTreeGround", Trees.PickupGround, ground, player))
+	if results[1] ~= true then
+		return nil
+	end
+	return table.unpack(results, 2, results.n)
 end
 
 return FeedMachines
