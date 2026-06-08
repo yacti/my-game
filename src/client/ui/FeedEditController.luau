@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
@@ -15,6 +14,7 @@ local State = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
+local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -416,7 +416,7 @@ function FeedEditController.start()
 	local committedCFrame = nil
 	local currentBlocked = false
 	local moving = false
-	local touchScreenPosition = nil
+	local selectionTap = PlacementInput.NewTapRecognizer()
 	local nextRequestId = 0
 	local pendingRequestId = nil
 	local pendingTargetCFrame = nil
@@ -618,7 +618,7 @@ function FeedEditController.start()
 		selectedFeed = nil
 		selectedPrimary = nil
 		committedCFrame = nil
-		touchScreenPosition = nil
+		selectionTap:Cancel()
 		placementEdit.Enabled = false
 		placementEdit.Adornee = nil
 		placementEdit.StudsOffsetWorldSpace = Vector3.zero
@@ -698,6 +698,15 @@ function FeedEditController.start()
 
 	local function updateDragPreview(screenPosition)
 		if not moving or not selectedFeed or pendingRequestId ~= nil then return end
+		if not editEnabled then
+			clearSelection(true)
+			return
+		end
+		if not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
+			clearSelection(false)
+			return
+		end
+		if not screenPosition then return end
 		local lx, lz = floorPointFromScreen(screenPosition)
 		if not lx or not lz then return end
 		selectedLX = lx
@@ -705,21 +714,10 @@ function FeedEditController.start()
 		applySelectionPreview()
 	end
 
-	local function screenPositionForDrag()
-		if touchScreenPosition then
-			return touchScreenPosition
-		end
-		return UserInputService:GetMouseLocation()
-	end
-
-	local function beginMoving(input)
+	local function beginMoving()
 		if not selectedFeed or pendingRequestId ~= nil then return end
 		moving = true
-		if input and input.UserInputType == Enum.UserInputType.Touch then
-			touchScreenPosition = input.Position
-		else
-			touchScreenPosition = nil
-		end
+		selectionTap:Cancel()
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = "Release to move"
 		end
@@ -728,11 +726,37 @@ function FeedEditController.start()
 	local function stopMoving()
 		if not moving then return end
 		moving = false
-		touchScreenPosition = nil
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = currentBlocked and "Blocked" or "Hold to move"
 		end
+		if not selectedFeed or not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
+			clearSelection(false)
+			return
+		end
 		sendMoveRequest()
+	end
+
+	local function handleWorldEditTap(screenPosition)
+		local plot = getPlayerPlot()
+		if not plot then
+			clearSelection(true)
+			return
+		end
+
+		local placeable = placeableRootFromScreen(plot, screenPosition)
+		if placeable then
+			if isGrowingFeed(placeable) then
+				NotificationUi.show({
+					kind = NotificationConfig.Kinds.Error,
+					text = GROWING_PLANT_MESSAGE,
+				})
+				clearSelection(true)
+			else
+				selectFeed(placeable)
+			end
+		else
+			clearSelection(true)
+		end
 	end
 
 	local function rotateSelected()
@@ -823,18 +847,30 @@ function FeedEditController.start()
 		FeedEditModeRequest:FireServer(false)
 	end)
 
-	RuntimeGuard.Connect(moveButton.InputBegan, "FeedEditController.MoveInputBegan", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+	PlacementInput.BindMoveDrag(moveButton, "FeedEditController.MoveDrag", {
+		canStart = function()
+			return not isOfflineProgressPending()
+				and editEnabled
+				and selectedFeed ~= nil
+				and selectedFeed.Parent ~= nil
+				and pendingRequestId == nil
+		end,
+		onStart = function()
 			ignoreWorldInputUntil = os.clock() + 0.2
-			beginMoving(input)
-		end
-	end)
-	RuntimeGuard.Connect(moveButton.InputEnded, "FeedEditController.MoveInputEnded", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+			beginMoving()
+		end,
+		onContinue = function(screenPosition)
+			updateDragPreview(screenPosition)
+		end,
+		onEnd = function(screenPosition)
 			ignoreWorldInputUntil = os.clock() + 0.2
+			updateDragPreview(screenPosition)
 			stopMoving()
+		end,
+	})
+	RuntimeGuard.Connect(moveButton.InputBegan, "FeedEditController.MoveInputBegan", function(input)
+		if PlacementInput.IsPressInput(input) then
+			ignoreWorldInputUntil = os.clock() + 0.2
 		end
 	end)
 	RuntimeGuard.Connect(rotateButton.InputBegan, "FeedEditController.RotateInputBegan", function(input)
@@ -853,40 +889,27 @@ function FeedEditController.start()
 			and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
+		if PlacementInput.IsInteractiveGuiAt(input.Position) then return end
 
-		local plot = getPlayerPlot()
-		if not plot then
-			clearSelection(true)
-			return
-		end
-
-		local placeable = placeableRootFromScreen(plot, input.Position)
-		if placeable then
-			if isGrowingFeed(placeable) then
-				NotificationUi.show({
-					kind = NotificationConfig.Kinds.Error,
-					text = GROWING_PLANT_MESSAGE,
-				})
-				clearSelection(true)
-			else
-				selectFeed(placeable)
-			end
+		if input.UserInputType == Enum.UserInputType.Touch then
+			selectionTap:Begin(input)
 		else
-			clearSelection(true)
+			handleWorldEditTap(input.Position)
 		end
 	end)
 
 	RuntimeGuard.Connect(UserInputService.InputChanged, "FeedEditController.InputChanged", function(input)
-		if moving and input.UserInputType == Enum.UserInputType.Touch then
-			touchScreenPosition = input.Position
-		end
+		selectionTap:Changed(input)
 	end)
 
 	RuntimeGuard.Connect(UserInputService.InputEnded, "FeedEditController.InputEnded", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			stopMoving()
+		local tap = selectionTap:End(input)
+		if not tap then
+			return
 		end
+		if isOfflineProgressPending() or not editEnabled or moving or pendingRequestId ~= nil then return end
+		if os.clock() < ignoreWorldInputUntil then return end
+		handleWorldEditTap(tap.position)
 	end)
 
 	RuntimeGuard.Connect(FeedMoveResult.OnClientEvent, "FeedEditController.MoveResult", function(requestId, success, reason, snappedCFrame)
@@ -950,29 +973,6 @@ function FeedEditController.start()
 		clearSelection(true)
 		task.defer(function()
 			RuntimeGuard.Run("FeedEditController.RefreshButtonDeferred", refreshButtonVisibility)
-		end)
-	end)
-
-	RuntimeGuard.Connect(RunService.RenderStepped, "FeedEditController.RenderStepped", function()
-		if not moving then
-			return
-		end
-		if pendingRequestId ~= nil then
-			moving = false
-			touchScreenPosition = nil
-			return
-		end
-		if not editEnabled then
-			clearSelection(true)
-			return
-		end
-		if not selectedFeed or not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
-			clearSelection(false)
-			return
-		end
-
-		RuntimeGuard.Run("FeedEditController.UpdateDragPreview", function()
-			updateDragPreview(screenPositionForDrag())
 		end)
 	end)
 

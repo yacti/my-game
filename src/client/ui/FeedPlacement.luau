@@ -3,7 +3,6 @@
 -- ReplicatedStorage.UI.BillboardGUIs.PlacementEdit billboard.
 
 local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
 local TweenService      = game:GetService("TweenService")
 local UserInputService  = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,6 +19,7 @@ local State   = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
+local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -289,7 +289,7 @@ function FeedPlacement.start()
 	local unequippedWhilePending = false
 	local placementGrid = nil
 	local moving = false
-	local touchScreenPosition = nil
+	local worldTap = PlacementInput.NewTapRecognizer()
 	local ignoreWorldInputUntil = 0
 	local boundTools = setmetatable({}, { __mode = "k" })
 	local rotationTween = nil
@@ -443,7 +443,7 @@ function FeedPlacement.start()
 		pendingSuppressOverlapError = false
 		unequippedWhilePending = false
 		moving = false
-		touchScreenPosition = nil
+		worldTap:Cancel()
 		setGridEffectEnabled(false)
 		setPlacementEditVisible(false)
 		setConfirmVisible(true)
@@ -807,44 +807,60 @@ function FeedPlacement.start()
 		end
 	end
 
-	local function beginMoving(input)
+	local function beginMoving()
 		if not placing or not preview or pendingPlacementRequestId ~= nil then return end
 		moving = true
-		if input and input.UserInputType == Enum.UserInputType.Touch then
-			touchScreenPosition = input.Position
-		else
-			touchScreenPosition = nil
-		end
+		worldTap:Cancel()
 		setPlacementEditVisible(true)
 	end
 
 	local function stopMoving()
 		if not moving then return end
 		moving = false
-		touchScreenPosition = nil
 		setPlacementEditVisible(preview ~= nil)
 	end
 
-	local function screenPositionForDrag()
-		if touchScreenPosition then
-			return touchScreenPosition
+	local function updateDragPreview(screenPosition)
+		if not moving then
+			return
 		end
-		return UserInputService:GetMouseLocation()
+		if pendingPlacementRequestId ~= nil then
+			moving = false
+			setPlacementEditVisible(false)
+			return
+		end
+		if not placing or not preview or not preview.Parent then
+			stopMoving()
+			return
+		end
+		if screenPosition then
+			selectFloorCellFromScreen(screenPosition)
+		end
+	end
+
+	local function handleWorldPlacementTap(screenPosition)
+		if not screenPosition then return end
+		if preview and selectedLX ~= nil and selectedLZ ~= nil then
+			if screenHitsPreview(screenPosition) then return end
+			confirmPlacement(false)
+		else
+			selectFloorCellFromScreen(screenPosition)
+		end
 	end
 
 	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedPlacement.InputBegan", function(input, gpe)
 		if isOfflineProgressPending() then return end
-		if gpe or not placing then return end
+		if gpe or not placing or moving then return end
 		if input.KeyCode == Enum.KeyCode.R then
 			rotatePreview()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			if os.clock() < ignoreWorldInputUntil then return end
-			if preview and selectedLX ~= nil and selectedLZ ~= nil then
-				if screenHitsPreview(input.Position) then return end
-				confirmPlacement(false)
+			if PlacementInput.IsInteractiveGuiAt(input.Position) then return end
+			if input.UserInputType == Enum.UserInputType.Touch then
+				worldTap:Begin(input)
 			else
-				selectFloorCellFromScreen(input.Position)
+				handleWorldPlacementTap(input.Position)
 			end
 		end
 	end)
@@ -858,18 +874,29 @@ function FeedPlacement.start()
 		end)
 		RuntimeGuard.Connect(confirmBtn.Activated, "FeedPlacement.ConfirmActivated", confirmPlacement)
 	end
-	RuntimeGuard.Connect(moveBtn.InputBegan, "FeedPlacement.MoveInputBegan", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+	PlacementInput.BindMoveDrag(moveBtn, "FeedPlacement.MoveDrag", {
+		canStart = function()
+			return not isOfflineProgressPending()
+				and placing
+				and preview ~= nil
+				and pendingPlacementRequestId == nil
+		end,
+		onStart = function()
 			ignoreWorldInputUntil = os.clock() + 0.2
-			beginMoving(input)
-		end
-	end)
-	RuntimeGuard.Connect(moveBtn.InputEnded, "FeedPlacement.MoveInputEnded", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
+			beginMoving()
+		end,
+		onContinue = function(screenPosition)
+			updateDragPreview(screenPosition)
+		end,
+		onEnd = function(screenPosition)
 			ignoreWorldInputUntil = os.clock() + 0.2
+			updateDragPreview(screenPosition)
 			stopMoving()
+		end,
+	})
+	RuntimeGuard.Connect(moveBtn.InputBegan, "FeedPlacement.MoveInputBegan", function(input)
+		if PlacementInput.IsPressInput(input) then
+			ignoreWorldInputUntil = os.clock() + 0.2
 		end
 	end)
 	RuntimeGuard.Connect(rotateBtn.InputBegan, "FeedPlacement.RotateInputBegan", function(input)
@@ -884,39 +911,21 @@ function FeedPlacement.start()
 	end)
 
 	RuntimeGuard.Connect(UserInputService.InputChanged, "FeedPlacement.InputChanged", function(input)
-		if moving and input.UserInputType == Enum.UserInputType.Touch then
-			touchScreenPosition = input.Position
-		end
+		worldTap:Changed(input)
 	end)
 	RuntimeGuard.Connect(UserInputService.InputEnded, "FeedPlacement.InputEnded", function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			stopMoving()
+		local tap = worldTap:End(input)
+		if not tap then
+			return
 		end
+		if isOfflineProgressPending() or not placing or moving then return end
+		if os.clock() < ignoreWorldInputUntil then return end
+		handleWorldPlacementTap(tap.position)
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "FeedPlacement.OfflineProgressPendingChanged", function()
 		if isOfflineProgressPending() then
 			destroyPreview()
 		end
-	end)
-	RuntimeGuard.Connect(RunService.RenderStepped, "FeedPlacement.RenderStepped", function()
-		if not moving then
-			return
-		end
-		if pendingPlacementRequestId ~= nil then
-			moving = false
-			touchScreenPosition = nil
-			setPlacementEditVisible(false)
-			return
-		end
-		if not placing or not preview or not preview.Parent then
-			stopMoving()
-			return
-		end
-
-		RuntimeGuard.Run("FeedPlacement.DragSelect", function()
-			selectFloorCellFromScreen(screenPositionForDrag())
-		end)
 	end)
 
 	local function handlePlaceResult(requestId, success, reason)
