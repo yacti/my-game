@@ -92,7 +92,7 @@
         "$path": "src/shared"
       },
       "Satchel": {
-        "$path": "src/satchel.rbxm"
+        "$path": "src/vendor/Satchel"
       }
     },
 

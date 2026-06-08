@@ -49,6 +49,7 @@ State.Player = {
 
 State.Tool = {
 	Guid = "ToolGuid",
+	Rarity = "Rarity",
 }
 
 State.Grid = {

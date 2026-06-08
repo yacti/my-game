@@ -3,11 +3,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
+local Rarities = require(Shared:WaitForChild("Rarities"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local CosmeticTools = {}
+
+local function applyToolRarity(tool, rarity)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		tool:SetAttribute(State.Tool.Rarity, rarity)
+	end
+end
 
 local function amountOrZero(amount)
 	amount = tonumber(amount) or 0
@@ -44,6 +51,7 @@ function CosmeticTools.MakeCosmeticTool(cosmeticId)
 	local tool = wrapper:Clone()
 	tool.Name = template.Name
 	tool:SetAttribute(State.Cosmetic.Id, cosmeticId)
+	applyToolRarity(tool, template:GetAttribute(State.Cosmetic.Rarity))
 	ToolIdentity.AssignGuid(tool)
 	return tool
 end

@@ -4,10 +4,17 @@ local Server = script.Parent
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 
 local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
+local Rarities = require(ReplicatedStorage.Shared:WaitForChild("Rarities"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 
 local FeedMachineTools = {}
+
+local function applyToolRarity(tool, rarity)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		tool:SetAttribute(State.Tool.Rarity, rarity)
+	end
+end
 
 function FeedMachineTools.MakeFeedTool(feedType)
 	local template = FeedMachines.GetTemplate(feedType)
@@ -19,6 +26,7 @@ function FeedMachineTools.MakeFeedTool(feedType)
 	local tool = Assets.WaitFor(Assets.Names.FeedMachineTool):Clone()
 	tool.Name = template.Name
 	tool:SetAttribute(State.Feed.Type, feedType)
+	applyToolRarity(tool, template:GetAttribute(State.Feed.Rarity))
 	ToolIdentity.AssignGuid(tool)
 	return tool
 end

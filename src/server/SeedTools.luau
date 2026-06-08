@@ -1,12 +1,19 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
+local Rarities = require(ReplicatedStorage.Shared:WaitForChild("Rarities"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local SeedTools = {}
+
+local function applyToolRarity(tool, rarity)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		tool:SetAttribute(State.Tool.Rarity, rarity)
+	end
+end
 
 local function amountOrZero(amount)
 	amount = tonumber(amount) or 0
@@ -99,6 +106,7 @@ function SeedTools.MakeSeedTool(seedId)
 	tool.Name = seedTemplate.Name
 	tool.RequiresHandle = true
 	tool:SetAttribute(State.Seed.Id, seedId)
+	applyToolRarity(tool, seedTemplate:GetAttribute(Seeds.Attributes.Rarity))
 	ToolIdentity.AssignGuid(tool)
 
 	if not insertSeedVisual(tool, seedTemplate) then
