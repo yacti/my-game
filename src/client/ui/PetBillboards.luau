@@ -10,6 +10,7 @@ local RunService        = game:GetService("RunService")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
@@ -37,18 +38,6 @@ local function loadTemplates()
 		Stats = moneyTemplate,
 	}
 	return templates
-end
-
-local function formatMoney(amount)
-	return "$" .. math.floor(amount or 0)
-end
-
-local function formatMoneyRate(rate)
-	local value = tonumber(rate) or 0
-	if value % 1 == 0 then
-		return formatMoney(value) .. "/s"
-	end
-	return "$" .. string.format("%.2f", value) .. "/s"
 end
 
 local function descendant(parent, name, className)
@@ -130,8 +119,8 @@ local function attach(pet)
 		local nickname = pet:GetAttribute(State.Pet.Nickname)
 		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
 
-		if moneyLabel then moneyLabel.Text = formatMoney(money) end
-		if moneyRateLabel then moneyRateLabel.Text = formatMoneyRate(moneyRate) end
+		if moneyLabel then moneyLabel.Text = NumberFormatter.Currency(money) end
+		if moneyRateLabel then moneyRateLabel.Text = NumberFormatter.CurrencyRate(moneyRate) end
 		if nameLabel then nameLabel.Text = pet.Name end
 		if nicknameLabel then
 			nicknameLabel.Text = type(nickname) == "string" and ('"' .. nickname .. '"') or ""

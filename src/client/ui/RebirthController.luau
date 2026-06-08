@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
@@ -36,12 +37,13 @@ end
 
 local function rewardText(reward)
 	local amount = math.max(math.floor(tonumber(reward.amount) or 0), 0)
-	local prefix = amount > 1 and ("x" .. tostring(amount) .. " ") or ""
+	local formattedAmount = NumberFormatter.Integer(amount)
+	local prefix = amount > 1 and ("x" .. formattedAmount .. " ") or ""
 	if reward.kind == "Pet" then
 		if amount <= 1 then
 			return "+1 Pet Slot"
 		end
-		return "+" .. tostring(amount) .. " Pet Slots"
+		return "+" .. formattedAmount .. " Pet Slots"
 	end
 	if reward.kind == "FeedMachine" then
 		return prefix .. tostring(reward.displayName or reward.feedType or "Feed Machine")
@@ -294,7 +296,7 @@ function RebirthController.start()
 		end
 
 		local nextTier = tonumber(state.nextTier) or 0
-		UiEffects.SetTextStack(tierLabel, "Rebirth " .. tostring(nextTier))
+		UiEffects.SetTextStack(tierLabel, "Rebirth " .. NumberFormatter.Integer(nextTier))
 		UiEffects.SetTextStack(cashLabel, UiEffects.FormatCurrency(currentCurrency) .. " / " .. UiEffects.FormatCurrency(nextPrice))
 		setProgress(nextPrice > 0 and currentCurrency / nextPrice or 0)
 

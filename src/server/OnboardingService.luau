@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
@@ -5,11 +6,14 @@ local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local OnboardingService = {}
 
 local STARTER_AREA_EPSILON = 0.05
+local FINAL_NOTE_TOTAL_SECONDS = Onboarding.FinalNoteDisplaySeconds + Onboarding.FinalNoteFadeSeconds
+local finalNoteTokensByUserId = {}
 
 local function profileState(profile)
 	if not (profile and profile.Data) then
@@ -53,7 +57,7 @@ local function normalizeTreeSlotIndex(slotIndex)
 		return nil
 	end
 	slotIndex = math.floor(slotIndex)
-	if slotIndex < 1 or slotIndex > Onboarding.TreeClicksRequired then
+	if slotIndex < 1 then
 		return nil
 	end
 	return slotIndex
@@ -92,6 +96,42 @@ end
 
 local setStage
 
+local function userIdFor(player)
+	return player and player.UserId or nil
+end
+
+local function cancelFinalNoteCompletion(player)
+	local userId = userIdFor(player)
+	if userId then
+		finalNoteTokensByUserId[userId] = nil
+	end
+end
+
+local function scheduleFinalNoteCompletion(player, profile)
+	local userId = userIdFor(player)
+	if not userId then
+		return
+	end
+
+	local token = (finalNoteTokensByUserId[userId] or 0) + 1
+	finalNoteTokensByUserId[userId] = token
+
+	task.delay(FINAL_NOTE_TOTAL_SECONDS, function()
+		if finalNoteTokensByUserId[userId] ~= token then
+			return
+		end
+		if not (player and player.Parent and profile and profile.Data) then
+			finalNoteTokensByUserId[userId] = nil
+			return
+		end
+		if stageFor(profile) ~= Onboarding.Stages.FinalNote then
+			finalNoteTokensByUserId[userId] = nil
+			return
+		end
+		setStage(player, profile, Onboarding.Stages.Complete)
+	end)
+end
+
 local function maybeCompleteMakeCurrency(player, profile, currency)
 	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency500 then
 		return false
@@ -115,6 +155,11 @@ setStage = function(player, profile, nextStage)
 	state.Stage = nextStage
 	resetStageProgressFor(state, nextStage)
 	publishOnboarding(player, profile)
+	if nextStage == Onboarding.Stages.FinalNote then
+		scheduleFinalNoteCompletion(player, profile)
+	else
+		cancelFinalNoteCompletion(player)
+	end
 	if nextStage == Onboarding.Stages.MakeCurrency500 then
 		maybeCompleteMakeCurrency(player, profile, profile.Data.Currency)
 	end
@@ -181,6 +226,10 @@ function OnboardingService.SetStage(player, profile, nextStage)
 end
 
 function OnboardingService.ApplyCurrentStageEntry(player, profile)
+	if stageFor(profile) == Onboarding.Stages.FinalNote then
+		scheduleFinalNoteCompletion(player, profile)
+		return false
+	end
 	return maybeCompleteMakeCurrency(player, profile, profile and profile.Data and profile.Data.Currency)
 end
 
@@ -344,15 +393,16 @@ function OnboardingService.OnTreeClicked(player, profile, machine, foodId, slotI
 	local droppedSlots = activeDroppedSlotsFor(machine, Onboarding.FoodIds.Apple)
 	droppedSlots[slotKey] = true
 	progress[Onboarding.ProgressKeys.TreeDroppedSlots] = droppedSlots
-	local droppedCount = math.min(countDroppedSlots(droppedSlots), Onboarding.TreeClicksRequired)
-	progress[Onboarding.ProgressKeys.TreeClickCount] = droppedCount
-	progress[Onboarding.ProgressKeys.TreeFruitTarget] = math.max(
-		progress[Onboarding.ProgressKeys.TreeFruitTarget] or 0,
-		droppedCount
+	local visibleFruitCount = countDroppedSlots(droppedSlots)
+	local clickCount = math.min(
+		(progress[Onboarding.ProgressKeys.TreeClickCount] or 0) + 1,
+		Onboarding.TreeClicksRequired
 	)
+	progress[Onboarding.ProgressKeys.TreeClickCount] = clickCount
+	progress[Onboarding.ProgressKeys.TreeFruitTarget] = visibleFruitCount
 	progress[Onboarding.ProgressKeys.TreeFruitCollected] = progress[Onboarding.ProgressKeys.TreeFruitCollected] or 0
 
-	if droppedCount >= Onboarding.TreeClicksRequired then
+	if clickCount >= Onboarding.TreeClicksRequired then
 		return setStage(player, profile, Onboarding.Stages.CollectApple)
 	end
 	publishOnboarding(player, profile)
@@ -371,8 +421,16 @@ function OnboardingService.OnTreeFruitPicked(player, profile, machine, ground)
 	end
 
 	local progress = progressFor(profile)
-	local target = math.max(progress[Onboarding.ProgressKeys.TreeFruitTarget] or 0, Onboarding.TreeClicksRequired)
-	local collected = math.min((progress[Onboarding.ProgressKeys.TreeFruitCollected] or 0) + 1, target)
+	local collectedSoFar = progress[Onboarding.ProgressKeys.TreeFruitCollected] or 0
+	local target = progress[Onboarding.ProgressKeys.TreeFruitTarget] or 0
+	local visibleFruitCount = countDroppedSlots(activeDroppedSlotsFor(machine, Onboarding.FoodIds.Apple))
+	local collectibleTotal = collectedSoFar + visibleFruitCount
+	if collectibleTotal > 0 then
+		target = math.min(math.max(target, 1), collectibleTotal)
+	else
+		target = math.max(target, 1)
+	end
+	local collected = math.min(collectedSoFar + 1, target)
 	progress[Onboarding.ProgressKeys.TreeFruitTarget] = target
 	progress[Onboarding.ProgressKeys.TreeFruitCollected] = collected
 
@@ -382,5 +440,9 @@ function OnboardingService.OnTreeFruitPicked(player, profile, machine, ground)
 	publishOnboarding(player, profile)
 	return true
 end
+
+RuntimeGuard.Connect(Players.PlayerRemoving, "OnboardingService.PlayerRemoving", function(player)
+	cancelFinalNoteCompletion(player)
+end)
 
 return OnboardingService

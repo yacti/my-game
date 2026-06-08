@@ -1,3 +1,5 @@
+local NumberFormatter = require(script.Parent:WaitForChild("NumberFormatter"))
+
 local Onboarding = {}
 
 Onboarding.Stages = {
@@ -14,6 +16,7 @@ Onboarding.Stages = {
 	GatherPumpkinXP = "GatherPumpkinXP",
 	HarvestPumpkin = "HarvestPumpkin",
 	FeedPetPumpkin = "FeedPetPumpkin",
+	FinalNote = "FinalNote",
 	Complete = "Complete",
 }
 
@@ -41,8 +44,19 @@ Onboarding.FoodIds = {
 }
 
 Onboarding.CurrencyRequired = 500
-Onboarding.PumpkinXPRequired = 500
-Onboarding.TreeClicksRequired = 4
+Onboarding.PumpkinXPRequired = 250
+Onboarding.TreeClicksRequired = 8
+Onboarding.FinalNoteDisplaySeconds = 8
+Onboarding.FinalNoteFadeSeconds = 0.45
+
+local HIDDEN_DURING_ACTIVE_TUTORIAL = {
+	Hud = {
+		"RollButtons",
+	},
+	LocalPromptKinds = {
+		"GridPartUnlock",
+	},
+}
 
 local ORDERED_STAGES = {
 	Onboarding.Stages.RollAppleTreeSeed,
@@ -58,24 +72,30 @@ local ORDERED_STAGES = {
 	Onboarding.Stages.GatherPumpkinXP,
 	Onboarding.Stages.HarvestPumpkin,
 	Onboarding.Stages.FeedPetPumpkin,
+	Onboarding.Stages.FinalNote,
 	Onboarding.Stages.Complete,
 }
 
 local STAGE_TEXT = {
-	[Onboarding.Stages.RollAppleTreeSeed] = "Press the button",
-	[Onboarding.Stages.BuyAppleTreeSeed] = "Buy tree",
-	[Onboarding.Stages.PlantAppleTreeSeed] = "Plant tree",
-	[Onboarding.Stages.ShakeAppleTree] = "Shake tree",
-	[Onboarding.Stages.CollectApple] = "Collect fruit",
-	[Onboarding.Stages.FeedPetApple] = "Feed pet",
-	[Onboarding.Stages.MakeCurrency500] = "Make $500",
+	[Onboarding.Stages.RollAppleTreeSeed] = "Press the button!",
+	[Onboarding.Stages.BuyAppleTreeSeed] = "Buy the seed!",
+	[Onboarding.Stages.PlantAppleTreeSeed] = "Plant the Apple Tree!",
+	[Onboarding.Stages.ShakeAppleTree] = "Shake tree!",
+	[Onboarding.Stages.CollectApple] = "Collect all the fruit!",
+	[Onboarding.Stages.FeedPetApple] = "Feed your pet!",
+	[Onboarding.Stages.MakeCurrency500] = "Make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
 	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
-	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the pumpkin seed",
-	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the pumpkin seed",
-	[Onboarding.Stages.GatherPumpkinXP] = "Gather 500 XP",
-	[Onboarding.Stages.HarvestPumpkin] = "Harvest pumpkin",
-	[Onboarding.Stages.FeedPetPumpkin] = "Feed pet",
+	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the seed!",
+	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the Pumpkin Seed!",
+	[Onboarding.Stages.GatherPumpkinXP] = "Gather " .. NumberFormatter.XP(Onboarding.PumpkinXPRequired),
+	[Onboarding.Stages.HarvestPumpkin] = "Harvest your Pumpkin!",
+	[Onboarding.Stages.FeedPetPumpkin] = "Feed your pet",
+	[Onboarding.Stages.FinalNote] = "Have fun! Roll for seeds, feed your pets, and Build a Pet Farm!",
 	[Onboarding.Stages.Complete] = "",
+}
+
+local STAGE_RICH_TEXT = {
+	[Onboarding.Stages.FinalNote] = 'Have fun! Roll for seeds, feed your pets, and <font color="#FFD84D">Build a Pet Farm!</font>',
 }
 
 local NEXT_STAGE = {}
@@ -113,6 +133,38 @@ function Onboarding.TextFor(stage)
 	return STAGE_TEXT[stage] or ""
 end
 
+function Onboarding.RichTextFor(stage)
+	return STAGE_RICH_TEXT[stage] or Onboarding.TextFor(stage)
+end
+
+function Onboarding.UsesRichText(stage)
+	return STAGE_RICH_TEXT[stage] ~= nil
+end
+
+function Onboarding.HiddenDuringActiveTutorial()
+	return {
+		Hud = table.clone(HIDDEN_DURING_ACTIVE_TUTORIAL.Hud),
+		LocalPromptKinds = table.clone(HIDDEN_DURING_ACTIVE_TUTORIAL.LocalPromptKinds),
+	}
+end
+
+local function listContains(list, value)
+	for _, item in ipairs(list) do
+		if item == value then
+			return true
+		end
+	end
+	return false
+end
+
+function Onboarding.ShouldHideHudDuringActiveTutorial(name)
+	return listContains(HIDDEN_DURING_ACTIVE_TUTORIAL.Hud, name)
+end
+
+function Onboarding.ShouldHidePromptKindDuringActiveTutorial(kind)
+	return listContains(HIDDEN_DURING_ACTIVE_TUTORIAL.LocalPromptKinds, kind)
+end
+
 function Onboarding.DefaultState()
 	return {
 		Stage = Onboarding.FirstStage(),
@@ -145,7 +197,6 @@ local function sanitizeSlotMap(value)
 		if type(slotIndex) == "number"
 			and slotIndex == slotIndex
 			and slotIndex >= 1
-			and slotIndex <= Onboarding.TreeClicksRequired
 			and dropped == true then
 			clean[tostring(math.floor(slotIndex))] = true
 		end
@@ -174,7 +225,13 @@ function Onboarding.SanitizeProgress(progress)
 
 	clean[Onboarding.ProgressKeys.PumpkinXPGained] = sanitizeCount(progress[Onboarding.ProgressKeys.PumpkinXPGained])
 	clean[Onboarding.ProgressKeys.TreeDroppedSlots] = sanitizeSlotMap(progress[Onboarding.ProgressKeys.TreeDroppedSlots])
-	clean[Onboarding.ProgressKeys.TreeClickCount] = countSlotMap(clean[Onboarding.ProgressKeys.TreeDroppedSlots])
+	clean[Onboarding.ProgressKeys.TreeClickCount] = math.min(
+		math.max(
+			sanitizeCount(progress[Onboarding.ProgressKeys.TreeClickCount]),
+			countSlotMap(clean[Onboarding.ProgressKeys.TreeDroppedSlots])
+		),
+		Onboarding.TreeClicksRequired
+	)
 	clean[Onboarding.ProgressKeys.TreeFruitTarget] = sanitizeCount(progress[Onboarding.ProgressKeys.TreeFruitTarget])
 	clean[Onboarding.ProgressKeys.TreeFruitCollected] = sanitizeCount(progress[Onboarding.ProgressKeys.TreeFruitCollected])
 	return clean

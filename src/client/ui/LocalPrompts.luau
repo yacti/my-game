@@ -12,12 +12,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local Shovel = require(Shared:WaitForChild("Shovel"))
 local State   = require(Shared:WaitForChild("State"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
@@ -28,7 +32,8 @@ local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
-local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = function(): boolean
+local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
+local tutorialActive = false
 
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
@@ -57,13 +62,30 @@ local function isInOwnPlot(instance)
 	return instance ~= nil and instance:IsDescendantOf(plot)
 end
 
-local function equippedTool()
+local function isShovelEquipped()
 	local character = player.Character
-	return character and character:FindFirstChildWhichIsA("Tool") or nil
+	if not character then
+		return false
+	end
+	for _, child in ipairs(character:GetChildren()) do
+		if Shovel.IsTool(child) then
+			return true
+		end
+	end
+	return false
 end
 
 local function isEditMode()
 	return player:GetAttribute("EditMode") == true
+end
+
+local function applyTutorialState(state)
+	state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
+	tutorialActive = Onboarding.IsActive(state.Stage)
+end
+
+local function isHiddenByTutorial(kind)
+	return tutorialActive and Onboarding.ShouldHidePromptKindDuringActiveTutorial(kind)
 end
 
 local function firstBasePartDescendant(instance)
@@ -302,7 +324,7 @@ local function gridUnlockContext(target)
 		price = gridPart:GetAttribute(PlotGrid.Attributes.UnlockPrice)
 	end
 	if type(price) == "number" then
-		return true, "Unlock: $" .. tostring(price)
+		return true, "Unlock: " .. NumberFormatter.Currency(price)
 	end
 	return true, "Unlock"
 end
@@ -430,14 +452,18 @@ local function clonePrompt(kind)
 	return template and template:Clone() or nil
 end
 
-function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable)
+function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 	if not (prompt and prompt:IsA("ProximityPrompt")) then
 		return function() end
 	end
 	prompt.Enabled = false
-	externalPrompts[prompt] = type(isAvailable) == "function" and isAvailable or function()
-		return true
-	end
+	options = type(options) == "table" and options or {}
+	externalPrompts[prompt] = {
+		isAvailable = type(isAvailable) == "function" and isAvailable or function()
+			return true
+		end,
+		allowWhileShovelEquipped = options.allowWhileShovelEquipped == true,
+	}
 	local destroyingConnection
 	destroyingConnection = RuntimeGuard.Connect(prompt.Destroying, "LocalPrompts.ExternalPromptDestroying", function()
 		externalPrompts[prompt] = nil
@@ -605,6 +631,10 @@ local function refreshPrompt(target, kind, prompt)
 		removePrompt(target, kind)
 		return
 	end
+	if isHiddenByTutorial(kind) then
+		prompt.Enabled = false
+		return
+	end
 
 	if kind == "PetFeed" then
 		prompt.ActionText = "Feed"
@@ -660,11 +690,16 @@ local function refreshAll(shouldScan)
 	if shouldScan then scanPlot() end
 
 	local rootPosition = playerRootPosition()
+	local shovelEquipped = isShovelEquipped()
 	local closestPrompt = nil
 	local closestDistance = math.huge
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
+			if shovelEquipped then
+				prompt.Enabled = false
+				continue
+			end
 			refreshPrompt(target, kind, prompt)
 			if prompt.Parent ~= nil and prompt.Enabled then
 				local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
@@ -680,13 +715,18 @@ local function refreshAll(shouldScan)
 		end
 	end
 
-	for prompt, isAvailable in pairs(externalPrompts) do
+	for prompt, record in pairs(externalPrompts) do
 		if prompt.Parent == nil then
 			externalPrompts[prompt] = nil
 			continue
 		end
 
-		prompt.Enabled = isAvailable(prompt) == true
+		if shovelEquipped and not record.allowWhileShovelEquipped then
+			prompt.Enabled = false
+			continue
+		end
+
+		prompt.Enabled = record.isAvailable(prompt) == true
 		if prompt.Enabled then
 			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 			if distance and distance <= prompt.MaxActivationDistance then
@@ -734,6 +774,14 @@ function LocalPrompts.start()
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal("EditMode"), "LocalPrompts.EditModeChanged", function()
 		refreshAll(false)
+	end)
+	applyTutorialState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(state)
+		local wasTutorialActive = tutorialActive
+		applyTutorialState(state)
+		if tutorialActive ~= wasTutorialActive then
+			refreshAll(false)
+		end
 	end)
 	local function watchCharacter(character)
 		if not character then return end

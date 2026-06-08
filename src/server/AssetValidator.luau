@@ -954,6 +954,10 @@ local function validateOnboardingPresentation(ui, hud, billboardFolder, warnings
 	local onboarding = hud and child(hud, "Onboarding", "Frame", warnings)
 	if onboarding then
 		child(onboarding, "OnboardingText", "TextLabel", warnings)
+		local bar = child(onboarding, "Bar", "GuiObject", warnings)
+		if bar then
+			child(bar, "Fill", "GuiObject", warnings)
+		end
 	end
 
 	if billboardFolder then

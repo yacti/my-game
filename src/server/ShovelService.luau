@@ -21,6 +21,8 @@ local ShovelService = {}
 
 local DEFAULT_RATE_SECONDS = 0.25
 local DEFAULT_DELETE_DISTANCE = 18
+local TARGET_KIND_FEED = "feed"
+local TARGET_KIND_COSMETIC = "cosmetic"
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -63,37 +65,40 @@ local function isPlayerNearInstance(player, instance, maxDistance)
 	return (root.Position - instance:GetPivot().Position).Magnitude <= maxDistance
 end
 
-local function resolveFeedTarget(plot, target)
+local function isFeedTarget(instance)
+	local feedType = instance and instance:GetAttribute(State.Feed.Type)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(feedType) == "string"
+		and feedType ~= ""
+		and instance:GetAttribute(State.Feed.Index) ~= nil
+end
+
+local function isCosmeticTarget(instance)
+	local cosmeticId = instance and instance:GetAttribute(State.Cosmetic.Id)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(cosmeticId) == "string"
+		and cosmeticId ~= ""
+		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function resolveDeleteTarget(plot, target)
 	if typeof(target) ~= "Instance" or not target:IsDescendantOf(plot) then
-		return nil
+		return nil, nil
 	end
 
 	local current = target
 	while current and current ~= plot do
-		if (current:IsA("BasePart") or current:IsA("Model"))
-			and type(current:GetAttribute(State.Feed.Type)) == "string"
-			and current:GetAttribute(State.Feed.Type) ~= ""
-			and current:GetAttribute(State.Feed.Index) ~= nil then
-			return current
+		if isFeedTarget(current) then
+			return current, TARGET_KIND_FEED
+		end
+		if isCosmeticTarget(current) then
+			return current, TARGET_KIND_COSMETIC
 		end
 		current = current.Parent
 	end
-	return nil
-end
-
-local function isPlant(feed)
-	if not feed then
-		return false
-	end
-	if FeedGrowthService.IsGrowing(feed) then
-		return true
-	end
-
-	local feedClass = feed:GetAttribute(State.Feed.Class)
-	if type(feedClass) ~= "string" or feedClass == "" then
-		feedClass = FeedMachines.GetClass(feed:GetAttribute(State.Feed.Type))
-	end
-	return feedClass == "Patch" or feedClass == "Tree"
+	return nil, nil
 end
 
 local function placementFromFeed(plot, feed)
@@ -120,6 +125,23 @@ local function placementFromFeed(plot, feed)
 	return placement
 end
 
+local function placementFromCosmetic(plot, cosmetic)
+	local floor = PlotService.GetFloor(plot)
+	local cosmeticId = cosmetic and cosmetic:GetAttribute(State.Cosmetic.Id)
+	local cosmeticIndex = cosmetic and cosmetic:GetAttribute(State.Cosmetic.Index)
+	if not (floor and type(cosmeticId) == "string" and cosmeticId ~= "" and type(cosmeticIndex) == "number") then
+		return nil
+	end
+	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, cosmetic:GetPivot())
+	return {
+		id = cosmeticId,
+		index = cosmeticIndex,
+		lx = lx,
+		lz = lz,
+		lry = lry,
+	}
+end
+
 local function restoreFeedPlacement(plot, player, placement)
 	if type(placement) ~= "table" then
 		return nil
@@ -144,6 +166,20 @@ local function restoreFeedPlacement(plot, player, placement)
 		FeedMachines.Apply(restored, placement)
 	end
 	return restored
+end
+
+local function restoreCosmeticPlacement(plot, placement)
+	if type(placement) ~= "table" then
+		return nil
+	end
+	return PlotService.PlaceCosmeticWithIndex(
+		plot,
+		placement.id,
+		placement.index,
+		placement.lx or 0,
+		placement.lz or 0,
+		placement.lry or 0
+	)
 end
 
 function ShovelService.Start(config)
@@ -205,29 +241,36 @@ function ShovelService.Start(config)
 				return
 			end
 
-			local feed = resolveFeedTarget(plot, target)
-			if not feed or not isPlant(feed) then
+			local placeable, targetKind = resolveDeleteTarget(plot, target)
+			if not placeable then
 				sendResult(player, requestId, false, "invalid-target")
 				return
 			end
-			if not isPlayerNearInstance(player, feed, deleteDistance) then
+			if not isPlayerNearInstance(player, placeable, deleteDistance) then
 				recordReject(player, "too-far", {
-					target = feed,
+					target = placeable,
 					plot = plot,
 				})
 				sendResult(player, requestId, false, "too-far")
 				return
 			end
 
-			local deletedName = feed.Name
-			local feedType = feed:GetAttribute(State.Feed.Type)
-			local placement = placementFromFeed(plot, feed)
-			feed:Destroy()
+			local deletedName = placeable.Name
+			local feedType = targetKind == TARGET_KIND_FEED and placeable:GetAttribute(State.Feed.Type) or nil
+			local cosmeticId = targetKind == TARGET_KIND_COSMETIC and placeable:GetAttribute(State.Cosmetic.Id) or nil
+			local placement = targetKind == TARGET_KIND_FEED
+				and placementFromFeed(plot, placeable)
+				or placementFromCosmetic(plot, placeable)
+			placeable:Destroy()
 			PetMotionService.RefreshPlotRoutes(plot)
 			if type(snapshotProfileState) == "function" then
 				local snapshotOk = snapshotProfileState(player, plot, profile)
 				if not snapshotOk then
-					restoreFeedPlacement(plot, player, placement)
+					if targetKind == TARGET_KIND_FEED then
+						restoreFeedPlacement(plot, player, placement)
+					else
+						restoreCosmeticPlacement(plot, placement)
+					end
 					PetMotionService.RefreshPlotRoutes(plot)
 					sendResult(player, requestId, false, "save-failed")
 					return
@@ -238,6 +281,8 @@ function ShovelService.Start(config)
 			NotificationService.Success(player, deletedName .. " deleted.")
 			TelemetryService.Record("shovel_delete_succeeded", TelemetryService.ForPlayer(player, {
 				feedType = feedType,
+				cosmeticId = cosmeticId,
+				targetKind = targetKind,
 				plot = plot,
 			}))
 		end)

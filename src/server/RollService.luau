@@ -12,6 +12,7 @@ local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -249,7 +250,7 @@ local function rollRewardForCrate(crateId, profile)
 	end
 
 	local rolled = table.clone(entry)
-	rolled.rngChanceText = "1 in " .. tostring(entry.chanceN)
+	rolled.rngChanceText = NumberFormatter.ChanceN(entry.chanceN)
 	return rolled
 end
 
@@ -863,7 +864,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 
 	if success then
 		local updatedLuck = RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel)
-		NotificationService.Success(player, string.format("Luck upgraded to +%d%%!", updatedLuck))
+		NotificationService.Success(player, "Luck upgraded to +" .. NumberFormatter.Percent(updatedLuck) .. "!")
 		PlayerReplicaService.PublishProfile(player, profile)
 		sendLuckResult(player, requestId, true, "ok")
 		TelemetryService.Record("roll_luck_upgrade_succeeded", TelemetryService.ForPlayer(player, {
@@ -1002,7 +1003,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 
 	if success then
 		local unlockedCount = RollDropAreaBalance.UnlockedCount(profile.Data.RollDropAreaLevel)
-		NotificationService.Success(player, string.format("Unlocked drop area %d/%d!", unlockedCount, RollDropAreaBalance.TotalPads))
+		NotificationService.Success(player, "Unlocked drop area " .. NumberFormatter.Integer(unlockedCount) .. "/" .. NumberFormatter.Integer(RollDropAreaBalance.TotalPads) .. "!")
 		PlayerReplicaService.PublishProfile(player, profile)
 		sendDropAreaResult(player, requestId, true, "ok")
 		TelemetryService.Record("roll_drop_area_upgrade_succeeded", TelemetryService.ForPlayer(player, {

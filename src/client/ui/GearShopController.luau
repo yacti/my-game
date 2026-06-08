@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -38,17 +39,15 @@ local function displayNameFor(item)
 end
 
 local function formatMultiplier(value)
-	if value == math.floor(value) then
-		return tostring(value)
-	end
-	return string.format("%.2f", value):gsub("0+$", ""):gsub("%.$", "")
+	return NumberFormatter.Format(value, {
+		smallDecimals = 2,
+	})
 end
 
 local function formatSeconds(value)
-	if value == math.floor(value) then
-		return tostring(value)
-	end
-	return string.format("%.2f", value):gsub("0+$", ""):gsub("%.$", "")
+	return NumberFormatter.Format(value, {
+		smallDecimals = 2,
+	})
 end
 
 local function descriptionFor(item)

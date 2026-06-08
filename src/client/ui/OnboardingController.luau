@@ -24,6 +24,7 @@ local ARROW_FOLLOW_SPEED = 7
 local ARROW_Z_ROTATION_SPEED = math.rad(180)
 local CLICKER_POP_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLICKER_SETTLE_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local FINAL_NOTE_FADE_TWEEN = TweenInfo.new(Onboarding.FinalNoteFadeSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local player = Players.LocalPlayer
 
@@ -44,6 +45,9 @@ local clickerBaseSize = nil
 local lastClickCount = 0
 local warnedMissingArrow = false
 local warnedMissingClicker = false
+local finalNoteToken = 0
+local finalNoteTweens = {}
+local finalNoteTransparency = setmetatable({}, { __mode = "k" })
 
 local function playerGui()
 	return player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui")
@@ -58,16 +62,181 @@ local function hudOnboardingFrame()
 	return nil
 end
 
+local function onboardingProgressBar(frame)
+	if not frame then
+		return nil, nil
+	end
+	local bar = frame:FindFirstChild("Bar")
+	if not (bar and bar:IsA("GuiObject")) then
+		return nil, nil
+	end
+	local fill = bar:FindFirstChild("Fill")
+	if not (fill and fill:IsA("GuiObject")) then
+		return bar, nil
+	end
+	return bar, fill
+end
+
+local function progressRatio(value, maximum)
+	maximum = tonumber(maximum) or 0
+	if maximum <= 0 then
+		return 0
+	end
+	return math.clamp((tonumber(value) or 0) / maximum, 0, 1)
+end
+
+local function tutorialBarProgress(stage)
+	if stage == Onboarding.Stages.MakeCurrency500 then
+		return true, progressRatio(
+			PlayerStateStore.Get(PlayerStateStore.Fields.Currency),
+			Onboarding.CurrencyRequired
+		)
+	end
+	if stage == Onboarding.Stages.GatherPumpkinXP then
+		return true, progressRatio(
+			currentProgress[Onboarding.ProgressKeys.PumpkinXPGained],
+			Onboarding.PumpkinXPRequired
+		)
+	end
+	return false, 0
+end
+
+local function updateHudProgressBar(stage)
+	local frame = hudOnboardingFrame()
+	if not frame then
+		return
+	end
+	local bar, fill = onboardingProgressBar(frame)
+	local visible, progress = tutorialBarProgress(stage or currentStage)
+	if bar then
+		bar.Visible = visible
+	end
+	if fill then
+		fill.Size = UDim2.new(progress, 0, 1, 0)
+	end
+end
+
+local function cancelFinalNoteTweens()
+	for _, tween in ipairs(finalNoteTweens) do
+		tween:Cancel()
+	end
+	finalNoteTweens = {}
+end
+
+local function transparencyProperties(instance)
+	local properties = {}
+	if instance:IsA("GuiObject") then
+		properties.BackgroundTransparency = instance.BackgroundTransparency
+	end
+	if instance:IsA("TextLabel") or instance:IsA("TextButton") then
+		properties.TextTransparency = instance.TextTransparency
+		properties.TextStrokeTransparency = instance.TextStrokeTransparency
+	end
+	if instance:IsA("ImageLabel") or instance:IsA("ImageButton") then
+		properties.ImageTransparency = instance.ImageTransparency
+	end
+	if instance:IsA("UIStroke") then
+		properties.Transparency = instance.Transparency
+	end
+	return next(properties) and properties or nil
+end
+
+local function eachTransparencyTarget(root, callback)
+	callback(root)
+	for _, descendant in ipairs(root:GetDescendants()) do
+		callback(descendant)
+	end
+end
+
+local function captureFinalNoteTransparency(frame)
+	eachTransparencyTarget(frame, function(instance)
+		if finalNoteTransparency[instance] == nil then
+			finalNoteTransparency[instance] = transparencyProperties(instance)
+		end
+	end)
+end
+
+local function restoreFinalNoteTransparency(frame)
+	cancelFinalNoteTweens()
+	eachTransparencyTarget(frame, function(instance)
+		local properties = finalNoteTransparency[instance]
+		if not properties then
+			return
+		end
+		for propertyName, value in pairs(properties) do
+			instance[propertyName] = value
+		end
+	end)
+end
+
+local function fadeFinalNote(frame, token)
+	if not (frame and frame.Parent and token == finalNoteToken and currentStage == Onboarding.Stages.FinalNote) then
+		return
+	end
+
+	local remaining = 0
+	local function onTweenComplete(playbackState)
+		if playbackState ~= Enum.PlaybackState.Completed then
+			return
+		end
+		remaining -= 1
+		if remaining <= 0 and token == finalNoteToken and currentStage == Onboarding.Stages.FinalNote and frame.Parent then
+			frame.Visible = false
+		end
+	end
+
+	eachTransparencyTarget(frame, function(instance)
+		local baseProperties = finalNoteTransparency[instance]
+		if not baseProperties then
+			return
+		end
+
+		local targetProperties = {}
+		for propertyName in pairs(baseProperties) do
+			targetProperties[propertyName] = 1
+		end
+
+		remaining += 1
+		local fade = TweenService:Create(instance, FINAL_NOTE_FADE_TWEEN, targetProperties)
+		finalNoteTweens[#finalNoteTweens + 1] = fade
+		RuntimeGuard.Connect(fade.Completed, "OnboardingController.FinalNoteFadeCompleted", onTweenComplete)
+		fade:Play()
+	end)
+
+	if remaining == 0 then
+		frame.Visible = false
+	end
+end
+
+local function scheduleFinalNoteFade(frame)
+	local token = finalNoteToken
+	task.delay(Onboarding.FinalNoteDisplaySeconds, function()
+		fadeFinalNote(frame, token)
+	end)
+end
+
 local function setHudText(stage)
 	local frame = hudOnboardingFrame()
 	if not frame then
 		return
 	end
 	local active = Onboarding.IsActive(stage)
+	finalNoteToken += 1
+	if stage == Onboarding.Stages.FinalNote then
+		captureFinalNoteTransparency(frame)
+		restoreFinalNoteTransparency(frame)
+	else
+		restoreFinalNoteTransparency(frame)
+	end
 	frame.Visible = active
 	local label = frame:FindFirstChild("OnboardingText")
 	if label and label:IsA("TextLabel") then
-		label.Text = Onboarding.TextFor(stage)
+		label.RichText = Onboarding.UsesRichText(stage)
+		label.Text = Onboarding.RichTextFor(stage)
+	end
+	updateHudProgressBar(stage)
+	if stage == Onboarding.Stages.FinalNote then
+		scheduleFinalNoteFade(frame)
 	end
 end
 
@@ -546,6 +715,9 @@ function OnboardingController.start()
 	applyState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(state)
 		applyState(state)
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+		updateHudProgressBar(currentStage)
 	end)
 	RuntimeGuard.Connect(RunService.RenderStepped, "OnboardingController.RenderStepped", step)
 end

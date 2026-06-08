@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
@@ -76,7 +77,7 @@ local function isNearRollButton(player)
 end
 
 local function formatPercent(value)
-	return tostring(math.floor(tonumber(value) or 0)) .. "%"
+	return NumberFormatter.Percent(value)
 end
 
 local function codeToMessage(code)

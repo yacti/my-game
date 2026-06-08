@@ -45,6 +45,7 @@ local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
@@ -551,7 +552,7 @@ local function unlockGridPart(target, plot, player, profile)
 		plot = plot,
 		currency = profile.Data.Currency,
 	}))
-	NotificationService.Success(player, "Plot area unlocked for $" .. tostring(price) .. "!")
+	NotificationService.Success(player, "Plot area unlocked for " .. NumberFormatter.Currency(price) .. "!")
 end
 
 -- ── Player lifecycle ──────────────────────────────────────────────────────────

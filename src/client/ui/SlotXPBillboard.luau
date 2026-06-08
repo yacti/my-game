@@ -18,6 +18,7 @@ local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
@@ -97,7 +98,7 @@ local function build(food)
 
 	local function render()
 		local xp = food:GetAttribute(State.Food.XP) or 0
-		label.Text = string.format("%dxp", math.floor(xp))
+		label.Text = NumberFormatter.XP(xp, "xp")
 		record.dirty = false
 	end
 	addConnection(record, RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.MarkDirty", function()
@@ -136,7 +137,7 @@ function SlotXPBillboard.start()
 					record.gui.Enabled = record.visible
 					if record.visible and record.dirty then
 						local xp = food:GetAttribute(State.Food.XP) or 0
-						record.label.Text = string.format("%dxp", math.floor(xp))
+						record.label.Text = NumberFormatter.XP(xp, "xp")
 						record.dirty = false
 					end
 				else

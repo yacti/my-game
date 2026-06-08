@@ -12,7 +12,9 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local State = require(Shared:WaitForChild("State"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
@@ -37,7 +39,7 @@ local function build(tool)
 
 	local function render()
 		local xp = tool:GetAttribute(State.Food.XP) or 0
-		label.Text = string.format("%dxp", math.floor(xp))
+		label.Text = NumberFormatter.XP(xp, "xp")
 	end
 	render()
 	tool:GetAttributeChangedSignal(State.Food.XP):Connect(render)

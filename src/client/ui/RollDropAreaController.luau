@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
@@ -76,7 +77,7 @@ local function isNearRollButton(player)
 end
 
 local function formatPadCount(count)
-	return tostring(math.max(math.floor(tonumber(count) or 0), 0))
+	return NumberFormatter.Integer(math.max(math.floor(tonumber(count) or 0), 0))
 end
 
 local function codeToMessage(code)

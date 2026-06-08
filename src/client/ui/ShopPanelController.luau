@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
@@ -67,7 +68,7 @@ local function robuxText(productId, debugName, onLoaded)
 	RuntimeGuard.Spawn(debugName .. ".ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
-			productPriceById[productId] = tostring(info.PriceInRobux)
+			productPriceById[productId] = NumberFormatter.Format(info.PriceInRobux)
 			if onLoaded then
 				onLoaded()
 			end

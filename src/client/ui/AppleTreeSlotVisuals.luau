@@ -10,6 +10,7 @@ local Workspace         = game:GetService("Workspace")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
@@ -176,7 +177,7 @@ end
 
 local function renderXPText(label, xpOverride)
 	local xp = roundedXP(xpOverride)
-	label.Text = string.format("%d xp", xp)
+	label.Text = NumberFormatter.XP(xp, " xp")
 end
 
 local function stopXPCounter(record)

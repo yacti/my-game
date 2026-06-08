@@ -4,6 +4,8 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -31,6 +33,19 @@ local function cloneTemplate()
 	return nil
 end
 
+local function hiddenDuringTutorialObjects(gui)
+	local objects = {}
+	for _, name in ipairs(Onboarding.HiddenDuringActiveTutorial().Hud) do
+		local object = gui:FindFirstChild(name)
+		if object and object:IsA("GuiObject") then
+			objects[#objects + 1] = object
+		else
+			warn("[HudController] HUD missing " .. tostring(name) .. " GuiObject")
+		end
+	end
+	return objects
+end
+
 function HudController.start()
 	local player    = Players.LocalPlayer
 	local PlayerGui = player:WaitForChild("PlayerGui")
@@ -47,13 +62,24 @@ function HudController.start()
 	end
 
 	local label = findCurrencyLabel(gui)
+	local hiddenDuringTutorial = hiddenDuringTutorialObjects(gui)
 
 	local function setAmount(n)
-		if label then label.Text = "$" .. math.floor(n or 0) end
+		if label then label.Text = UiEffects.FormatCurrency(n) end
+	end
+
+	local function setTutorialVisibility(state)
+		state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
+		local visible = not Onboarding.IsActive(state.Stage)
+		for _, object in ipairs(hiddenDuringTutorial) do
+			object.Visible = visible
+		end
 	end
 
 	setAmount(PlayerStateStore.Get(PlayerStateStore.Fields.Currency) or 0)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, setAmount)
+	setTutorialVisibility(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, setTutorialVisibility)
 end
 
 return HudController

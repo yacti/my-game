@@ -4,7 +4,9 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
-local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RuntimeGuard"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local UiEffects = {}
 
@@ -411,7 +413,7 @@ function UiEffects.SetButtonEnabled(button, enabled)
 end
 
 function UiEffects.FormatCurrency(amount)
-	return "$" .. tostring(math.floor(tonumber(amount) or 0))
+	return NumberFormatter.Currency(amount)
 end
 
 function UiEffects.PreparePanel(panel)

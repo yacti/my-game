@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -516,8 +517,17 @@ local function clearOwnerReveals(ownerUserId)
 end
 
 local function formatPrice(price)
-	local amount = tonumber(price) or 0
-	return "$" .. tostring(math.max(math.floor(amount), 0))
+	return NumberFormatter.Currency(price)
+end
+
+local function formatChance(payload)
+	if payload.rngChanceText then
+		return tostring(payload.rngChanceText)
+	end
+	if payload.chanceN then
+		return NumberFormatter.ChanceN(payload.chanceN)
+	end
+	return "1 in ?"
 end
 
 local function rollBillboardTemplate(category)
@@ -605,7 +615,7 @@ local function addRevealBillboard(model, payload)
 	local rarityColor = Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
 	setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
 	setLabel(card, "PriceLabel", "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
-	setLabel(card, "ChanceLabel", tostring(payload.rngChanceText or ("1 in " .. tostring(payload.chanceN or "?"))), Color3.fromRGB(210, 230, 255))
+	setLabel(card, "ChanceLabel", formatChance(payload), Color3.fromRGB(210, 230, 255))
 	setLabel(card, "RarityLabel", tostring(payload.rarity or "Unknown"), rarityColor)
 
 	billboard.Parent = anchor

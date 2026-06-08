@@ -288,7 +288,7 @@ Do not assume every remote is symmetric or actively fired from both sides. Some 
 
 `ReceiptService` owns processed receipt idempotency in `profile.Data.ProcessedReceipts` and routes `MarketplaceService.ProcessReceipt` to systems such as rebirth skips. Receipt-driven products must not be modeled as trusted client state.
 
-Rebirth is a specific economy transaction, not a generic wipe. Current behavior resets currency to zero, rebuilds pets according to tier rewards, increments rebirth state, grants tier feed rewards through feed reward logic, and explicitly saves on success. It preserves important player state such as placed feed machines, food inventory, plot layout, and unlocked grid cells unless another system changes them. Current `RebirthBalance` has three tiers at 1000, 5000, and 15000 currency; all skip product ids are `0`, so Robux skip is effectively disabled until configured.
+Rebirth is a specific economy transaction, not a generic wipe. Current behavior resets currency to zero, rebuilds pets according to tier rewards, increments rebirth state, grants tier feed rewards through feed reward logic, and explicitly saves on success. It preserves important player state such as placed feed machines, food inventory, plot layout, and unlocked grid cells unless another system changes them. Current `RebirthBalance` has six tiers at 25000, 250000, 3500000, 20000000, 50000000, and 200000000 currency; all skip product ids are `0`, so Robux skip is effectively disabled until configured.
 
 ## Persistence And Player Lifecycle
 

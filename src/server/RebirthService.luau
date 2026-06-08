@@ -13,6 +13,7 @@ local ReceiptService = require(Server:WaitForChild("ReceiptService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -401,7 +402,7 @@ local function runTransaction(player, options)
 
 	PlayerReplicaService.PublishProfile(player, profile)
 	CurrencyService.Publish(player, profile)
-	NotificationService.Success(player, string.format("Rebirth %d complete!", tierNumber))
+	NotificationService.Success(player, "Rebirth " .. NumberFormatter.Integer(tierNumber) .. " complete!")
 	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
 		tier = tierNumber,
 		skip = options.skip == true,
