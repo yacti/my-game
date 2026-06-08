@@ -22,6 +22,7 @@ local ui = script:WaitForChild("ui")
 local CONTROLLERS = {
 	"PlayerStateStore",
 	"SatchelController",
+	"ItemAddedDisplayController",
 	"LocalPrompts",
 	"HudController",
 	"GearShopController",

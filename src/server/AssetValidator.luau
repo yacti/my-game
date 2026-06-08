@@ -852,6 +852,26 @@ local function validatePetMoneyBillboard(billboardFolder, errors)
 	end
 end
 
+local function validateItemAddedDisplayBillboard(billboardFolder, errors)
+	local billboard = validateBillboardTemplate(billboardFolder, "ItemAddedDisplay", nil, errors)
+	if not billboard then return end
+
+	local main = child(billboard, "main", "GuiObject", errors)
+	if not main then return end
+
+	child(main, "UIListLayout", "UIListLayout", errors)
+	child(main, "UIPadding", "UIPadding", errors)
+
+	local item = child(main, "item", "TextLabel", errors)
+	if item then
+		child(item, "UIStroke", "UIStroke", errors)
+		child(item, "UIGradient", "UIGradient", errors)
+		if item.Visible ~= false then
+			add(errors, item:GetFullName() .. " should be hidden template text (Visible=false)")
+		end
+	end
+end
+
 local function validatePromptTemplates(ui, errors)
 	local generic = ui:FindFirstChild("LocalPrompt")
 	if generic then
@@ -1235,6 +1255,7 @@ local function validateUi(errors)
 	local billboardFolder = child(ui, "BillboardGUIs", "Folder", errors)
 	if billboardFolder then
 		validatePetMoneyBillboard(billboardFolder, errors)
+		validateItemAddedDisplayBillboard(billboardFolder, errors)
 		validateBillboardTemplate(billboardFolder, "XPBillboard", "XPLabel", errors)
 		local timer = validateBillboardTemplate(billboardFolder, "TimerBillboard", "TitleLabel", errors)
 		if timer then
