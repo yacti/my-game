@@ -28,6 +28,7 @@ local SERVER_FOLDER = ServerScriptService:WaitForChild("Server")
 local ATTR_ENABLED = "PlotStressTestEnabled"
 local ATTR_DISABLE_TUTORIAL = "PlotStressTestDisableTutorial"
 local ATTR_ACTIVE_COLLECTION = "PlotStressTestActiveCollection"
+local ATTR_TREE_CLICK_INTERVAL = "PlotStressTestTreeClickIntervalSeconds"
 local ATTR_PLOT_COUNT = "PlotStressTestPlotCount"
 local ATTR_PETS_PER_PLOT = "PlotStressTestPetsPerPlot"
 local ATTR_PATCHES_PER_PLOT = "PlotStressTestPatchesPerPlot"
@@ -41,6 +42,10 @@ local CLIENT_REMOTE_NAME = "PlotStressTestCommand"
 
 local RUN_ID_ATTR = "PlotStressTestRunId"
 local CREATED_TOOL_ATTR = "PlotStressTestCreatedTool"
+-- Server-driven pickup rates grant tools far faster than any real player
+-- could; without a live cap the owner's backpack grows to thousands of tools
+-- (O(n^2) rescans + replication flood) and poisons active-run metrics.
+local MAX_LIVE_CREATED_TOOLS = 200
 
 local DEFAULT_CONFIG = {
 	PlotCount = 8,
@@ -112,6 +117,7 @@ local function readConfig(overrides)
 	config.PatchFeedType = stringAttr(ATTR_PATCH_FEED_TYPE, config.PatchFeedType)
 	config.TreeFeedType = stringAttr(ATTR_TREE_FEED_TYPE, config.TreeFeedType)
 	config.ActiveCollection = booleanAttr(ATTR_ACTIVE_COLLECTION, config.ActiveCollection)
+	config.TreeClickIntervalSeconds = numberAttr(ATTR_TREE_CLICK_INTERVAL, config.TreeClickIntervalSeconds, 0.05)
 	config.DisableTutorial = booleanAttr(ATTR_DISABLE_TUTORIAL, config.DisableTutorial)
 
 	if type(overrides) == "table" then
@@ -203,6 +209,9 @@ local function newRun(config)
 		syntheticPlots = {},
 		toolBaseline = {},
 		createdTools = {},
+		createdToolOrder = {},
+		createdToolHead = 1,
+		createdToolTail = 0,
 		ownerPlot = nil,
 		stopRequested = false,
 		counters = {
@@ -306,6 +315,23 @@ local function rememberOwnerTools(run, player)
 	remember(player.Character)
 end
 
+-- Explicit head/tail indices: clearing consumed slots leaves holes, so the
+-- length operator cannot be trusted on this array.
+local function pruneCreatedTools(run)
+	local order = run.createdToolOrder
+	while run.createdToolTail - run.createdToolHead + 1 > MAX_LIVE_CREATED_TOOLS do
+		local tool = order[run.createdToolHead]
+		order[run.createdToolHead] = nil
+		run.createdToolHead += 1
+		if tool and run.createdTools[tool] then
+			run.createdTools[tool] = nil
+			if tool.Parent then
+				tool:Destroy()
+			end
+		end
+	end
+end
+
 local function tagNewOwnerTools(run, player)
 	local baseline = run.toolBaseline[player]
 	if not baseline then
@@ -320,6 +346,8 @@ local function tagNewOwnerTools(run, player)
 			if child:IsA("Tool") and not baseline[child] and Food.IsFood(child) then
 				child:SetAttribute(CREATED_TOOL_ATTR, run.id)
 				run.createdTools[child] = true
+				run.createdToolTail += 1
+				run.createdToolOrder[run.createdToolTail] = child
 				baseline[child] = true
 			end
 		end
@@ -327,6 +355,7 @@ local function tagNewOwnerTools(run, player)
 
 	tag(player:FindFirstChildOfClass("Backpack"))
 	tag(player.Character)
+	pruneCreatedTools(run)
 end
 
 local function cleanupTools(run)
@@ -336,6 +365,9 @@ local function cleanupTools(run)
 		end
 	end
 	table.clear(run.createdTools)
+	table.clear(run.createdToolOrder)
+	run.createdToolHead = 1
+	run.createdToolTail = 0
 end
 
 local function destroyStressFeedsOn(plot)
@@ -740,7 +772,18 @@ local function stressTreesForPlot(plot)
 	return trees
 end
 
+-- Without jitter every tree loop starts in the same burst and waits the same
+-- interval, so all 240 trees click on the same frames; the random start offset
+-- desynchronizes the loops and the per-wait jitter keeps them from re-locking.
+local CLICK_JITTER_FRACTION = 0.3
+local clickJitterRng = Random.new()
+
+local function jitteredClickWait(interval)
+	task.wait(interval * (1 + (clickJitterRng:NextNumber() * 2 - 1) * CLICK_JITTER_FRACTION))
+end
+
 local function treeActivityLoop(run, owner, config, tree)
+	task.wait(clickJitterRng:NextNumber() * config.TreeClickIntervalSeconds)
 	while activeRun == run and run.stopRequested ~= true do
 		if tree.Parent then
 			run.counters.treeClickAttempts += 1
@@ -750,18 +793,19 @@ local function treeActivityLoop(run, owner, config, tree)
 			end
 			collectTreeGround(run, owner, tree)
 		end
-		task.wait(config.TreeClickIntervalSeconds)
+		jitteredClickWait(config.TreeClickIntervalSeconds)
 	end
 end
 
 local function treeClickOnlyLoop(clickRun, metricsRun, owner, config, tree)
+	task.wait(clickJitterRng:NextNumber() * config.TreeClickIntervalSeconds)
 	while clickRun.active == true and tree.Parent and owner.Parent do
 		metricsRun.counters.treeClickAttempts += 1
 		local clicked = FeedMachines.StressClickTree(tree, owner)
 		if clicked then
 			metricsRun.counters.treeClickSuccesses += 1
 		end
-		task.wait(config.TreeClickIntervalSeconds)
+		jitteredClickWait(config.TreeClickIntervalSeconds)
 	end
 end
 

@@ -4,7 +4,8 @@ Portable handoff document for the 8-client stress test optimization work. The or
 lived in Cursor's local plans folder; this file is the repo-local source of truth so the work
 can continue from any editor/agent.
 
-Last updated: 2026-06-11 (end of Pass 5; Pass 4 is next).
+Last updated: 2026-06-11 (end of Pass 4; all four passes complete — the 8-client manual
+gate is what remains).
 
 ## Origin
 
@@ -30,13 +31,14 @@ each followed by a measurement gate so regressions stay attributable.
 | 3 | Shared plot-scope helper; bind SlotXPBillboard / PatchSlotVisuals / AppleTreeSlotVisuals / PetAnimations to assigned plot | DONE |
 | 3 | SlotXPBillboard: lazy GUI creation, 0.2s tick, hoist RuntimeGuard out of hot loops | DONE |
 | 3 | Gate: full passive run, client GUI/record counts + frame stats, Microprofiler check | DONE |
-| 4 | Harness: randomized tree-click start offsets and interval jitter | **NEXT** |
-| 4 | Distance-gate PetAnimations renders; UiEffects billboard checks to 0.1–0.2s shared pass | pending |
-| 4 | Tree VFX caps/coalescing (only if active runs still spike after the above) | pending |
+| 4 | Harness: randomized tree-click start offsets and interval jitter | DONE |
+| 4 | Distance-gate PetAnimations renders; UiEffects billboard checks to 0.1–0.2s shared pass | DONE |
+| 4 | Tree VFX caps/coalescing (only if active runs still spike after the above) | NOT NEEDED (verified: realistic active load is clean; only harness torture rates spike, and those saturate the server first) |
+| 4 | Harness: live cap on stress-created tools; configurable tree-click interval | DONE |
 | 5 | Remove legacy pet-segment replication (12 attrs + MotionSeq per publish) | DONE |
 | 5 | Remove dead `PetMotionService.RefreshPet`; merge duplicate part-config helpers | DONE |
 | 5 | Gate: full passive run; removed attrs absent on live pets; cornering intact | DONE |
-| — | Final manual gate: 8-client Studio test matrix vs success criteria | pending |
+| — | Final manual gate: 8-client Studio test matrix vs success criteria | **NEXT** |
 | — | `docs/publish-checklist.md` pass after Pass 3, before any live publish (Pass 2 is on `main` but unpublished; the checklist exercises the same client visuals Pass 3 rewrites, so it runs once, after) | pending |
 
 ## Success criteria (final gate)
@@ -60,6 +62,7 @@ The harness is `src/server/dev/PlotStressTest.luau`, wired into `init.server.lua
 | `PlotStressTestPetsPerPlot` / `PatchesPerPlot` / `TreesPerPlot` | per-plot counts | 10 / 300 / 30 |
 | `PlotStressTestDurationSeconds` / `MetricsSeconds` | run length / metrics interval | 75–120 / 15 |
 | `PlotStressTestActiveCollection` | server-driven tree-click loops | false |
+| `PlotStressTestTreeClickIntervalSeconds` | per-tree click interval for active runs (jittered ±30%) | 3 (realistic) / 0.22 (torture default) |
 | `PlotStressTestDisableTutorial` | skip onboarding for the owner | true |
 
 Sequence: start play mode with one client, wait for the player + plot assignment, set the
@@ -221,15 +224,42 @@ Functional checks, all via real paths:
   refresh + rebind); Plot2/Plot3 evict; assigned Plot1 stays bound regardless of distance.
 - Two full populate/teardown cycles with zero captured client or server errors.
 
-## Pass 4 — Active tree clicking polish
+## Pass 4 — Active tree clicking polish (COMPLETED 2026-06-11)
 
-- Harness: randomized per-tree start offset and click interval jitter so active runs stop
-  synchronizing all 240 trees onto the same frames.
-- Distance-gate `renderPet` work in `PetAnimations.luau`; move `UiEffects` billboard
-  distance checks off `RenderStepped` into a 0.1–0.2s shared pass.
-- Tree VFX caps/coalescing only if the post-jitter active run still shows client spikes —
-  the 75-stud server gate in `feedMachines/Trees.luau` plus Pass 3 plot scoping may already
-  be enough.
+Implemented:
+
+- Harness: per-tree random start offset plus ±30% interval jitter in both server-driven
+  (`treeActivityLoop`) and client-command (`treeClickOnlyLoop`) click loops, so active runs
+  no longer synchronize all 240 trees onto the same frames.
+- Harness: `PlotStressTestTreeClickIntervalSeconds` attribute (default 0.22s remains the
+  torture knob; 3s models 8 players auto-clicking ~10/s each) and a live FIFO cap of 200 on
+  stress-created pickup tools. Without the cap, server-driven pickup rates granted the
+  owner ~140 tools/s — 14.5k backpack tools in 90s, O(n²) backpack rescans, a replication
+  flood that froze the client below 1 fps, and a teardown long enough to disconnect the MCP
+  plugin. That accumulation was a harness artifact, not a game behavior.
+- `PetAnimations.luau`: per-frame `renderPet` pivot math now runs only for pets within 120
+  studs of the camera (renderable flag refreshed on a 0.25s cadence); gated pets freeze and
+  snap to the current replicated segment on re-entry.
+- `UiEffects.luau`: billboard distance checks moved off `RenderStepped` onto a 0.15s
+  Heartbeat pass; Enabled-change reactions stay immediate via their property signal.
+
+Findings from the gate runs:
+
+- Tree VFX caps/coalescing (the conditional third item) are NOT needed. Under a realistic
+  active load the client is clean (numbers below). Only the harness torture rate (0.22s
+  interval = ~565–900 server-driven clicks+pickups/s) produces spikes, and at that rate the
+  SERVER saturates first (p50 ~110ms) — a load real players cannot generate, since the
+  production click path goes through rate-limited `PromptInteract`, not the harness's
+  direct `StressClickTree`.
+
+### Gate result (MCP, single client, full 8 x 300 / 30 / 10, ACTIVE at 3s/tree, 120s)
+
+- Sustained ~80 clicks+pickups/s (9587 clicks, 9347 pickups over 122s), ~200 ground piles
+  live, tool cap holding at 200.
+- Server steady state: p50 4.2–4.5ms, p95 8.5–14ms, max 15–62ms; zero warnings/errors;
+  counts exact. (Success criterion: p95 under 20–30ms, max under 250ms.)
+- Client during active clicking: p50 4.5ms, p95 13.9ms, p99 17.1ms, max 24ms — zero frames
+  over 33ms, with ground-fruit visuals (40 local) and drop/shake effects active.
 
 Final gate (manual): multi-client Studio session running the full 8-client test matrix
 against the success criteria above.
@@ -279,9 +309,9 @@ public server functions in use.
 
 ## Working-tree state
 
-Pass 1 + Pass 2 are committed as `1e6103b` ("Gameplay: derive patch growth and cache pet
-nav grids") on `main`. Pass 3 (client plot scoping) and Pass 5 (cleanup) are committed
-together in the following commit. Pass 4 starts from that baseline.
+Pass 1 + Pass 2 are committed as `1e6103b`, Pass 3 + Pass 5 as `30b21aa`, both on `main`
+and pushed. Pass 4 (harness jitter + tool cap, pet render distance gating, UiEffects
+shared pass, this doc update) is the working tree on top of `30b21aa`.
 
 No automated Luau lint/format toolchain exists in this repo; validation is Studio
 playtests + the harness gates described above. `rojo serve` must be running for Studio to

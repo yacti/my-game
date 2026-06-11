@@ -9,6 +9,8 @@ local State = require(Shared:WaitForChild("State"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 
 local SCOPE_RANGE = 150
+local RENDER_RANGE = 120
+local RENDER_RANGE_CHECK_INTERVAL = 0.25
 local FADE_SECONDS = 0.18
 local ANIMATOR_WAIT_SECONDS = 5
 local DEFAULT_WALK_SPEED = 8
@@ -502,9 +504,25 @@ function PetAnimations.start()
 		end,
 	})
 
+	-- Per-frame pivot math only runs for pets near the camera; the renderable
+	-- flag refreshes on a 0.25s cadence. Gated pets freeze at their last pose
+	-- and snap to the current replicated segment when they re-enter range.
+	local rangeElapsed = RENDER_RANGE_CHECK_INTERVAL
 	RuntimeGuard.Connect(RunService.RenderStepped, "PetAnimations.RenderStepped", function(dt)
+		rangeElapsed += dt
+		if rangeElapsed >= RENDER_RANGE_CHECK_INTERVAL then
+			rangeElapsed = 0
+			local camera = Workspace.CurrentCamera
+			local origin = camera and camera.CFrame.Position
+			for pet, record in pairs(attached) do
+				record.renderable = origin == nil
+					or (pet:GetPivot().Position - origin).Magnitude <= RENDER_RANGE
+			end
+		end
 		for _, record in pairs(attached) do
-			RuntimeGuard.Run("PetAnimations.RenderPet", renderPet, record, dt)
+			if record.renderable ~= false then
+				RuntimeGuard.Run("PetAnimations.RenderPet", renderPet, record, dt)
+			end
 		end
 	end)
 end

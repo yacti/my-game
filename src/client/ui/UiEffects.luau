@@ -22,6 +22,7 @@ local BILLBOARD_POP_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.Easi
 local BILLBOARD_HIDE_TWEEN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local BILLBOARD_POP_START_SCALE = 0.18
 local BILLBOARD_MANAGED_MAX_DISTANCE = 100000
+local BILLBOARD_DISTANCE_CHECK_INTERVAL = 0.15
 
 local function darken(color, amount)
 	return Color3.new(
@@ -336,7 +337,14 @@ local function ensureBillboardDistanceConnection()
 		return
 	end
 
-	billboardDistanceConnection = RuntimeGuard.Connect(RunService.RenderStepped, "UiEffects.BillboardDistance", function()
+	-- Distance gating only tracks player/camera movement, so it does not need
+	-- frame-rate cadence; Enabled changes still update immediately through
+	-- their own property signal.
+	local elapsed = 0
+	billboardDistanceConnection = RuntimeGuard.Connect(RunService.Heartbeat, "UiEffects.BillboardDistance", function(dt)
+		elapsed += dt
+		if elapsed < BILLBOARD_DISTANCE_CHECK_INTERVAL then return end
+		elapsed = 0
 		for billboard in pairs(distanceBillboards) do
 			if billboard.Parent == nil then
 				distanceBillboards[billboard] = nil
