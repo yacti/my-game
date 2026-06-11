@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__roblox-studio__script_read",
+      "mcp__roblox-studio__execute_luau",
+      "mcp__roblox-studio__script_grep",
+      "mcp__roblox-studio__search_game_tree",
+      "mcp__roblox-studio__inspect_instance",
+      "mcp__roblox-studio__get_console_output",
+      "mcp__roblox-studio__multi_edit",
+      "mcp__roblox-studio__list_roblox_studios",
+      "mcp__roblox-studio__set_active_studio",
+      "mcp__roblox-studio__start_stop_play",
+      "Bash(rojo --version)",
+      "mcp__roblox-studio__character_navigation",
+      "mcp__roblox-studio__screen_capture",
+      "mcp__roblox-studio__user_mouse_input",
+      "Bash(git *)",
+      "mcp__roblox-studio__user_keyboard_input",
+      "mcp__roblox-studio__script_search",
+      "WebSearch",
+      "WebFetch(domain:satchel.luau.page)",
+      "Bash(gh release *)",
+      "Bash(curl -s https://api.github.com/repos/RyanLua/Satchel/releases?per_page=5)",
+      "Bash(python3 *)",
+      "Bash(claude update *)",
+      "Bash(grep -oE '\"[A-Za-z]+\":\\\\s*\\\\{\\\\s*\"\\\\$className\":\\\\s*\"RemoteEvent\"' default.project.json)",
+      "Bash(gh auth *)",
+      "Bash(claude mcp *)",
+      "Bash(lsof -nP -iTCP:34872 -sTCP:LISTEN)",
+      "mcp__Roblox_Studio__list_roblox_studios",
+      "mcp__Roblox_Studio__get_studio_state",
+      "mcp__Roblox_Studio__execute_luau",
+      "Bash(echo \"exit=$?\")",
+      "mcp__Roblox_Studio__start_stop_play",
+      "mcp__Roblox_Studio__get_console_output"
+    ]
+  }
+}

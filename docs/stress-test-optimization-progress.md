@@ -4,7 +4,7 @@ Portable handoff document for the 8-client stress test optimization work. The or
 lived in Cursor's local plans folder; this file is the repo-local source of truth so the work
 can continue from any editor/agent.
 
-Last updated: 2026-06-11 (end of Pass 2).
+Last updated: 2026-06-11 (end of Pass 5; Pass 4 is next).
 
 ## Origin
 
@@ -27,14 +27,17 @@ each followed by a measurement gate so regressions stay attributable.
 | 2 | Patch growth redesign (derived XP, no 1Hz tick) | DONE |
 | 2 | Per-plot pet nav grid cache with version-based invalidation | DONE |
 | 2 | Gate: patches-only and pets-only validation runs | DONE |
-| 3 | Shared plot-scope helper; bind SlotXPBillboard / PatchSlotVisuals / AppleTreeSlotVisuals / PetAnimations to assigned plot | **NEXT** |
-| 3 | SlotXPBillboard: lazy GUI creation, 0.2s tick, hoist RuntimeGuard out of hot loops | pending |
-| 3 | Gate: full passive run, client GUI/record counts + frame stats, Microprofiler check | pending |
-| 4 | Harness: randomized tree-click start offsets and interval jitter | pending |
+| 3 | Shared plot-scope helper; bind SlotXPBillboard / PatchSlotVisuals / AppleTreeSlotVisuals / PetAnimations to assigned plot | DONE |
+| 3 | SlotXPBillboard: lazy GUI creation, 0.2s tick, hoist RuntimeGuard out of hot loops | DONE |
+| 3 | Gate: full passive run, client GUI/record counts + frame stats, Microprofiler check | DONE |
+| 4 | Harness: randomized tree-click start offsets and interval jitter | **NEXT** |
 | 4 | Distance-gate PetAnimations renders; UiEffects billboard checks to 0.1–0.2s shared pass | pending |
 | 4 | Tree VFX caps/coalescing (only if active runs still spike after the above) | pending |
+| 5 | Remove legacy pet-segment replication (12 attrs + MotionSeq per publish) | DONE |
+| 5 | Remove dead `PetMotionService.RefreshPet`; merge duplicate part-config helpers | DONE |
+| 5 | Gate: full passive run; removed attrs absent on live pets; cornering intact | DONE |
 | — | Final manual gate: 8-client Studio test matrix vs success criteria | pending |
-| — | `docs/publish-checklist.md` pass before the Pass 2 patch redesign ships | pending |
+| — | `docs/publish-checklist.md` pass after Pass 3, before any live publish (Pass 2 is on `main` but unpublished; the checklist exercises the same client visuals Pass 3 rewrites, so it runs once, after) | pending |
 
 ## Success criteria (final gate)
 
@@ -167,19 +170,56 @@ Outstanding from the Pass 2 acceptance criteria:
 - Offline-progress/rejoin persistence exercised live in the final manual gate (code path
   reviewed; saved shape unchanged, so old profiles restore losslessly).
 
-## Pass 3 — Client plot scoping (NEXT)
+## Pass 3 — Client plot scoping (COMPLETED 2026-06-11)
 
-- Build one shared plot-scope helper (assigned plot + optional nearby plots, rebinds on
-  reassignment) and use it in `SlotXPBillboard.luau`, `PatchSlotVisuals.luau`,
-  `AppleTreeSlotVisuals.luau`, and `PetAnimations.luau` instead of binding all of
-  `Workspace.Plots` (today every client tracks every plot's slots/pets).
-- `SlotXPBillboard`: lazy-create `BillboardGui`s only when in range (today 2400 GUIs are
-  cloned into `PlayerGui` up front), tick at 0.2s instead of every Heartbeat, hoist
-  `RuntimeGuard.Run` out of per-item hot loops (same pattern applies to `PatchSlotVisuals`
-  and `AppleTreeSlotVisuals`).
+Implemented:
 
-Gate (MCP): full passive run; client-side tracked-record/GUI counts and frame stats;
-Microprofiler check for repeated 80ms+ frames.
+- New `src/client/ui/PlotScope.luau`: shared plot-scope registry. Scope = the assigned plot
+  (always, via `PlotResolver`) plus plots whose `Floor` bounds are within `nearbyRange`
+  studs of the character. Refreshes every 0.5s and on `AssignedPlotName` changes; exit uses
+  a +20 stud hysteresis margin. Distance is measured to the closest point on the Floor
+  part's bounds, not the plot center — floors are 81×187 studs, far larger than the
+  per-item visual ranges. `onPlotAdded(plot)` may return a cleanup function invoked when
+  the plot leaves scope (reassignment, distance, or removal).
+- All four watchers now scan + bind `DescendantAdded`/`ChildAdded` per scoped plot and tear
+  records down on scope exit, instead of binding all of `Workspace.Plots`:
+  - `SlotXPBillboard` (scope 20): `BillboardGui`s are lazily created on 10-stud range entry
+    and destroyed on exit — previously 2400 were cloned into `PlayerGui` up front. Tick is
+    0.2s instead of every Heartbeat; per-item `RuntimeGuard.Run` hoisted (the connection
+    wrapper still guards the pass). Also fixes a latent bug: a tick with no
+    HumanoidRootPart (death) or a `PlayerGui` reset used to destroy all records
+    permanently — records now survive and GUIs rebuild on the next in-range tick.
+  - `PatchSlotVisuals` (scope 80 vs 70-stud item range): per-item guard hoisted.
+  - `AppleTreeSlotVisuals` (scope 100, ≥ the server's 75-stud effect remote gate):
+    per-marker guard hoisted; the `animated` map is intentionally kept across scope cycles
+    so fruit grow-in tweens don't replay every time a plot re-enters scope.
+  - `PetAnimations` (scope 150): pets on out-of-scope plots carry no records/tracks and
+    freeze at their last pose; on scope entry they rebind and snap to the current
+    server-replicated segment.
+
+### Gate result (MCP, single client, full 8 x 300 patches / 30 trees / 10 pets, passive, 120s)
+
+Server (steady state after populate): setup 2.56s; p50 4.17ms, p95 4.63–4.80ms,
+max 12.7–58.3ms; zero warnings/errors; counts exact on all plots. (Pass 1 full-run
+baseline: p95 15–107ms with recurring 1.2–2.1s max spikes.)
+
+Client, viewing from the assigned plot:
+
+- `XPBillboard` GUIs at rest: 0 (previously 2400 cloned up front). Standing beside a patch:
+  10 (only the slots actually within the 10-stud range).
+- Pets bound by proximity: 50/81 animating (assigned + 4 nearby plots); plots 6–8 dormant.
+- 20s frame sample: p50 4.2ms, p95 4.7ms, p99 5.2ms, max 18.5ms — zero frames over 80ms
+  (stands in for the Microprofiler check; a visual pass can ride along with the final
+  manual gate).
+
+Functional checks, all via real paths:
+
+- Walk up to a patch: billboards appear within one tick, label ticks 66 → 72 xp over 3s and
+  matches `PatchGrowth.ComputeXPForFood` exactly; fruit `GetScale()` 0.472 equals
+  `PatchScale.ComputeScale` for the derived XP. Walk away: GUI count back to 0.
+- Teleport to dormant Plot8: its pets animate and billboards appear within ~2s (scope
+  refresh + rebind); Plot2/Plot3 evict; assigned Plot1 stays bound regardless of distance.
+- Two full populate/teardown cycles with zero captured client or server errors.
 
 ## Pass 4 — Active tree clicking polish
 
@@ -194,20 +234,54 @@ Microprofiler check for repeated 80ms+ frames.
 Final gate (manual): multi-client Studio session running the full 8-client test matrix
 against the success criteria above.
 
-## Working-tree state at handoff
+## Pass 5 — Dead/redundant code cleanup (COMPLETED 2026-06-11)
 
-All Pass 1 + Pass 2 changes are uncommitted on top of `bb0a15d` ("Docs: update plot-scoped
-architecture guidance"):
+Swept for unused/redundant code across client ui, server, and shared (legacy replication
+paths, uncalled public/local functions, orphan modules, unused requires/constants/State
+keys). Executed before Pass 4 deliberately: the main finding reduces replication churn, so
+Pass 4 measures against a cleaner baseline.
 
-- Modified: `src/client/ui/AppleTreeSlotVisuals.luau`, `src/client/ui/PatchSlotVisuals.luau`,
-  `src/client/ui/SlotXPBillboard.luau`, `src/server/OnboardingService.luau`,
-  `src/server/PetMotionService.luau`, `src/server/PetNavigation.luau`,
-  `src/server/PlotGridService.luau`, `src/server/PlotService.luau`,
-  `src/server/feedMachines/Patches.luau`, `src/server/feedMachines/Trees.luau`,
-  `src/server/feedMachines/init.luau`, `src/server/init.server.luau`, `src/shared/State.luau`
-- New: `src/shared/PatchGrowth.luau`, `src/server/dev/PlotStressTest.luau`
-  (`Trees.luau`/`feedMachines/init.luau`/`init.server.luau` changes are the harness hooks:
-  `StressClick` path and Studio-only `PlotStressTest` wiring.)
+Removed:
+
+- **Legacy pet-segment replication path.** `PetMotionService.publishSegment` wrote 12
+  individual segment attributes plus `MotionSeq` alongside the packed `PetSegmentData`
+  string on every publish (every few seconds per pet; 80 pets at stress scale). The legacy
+  client reader was unreachable: segment attributes are ephemeral (never serialized to
+  ProfileStore), the packed format has been stable at 12 values since `9b6246d`
+  (2026-05-19), and a Roblox server instance and its clients always run the same place
+  version, so cross-version replication compat does not apply. Now only `SegmentWalkSpeed`,
+  `MotionState`, and `SegmentData` are written. Client `readLegacySegment`, the
+  `packed == nil` fallback branch, and the values[10–12] attribute fallbacks are gone;
+  `readSegmentData` requires exactly 12 values. The 12 orphaned `State.Pet` keys were
+  removed from `State.luau`.
+- `PetMotionService.RefreshPet` — public function with zero call sites (superseded by
+  `RefreshPlotRoutes`).
+- `AppleTreeSlotVisuals.configureLocalGroundPart` — identical to `configureEffectPart`;
+  merged.
+
+Checked and deliberately kept: `lastTick`/`growthElapsed` in `Patches.luau`
+Serialize/Apply (saved-profile shape compatibility), the Studio-only
+`dev/PlotStressTest.luau` harness and its hooks, the `animated` map persistence in
+`AppleTreeSlotVisuals` (prevents tween replay on scope re-entry, Pass 3). Everything else
+surveyed came back clean: no orphan client-ui modules, no unused requires, all other
+public server functions in use.
+
+### Gate result (MCP, single client, full 8 x 300 / 30 / 10 passive, 120s)
+
+- Server: setup 2.51s; steady p50 4.16–4.19ms, p95 4.62–4.77ms, max 9.8–15.9ms after the
+  first interval; zero warnings/errors; counts exact — in line with (maxes slightly better
+  than) the Pass 3 gate.
+- 81/81 live pets carried only the packed `SegmentData` (12 values, all parsed) and none
+  of the removed attributes; 16 were mid-corner (`cornerRadius > 0`), exercising the
+  values[10–12] path without attribute fallbacks.
+- Client: 11/11 Plot1 pets animating, Plot8 dormant (plot scope intact), and a walking pet
+  moved 3.05 studs/s — renderer healthy under the strict 12-value parser.
+
+## Working-tree state
+
+Pass 1 + Pass 2 are committed as `1e6103b` ("Gameplay: derive patch growth and cache pet
+nav grids") on `main`. Pass 3 (client plot scoping) and Pass 5 (cleanup) are committed
+together in the following commit. Pass 4 starts from that baseline.
 
 No automated Luau lint/format toolchain exists in this repo; validation is Studio
 playtests + the harness gates described above. `rojo serve` must be running for Studio to

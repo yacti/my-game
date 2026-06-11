@@ -6,7 +6,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
+local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 
+local SCOPE_RANGE = 150
 local FADE_SECONDS = 0.18
 local ANIMATOR_WAIT_SECONDS = 5
 local DEFAULT_WALK_SPEED = 8
@@ -86,7 +88,7 @@ local function readSegmentData(pet)
 		values[#values + 1] = tonumber(part)
 	end
 
-	if #values ~= 9 and #values ~= 12 then
+	if #values ~= 12 then
 		return nil
 	end
 	for _, value in ipairs(values) do
@@ -106,42 +108,9 @@ local function readSegmentData(pet)
 		targetLX = values[7],
 		targetLZ = values[8],
 		targetLRY = values[9],
-		nextLX = values[10] or segmentNumber(pet, State.Pet.SegmentNextLX),
-		nextLZ = values[11] or segmentNumber(pet, State.Pet.SegmentNextLZ),
-		cornerRadius = values[12] or segmentNumber(pet, State.Pet.SegmentCornerRadius) or 0,
-	}
-end
-
-local function readLegacySegment(pet)
-	local seq = segmentNumber(pet, State.Pet.MotionSeq)
-	local startTime = segmentNumber(pet, State.Pet.SegmentStartTime)
-	local duration = segmentNumber(pet, State.Pet.SegmentDuration)
-	local startLX = segmentNumber(pet, State.Pet.SegmentStartLX)
-	local startLZ = segmentNumber(pet, State.Pet.SegmentStartLZ)
-	local startLRY = segmentNumber(pet, State.Pet.SegmentStartLRY)
-	local targetLX = segmentNumber(pet, State.Pet.SegmentTargetLX)
-	local targetLZ = segmentNumber(pet, State.Pet.SegmentTargetLZ)
-	local targetLRY = segmentNumber(pet, State.Pet.SegmentTargetLRY)
-	if seq == nil or startTime == nil or duration == nil
-		or startLX == nil or startLZ == nil or startLRY == nil
-		or targetLX == nil or targetLZ == nil or targetLRY == nil then
-		return nil
-	end
-
-	return {
-		packed = nil,
-		seq = seq,
-		startTime = startTime,
-		duration = duration,
-		startLX = startLX,
-		startLZ = startLZ,
-		startLRY = startLRY,
-		targetLX = targetLX,
-		targetLZ = targetLZ,
-		targetLRY = targetLRY,
-		nextLX = segmentNumber(pet, State.Pet.SegmentNextLX),
-		nextLZ = segmentNumber(pet, State.Pet.SegmentNextLZ),
-		cornerRadius = segmentNumber(pet, State.Pet.SegmentCornerRadius) or 0,
+		nextLX = values[10],
+		nextLZ = values[11],
+		cornerRadius = values[12],
 	}
 end
 
@@ -279,14 +248,6 @@ local function renderPet(record, dt)
 		local segment = readSegmentData(pet)
 		if segment then
 			applySegment(record, segment)
-		end
-	elseif packed == nil then
-		local seq = segmentNumber(pet, State.Pet.MotionSeq)
-		if seq ~= nil and (not record.segment or record.segment.seq ~= seq) then
-			local segment = readLegacySegment(pet)
-			if segment then
-				applySegment(record, segment)
-			end
 		end
 	end
 
@@ -516,31 +477,9 @@ local function watchPlot(plot)
 	for _, child in ipairs(plot:GetChildren()) do
 		if isPet(child) then bindPet(child) end
 	end
-	RuntimeGuard.Connect(plot.ChildAdded, "PetAnimations.PlotChildAdded", function(child)
+	return RuntimeGuard.Connect(plot.ChildAdded, "PetAnimations.PlotChildAdded", function(child)
 		if isPet(child) then bindPet(child) end
 	end)
-end
-
-local function isPlot(instance)
-	return (instance:IsA("Model") or instance:IsA("Folder")) and instance.Name:match("^Plot%d") ~= nil
-end
-
-local function watchWorkspace()
-	local function onWorkspaceChild(child)
-		if isPlot(child) then
-			watchPlot(child)
-		elseif child.Name == "Plots" then
-			for _, plot in ipairs(child:GetChildren()) do
-				watchPlot(plot)
-			end
-			RuntimeGuard.Connect(child.ChildAdded, "PetAnimations.PlotsChildAdded", watchPlot)
-		end
-	end
-
-	for _, child in ipairs(Workspace:GetChildren()) do
-		onWorkspaceChild(child)
-	end
-	RuntimeGuard.Connect(Workspace.ChildAdded, "PetAnimations.WorkspaceChildAdded", onWorkspaceChild)
 end
 
 function PetAnimations.start()
@@ -549,7 +488,20 @@ function PetAnimations.start()
 	end
 	started = true
 
-	watchWorkspace()
+	PlotScope.Bind({
+		label = "PetAnimations",
+		nearbyRange = SCOPE_RANGE,
+		onPlotAdded = function(plot)
+			local conn = watchPlot(plot)
+			return function()
+				if conn then conn:Disconnect() end
+				for pet in pairs(attached) do
+					if pet:IsDescendantOf(plot) then cleanup(pet) end
+				end
+			end
+		end,
+	})
+
 	RuntimeGuard.Connect(RunService.RenderStepped, "PetAnimations.RenderStepped", function(dt)
 		for _, record in pairs(attached) do
 			RuntimeGuard.Run("PetAnimations.RenderPet", renderPet, record, dt)

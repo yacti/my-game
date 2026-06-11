@@ -15,6 +15,7 @@ local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
+local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
@@ -30,6 +31,7 @@ local SHAKE_ANGLE        = math.rad(5)
 local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
 local GROUND_VISUAL_RANGE = 90
+local SCOPE_RANGE        = 100
 local GROUND_VISUAL_CHECK_INTERVAL = 0.2
 
 local player = Players.LocalPlayer
@@ -165,13 +167,6 @@ local function clearGameplayAttributes(instance)
 	instance:SetAttribute(State.TreeClicker.LocalVisual, true)
 end
 
-local function configureLocalGroundPart(part)
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-end
-
 local function localGroundHalfHeight(visual)
 	if visual:IsA("BasePart") then return visual.Size.Y / 2 end
 	if visual:IsA("Model") and visual.PrimaryPart then return visual.PrimaryPart.Size.Y / 2 end
@@ -192,7 +187,7 @@ local function cloneLocalGroundVisual(marker)
 	local clone = template:Clone()
 	clearGameplayAttributes(clone)
 	if clone:IsA("BasePart") then
-		configureLocalGroundPart(clone)
+		configureEffectPart(clone)
 		clone.CFrame = localGroundCFrame(marker, clone)
 	elseif clone:IsA("Model") then
 		if not clone.PrimaryPart then
@@ -200,7 +195,7 @@ local function cloneLocalGroundVisual(marker)
 			return nil
 		end
 		for _, d in ipairs(clone:GetDescendants()) do
-			if d:IsA("BasePart") then configureLocalGroundPart(d) end
+			if d:IsA("BasePart") then configureEffectPart(d) end
 		end
 		clone:PivotTo(localGroundCFrame(marker, clone))
 	else
@@ -453,15 +448,14 @@ local function markerPosition(marker)
 	return nil
 end
 
+-- Per-marker RuntimeGuard.Run is hoisted out of this pass; the Heartbeat
+-- connection wrapper already guards the whole tick.
 local function updateGroundVisuals()
 	local rootPosition = playerRootPosition()
 	for marker, record in pairs(groundMarkers) do
-		RuntimeGuard.Run("TreeVisuals.UpdateGroundVisual", function()
-			if not isTreeGroundMarker(marker) or not marker:IsDescendantOf(Workspace) then
-				cleanupGroundMarker(marker)
-				return
-			end
-
+		if not isTreeGroundMarker(marker) or not marker:IsDescendantOf(Workspace) then
+			cleanupGroundMarker(marker)
+		else
 			local position = rootPosition and markerPosition(marker) or nil
 			local inRange = position ~= nil and (position - rootPosition).Magnitude <= GROUND_VISUAL_RANGE
 			local foodId = marker:GetAttribute(State.Food.Id)
@@ -471,22 +465,21 @@ local function updateGroundVisuals()
 					record.visual = nil
 				end
 				record.foodId = foodId
-				return
+			else
+				if record.visual and record.foodId ~= foodId then
+					record.visual:Destroy()
+					record.visual = nil
+				end
+				if not record.visual then
+					record.visual = cloneLocalGroundVisual(marker)
+					record.foodId = foodId
+				elseif record.visual:IsA("BasePart") then
+					record.visual.CFrame = localGroundCFrame(marker, record.visual)
+				elseif record.visual:IsA("Model") then
+					record.visual:PivotTo(localGroundCFrame(marker, record.visual))
+				end
 			end
-
-			if record.visual and record.foodId ~= foodId then
-				record.visual:Destroy()
-				record.visual = nil
-			end
-			if not record.visual then
-				record.visual = cloneLocalGroundVisual(marker)
-				record.foodId = foodId
-			elseif record.visual:IsA("BasePart") then
-				record.visual.CFrame = localGroundCFrame(marker, record.visual)
-			elseif record.visual:IsA("Model") then
-				record.visual:PivotTo(localGroundCFrame(marker, record.visual))
-			end
-		end)
+		end
 	end
 end
 
@@ -725,34 +718,34 @@ function animate(food)
 end
 
 function TreeVisuals.start()
-	local function bindVisualRoot(root)
-		if not root then return end
-		RuntimeGuard.Run("TreeVisuals.ScanRoot", scanTreeVisualRoot, root)
-		RuntimeGuard.Connect(root.DescendantAdded, "TreeVisuals.RootDescendantAdded", function(obj)
-			if isTreeSlotFood(obj) then
-				animate(obj)
+	PlotScope.Bind({
+		label = "TreeVisuals",
+		nearbyRange = SCOPE_RANGE,
+		onPlotAdded = function(plot)
+			RuntimeGuard.Run("TreeVisuals.ScanRoot", scanTreeVisualRoot, plot)
+			local conn = RuntimeGuard.Connect(plot.DescendantAdded, "TreeVisuals.RootDescendantAdded", function(obj)
+				if isTreeSlotFood(obj) then
+					animate(obj)
+				end
+				trackGroundFoodCandidate(obj)
+			end)
+			return function()
+				if conn then conn:Disconnect() end
+				-- `animated` is intentionally kept: it self-cleans when food
+				-- leaves Workspace and prevents replaying the grow-in tween
+				-- every time a plot re-enters scope.
+				for marker in pairs(groundMarkers) do
+					if marker:IsDescendantOf(plot) then cleanupGroundMarker(marker) end
+				end
+				for obj in pairs(pendingGroundFood) do
+					if obj:IsDescendantOf(plot) then clearPendingGroundFood(obj) end
+				end
+				for tree in pairs(shakeTargetCache) do
+					if tree:IsDescendantOf(plot) then clearShakeTargetCache(tree) end
+				end
 			end
-			trackGroundFoodCandidate(obj)
-		end)
-	end
-
-	local plotsFolder = Workspace:FindFirstChild("Plots")
-	if plotsFolder then
-		bindVisualRoot(plotsFolder)
-	else
-		for _, child in ipairs(Workspace:GetChildren()) do
-			if child.Name:match("^Plot%d+$") then
-				bindVisualRoot(child)
-			end
-		end
-		RuntimeGuard.Connect(Workspace.ChildAdded, "TreeVisuals.WorkspaceChildAdded", function(child)
-			if child.Name:match("^Plot%d+$") then
-				bindVisualRoot(child)
-			elseif child.Name == "Plots" then
-				bindVisualRoot(child)
-			end
-		end)
-	end
+		end,
+	})
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "TreeVisuals.GroundVisualHeartbeat", function(dt)

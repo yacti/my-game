@@ -204,19 +204,7 @@ local function publishSegment(state, motionState, startLX, startLZ, startLRY, ta
 
 	local pet = state.pet
 	pet:SetAttribute(State.Pet.SegmentWalkSpeed, state.walkSpeed)
-	pet:SetAttribute(State.Pet.SegmentStartTime, state.startTime)
-	pet:SetAttribute(State.Pet.SegmentDuration, duration)
-	pet:SetAttribute(State.Pet.SegmentStartLX, startLX)
-	pet:SetAttribute(State.Pet.SegmentStartLZ, startLZ)
-	pet:SetAttribute(State.Pet.SegmentStartLRY, startLRY)
-	pet:SetAttribute(State.Pet.SegmentTargetLX, targetLX)
-	pet:SetAttribute(State.Pet.SegmentTargetLZ, targetLZ)
-	pet:SetAttribute(State.Pet.SegmentTargetLRY, targetLRY)
-	pet:SetAttribute(State.Pet.SegmentNextLX, nextLX)
-	pet:SetAttribute(State.Pet.SegmentNextLZ, nextLZ)
-	pet:SetAttribute(State.Pet.SegmentCornerRadius, cornerRadius)
 	pet:SetAttribute(State.Pet.MotionState, motionState)
-	pet:SetAttribute(State.Pet.MotionSeq, state.motionSeq)
 	pet:SetAttribute(State.Pet.SegmentData, packSegmentData(state))
 end
 
@@ -455,29 +443,6 @@ function PetMotionService.Register(plot, pet)
 	registry[pet] = state
 	beginWalk(state)
 	ensureHeartbeat()
-end
-
-function PetMotionService.RefreshPet(pet)
-	local state = registry[pet]
-	if not state then return end
-
-	local floor = floorForState(state)
-	if not floor then return end
-
-	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pet:GetPivot())
-	lx, lz = nearestPetFit(state, floor, lx, lz)
-	PlotService.SeatPetOnFloor(pet, floor, lx, lz, lry)
-	state.feedIdleUntil = nil
-	clearRoute(state)
-	state.startLX = lx
-	state.startLZ = lz
-	state.startLRY = lry
-	state.targetLX = lx
-	state.targetLZ = lz
-	state.targetLRY = lry
-	state.startTime = workspace:GetServerTimeNow()
-	state.duration = 0
-	beginWalk(state)
 end
 
 function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ, holdSeconds)

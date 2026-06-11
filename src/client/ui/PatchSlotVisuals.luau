@@ -11,10 +11,12 @@ local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
 local PatchScale = require(Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
+local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 
 local PatchSlotVisuals = {}
 
 local VISUAL_RANGE = 70
+local SCOPE_RANGE = 80
 local RANGE_CHECK_INTERVAL = 0.2
 local MAX_SCALE_UPDATES_PER_STEP = 80
 
@@ -114,16 +116,8 @@ local function scanRoot(root)
 	end
 end
 
-local function bindVisualRoot(root)
-	if not root then return end
-	scanRoot(root)
-	RuntimeGuard.Connect(root.DescendantAdded, "PatchSlotVisuals.RootDescendantAdded", function(obj)
-		if isPatchSlotFood(obj) then
-			track(obj)
-		end
-	end)
-end
-
+-- Per-item RuntimeGuard.Run is hoisted out of this pass; the Heartbeat
+-- connection wrapper already guards the whole tick.
 local function updateVisibleScales()
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -132,37 +126,36 @@ local function updateVisibleScales()
 	local now = Workspace:GetServerTimeNow()
 	local scaled = 0
 	for food, record in pairs(tracked) do
-		RuntimeGuard.Run("PatchSlotVisuals.UpdateRecord", function()
-			if not food:IsDescendantOf(Workspace) then
-				cleanup(food)
-				return
-			end
-			if scaled >= MAX_SCALE_UPDATES_PER_STEP then return end
-
+		if not food:IsDescendantOf(Workspace) then
+			cleanup(food)
+		elseif scaled < MAX_SCALE_UPDATES_PER_STEP then
 			local inRange = (foodPosition(food) - hrp.Position).Magnitude <= VISUAL_RANGE
 			if inRange and applyScale(record, now) then
 				scaled += 1
 			end
-		end)
+		end
 	end
 end
 
 function PatchSlotVisuals.start()
-	local plotsFolder = Workspace:FindFirstChild("Plots")
-	if plotsFolder then
-		bindVisualRoot(plotsFolder)
-	else
-		for _, child in ipairs(Workspace:GetChildren()) do
-			if child.Name:match("^Plot%d+$") then
-				bindVisualRoot(child)
+	PlotScope.Bind({
+		label = "PatchSlotVisuals",
+		nearbyRange = SCOPE_RANGE,
+		onPlotAdded = function(plot)
+			scanRoot(plot)
+			local conn = RuntimeGuard.Connect(plot.DescendantAdded, "PatchSlotVisuals.PlotDescendantAdded", function(obj)
+				if isPatchSlotFood(obj) then
+					track(obj)
+				end
+			end)
+			return function()
+				if conn then conn:Disconnect() end
+				for food in pairs(tracked) do
+					if food:IsDescendantOf(plot) then cleanup(food) end
+				end
 			end
-		end
-		RuntimeGuard.Connect(Workspace.ChildAdded, "PatchSlotVisuals.WorkspaceChildAdded", function(child)
-			if child.Name == "Plots" or child.Name:match("^Plot%d+$") then
-				bindVisualRoot(child)
-			end
-		end)
-	end
+		end,
+	})
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "PatchSlotVisuals.Heartbeat", function(dt)
