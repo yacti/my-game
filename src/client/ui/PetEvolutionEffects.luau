@@ -11,7 +11,10 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State = require(Shared:WaitForChild("State"))
+local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 
 local PetEvolutionEffects = {}
@@ -364,6 +367,23 @@ local function restorePet(pet, hidden)
 	end)
 end
 
+local function petDisplayName(petId)
+	local definition = PetCatalog.GetDefinition(petId)
+	local visual = definition and definition.Visual
+	return (visual and visual.ModelName) or petId
+end
+
+local function showEvolutionNotification(oldPetId, pet)
+	local newPetId = pet:GetAttribute(State.Pet.Id)
+	if type(newPetId) ~= "string" or newPetId == "" or newPetId == oldPetId then
+		return
+	end
+	Notifications.show({
+		text = string.format("Your %s evolved into a %s!", petDisplayName(oldPetId), petDisplayName(newPetId)),
+		kind = NotificationConfig.Kinds.Success,
+	})
+end
+
 local function readCue(pet)
 	local seq = pet:GetAttribute(State.Pet.EvolutionSeq)
 	if type(seq) ~= "number" or playedSeqByPet[pet] == seq then return nil end
@@ -399,6 +419,10 @@ local function playForPet(pet)
 			local highlight = playCharge(effect, pivot, oldScale, pet)
 			if pet.Parent then
 				morphEffectToNewPet(effect, pet, pivot, highlight)
+				-- Celebration lands with the morph reveal, right as
+				-- restoreCamera tweens the FOV back out below.
+				ConfettiEffect.Emit()
+				showEvolutionNotification(oldPetId, pet)
 			end
 		end)
 		restoreCamera()

@@ -18,6 +18,7 @@ local OnboardingController = {}
 
 local ARROW_HEIGHT = 6
 local SEED_PREVIEW_ARROW_HEIGHT = 9.5
+local PET_ARROW_HEIGHT = 9
 local PLANT_ARROW_HEIGHT = 22
 local PLANT_ARROW_SCALE = 2
 local ARROW_BOB_HEIGHT = 0.75
@@ -716,7 +717,8 @@ local function singleArrowTarget()
 		return expandFarmTarget()
 	end
 	if currentStage == Onboarding.Stages.FeedPetPumpkin or currentStage == Onboarding.Stages.FeedPetApple then
-		return petTarget()
+		local pet = petTarget()
+		return pet and { instance = pet, arrowHeight = PET_ARROW_HEIGHT } or nil
 	end
 	return nil
 end
