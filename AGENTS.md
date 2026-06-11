@@ -131,7 +131,7 @@ Key server modules:
 
 - `PlayerDataService`: ProfileStore sessions, schema reconciliation, Studio mock-store policy.
 - `PlotLoader`: server startup cloning from the Studio-authored plot template/loading pads into runtime `Workspace.Plots`.
-- `PlotService`: plot assignment, floor-local placement, pet/feed spawning, placement fit checks, navigation obstacle bounds, and teardown.
+- `PlotService`: plot assignment, floor-local placement, pet/feed spawning, placement fit checks, per-plot feed/cosmetic placement indexes, cached navigation obstacle bounds, and teardown.
 - `PlotGridService`: coordinate-keyed plot expansion, runtime floor creation, cell visibility/fences, unlock purchase validation, and walkable placement bounds.
 - `CurrencyService`: profile `Currency`, spend/add/reset, and Replica-backed currency publishing.
 - `PlayerReplicaService`: per-player Replica `PlayerState` creation, sanitized profile read-model publishing, ready-player subscription, and cleanup.
@@ -184,7 +184,7 @@ Current class behavior:
 
 - Processor templates accept equipped food by `FoodType`, process queue entries by wall-clock `depositedAt`, and persist queues.
 - Patch templates use slot anchors, a `FoodDrop` exact food id, template `XP` gained every `GrowRate` seconds, uncapped XP growth with a shared offline fraction, and per-slot harvest respawn.
-- Tree templates use server click validation and per-slot ground piles. Clients render tree shake, falling-food visuals, respawn polish, and ground XP billboards from replicated attributes/remotes.
+- Tree templates use server click validation, per-slot invisible `BaseFoodGroundN` marker state, direct marker-to-slot pickup lookup, and scheduled per-slot respawns. Server ground pile truth is replicated through marker attributes such as `TreeClickerGroundPile`, `TreeClickerSlotIndex`, `FoodId`, `FoodType`, and `XP`; clients render close-range local ground fruit, tree shake, falling-food visuals, respawn polish, and ground XP billboards from those attributes/remotes. Client-local tree fruit clones are presentation only and are tagged so prompt/index discovery ignores them.
 
 Feed-machine balance is split across Studio template attributes and server balance modules under `src/server/feedMachines/**`. Do not assume all tuning lives in `src/shared`. Patches use generic server defaults plus Studio template attributes such as `FoodDrop`, `XP`, and `GrowRate`. `AppleTree` and `CherryTree` have explicit tree balance modules; other tree templates can run through the generic tree defaults if their Studio attributes are valid.
 
@@ -202,7 +202,7 @@ Controller categories:
 - Remote-driven events/panels: `Notifications`
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
 - Hybrid systems: `FeedPlacement`, `FeedEditController`, `ShovelController`, `LocalPrompts`, `PlacementGrid`
-- VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals`, `RollController`
+- VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals` (generic `FeedClass = "Tree"` presentation despite the legacy file name), `RollController`
 - shared helpers: `UiEffects`
 
 Clients clone Studio UI templates, watch replicated attributes, run local-only presentation, and send intent remotes. Client placement checks, prompt visibility, viewport previews, and button enablement are UX only; server validation remains definitive.
@@ -213,15 +213,15 @@ Render loops must be bounded and explicitly disposable. Any `RunService.RenderSt
 
 Pet motion is visually interpolated on the client from server-published segment attributes. `PetAnimations` reads packed `PetSegmentData`, handles corner blending, feed-reaction tilt, collect jumps, and animation speed. `PetPreloader` preloads the next pet template/animations to reduce evolution hitches. Pet billboards, slot billboards, tree visuals, and placement previews are per-client presentation, not authority.
 
-`LocalPrompts` creates client-only `ProximityPrompt`s for pet feeding, processor interaction, patch harvest, tree ground pickup, grid unlocks, and plot roll buttons. It only binds prompts inside the player's assigned plot and refreshes context every 0.1 seconds, arbitrating all registered prompts so only the nearest eligible prompt is enabled. Dynamic prompts from other controllers should register through `LocalPrompts.RegisterExternalPrompt`; every gameplay trigger still goes through server validation.
+`LocalPrompts` creates client-only `ProximityPrompt`s for pet feeding, processor interaction, patch harvest, tree ground pickup, grid unlocks, and plot roll buttons. It binds prompt candidates from the player's assigned plot, watches plot-local descendants/marker attributes instead of global `Workspace` discovery, refreshes nearby prompt context every 0.1 seconds, and arbitrates all registered prompts so only the nearest eligible prompt is enabled. Dynamic prompts from other controllers should register through `LocalPrompts.RegisterExternalPrompt`; every gameplay trigger still goes through server validation.
 
 `FeedPlacement` uses the equipped mature feed-machine tool's `FeedType`, or a seed tool's `SeedID` resolved through `Seeds.luau`, finds the target Studio template, previews placement in the plot floor's local frame, snaps position/rotation, checks unlocked grid cells and overlap locally, and sends `PlaceFeedMachine`. First-time placement uses the Studio-owned `ReplicatedStorage.UI.BillboardGUIs.PlacementEdit` billboard: players click an unlocked grid cell, optionally drag/rotate the preview, then confirm with the billboard button or click elsewhere to commit.
 
-`FeedEditController` uses the Studio-owned `HUD.EditModeButton` and `ReplicatedStorage.UI.BillboardGUIs.PlacementEdit` billboard to enter edit mode, show the local `GridEffect`, select mature placed feed machines, preview move/rotate changes, and send target-instance move intents to the server. Growing seed placements are not selectable/movable. The server remains authoritative through `FeedEditService`; client checks are UX only.
+`FeedEditController` uses the Studio-owned `HUD.EditModeButton` and `ReplicatedStorage.UI.BillboardGUIs.PlacementEdit` billboard to enter edit mode, show the local `GridEffect`, select mature placed feed machines from a plot-local placeable index, preview move/rotate changes, and send target-instance move intents to the server. Growing seed placements are not selectable/movable. The server remains authoritative through `FeedEditService`; client checks are UX only.
 
 `YesNoWarning` is a reusable client module for Studio-authored yes/no prompts backed by `ReplicatedStorage.UI.YesNoWarning`. Feature controllers provide prompt text, item text, and optional rarity data; the module clones the template into the runtime HUD and owns button effects and panel show/hide behavior.
 
-`ShovelController` lets players equip the Studio-owned `ReplicatedStorage.Assets.Shovel` utility tool, click placed plants, show `YesNoWarning`, and send confirmed delete intents. `ShovelService` validates the equipped shovel, plot ownership, plant class, distance, rate limits, and profile state before deleting. The shovel is not persisted as feed/seed/food inventory.
+`ShovelController` lets players equip the Studio-owned `ReplicatedStorage.Assets.Shovel` utility tool, click placed plants from a plot-local delete-target index, show `YesNoWarning`, and send confirmed delete intents. `ShovelService` validates the equipped shovel, plot ownership, plant class, distance, rate limits, and profile state before deleting. The shovel is not persisted as feed/seed/food inventory.
 
 `RollController` listens for server roll result/effect payloads, clones Studio-owned crate and reward templates locally, plays category-specific reveal presentation, and fires the local revealed-item buy prompt back to the server. Roll reveal billboards are cloned from `ReplicatedStorage.UI.BillboardGUIs.SeedRoll` and `ReplicatedStorage.UI.BillboardGUIs.MiscRoll`; rarity particles use `ReplicatedStorage.Assets.VFX.RarityParticle`, are hidden on public replicated offers, and are distance/lifetime gated on the rolling client.
 
@@ -383,6 +383,8 @@ Preserve server authority. Validate ownership, distance where applicable, edit m
 Prefer `UserId` keys over `Player` instances or names for locks, cooldowns, per-player caches, replica maps, and telemetry labels. Always clear those maps on `PlayerRemoving` and profile release.
 
 Use `RuntimeGuard`, `pcall`, or `xpcall` around Roblox API calls and other failure-prone runtime boundaries where a thrown error would kill an event connection, loop, receipt handler, prompt handler, or render/update path. Do not use protected calls to hide invalid state; validate first, fail closed, warn or report important failures, and only continue when partial success is safe.
+
+Avoid repeated broad `Workspace:GetDescendants()` or plot descendant scans in render loops, heartbeat loops, prompt refreshes, equip/unequip paths, and action handlers. Prefer server-owned indexes for authoritative placement state, cached derived data with explicit invalidation, and plot-scoped client registries/watchers for presentation. Setup-time scans over a newly assigned plot or cloned template are acceptable when followed by event/attribute maintenance.
 
 Add new prompt actions through `Interactions.luau`, client prompt wiring, server handlers, and validator prompt template expectations when needed.
 

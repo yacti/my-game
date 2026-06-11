@@ -36,6 +36,8 @@ Run this checklist before publishing a live build.
 - Leave/rejoin preserves pets, feed machines, growing seed placements, seed
   inventory, feed inventory, food inventory, cosmetic placements, cosmetic
   inventory, currency, and patch/processor/tree machine state.
+- Tree ground piles restore as invisible authoritative marker state, not replicated
+  visible fruit model geometry.
 
 ## Gameplay Security
 
@@ -80,5 +82,13 @@ Run this checklist before publishing a live build.
 - Confirm `ReplicatedStorage.UI.BillboardGUIs` has `SeedRoll` and `MiscRoll`
   billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.
+- Confirm local prompt discovery only targets authoritative plot instances and never
+  client-local tree fruit visuals.
 - Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and
   verify the plant deletes, saves, and does not delete processors or other plots.
+- Click tree fruit on multiple `FeedClass = "Tree"` templates, verify nearby
+  clients see drop/shake effects, visible ground fruit appears only when close,
+  pickup targets the invisible marker, and far clients do not keep unnecessary
+  ground fruit visuals.
+- With dense feeds/cosmetics, verify pet navigation still routes around placements
+  after place, move, delete, seed maturity, restore, and teardown.

@@ -36,7 +36,8 @@ Use these Studio systems as the architectural examples:
 11. Render loops must have explicit lifetimes; collection renderers should use one loop that iterates tracked objects and prunes invalid entries.
 12. Use protected runtime boundaries (`pcall`, `xpcall`, or local guard helpers) around failure-prone Roblox/API calls so one error does not kill important loops or connections.
 13. Inventory tools need stable GUID identity for grants, equipped-tool resolution, and deletion.
-14. Learn from current weak spots. Preserve the architecture, but harden migrations, remote validation, source-control sync, and tests when adding new systems.
+14. Avoid repeated broad workspace/plot scans in render loops, heartbeat loops, equip paths, and action handlers. Use authoritative server indexes, cached derived data with explicit invalidation, or plot-scoped client registries instead.
+15. Learn from current weak spots. Preserve the architecture, but harden migrations, remote validation, source-control sync, and tests when adding new systems.
 
 ## Architecture Flow
 
@@ -110,6 +111,8 @@ flowchart TD
 **Example From This Game:** `LocalGameUIMgr` attaches reusable local UI scripts to GUI value markers, while many `StarterGui` scripts render views, buttons, inventory, shops, subscriptions, quests, and event screens.
 
 **When Building New Features:** Keep UI scripts local, reactive, and replaceable. They may read replicated data, listen to attributes, and fire requests. They must not decide prices, rewards, ownership, item grants, or purchase completion. Every `RenderStepped`/`Heartbeat` connection must disconnect when its owning GUI/model/plot/character is gone. For many similar render targets, such as pets, use one central render step that iterates all tracked objects and removes invalid entries, instead of creating one render connection per object.
+
+For plot-local presentation, discover targets from the assigned plot or a known plot root, then keep a small registry current through descendant and attribute changes. Do not use global `Workspace` discovery for per-player UI unless the feature is intentionally global.
 
 ## 8. State Management
 

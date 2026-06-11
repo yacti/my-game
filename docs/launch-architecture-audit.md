@@ -152,26 +152,31 @@ Recommendation:
 - Replace or forward `TelemetryService` output to a real analytics sink when one is selected.
 - Avoid logging per-click feed generation at high frequency without throttling.
 
-### Medium: Client Rendering Scales Across All Plots
+### Improved: Client Rendering Discovery Is Mostly Plot-Scoped
 
-Client modules watch all plots and broad workspace changes:
+Several client discovery paths were tightened after the first launch audit:
 
-- `PetAnimations` binds pets across `Workspace`/`Workspace.Plots` and renders every tracked pet each `RenderStepped`.
-- `PetBillboards` attaches billboards for pets across all plots.
-- `LocalPrompts`, `SlotXPBillboard`, `ToolStatsBillboard`, and `AppleTreeSlotVisuals` use broad descendant scans or listeners.
-- `PlacementGrid` hides authored grid effects by scanning `Workspace:GetDescendants()`.
+- `LocalPrompts` now binds prompt candidates from the assigned plot and plot-local marker/attribute watchers instead of global `Workspace.DescendantAdded`.
+- `PatchSlotVisuals`, `SlotXPBillboard`, `TimerBillboards`, `ShovelController`, `FeedEditController`, and `OnboardingController` now build plot-local registries/caches and maintain them from plot descendant or attribute changes.
+- `ToolStatsBillboard` watches equipped character tools instead of `Workspace` descendants.
+- Tree ground fruit visuals are client-local close-range presentation from authoritative marker attributes, so replicated ground pile geometry no longer scales with every pile.
 
-Impact: this is probably acceptable for a small number of plots, but it can become a client frame-time and memory issue with full servers, many pets, and many feed machines.
+Remaining risk: `PetAnimations` and `PetBillboards` still track replicated pets across visible/streamed plots, and `PlacementGrid` still has a setup-time workspace normalization scan for authored grid effects. These are lower risk than the previous action-time/render-time scan paths, but should still be profiled in full-server scenarios.
 
 Recommendation:
 
 - Profile with a full plot count and worst-case pets/feed machines before launch.
 - Filter client animation/billboard work by distance, streaming radius, or relevant plots.
-- Replace broad workspace scans with plot-scoped roots where practical.
+- Keep new client presentation systems plot-scoped by default and avoid reintroducing global workspace discovery for per-player UI.
 
-### Medium: Server Scans And Loops Need Scale Testing
+### Improved: Server Placement Scans And Loops Need Scale Testing
 
-Server-side loops include pet money accrual, collection polling, snapshot polling, `PetMotionService` heartbeat, processor queue refresh, and roll-button workspace scanning/listening.
+Server-side loops include pet money accrual, collection polling, snapshot polling, `PetMotionService` heartbeat, and processor queue refresh. The most expensive placement scan risk was reduced:
+
+- `PlotService` owns per-plot feed/cosmetic placement indexes and cached navigation obstacle bounds, so `PetNavigation` route planning no longer needs `plot:GetDescendants()` through `GetSortedFeeds()` / `GetSortedCosmetics()`.
+- Feed/cosmetic placement, movement, deletion, restore, maturity replacement, and teardown invalidate or update the placement indexes through `PlotService`.
+- `RollService` now binds roll buttons from plot roots instead of scanning/listening to the whole workspace.
+- Tree respawns use per-slot scheduled callbacks instead of an always-on 4Hz loop over every tree and slot.
 
 Impact: the current system is bounded by plot count and likely fine for small servers. Scale risk grows with more plots, more machines per plot, and more pathfinding/route refreshes.
 
@@ -179,7 +184,7 @@ Recommendation:
 
 - Run a Studio performance pass with max plots, max pets, and many placed machines.
 - Watch server heartbeat, memory, route refresh frequency, and placement overlap checks.
-- Consider moving roll-button binding to known plot roll area roots instead of all descendants.
+- Keep new server gameplay indexes owned by the authority service that mutates the state; avoid parallel caches in feature modules unless they are clearly derived and disposable.
 
 ### Resolved: UI Template Waits Could Yield Forever
 
