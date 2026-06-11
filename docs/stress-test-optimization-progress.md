@@ -238,8 +238,9 @@ Implemented:
   flood that froze the client below 1 fps, and a teardown long enough to disconnect the MCP
   plugin. That accumulation was a harness artifact, not a game behavior.
 - `PetAnimations.luau`: per-frame `renderPet` pivot math now runs only for pets within 120
-  studs of the camera (renderable flag refreshed on a 0.25s cadence); gated pets freeze and
-  snap to the current replicated segment on re-entry.
+  studs of the character (20-stud exit hysteresis, renderable flag refreshed on a 0.25s
+  cadence); gated pets hold their pose with animation tracks stopped, and snap + re-arm
+  tracks on re-entry.
 - `UiEffects.luau`: billboard distance checks moved off `RenderStepped` onto a 0.15s
   Heartbeat pass; Enabled-change reactions stay immediate via their property signal.
 
@@ -260,6 +261,38 @@ Findings from the gate runs:
   counts exact. (Success criterion: p95 under 20–30ms, max under 250ms.)
 - Client during active clicking: p50 4.5ms, p95 13.9ms, p99 17.1ms, max 24ms — zero frames
   over 33ms, with ground-fruit visuals (40 local) and drop/shake effects active.
+
+### Post-review fixes (2026-06-11)
+
+A max-effort `/code-review` of the Pass 4 diff surfaced 15 findings; the seven acted on:
+
+- Render gate origin switched from camera to character (camera-origin gated every pet —
+  including the always-bound assigned plot — whenever the default camera zoomed past 120
+  studs, and let frozen poses diverge from the logical position Feed validation checks);
+  added the 20-stud exit margin so boundary-pathing pets don't flap.
+- Gated pets' animation tracks are stopped (`setRenderGated`) instead of looping in place;
+  `playState` re-arms on re-entry; MotionState changes are ignored while gated.
+- `bindPet` connects `pet.Destroying` before the `waitForAnimator` yield — previously a pet
+  destroyed in that window leaked its record forever once gated (renderPet's not-Parent
+  cleanup no longer ran for it).
+- Harness: `toolBaseline` is weak-keyed (pruned tools were pinned for the whole run,
+  putting ~3MB/min of artificial drift back into `luaHeapKb`); `pruneCreatedTools`
+  re-queues equipped tools instead of destroying them out of the owner's hand and keeps
+  transiently-unparented tools tracked for stop-time cleanup; jittered waits clamp to the
+  0.05s interval floor; `clicktrees` loops honor the session's `stopRequested` instead of
+  clicking forever after realistic-session expiry.
+
+Re-gate (active at 3s/tree, 180s): server p50 4.2–6.2ms, p95 8.9–14.2ms, max ≤38ms, zero
+errors; `luaHeapKb` oscillates 19.6–26.2MB with no monotonic drift; client measured from a
+far plot p50 4.9ms / p95 15ms / max 26ms, zero 33ms+ frames. Far-plot pets hold pose with
+zero playing tracks and resume within a tick of approach; tool cap steady at 200 with the
+equipped tool retained.
+
+Remaining findings left as documented (low-severity / Studio-only): client-override
+validation in `readConfig`, `numberAttr` reject-vs-clamp semantics, `clear`/PlayerRemoving
+lifecycle asymmetry, a ≤0.15s billboard mini-scale flicker, per-pass camera-fetch hoist in
+`UiEffects`, and the four-field FIFO simplification. Revisit alongside the pre-publish
+checklist if desired.
 
 Final gate (manual): multi-client Studio session running the full 8-client test matrix
 against the success criteria above.
@@ -309,9 +342,8 @@ public server functions in use.
 
 ## Working-tree state
 
-Pass 1 + Pass 2 are committed as `1e6103b`, Pass 3 + Pass 5 as `30b21aa`, both on `main`
-and pushed. Pass 4 (harness jitter + tool cap, pet render distance gating, UiEffects
-shared pass, this doc update) is the working tree on top of `30b21aa`.
+All work is committed on `main` and pushed: Pass 1 + Pass 2 as `1e6103b`, Pass 3 + Pass 5
+as `30b21aa`, Pass 4 as `f10dc9a`, and the post-review fixes as the commit following it.
 
 No automated Luau lint/format toolchain exists in this repo; validation is Studio
 playtests + the harness gates described above. `rojo serve` must be running for Studio to

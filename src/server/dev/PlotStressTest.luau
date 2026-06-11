@@ -46,6 +46,7 @@ local CREATED_TOOL_ATTR = "PlotStressTestCreatedTool"
 -- could; without a live cap the owner's backpack grows to thousands of tools
 -- (O(n^2) rescans + replication flood) and poisons active-run metrics.
 local MAX_LIVE_CREATED_TOOLS = 200
+local MIN_TREE_CLICK_INTERVAL = 0.05
 
 local DEFAULT_CONFIG = {
 	PlotCount = 8,
@@ -117,7 +118,7 @@ local function readConfig(overrides)
 	config.PatchFeedType = stringAttr(ATTR_PATCH_FEED_TYPE, config.PatchFeedType)
 	config.TreeFeedType = stringAttr(ATTR_TREE_FEED_TYPE, config.TreeFeedType)
 	config.ActiveCollection = booleanAttr(ATTR_ACTIVE_COLLECTION, config.ActiveCollection)
-	config.TreeClickIntervalSeconds = numberAttr(ATTR_TREE_CLICK_INTERVAL, config.TreeClickIntervalSeconds, 0.05)
+	config.TreeClickIntervalSeconds = numberAttr(ATTR_TREE_CLICK_INTERVAL, config.TreeClickIntervalSeconds, MIN_TREE_CLICK_INTERVAL)
 	config.DisableTutorial = booleanAttr(ATTR_DISABLE_TUTORIAL, config.DisableTutorial)
 
 	if type(overrides) == "table" then
@@ -297,7 +298,10 @@ local function userKey(player)
 end
 
 local function rememberOwnerTools(run, player)
-	local baseline = {}
+	-- Weak keys: tagged tools are also inserted here and never removed, so a
+	-- strong table would pin every pruned/consumed tool for the whole run and
+	-- put monotonic drift back into the luaHeapKb metric.
+	local baseline = setmetatable({}, { __mode = "k" })
 	run.toolBaseline[player] = baseline
 
 	local function remember(container)
@@ -324,10 +328,19 @@ local function pruneCreatedTools(run)
 		order[run.createdToolHead] = nil
 		run.createdToolHead += 1
 		if tool and run.createdTools[tool] then
-			run.createdTools[tool] = nil
-			if tool.Parent then
+			local parent = tool.Parent
+			if parent and parent:FindFirstChildOfClass("Humanoid") then
+				-- Equipped (auto-equip makes the held tool the FIFO head):
+				-- keep it alive and tracked by re-queueing at the tail.
+				run.createdToolTail += 1
+				order[run.createdToolTail] = tool
+			elseif parent then
+				run.createdTools[tool] = nil
 				tool:Destroy()
 			end
+			-- parent == nil: transiently unparented (death/respawn shuffle).
+			-- Leave it in createdTools so cleanupTools still destroys it if it
+			-- reparents before the run stops.
 		end
 	end
 end
@@ -779,7 +792,9 @@ local CLICK_JITTER_FRACTION = 0.3
 local clickJitterRng = Random.new()
 
 local function jitteredClickWait(interval)
-	task.wait(interval * (1 + (clickJitterRng:NextNumber() * 2 - 1) * CLICK_JITTER_FRACTION))
+	-- Clamped so the -30% jitter cannot dip below the interval floor that
+	-- readConfig enforces (MIN_TREE_CLICK_INTERVAL).
+	task.wait(math.max(MIN_TREE_CLICK_INTERVAL, interval * (1 + (clickJitterRng:NextNumber() * 2 - 1) * CLICK_JITTER_FRACTION)))
 end
 
 local function treeActivityLoop(run, owner, config, tree)
@@ -799,7 +814,7 @@ end
 
 local function treeClickOnlyLoop(clickRun, metricsRun, owner, config, tree)
 	task.wait(clickJitterRng:NextNumber() * config.TreeClickIntervalSeconds)
-	while clickRun.active == true and tree.Parent and owner.Parent do
+	while clickRun.active == true and metricsRun.stopRequested ~= true and tree.Parent and owner.Parent do
 		metricsRun.counters.treeClickAttempts += 1
 		local clicked = FeedMachines.StressClickTree(tree, owner)
 		if clicked then

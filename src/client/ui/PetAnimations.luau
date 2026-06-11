@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,6 +11,7 @@ local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 
 local SCOPE_RANGE = 150
 local RENDER_RANGE = 120
+local RENDER_RANGE_EXIT_MARGIN = 20
 local RENDER_RANGE_CHECK_INTERVAL = 0.25
 local FADE_SECONDS = 0.18
 local ANIMATOR_WAIT_SECONDS = 5
@@ -22,6 +24,8 @@ local COLLECT_JUMP_ROLL_RADIANS = math.rad(7)
 local TURN_TWEEN_SECONDS = 0.2
 local CORNER_ROTATION_BLEND = 0.75
 local BOX_CORNER_SIGNS = { -1, 1 }
+
+local player = Players.LocalPlayer
 
 local PetAnimations = {}
 local attached = {}
@@ -393,6 +397,21 @@ local function updateWalkAnimationSpeed(record)
 	walkTrack:AdjustSpeed(walkSpeed / DEFAULT_WALK_SPEED)
 end
 
+-- Stops tracks while a pet is render-gated so distant pets do not walk in
+-- place; on re-entry playState re-arms the track for the current MotionState.
+local function setRenderGated(record, gated)
+	if gated then
+		for _, track in pairs(record.tracks) do
+			if track.IsPlaying then
+				track:Stop(FADE_SECONDS)
+			end
+		end
+		record.current = nil
+	else
+		playState(record, record.pet:GetAttribute(State.Pet.MotionState))
+	end
+end
+
 local function bindPet(pet)
 	if attached[pet] then return end
 
@@ -402,6 +421,7 @@ local function bindPet(pet)
 		tracks = {},
 		animations = {},
 		current = nil,
+		renderable = true,
 		roll = 0,
 		collectJumpStartClock = nil,
 		lastMoney = pet:GetAttribute(State.Pet.Money) or 0,
@@ -414,6 +434,13 @@ local function bindPet(pet)
 		pivotFloorOffsetScale = nil,
 	}
 	attached[pet] = record
+
+	-- Connected before the waitForAnimator yield: a pet destroyed during that
+	-- window otherwise leaks its record (the early returns below skip cleanup,
+	-- and render gating means renderPet's not-Parent path may never run).
+	record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.Destroying, "PetAnimations.PetDestroying", function()
+		cleanup(pet)
+	end)
 
 	task.spawn(function()
 		if not pet.Parent then
@@ -454,7 +481,9 @@ local function bindPet(pet)
 		end
 
 		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MotionState), "PetAnimations.MotionStateChanged", function()
-			playState(record, pet:GetAttribute(State.Pet.MotionState))
+			if record.renderable then
+				playState(record, pet:GetAttribute(State.Pet.MotionState))
+			end
 		end)
 		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.SegmentWalkSpeed), "PetAnimations.WalkSpeedChanged", function()
 			updateWalkAnimationSpeed(record)
@@ -466,12 +495,11 @@ local function bindPet(pet)
 			end
 			record.lastMoney = money
 		end)
-		record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.Destroying, "PetAnimations.PetDestroying", function()
-			cleanup(pet)
-		end)
 
 		updateWalkAnimationSpeed(record)
-		playState(record, pet:GetAttribute(State.Pet.MotionState))
+		if record.renderable then
+			playState(record, pet:GetAttribute(State.Pet.MotionState))
+		end
 	end)
 end
 
@@ -504,23 +532,34 @@ function PetAnimations.start()
 		end,
 	})
 
-	-- Per-frame pivot math only runs for pets near the camera; the renderable
-	-- flag refreshes on a 0.25s cadence. Gated pets freeze at their last pose
-	-- and snap to the current replicated segment when they re-enter range.
+	-- Per-frame pivot math only runs for pets near the character (matching the
+	-- other plot-scoped visuals; camera origin would gate everything on zoom-
+	-- out). The renderable flag refreshes on a 0.25s cadence with an exit
+	-- margin so pets pathing along the boundary do not flap. Gated pets hold
+	-- their pose with tracks stopped and snap to the current replicated
+	-- segment when they re-enter range.
 	local rangeElapsed = RENDER_RANGE_CHECK_INTERVAL
 	RuntimeGuard.Connect(RunService.RenderStepped, "PetAnimations.RenderStepped", function(dt)
 		rangeElapsed += dt
 		if rangeElapsed >= RENDER_RANGE_CHECK_INTERVAL then
 			rangeElapsed = 0
-			local camera = Workspace.CurrentCamera
-			local origin = camera and camera.CFrame.Position
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local origin = root and root.Position or nil
 			for pet, record in pairs(attached) do
-				record.renderable = origin == nil
-					or (pet:GetPivot().Position - origin).Magnitude <= RENDER_RANGE
+				local renderable = true
+				if origin ~= nil then
+					local limit = record.renderable and (RENDER_RANGE + RENDER_RANGE_EXIT_MARGIN) or RENDER_RANGE
+					renderable = (pet:GetPivot().Position - origin).Magnitude <= limit
+				end
+				if renderable ~= record.renderable then
+					record.renderable = renderable
+					setRenderGated(record, not renderable)
+				end
 			end
 		end
 		for _, record in pairs(attached) do
-			if record.renderable ~= false then
+			if record.renderable then
 				RuntimeGuard.Run("PetAnimations.RenderPet", renderPet, record, dt)
 			end
 		end
