@@ -5,7 +5,10 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local ProximityPromptCustomizer = {}
 
@@ -15,6 +18,12 @@ local playerGui = player:WaitForChild("PlayerGui")
 local UI_FOLDER_NAME = "UI"
 local CUSTOMIZER_FOLDER_NAME = "ProximityPromptCustomizer"
 local DEFAULT_THEME_NAME = "Default"
+
+-- Any prompt may carry a numeric PromptPrice attribute; themes with a
+-- PriceText label render it (green/red by affordability), others ignore it.
+local PRICE_ATTRIBUTE = "PromptPrice"
+local PRICE_AFFORDABLE_COLOR = Color3.fromRGB(126, 229, 124)
+local PRICE_UNAFFORDABLE_COLOR = Color3.fromRGB(236, 95, 95)
 
 local GAMEPAD_BUTTON_IMAGE = {
 	[Enum.KeyCode.ButtonX] = "rbxasset://textures/ui/Controls/xboxX.png",
@@ -195,6 +204,7 @@ local function promptParts(promptUI)
 	local inputFrame = child(frame, "InputFrame", "Frame")
 	local actionText = child(frame, "ActionText", "TextLabel")
 	local objectText = child(frame, "ObjectText", "TextLabel") -- Optional for compact one-line themes.
+	local priceText = child(frame, "PriceText", "TextLabel") -- Optional; populated from the PromptPrice attribute.
 	local resizeableInputFrame = child(inputFrame, "Frame", "Frame")
 	local inputFrameScaler = child(resizeableInputFrame, "UIScale", "UIScale")
 	local buttonFrame = child(resizeableInputFrame, "ButtonFrame", "GuiObject")
@@ -223,6 +233,7 @@ local function promptParts(promptUI)
 		inputFrame = inputFrame,
 		actionText = actionText,
 		objectText = objectText,
+		priceText = priceText,
 		resizeableInputFrame = resizeableInputFrame,
 		inputFrameScaler = inputFrameScaler,
 		buttonFrame = buttonFrame,
@@ -261,6 +272,7 @@ local function createPrompt(prompt, inputType)
 	local frame = parts.frame
 	local actionText = parts.actionText
 	local objectText = parts.objectText
+	local priceText = parts.priceText
 	local inputFrameScaler = parts.inputFrameScaler
 	local buttonFrame = parts.buttonFrame
 	local buttonImage = parts.buttonImage
@@ -291,6 +303,9 @@ local function createPrompt(prompt, inputType)
 	if objectText then
 		expectedFrameChildren[objectText] = true
 	end
+	if priceText then
+		expectedFrameChildren[priceText] = true
+	end
 	for _, frameChild in ipairs(frame:GetChildren()) do
 		if expectedFrameChildren[frameChild] == nil then
 			addUnexpectedChildTweens(frameChild, tweenInfoFast, tweensForButtonHoldBegin, tweensForButtonHoldEnd, tweensForFadeOut, tweensForFadeIn)
@@ -308,6 +323,9 @@ local function createPrompt(prompt, inputType)
 	addTextTweens(actionText, tweenInfoFast, tweensForButtonHoldBegin, tweensForButtonHoldEnd, tweensForFadeOut, tweensForFadeIn)
 	if objectText then
 		addTextTweens(objectText, tweenInfoFast, tweensForButtonHoldBegin, tweensForButtonHoldEnd, tweensForFadeOut, tweensForFadeIn)
+	end
+	if priceText then
+		addTextTweens(priceText, tweenInfoFast, tweensForButtonHoldBegin, tweensForButtonHoldEnd, tweensForFadeOut, tweensForFadeIn)
 	end
 
 	local buttonFrameBackgroundTransparency = buttonFrame.BackgroundTransparency
@@ -474,6 +492,31 @@ local function createPrompt(prompt, inputType)
 	end)
 	RuntimeGuard.Run("ProximityPromptCustomizer.InitialUpdatePrompt", updateUIFromPrompt)
 
+	local function updatePriceText()
+		if not priceText then
+			return
+		end
+		local price = tonumber(prompt:GetAttribute(PRICE_ATTRIBUTE))
+		if not price then
+			priceText.Visible = false
+			return
+		end
+		local currency = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Currency)) or 0
+		priceText.Text = NumberFormatter.Currency(price)
+		priceText.TextColor3 = currency >= price and PRICE_AFFORDABLE_COLOR or PRICE_UNAFFORDABLE_COLOR
+		priceText.Visible = true
+	end
+
+	local priceAttributeConnection = nil
+	local priceCurrencyConnection = nil
+	if priceText then
+		priceAttributeConnection = RuntimeGuard.Connect(prompt:GetAttributeChangedSignal(PRICE_ATTRIBUTE), "ProximityPromptCustomizer.PriceChanged", updatePriceText)
+		priceCurrencyConnection = PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+			RuntimeGuard.Run("ProximityPromptCustomizer.PriceCurrencyChanged", updatePriceText)
+		end)
+		RuntimeGuard.Run("ProximityPromptCustomizer.InitialUpdatePrice", updatePriceText)
+	end
+
 	promptUI.Adornee = prompt.Parent
 	promptUI.Parent = playerGui
 
@@ -491,6 +534,12 @@ local function createPrompt(prompt, inputType)
 		triggeredConnection:Disconnect()
 		triggerEndedConnection:Disconnect()
 		changedConnection:Disconnect()
+		if priceAttributeConnection then
+			priceAttributeConnection:Disconnect()
+		end
+		if priceCurrencyConnection then
+			priceCurrencyConnection:Disconnect()
+		end
 
 		for _, tween in ipairs(tweensForFadeOut) do
 			tween:Play()

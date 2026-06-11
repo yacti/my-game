@@ -17,7 +17,8 @@ local RollController = require(script.Parent:WaitForChild("RollController"))
 local OnboardingController = {}
 
 local ARROW_HEIGHT = 6
-local PLANT_ARROW_HEIGHT = 10
+local SEED_PREVIEW_ARROW_HEIGHT = 9.5
+local PLANT_ARROW_HEIGHT = 22
 local PLANT_ARROW_SCALE = 2
 local ARROW_BOB_HEIGHT = 0.75
 local ARROW_BOB_PERIOD = 1.15
@@ -88,7 +89,7 @@ local function progressRatio(value, maximum)
 end
 
 local function tutorialBarProgress(stage)
-	if stage == Onboarding.Stages.MakeCurrency500 then
+	if stage == Onboarding.Stages.MakeCurrency then
 		return true, progressRatio(
 			PlayerStateStore.Get(PlayerStateStore.Fields.Currency),
 			Onboarding.CurrencyRequired
@@ -693,10 +694,12 @@ local function singleArrowTarget()
 		return rollButton()
 	end
 	if currentStage == Onboarding.Stages.BuyPumpkinSeed then
-		return RollController.GetActiveTutorialReveal(Onboarding.Seeds.Pumpkin)
+		local reveal = RollController.GetActiveTutorialReveal(Onboarding.Seeds.Pumpkin)
+		return reveal and { instance = reveal, arrowHeight = SEED_PREVIEW_ARROW_HEIGHT } or nil
 	end
 	if currentStage == Onboarding.Stages.BuyAppleTreeSeed then
-		return RollController.GetActiveTutorialReveal(Onboarding.Seeds.AppleTree)
+		local reveal = RollController.GetActiveTutorialReveal(Onboarding.Seeds.AppleTree)
+		return reveal and { instance = reveal, arrowHeight = SEED_PREVIEW_ARROW_HEIGHT } or nil
 	end
 	if currentStage == Onboarding.Stages.PlantPumpkinSeed or currentStage == Onboarding.Stages.PlantAppleTreeSeed then
 		local center = starterAreaCenter()
@@ -721,6 +724,14 @@ end
 local function targetWorldPosition(target)
 	if type(target) == "table" and typeof(target.position) == "Vector3" then
 		return target.position
+	end
+	-- Table targets may track a live instance instead of a static position so
+	-- per-stage arrowHeight/arrowScale overrides still follow a moving target.
+	if type(target) == "table" then
+		target = target.instance
+		if target == nil then
+			return nil
+		end
 	end
 	local position = instancePosition(target)
 	if position then
@@ -760,7 +771,7 @@ end
 local function updateMainTarget()
 	if currentStage == Onboarding.Stages.CollectApple
 		or currentStage == Onboarding.Stages.ShakeAppleTree
-		or currentStage == Onboarding.Stages.MakeCurrency500
+		or currentStage == Onboarding.Stages.MakeCurrency
 		or currentStage == Onboarding.Stages.GatherPumpkinXP
 		or not Onboarding.IsActive(currentStage) then
 		destroyMainArrow()

@@ -12,14 +12,14 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 
-local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local ItemAddedDisplayController = {}
 
-local TEMPLATE_NAME = "ItemAddedDisplay"
-local TEMPLATE_WAIT_SECONDS = 8
-local HEAD_WAIT_SECONDS = 8
+local HUD_NAME = "HUD"
+local FRAME_NAME = "ItemAddedFrame"
+local ITEM_TEMPLATE_NAME = "item"
+local HUD_WAIT_SECONDS = 10
 local FOOD_TOOL_ATTRIBUTE_RETRIES = 12
 local FOOD_TOOL_ATTRIBUTE_RETRY_SECONDS = 0.08
 local DISPLAY_SECONDS = 3
@@ -30,8 +30,6 @@ local HIDE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.Easing
 local player = Players.LocalPlayer
 local started = false
 local warned = {}
-local template = nil
-local displayGui = nil
 local displayMain = nil
 local itemTemplate = nil
 local characterChildAdded = nil
@@ -227,71 +225,24 @@ local function showDisplay(key, baseText, amount, color)
 	scheduleRemoval(key, entry)
 end
 
-local function loadTemplate()
-	if template ~= nil then
-		return template
-	end
-
-	local found = BillboardGuiTemplates.WaitFor(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
-	if not (found and found:IsA("BillboardGui")) then
-		warnOnce(
-			"missing-template",
-			string.format("[ItemAddedDisplayController] Missing %s BillboardGui; item-added display disabled", BillboardGuiTemplates.Path(TEMPLATE_NAME))
-		)
-		template = false
-		return nil
-	end
-
-	template = found
-	return template
-end
-
-local function destroyDisplay()
-	for key, entry in pairs(activeDisplays) do
-		activeDisplays[key] = nil
-		if entry.label then
-			entry.label:Destroy()
-		end
-	end
-	displayMain = nil
-	itemTemplate = nil
-	if displayGui then
-		displayGui:Destroy()
-		displayGui = nil
-	end
-end
-
-local function attachDisplay(character)
-	destroyDisplay()
-
-	local activeTemplate = loadTemplate()
-	if not activeTemplate then
-		return
-	end
-
-	local head = character and character:WaitForChild("Head", HEAD_WAIT_SECONDS)
-	if not (head and head:IsA("BasePart")) then
-		warnOnce("missing-head", "[ItemAddedDisplayController] Character head missing; item-added display disabled for this spawn")
-		return
-	end
-
+-- The display surface is the Studio-authored HUD frame (HUD has
+-- ResetOnSpawn=false, so one bind survives respawns), mirroring how
+-- Notifications.luau attaches to its HUD container.
+local function attachDisplay()
 	local playerGui = player:WaitForChild("PlayerGui")
-	local gui = activeTemplate:Clone()
-	gui.Name = "ItemAddedDisplay"
-	gui.Adornee = head
-	gui.Parent = playerGui
-
-	local main = gui:FindFirstChild("main")
-	local item = main and main:FindFirstChild("item")
-	if not (main and main:IsA("GuiObject") and item and item:IsA("TextLabel")) then
-		warnOnce("bad-template", "[ItemAddedDisplayController] ItemAddedDisplay missing main.item TextLabel; item-added display disabled")
-		gui:Destroy()
+	local hud = playerGui:WaitForChild(HUD_NAME, HUD_WAIT_SECONDS)
+	local frame = hud and hud:FindFirstChild(FRAME_NAME, true)
+	local item = frame and frame:FindFirstChild(ITEM_TEMPLATE_NAME)
+	if not (frame and frame:IsA("GuiObject") and item and item:IsA("TextLabel")) then
+		warnOnce(
+			"missing-frame",
+			string.format("[ItemAddedDisplayController] Missing HUD.%s with %q TextLabel; item-added display disabled", FRAME_NAME, ITEM_TEMPLATE_NAME)
+		)
 		return
 	end
 
 	item.Visible = false
-	displayGui = gui
-	displayMain = main
+	displayMain = frame
 	itemTemplate = item
 end
 
@@ -483,7 +434,6 @@ local function watchCharacter(character)
 	if not character then
 		return
 	end
-	attachDisplay(character)
 	for _, child in ipairs(character:GetChildren()) do
 		processFoodTool(child)
 	end
@@ -495,6 +445,8 @@ function ItemAddedDisplayController.start()
 		return
 	end
 	started = true
+
+	RuntimeGuard.Spawn("ItemAddedDisplay.AttachDisplay", attachDisplay)
 
 	RuntimeGuard.Connect(player.CharacterAdded, "ItemAddedDisplay.CharacterAdded", watchCharacter)
 	RuntimeGuard.Run("ItemAddedDisplay.InitialCharacter", watchCharacter, player.Character)

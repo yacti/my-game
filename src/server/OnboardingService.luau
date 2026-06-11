@@ -157,13 +157,13 @@ local function hasExpandFarmGridUnlocked(profile)
 end
 
 local function maybeCompleteMakeCurrency(player, profile, currency)
-	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency500 then
+	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency then
 		return false
 	end
 	if (tonumber(currency) or 0) < Onboarding.CurrencyRequired then
 		return false
 	end
-	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.MakeCurrency500))
+	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.MakeCurrency))
 end
 
 local function maybeCompleteExpandFarm(player, profile)
@@ -194,7 +194,7 @@ setStage = function(player, profile, nextStage)
 	else
 		cancelFinalNoteCompletion(player)
 	end
-	if nextStage == Onboarding.Stages.MakeCurrency500 then
+	if nextStage == Onboarding.Stages.MakeCurrency then
 		maybeCompleteMakeCurrency(player, profile, profile.Data.Currency)
 	elseif nextStage == Onboarding.Stages.ExpandFarm then
 		maybeCompleteExpandFarm(player, profile)

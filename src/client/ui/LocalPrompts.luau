@@ -898,6 +898,13 @@ refreshPrompt = function(target, kind, prompt)
 		local canUnlock = gridUnlockContext(target)
 		prompt.ActionText = "Buy"
 		prompt.Enabled = not isEditMode() and canUnlock
+		-- ProximityPromptCustomizer renders this on the theme's PriceText label
+		-- (green/red by affordability).
+		local price = canUnlock and tonumber(target:GetAttribute(State.Grid.Price)) or nil
+		if price ~= nil and price <= 0 then
+			price = nil
+		end
+		prompt:SetAttribute("PromptPrice", price)
 	elseif kind == "CrateRoll" then
 		if not isRollButton(target) then
 			removePrompt(target, kind)

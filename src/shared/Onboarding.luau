@@ -9,7 +9,7 @@ Onboarding.Stages = {
 	ShakeAppleTree = "ShakeAppleTree",
 	CollectApple = "CollectApple",
 	FeedPetApple = "FeedPetApple",
-	MakeCurrency500 = "MakeCurrency500",
+	MakeCurrency = "MakeCurrency",
 	RollPumpkinSeed = "RollPumpkinSeed",
 	BuyPumpkinSeed = "BuyPumpkinSeed",
 	PlantPumpkinSeed = "PlantPumpkinSeed",
@@ -44,7 +44,7 @@ Onboarding.FoodIds = {
 	Apple = "Apple",
 }
 
-Onboarding.CurrencyRequired = 500
+Onboarding.CurrencyRequired = 250
 Onboarding.PumpkinXPRequired = 250
 Onboarding.TreeClicksRequired = 8
 Onboarding.ExpandFarmGrid = {
@@ -70,7 +70,7 @@ local ORDERED_STAGES = {
 	Onboarding.Stages.ShakeAppleTree,
 	Onboarding.Stages.CollectApple,
 	Onboarding.Stages.FeedPetApple,
-	Onboarding.Stages.MakeCurrency500,
+	Onboarding.Stages.MakeCurrency,
 	Onboarding.Stages.RollPumpkinSeed,
 	Onboarding.Stages.BuyPumpkinSeed,
 	Onboarding.Stages.PlantPumpkinSeed,
@@ -89,7 +89,7 @@ local STAGE_TEXT = {
 	[Onboarding.Stages.ShakeAppleTree] = "Shake tree!",
 	[Onboarding.Stages.CollectApple] = "Collect all the fruit!",
 	[Onboarding.Stages.FeedPetApple] = "Feed your pet!",
-	[Onboarding.Stages.MakeCurrency500] = "Feed your pet and make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
+	[Onboarding.Stages.MakeCurrency] = "Feed your pet and make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
 	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
 	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the seed!",
 	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the Pumpkin Seed!",
@@ -257,6 +257,12 @@ function Onboarding.SanitizeProgress(progress)
 	return clean
 end
 
+-- Stage ids stored in saved profiles before a rename; without the alias,
+-- SanitizeState would treat the old id as invalid and skip to Complete.
+local LEGACY_STAGE_ALIASES = {
+	MakeCurrency500 = Onboarding.Stages.MakeCurrency,
+}
+
 function Onboarding.SanitizeState(value, fallback)
 	local state = type(value) == "table" and value or fallback
 	if type(state) ~= "table" then
@@ -264,6 +270,9 @@ function Onboarding.SanitizeState(value, fallback)
 	end
 
 	local stage = state.Stage
+	if type(stage) == "string" and LEGACY_STAGE_ALIASES[stage] ~= nil then
+		stage = LEGACY_STAGE_ALIASES[stage]
+	end
 	if type(stage) ~= "string" or not Onboarding.IsStage(stage) then
 		stage = fallback and fallback.Stage or Onboarding.Stages.Complete
 	end
