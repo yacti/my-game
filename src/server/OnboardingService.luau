@@ -378,6 +378,12 @@ function OnboardingService.OnSeedPlaced(player, profile, plot, placedFeed, seedI
 	return false
 end
 
+-- Patch growth is derived (no per-second server tick), so Patches only runs
+-- its periodic onboarding reporting for players currently in this stage.
+function OnboardingService.NeedsPatchXPReports(profile)
+	return stageFor(profile) == Onboarding.Stages.GatherPumpkinXP
+end
+
 function OnboardingService.OnPatchXPGained(player, profile, machine, xpGained)
 	if stageFor(profile) ~= Onboarding.Stages.GatherPumpkinXP then
 		return false

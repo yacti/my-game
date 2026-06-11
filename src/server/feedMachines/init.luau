@@ -220,4 +220,12 @@ function FeedMachines.PickupTreeGround(ground, player)
 	return table.unpack(results, 2, results.n)
 end
 
+function FeedMachines.StressClickTree(machine, player)
+	local results = table.pack(RuntimeGuard.Run("FeedMachines.StressClickTree", Trees.StressClick, machine, player))
+	if results[1] ~= true then
+		return nil
+	end
+	return table.unpack(results, 2, results.n)
+end
+
 return FeedMachines

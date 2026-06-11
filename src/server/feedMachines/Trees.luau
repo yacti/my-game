@@ -27,6 +27,7 @@
 local PhysicsService    = game:GetService("PhysicsService")
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
 
 local Server = script.Parent.Parent
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
@@ -359,15 +360,15 @@ local function scheduleSlotRespawn(machine, s, slot)
 end
 
 local function onTreeClicked(machine, s, player)
-	if player ~= s.owner then return end
-	if s.owner:GetAttribute("EditMode") == true then return end
+	if player ~= s.owner then return false end
+	if s.owner:GetAttribute("EditMode") == true then return false end
 
 	local clickInterval = clickIntervalFor()
 	local now = os.clock()
-	if now - s.lastClick < clickInterval then return end
+	if now - s.lastClick < clickInterval then return false end
 
 	local slot = findReadySlot(s)
-	if not slot then return end
+	if not slot then return false end
 
 	clearSlotVisual(slot)
 	scheduleSlotRespawn(machine, s, slot)
@@ -378,6 +379,7 @@ local function onTreeClicked(machine, s, player)
 	task.delay(s.balance.DropEffectDuration, function()
 		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId, player)
 	end)
+	return true
 end
 
 -- ── Setup / teardown ──────────────────────────────────────────────────────────
@@ -544,6 +546,17 @@ function TreeClicker.PickupGround(ground, player)
 		current = current.Parent
 	end
 	return false
+end
+
+function TreeClicker.StressClick(machine, player)
+	if not RunService:IsStudio() then
+		return false, "not-studio"
+	end
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then
+		return false, "not-setup"
+	end
+	return onTreeClicked(machine, s, player)
 end
 
 return TreeClicker

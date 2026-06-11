@@ -117,6 +117,11 @@ local playerPlots = {}
 local localToWorldOnFloorTop
 local plotPlacementRecords = setmetatable({}, { __mode = "k" })
 
+-- Monotonic per-plot counter bumped whenever navigation obstacle bounds may
+-- have changed. Kept outside placementRecord so it survives record clears;
+-- consumers (PetNavigation grid cache) compare versions to invalidate.
+local navObstacleVersions = setmetatable({}, { __mode = "k" })
+
 local PlotService = {}
 
 local function userKey(player)
@@ -143,7 +148,9 @@ local function placementRecord(plot)
 end
 
 local function markPlacementBoundsDirty(plot)
-	local record = plot and plotPlacementRecords[plot]
+	if not plot then return end
+	navObstacleVersions[plot] = (navObstacleVersions[plot] or 0) + 1
+	local record = plotPlacementRecords[plot]
 	if record then
 		record.navObstacleBounds = nil
 		record.navObstacleDirty = true
@@ -252,6 +259,7 @@ local function clearPlacementRecord(plot)
 		record.cosmeticSet[root] = nil
 	end
 	plotPlacementRecords[plot] = nil
+	navObstacleVersions[plot] = (navObstacleVersions[plot] or 0) + 1
 end
 
 function PlotService.AssignPlot(player)
@@ -1003,6 +1011,10 @@ function PlotService.FitPetOnUnlockedGrid(plot, pet, lx, lz, lry, preferRandom)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return false end
 	return fitPetOnUnlockedGrid(plot, pet, floor, lx, lz, lry or 0, preferRandom == true)
+end
+
+function PlotService.GetNavigationObstacleVersion(plot)
+	return plot and navObstacleVersions[plot] or 0
 end
 
 function PlotService.GetNavigationObstacleBounds(plot)

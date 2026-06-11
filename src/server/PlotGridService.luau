@@ -19,6 +19,16 @@ local VACANT_UNLOCKED_ROW_COUNT = 3
 local indexesByPlot = setmetatable({}, { __mode = "k" })
 local statesByPlot = setmetatable({}, { __mode = "k" })
 
+-- Monotonic per-plot counter bumped whenever the unlocked cell set changes.
+-- Consumers (PetNavigation grid cache) compare versions to invalidate
+-- derived walkability data without event wiring.
+local unlockVersionsByPlot = setmetatable({}, { __mode = "k" })
+
+local function bumpUnlockVersion(plot)
+	if not plot then return end
+	unlockVersionsByPlot[plot] = (unlockVersionsByPlot[plot] or 0) + 1
+end
+
 local GRID_VISIBILITY_OPTIONS = {
 	RuntimeHiddenAsVisible = true,
 	RuntimeHiddenVisualAsVisible = true,
@@ -413,6 +423,7 @@ function PlotGridService.ApplyProfileState(plot, profile)
 		index = index,
 		unlockedKeys = unlockedKeys,
 	}
+	bumpUnlockVersion(plot)
 	saveUnlockSetToProfile(index, profile, unlockedKeys)
 	applyCellVisibility(index, unlockedKeys)
 	return true
@@ -427,6 +438,7 @@ function PlotGridService.ResetPlotState(plot)
 		index = index,
 		unlockedKeys = defaultUnlockSet(index),
 	}
+	bumpUnlockVersion(plot)
 	applyCellVisibility(index, statesByPlot[plot].unlockedKeys)
 	return true
 end
@@ -440,6 +452,7 @@ function PlotGridService.ResetVacantPlotState(plot)
 		index = index,
 		unlockedKeys = vacantUnlockSet(index),
 	}
+	bumpUnlockVersion(plot)
 	applyCellVisibility(index, statesByPlot[plot].unlockedKeys)
 	return true
 end
@@ -493,9 +506,14 @@ function PlotGridService.TryPurchaseCell(player, plot, profile, target)
 	end
 
 	state.unlockedKeys[cell.coordKey] = true
+	bumpUnlockVersion(plot)
 	saveUnlockSetToProfile(state.index, profile, state.unlockedKeys)
 	applyCellVisibility(state.index, state.unlockedKeys)
 	return true, nil, cell.coordKey, cell.price
+end
+
+function PlotGridService.GetUnlockVersion(plot)
+	return plot and unlockVersionsByPlot[plot] or 0
 end
 
 function PlotGridService.IsWalkablePoint(plot, lx, lz)

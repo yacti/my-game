@@ -5,12 +5,21 @@
 -- accumulated XP on the produced food tool. Harvesting empties the slot for a
 -- short respawn delay, then the same food starts accumulating from zero again.
 --
+-- Growth is derived, not ticked: the server stores a base XP plus a
+-- growth-start timestamp per slot and publishes both as attributes once per
+-- anchor change (spawn, harvest, respawn, restore, offline credit). Current
+-- XP is computed on demand via PatchGrowth, so there is no per-second growth
+-- loop and no per-second attribute replication. Harvest, persistence, and
+-- onboarding all read the same derived value, so earnings are unchanged.
+--
 -- Tunable attribute on the model:
 --   FoodDrop (string, required) exact food id produced by each slot
 --   XP       (number, default 1) XP gained per growth interval
 --   GrowRate (number, default 3) seconds per growth interval
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent.Parent
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
@@ -18,13 +27,13 @@ local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local PatchGrowth = require(ReplicatedStorage.Shared:WaitForChild("PatchGrowth"))
 local PatchScale = require(ReplicatedStorage.Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local Patches = {}
 
-local DEFAULT_GROW_RATE = 3
 local HARVEST_RESPAWN_DELAY = 3
 local OFFLINE_GROW_FRACTION = 1 / 1000
 local EDIT_MODE_ATTR = "EditMode"
@@ -37,10 +46,22 @@ local EDIT_MODE_ATTR = "EditMode"
 -- tools still use the shared scale formula on the server.
 
 -- [machine] = {
---   owner, plot, foodId, patchXP, lastTick,
---   slots = { [i] = { xp, growthElapsed, anchor, foodPart, respawnAt } },
+--   owner, plot, foodId, patchXP, lastTick, awaitingOfflineProgress,
+--   slots = { [i] = {
+--     baseXP, growthStart (server clock), respawnAt (wall clock),
+--     pendingOfflineGrowthElapsed, pendingMaterialize, respawnToken,
+--     lastReportedXP, anchor, foodPart,
+--   } },
 -- }
 local state = {}
+
+-- [anchor] = { machine = Model, slotIndex = number }; same lifecycle as
+-- `state` (populated at Setup, cleared at Teardown).
+local anchorIndex = {}
+
+local function serverNow()
+	return Workspace:GetServerTimeNow()
+end
 
 local function foodDropFor(machine)
 	local foodId = machine:GetAttribute(State.Feed.FoodDrop)
@@ -59,10 +80,54 @@ local function patchXPFor(machine)
 	return PatchScale.NormalizePatchXP(machine:GetAttribute(State.Feed.XP))
 end
 
-local function reportSlotXPGained(machine, owner, xpGained)
-	local profile = owner and PlayerDataService.GetProfile(owner)
-	if profile then
-		OnboardingService.OnPatchXPGained(owner, profile, machine, xpGained)
+local function growRateFor(machine)
+	return PatchGrowth.NormalizeGrowRate(machine:GetAttribute(State.Feed.GrowRate))
+end
+
+local function slotXPNow(machine, slot, now)
+	if slot.respawnAt or type(slot.growthStart) ~= "number" then
+		return slot.baseXP or 0
+	end
+	return PatchGrowth.ComputeXPFromState(slot.baseXP, slot.growthStart, growRateFor(machine), slot.patchXP, now)
+end
+
+local function publishSlotGrowth(slot)
+	local food = slot.foodPart
+	if not food then return end
+	food:SetAttribute(State.Food.XP, slot.baseXP or 0)
+	food:SetAttribute(State.Food.GrowthStart, slot.growthStart)
+end
+
+-- Banks `effectiveSeconds` of growth into baseXP and re-anchors growthStart
+-- so the leftover partial interval keeps counting from `now`.
+local function anchorSlotGrowth(machine, slot, effectiveSeconds, now)
+	local growRate = growRateFor(machine)
+	effectiveSeconds = math.max(tonumber(effectiveSeconds) or 0, 0)
+	local intervals = math.floor(effectiveSeconds / growRate)
+	slot.baseXP = (slot.baseXP or 0) + intervals * slot.patchXP
+	slot.growthStart = now - (effectiveSeconds - intervals * growRate)
+end
+
+-- Adds extra growth seconds (e.g. offline credit) on top of whatever the slot
+-- has already accrued, whether it is currently growing or frozen.
+local function creditSlotGrowth(machine, slot, extraSeconds, now)
+	local current
+	if type(slot.growthStart) == "number" then
+		current = math.max(now - slot.growthStart, 0)
+	else
+		current = math.max(tonumber(slot.pendingOfflineGrowthElapsed) or 0, 0)
+	end
+	slot.pendingOfflineGrowthElapsed = nil
+	anchorSlotGrowth(machine, slot, current + math.max(tonumber(extraSeconds) or 0, 0), now)
+end
+
+-- Onboarding progress: reports the delta since the last report for this slot.
+local function reportSlotXP(machine, s, slot, profile, xpNow)
+	local gained = xpNow - (slot.lastReportedXP or 0)
+	if gained <= 0 then return end
+	slot.lastReportedXP = xpNow
+	if s.owner and profile then
+		OnboardingService.OnPatchXPGained(s.owner, profile, machine, gained)
 	end
 end
 
@@ -79,7 +144,8 @@ local function spawnFoodAtSlot(slot)
 	local clone = template:Clone()
 	clone:SetAttribute(State.Food.Id, foodId)
 	clone:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
-	clone:SetAttribute(State.Food.XP, slot.xp or 0)
+	clone:SetAttribute(State.Food.XP, slot.baseXP or 0)
+	clone:SetAttribute(State.Food.GrowthStart, slot.growthStart)
 	if clone:IsA("BasePart") then
 		configureSlotPart(clone)
 		clone:PivotTo(slot.anchor.CFrame)
@@ -89,115 +155,104 @@ local function spawnFoodAtSlot(slot)
 		end
 		clone:PivotTo(slot.anchor.CFrame)
 		-- Initialize before parenting so clients never see a full-size flash.
-		clone:ScaleTo(PatchScale.ComputeScale(slot.xp or 0, slot.patchXP))
+		clone:ScaleTo(PatchScale.ComputeScale(slot.baseXP or 0, slot.patchXP))
 	end
 	clone.Parent = slot.anchor
 	return clone
 end
 
-local function refreshSlotVisual(slot)
-	if not slot.foodPart and not slot.respawnAt then
-		slot.foodPart = spawnFoodAtSlot(slot)
+-- Brings an empty slot back after its respawn delay. Deferred while the
+-- owner is in edit mode so the machine's bounds stay stable mid-drag.
+local function materializeSlot(machine, s, slot)
+	if s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true then
+		slot.pendingMaterialize = true
+		return
 	end
-	if slot.foodPart then
-		slot.foodPart:SetAttribute(State.Food.XP, slot.xp)
-	end
-end
-
-local function refreshAllSlotVisuals(s)
-	for _, slot in ipairs(s.slots) do
-		refreshSlotVisual(slot)
-	end
-	s.deferVisualRefresh = false
-end
-
-local function materializeRespawn(slot, deferVisualRefresh)
+	slot.pendingMaterialize = nil
 	slot.respawnAt = nil
-	slot.xp        = 0
-	slot.growthElapsed = 0
-	if deferVisualRefresh then return end
-	slot.foodPart  = spawnFoodAtSlot(slot)
+	slot.baseXP = 0
+	slot.growthStart = serverNow()
+	slot.lastReportedXP = 0
+	if slot.foodPart then slot.foodPart:Destroy() end
+	slot.foodPart = spawnFoodAtSlot(slot)
 end
 
-local function applyGrowth(machine, s, seconds)
-	if seconds <= 0 then return end
-	local growRate = machine:GetAttribute(State.Feed.GrowRate)
-	if type(growRate) ~= "number" or growRate <= 0 then
-		growRate = DEFAULT_GROW_RATE
-	end
-	local deferVisualRefresh = s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true
-	local xpPerInterval = s.patchXP
-	local now      = os.time()
-	for _, slot in ipairs(s.slots) do
-		if slot.respawnAt then
-			-- Slot is empty post-harvest. Materialize food once the
-			-- delay has elapsed; growth starts on the next tick.
-			if now >= slot.respawnAt then
-				materializeRespawn(slot, deferVisualRefresh)
-				if deferVisualRefresh then
-					s.deferVisualRefresh = true
-				end
+local function scheduleSlotRespawn(machine, s, slot, delaySeconds)
+	slot.respawnToken = (slot.respawnToken or 0) + 1
+	local token = slot.respawnToken
+	task.delay(math.max(tonumber(delaySeconds) or 0, 0), function()
+		RuntimeGuard.Run("Patches.SlotRespawn", function()
+			if state[machine] ~= s or slot.respawnToken ~= token then return end
+			if not machine.Parent or not slot.respawnAt then return end
+			-- respawnAt may have been pushed back (offline progress shifts
+			-- it by the pending duration); re-arm instead of materializing.
+			local remaining = slot.respawnAt - os.time()
+			if remaining > 0.05 then
+				scheduleSlotRespawn(machine, s, slot, remaining)
+				return
 			end
-		else
-			slot.growthElapsed = (slot.growthElapsed or 0) + seconds
-			local intervals = math.floor(slot.growthElapsed / growRate)
-			if intervals > 0 then
-				slot.growthElapsed -= intervals * growRate
-				local gainedXP = intervals * xpPerInterval
-				slot.xp += gainedXP
-				reportSlotXPGained(machine, s.owner, gainedXP)
-				if deferVisualRefresh then
-					s.deferVisualRefresh = true
-				else
-					refreshSlotVisual(slot)
-				end
-			end
-		end
-	end
+			materializeSlot(machine, s, slot)
+		end)
+	end)
+end
+
+local function emptySlot(slot, respawnAt)
+	if slot.foodPart then slot.foodPart:Destroy() end
+	slot.foodPart = nil
+	slot.baseXP = 0
+	slot.growthStart = nil
+	slot.pendingOfflineGrowthElapsed = nil
+	slot.lastReportedXP = 0
+	slot.respawnAt = respawnAt
 end
 
 local function isOfflineProgressPending(s)
 	return s.owner and s.owner:GetAttribute(State.Player.OfflineProgressPending) == true
 end
 
--- Single shared heartbeat across all patch-style machines (1Hz tick).
-RuntimeGuard.Spawn("Patches.GrowthLoop", function()
+-- Onboarding pumpkin-XP progress is the only consumer that needs periodic
+-- growth observation. This 1Hz loop does work only for players currently in
+-- the gather-pumpkin-XP tutorial stage (early-game players with few patches);
+-- for everyone else each pass is a cheap profile/stage check per player.
+RuntimeGuard.Spawn("Patches.OnboardingXPLoop", function()
 	while true do
 		task.wait(1)
-		for machine, s in pairs(state) do
-			RuntimeGuard.Run("Patches.GrowthTick", function()
-				if machine.Parent then
-					if isOfflineProgressPending(s) then
-						return
+		for _, player in ipairs(Players:GetPlayers()) do
+			RuntimeGuard.Run("Patches.OnboardingXPTick", function()
+				local profile = PlayerDataService.GetProfile(player)
+				if not profile or not OnboardingService.NeedsPatchXPReports(profile) then return end
+				local now = serverNow()
+				for machine, s in pairs(state) do
+					if s.owner == player and machine.Parent and not isOfflineProgressPending(s) then
+						for _, slot in ipairs(s.slots) do
+							if not slot.respawnAt and slot.growthStart then
+								reportSlotXP(machine, s, slot, profile, slotXPNow(machine, slot, now))
+							end
+						end
 					end
-					if s.deferVisualRefresh and not (s.owner and s.owner:GetAttribute(EDIT_MODE_ATTR) == true) then
-						refreshAllSlotVisuals(s)
-					end
-					applyGrowth(machine, s, 1)
-					s.lastTick = os.time()
 				end
 			end)
 		end
 	end
 end)
 
-local function scaleToolToSlot(tool, slot)
+local function scaleToolToXP(tool, xp, patchXP)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
 	-- handle + welded sub-parts scale together.
-	local scale = PatchScale.ComputeScale(slot.xp, slot.patchXP)
-	tool:ScaleTo(scale)
+	tool:ScaleTo(PatchScale.ComputeScale(xp, patchXP))
 end
 
 local function harvest(machine, s, slotIndex, player)
 	if player ~= s.owner then return false end
-	if player:GetAttribute("EditMode") == true then return false end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then return false end
 	local slot = s.slots[slotIndex]
 	if not slot or slot.respawnAt then return false end  -- empty during respawn delay
 	local foodId = s.foodId
 	if not foodId then return false end
-	local tool = Food.MakeTool(foodId, slot.xp)
+	local xp = slotXPNow(machine, slot, serverNow())
+	local tool = Food.MakeTool(foodId, xp)
 	if not tool then return false end
-	scaleToolToSlot(tool, slot)
+	scaleToolToXP(tool, xp, slot.patchXP)
 	if not ToolGrantService.GrantTool(player, tool, {
 		deferAutoEquip = true,
 		autoEquipPolicy = "firstInBurst",
@@ -209,15 +264,13 @@ local function harvest(machine, s, slotIndex, player)
 
 	local profile = PlayerDataService.GetProfile(player)
 	if profile then
+		reportSlotXP(machine, s, slot, profile, xp)
 		OnboardingService.OnPatchHarvested(player, profile, machine, foodId)
 	end
 
-	-- Empty the slot, start respawn timer; materializeRespawn restores it.
-	if slot.foodPart then slot.foodPart:Destroy() end
-	slot.foodPart  = nil
-	slot.xp        = 0
-	slot.growthElapsed = 0
-	slot.respawnAt = os.time() + HARVEST_RESPAWN_DELAY
+	-- Empty the slot, start respawn timer; materializeSlot restores it.
+	emptySlot(slot, os.time() + HARVEST_RESPAWN_DELAY)
+	scheduleSlotRespawn(machine, s, slot, HARVEST_RESPAWN_DELAY)
 	return true, machine
 end
 
@@ -254,18 +307,21 @@ function Patches.Setup(machine, plot, owner)
 		patchXP = patchXPFor(machine),
 		slots = {},
 		lastTick = os.time(),
-		deferVisualRefresh = false,
 	}
 	state[machine] = s
 
 	if owner then
 		s.editModeConn = RuntimeGuard.Connect(owner:GetAttributeChangedSignal(EDIT_MODE_ATTR), "Patches.EditModeChanged", function()
-			if s.deferVisualRefresh and owner:GetAttribute(EDIT_MODE_ATTR) ~= true then
-				refreshAllSlotVisuals(s)
+			if owner:GetAttribute(EDIT_MODE_ATTR) == true then return end
+			for _, slot in ipairs(s.slots) do
+				if slot.pendingMaterialize then
+					materializeSlot(machine, s, slot)
+				end
 			end
 		end)
 	end
 
+	local now = serverNow()
 	for _, child in ipairs(machine:GetChildren()) do
 		if child:IsA("BasePart") and child.Name == "BaseFood" then
 			local anchor = makeSlotAnchor(machine, child)
@@ -274,22 +330,33 @@ function Patches.Setup(machine, plot, owner)
 			local slot = {
 				foodId = s.foodId,
 				patchXP = s.patchXP,
-				xp = 0,
-				growthElapsed = 0,
+				baseXP = 0,
+				growthStart = now,
+				lastReportedXP = 0,
 				anchor = anchor,
 				foodPart = nil,
 				respawnAt = nil,
 			}
 			slot.foodPart = spawnFoodAtSlot(slot)
 			table.insert(s.slots, slot)
+			anchorIndex[anchor] = { machine = machine, slotIndex = #s.slots }
 		end
 	end
 end
 
 function Patches.Teardown(machine)
 	local s = state[machine]
-	if s and s.editModeConn then
-		s.editModeConn:Disconnect()
+	if s then
+		if s.editModeConn then
+			s.editModeConn:Disconnect()
+		end
+		for _, slot in ipairs(s.slots) do
+			-- Invalidate any scheduled respawn callbacks.
+			slot.respawnToken = (slot.respawnToken or 0) + 1
+			if slot.anchor then
+				anchorIndex[slot.anchor] = nil
+			end
+		end
 	end
 	state[machine] = nil
 end
@@ -297,15 +364,43 @@ end
 function Patches.Serialize(machine)
 	local s = state[machine]
 	if not s then return nil end
+
+	-- Between a deferred Apply and ApplyOfflineProgress the slots are frozen
+	-- at their saved values; re-emit those so no offline credit is lost.
+	-- (snapshotProfileState applies pending offline progress first, so this
+	-- is a defensive path.)
+	if s.awaitingOfflineProgress then
+		local slots = table.create(#s.slots)
+		for _, slot in ipairs(s.slots) do
+			slots[#slots + 1] = {
+				xp = slot.baseXP or 0,
+				growthElapsed = slot.pendingOfflineGrowthElapsed or 0,
+				respawnAt = slot.respawnAt,
+			}
+		end
+		return { slots = slots, lastTick = s.lastTick }
+	end
+
+	local now = serverNow()
+	local growRate = growRateFor(machine)
 	local slots = table.create(#s.slots)
 	for _, slot in ipairs(s.slots) do
-		slots[#slots+1] = {
-			xp = slot.xp,
-			growthElapsed = slot.growthElapsed,
-			respawnAt = slot.respawnAt,
-		}
+		if slot.respawnAt then
+			slots[#slots + 1] = { xp = 0, growthElapsed = 0, respawnAt = slot.respawnAt }
+		else
+			local elapsed = 0
+			if type(slot.growthStart) == "number" then
+				elapsed = math.max(now - slot.growthStart, 0)
+			end
+			local intervals = math.floor(elapsed / growRate)
+			slots[#slots + 1] = {
+				xp = (slot.baseXP or 0) + intervals * slot.patchXP,
+				growthElapsed = elapsed - intervals * growRate,
+				respawnAt = nil,
+			}
+		end
 	end
-	return { slots = slots, lastTick = s.lastTick }
+	return { slots = slots, lastTick = os.time() }
 end
 
 function Patches.Apply(machine, placement, options)
@@ -315,41 +410,53 @@ function Patches.Apply(machine, placement, options)
 	options = type(options) == "table" and options or {}
 	local deferOfflineProgress = options.deferOfflineProgress == true
 
-	local now = os.time()
+	local nowWall = os.time()
+	local now = serverNow()
+	local lastTick = tonumber(placement.lastTick) or nowWall
+	-- Offline credit runs at OFFLINE_GROW_FRACTION of the online rate.
+	local offlineSeconds = math.max(nowWall - lastTick, 0) * OFFLINE_GROW_FRACTION
+
 	for i, savedSlot in ipairs(placement.slots) do
 		local slot = s.slots[i]
 		if slot and type(savedSlot) == "table" then
 			local respawnAt = tonumber(savedSlot.respawnAt)
-			if respawnAt and (deferOfflineProgress or respawnAt > now) then
-				-- Still in the post-harvest delay; keep slot empty.
-				if slot.foodPart then slot.foodPart:Destroy() end
-				slot.foodPart  = nil
-				slot.xp        = 0
-				slot.growthElapsed = 0
-				slot.respawnAt = respawnAt
+			if respawnAt and (deferOfflineProgress or respawnAt > nowWall) then
+				-- Still in the post-harvest delay; keep slot empty. In the
+				-- deferred path ApplyOfflineProgress shifts respawnAt and
+				-- arms the timer once the pending window resolves.
+				emptySlot(slot, respawnAt)
+				if not deferOfflineProgress then
+					scheduleSlotRespawn(machine, s, slot, respawnAt - nowWall)
+				end
 			else
-				local xp = math.max(tonumber(savedSlot.xp) or 0, 0)
+				local savedXP = math.max(tonumber(savedSlot.xp) or 0, 0)
+				local savedElapsed = math.max(tonumber(savedSlot.growthElapsed) or 0, 0)
 				slot.respawnAt = nil
-				slot.xp = xp
-				slot.growthElapsed = math.max(tonumber(savedSlot.growthElapsed) or 0, 0)
+				slot.pendingMaterialize = nil
+				slot.baseXP = savedXP
+				slot.growthStart = nil
+				slot.pendingOfflineGrowthElapsed = savedElapsed
+				-- Report future onboarding gains relative to the saved XP so
+				-- offline credit counts, matching the previous behavior.
+				slot.lastReportedXP = savedXP
+				if not deferOfflineProgress then
+					creditSlotGrowth(machine, slot, offlineSeconds, now)
+				end
 				if not slot.foodPart then
 					slot.foodPart = spawnFoodAtSlot(slot)
+				else
+					publishSlotGrowth(slot)
 				end
-				refreshSlotVisual(slot)
 			end
 		end
 	end
 
-	local lastTick = tonumber(placement.lastTick) or now
+	s.lastTick = lastTick
 	if deferOfflineProgress then
-		s.lastTick = lastTick
+		-- Slots stay frozen (no growthStart) until ApplyOfflineProgress.
+		s.awaitingOfflineProgress = true
 		return
 	end
-	local elapsed  = now - lastTick
-	-- Offline credit runs at OFFLINE_GROW_FRACTION of the online rate.
--- applyGrowth receives effective online seconds, so scaling here is
--- equivalent to scaling the amount of interval progress for this single call.
-	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
 	s.lastTick = os.time()
 end
 
@@ -361,30 +468,32 @@ function Patches.ApplyOfflineProgress(machine, context)
 	local applyTime = tonumber(context.applyTime) or os.time()
 	local pendingDuration = math.max(applyTime - joinTime, 0)
 
+	local now = serverNow()
+	local offlineSeconds = math.max(joinTime - (tonumber(s.lastTick) or joinTime), 0) * OFFLINE_GROW_FRACTION
+
 	for _, slot in ipairs(s.slots) do
-		if type(slot.respawnAt) == "number" and slot.respawnAt > joinTime then
-			slot.respawnAt += pendingDuration
+		if type(slot.respawnAt) == "number" then
+			if slot.respawnAt > joinTime then
+				slot.respawnAt += pendingDuration
+			end
+			scheduleSlotRespawn(machine, s, slot, slot.respawnAt - os.time())
+		else
+			creditSlotGrowth(machine, slot, offlineSeconds, now)
+			publishSlotGrowth(slot)
 		end
 	end
 
-	local elapsed = math.max(joinTime - (tonumber(s.lastTick) or joinTime), 0)
-	applyGrowth(machine, s, elapsed * OFFLINE_GROW_FRACTION)
+	s.awaitingOfflineProgress = nil
 	s.lastTick = os.time()
 	return true
 end
 
 function Patches.HarvestAnchor(anchor, player)
-	if not anchor or not anchor:IsA("BasePart") then return false end
-	for machine, s in pairs(state) do
-		if machine.Parent then
-			for i, slot in ipairs(s.slots) do
-				if slot.anchor == anchor then
-					return harvest(machine, s, i, player)
-				end
-			end
-		end
-	end
-	return false
+	local entry = anchor and anchorIndex[anchor]
+	if not entry then return false end
+	local s = state[entry.machine]
+	if not s or not entry.machine.Parent then return false end
+	return harvest(entry.machine, s, entry.slotIndex, player)
 end
 
 return Patches

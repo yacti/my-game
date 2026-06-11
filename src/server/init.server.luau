@@ -1,6 +1,7 @@
 local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local RunService          = game:GetService("RunService")
 
 local Server            = ServerScriptService:WaitForChild("Server")
 local Shared            = ReplicatedStorage:WaitForChild("Shared")
@@ -53,6 +54,15 @@ local Food     = require(Shared:WaitForChild("Food"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
+local PlotStressTest = nil
+
+if RunService:IsStudio() then
+	local devFolder = Server:FindFirstChild("dev")
+	local stressModule = devFolder and devFolder:FindFirstChild("PlotStressTest")
+	if stressModule and stressModule:IsA("ModuleScript") then
+		PlotStressTest = require(stressModule)
+	end
+end
 
 CurrencyService.RegisterChangedCallback(function(player, profile, amount)
 	OnboardingService.OnCurrencyChanged(player, profile, amount)
@@ -705,6 +715,9 @@ local function handlePlayerAdded(player)
 		teardownPlayerState(player, plot, nil, { snapshot = false })
 		return
 	end
+	if PlotStressTest and PlotStressTest.ShouldDisableTutorial() then
+		RuntimeGuard.Run("PlotStressTest.PreparePlayerProfile." .. userLabel(player), PlotStressTest.PreparePlayerProfile, player, profile)
+	end
 
 	local label = userLabel(player)
 	local setupOk = RuntimeGuard.Run("PlayerAdded.Setup." .. label, function()
@@ -965,3 +978,7 @@ RuntimeGuard.Run("CosmeticPlacementService.Start", function()
 		isGameplayBlocked = OfflineProgressService.IsPending,
 	})
 end)
+
+if PlotStressTest then
+	RuntimeGuard.Run("PlotStressTest.Watch", PlotStressTest.Watch)
+end

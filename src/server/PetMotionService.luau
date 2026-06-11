@@ -398,9 +398,11 @@ local function ensureHeartbeat()
 	if heartbeatConnection then return end
 
 	heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "PetMotionService.Heartbeat", function(dt)
-		accumulator += dt
-		while accumulator >= UPDATE_INTERVAL do
-			accumulator -= UPDATE_INTERVAL
+		-- Clamp so a long frame spike cannot queue dozens of catch-up ticks
+		-- that all replay in the next frame and amplify the spike.
+		accumulator = math.min(accumulator + dt, UPDATE_INTERVAL)
+		if accumulator >= UPDATE_INTERVAL then
+			accumulator = 0
 			tickAll(UPDATE_INTERVAL)
 		end
 	end)

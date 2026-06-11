@@ -41,6 +41,10 @@ local shakeIds = {}
 local groundMarkers = {}
 local shakeTargetCache = {}
 
+-- Forward declaration: scanTreeVisualRoot runs before the definition below and
+-- would otherwise resolve `animate` as a nil global, erroring the initial scan.
+local animate
+
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
 	return tree:GetAttribute(State.Feed.Class) == "Tree"
@@ -700,7 +704,7 @@ local function shakeTree(tree)
 	end)
 end
 
-local function animate(food)
+function animate(food)
 	if animated[food] then return end
 	animated[food] = true
 

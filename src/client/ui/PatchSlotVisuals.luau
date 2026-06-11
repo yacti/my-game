@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
 local PatchScale = require(Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -35,8 +36,10 @@ local function foodPosition(food)
 	return Vector3.zero
 end
 
-local function currentScaleFor(record)
-	local xp = record.food:GetAttribute(State.Food.XP)
+local function currentScaleFor(record, now)
+	-- Slot XP is derived locally from the replicated growth anchor; the
+	-- server only re-publishes attributes on harvest/respawn/restore.
+	local xp = PatchGrowth.ComputeXPForFood(record.food, record.machine, now)
 	local patchXP = record.machine and record.machine:GetAttribute(State.Feed.XP)
 	return PatchScale.ComputeScale(xp, patchXP)
 end
@@ -55,26 +58,23 @@ local function cleanup(food)
 	tracked[food] = nil
 end
 
-local function markDirty(record)
-	record.dirty = true
-end
-
-local function applyScale(record)
+-- Returns true only when a ScaleTo was actually applied so the per-step
+-- budget counts real work, not no-op checks.
+local function applyScale(record, now)
 	local food = record.food
 	if not food:IsDescendantOf(Workspace) then
 		cleanup(food)
-		return
+		return false
 	end
 
-	local scale = currentScaleFor(record)
+	local scale = currentScaleFor(record, now)
 	if record.lastScale and math.abs(record.lastScale - scale) < 0.0001 then
-		record.dirty = false
-		return
+		return false
 	end
 
 	food:ScaleTo(scale)
 	record.lastScale = scale
-	record.dirty = false
+	return true
 end
 
 local function addConnection(record, conn)
@@ -94,17 +94,10 @@ local function track(food)
 		food = food,
 		machine = machine,
 		conns = {},
-		dirty = true,
 		lastScale = nil,
 	}
 	tracked[food] = record
 
-	addConnection(record, RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "PatchSlotVisuals.FoodXPChanged", function()
-		markDirty(record)
-	end))
-	addConnection(record, RuntimeGuard.Connect(machine:GetAttributeChangedSignal(State.Feed.XP), "PatchSlotVisuals.PatchXPChanged", function()
-		markDirty(record)
-	end))
 	addConnection(record, RuntimeGuard.Connect(food.AncestryChanged, "PatchSlotVisuals.AncestryChanged", function()
 		if not food:IsDescendantOf(Workspace) then
 			cleanup(food)
@@ -136,6 +129,7 @@ local function updateVisibleScales()
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 
+	local now = Workspace:GetServerTimeNow()
 	local scaled = 0
 	for food, record in pairs(tracked) do
 		RuntimeGuard.Run("PatchSlotVisuals.UpdateRecord", function()
@@ -146,8 +140,7 @@ local function updateVisibleScales()
 			if scaled >= MAX_SCALE_UPDATES_PER_STEP then return end
 
 			local inRange = (foodPosition(food) - hrp.Position).Magnitude <= VISUAL_RANGE
-			if inRange and record.dirty then
-				applyScale(record)
+			if inRange and applyScale(record, now) then
 				scaled += 1
 			end
 		end)

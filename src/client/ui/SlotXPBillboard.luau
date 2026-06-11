@@ -7,8 +7,9 @@
 -- Identification: patch slot food is any BasePart/Model with a FoodType
 -- attribute that lives under a Patch machine's SlotAnchor. Tree machines also
 -- use SlotAnchor for on-branch fruit, but those visuals should not get this UI.
--- Server keeps the XP attribute in sync. Distant billboards mark their label
--- stale and render only when they become visible again.
+-- Slot XP is derived locally via PatchGrowth from the replicated base XP and
+-- growth-start attributes; the label only re-renders for visible billboards
+-- whose derived value changed.
 --
 -- Per-viewer rendered locally; no replication of GUI instances.
 
@@ -19,6 +20,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
@@ -91,22 +93,11 @@ local function build(food)
 	local record = {
 		gui = gui,
 		label = label,
+		machine = food.Parent and food.Parent.Parent or nil,
 		conns = {},
-		dirty = true,
+		lastXP = nil,
 		visible = false,
 	}
-
-	local function render()
-		local xp = food:GetAttribute(State.Food.XP) or 0
-		label.Text = NumberFormatter.XP(xp, " xp")
-		record.dirty = false
-	end
-	addConnection(record, RuntimeGuard.Connect(food:GetAttributeChangedSignal(State.Food.XP), "SlotXPBillboard.MarkDirty", function()
-		record.dirty = true
-		if record.visible then
-			render()
-		end
-	end))
 
 	gui.Parent = playerGui
 	tracked[food] = record
@@ -154,15 +145,18 @@ function SlotXPBillboard.start()
 	RuntimeGuard.Connect(RunService.Heartbeat, "SlotXPBillboard.Heartbeat", function()
 		local char = player.Character
 		local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+		local now  = Workspace:GetServerTimeNow()
 		for food, record in pairs(tracked) do
 			RuntimeGuard.Run("SlotXPBillboard.UpdateVisibility", function()
 				if hrp and food:IsDescendantOf(Workspace) then
 					record.visible = (foodPosition(food) - hrp.Position).Magnitude <= RANGE
 					record.gui.Enabled = record.visible
-					if record.visible and record.dirty then
-						local xp = food:GetAttribute(State.Food.XP) or 0
-						record.label.Text = NumberFormatter.XP(xp, " xp")
-						record.dirty = false
+					if record.visible then
+						local xp = PatchGrowth.ComputeXPForFood(food, record.machine, now)
+						if xp ~= record.lastXP then
+							record.lastXP = xp
+							record.label.Text = NumberFormatter.XP(xp, " xp")
+						end
 					end
 				else
 					cleanup(food)
