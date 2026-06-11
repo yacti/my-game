@@ -11,6 +11,7 @@ local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -204,6 +205,38 @@ local function prepareEffect(root)
 	end
 end
 
+-- Lucky block templates carry a CrateAnimationId attribute (Studio-owned,
+-- mirroring the pets' animation-id attributes); the looped track plays from
+-- spawn alongside the sway/fall pivots and stops when the crate is destroyed.
+local CRATE_ANIMATION_ATTRIBUTE = "CrateAnimationId"
+
+local function playCrateAnimation(crate)
+	local animationId = crate:GetAttribute(CRATE_ANIMATION_ATTRIBUTE)
+	if type(animationId) ~= "string" or animationId == "" then
+		return
+	end
+	local animator = crate:FindFirstChildWhichIsA("Animator", true)
+	if not animator then
+		warn("[RollController] Crate " .. crate.Name .. " has " .. CRATE_ANIMATION_ATTRIBUTE .. " but no Animator")
+		return
+	end
+
+	local animation = Instance.new("Animation")
+	animation.Name = "CrateAnimation"
+	animation.AnimationId = animationId
+	animation.Parent = crate
+
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(animation)
+	end)
+	if not ok or not track then
+		warn("[RollController] Failed to load crate animation " .. tostring(animationId) .. ": " .. tostring(track))
+		return
+	end
+	track.Looped = true
+	track:Play()
+end
+
 local function fadeIn(root)
 	for _, part in ipairs(effectParts(root)) do
 		local targetTransparency = part.Transparency
@@ -318,7 +351,10 @@ local function floorLandingCFrame(instance, crateFloor, heightOffset)
 	return CFrame.new(position) * pivotRotation(instance)
 end
 
-local function playSwayFallTween(instance, fromCFrame, toCFrame, token)
+local function playSwayFallTween(instance, fromCFrame, toCFrame, token, durationMultiplier)
+	durationMultiplier = tonumber(durationMultiplier) or 1
+	local fallTween = durationMultiplier == 1 and CRATE_FALL_TWEEN
+		or TweenInfo.new(CRATE_FALL_DURATION * durationMultiplier, CRATE_FALL_TWEEN.EasingStyle, CRATE_FALL_TWEEN.EasingDirection)
 	local alphaValue = Instance.new("NumberValue")
 	alphaValue.Value = 0
 	local finalRotation = toCFrame - toCFrame.Position
@@ -343,7 +379,7 @@ local function playSwayFallTween(instance, fromCFrame, toCFrame, token)
 
 		pivotTo(instance, CFrame.new(basePosition + offset) * finalRotation * rotation)
 	end)
-	local tween = TweenService:Create(alphaValue, CRATE_FALL_TWEEN, {
+	local tween = TweenService:Create(alphaValue, fallTween, {
 		Value = 1,
 	})
 	tween:Play()
@@ -1128,13 +1164,16 @@ local function playCrateFall(payload, token)
 	prepareEffect(crate)
 	crate.Parent = Workspace
 	trackRollEffect(crate, payload.offerId)
+	playCrateAnimation(crate)
 
 	local endCFrame = floorLandingCFrame(crate, crateFloor, 0)
 	local startCFrame = endCFrame + Vector3.new(0, CRATE_START_HEIGHT, 0)
 	pivotTo(crate, startCFrame)
 	fadeIn(crate)
 
-	if not playSwayFallTween(crate, startCFrame, endCFrame, token) then
+	local crateConfig = RollChances.GetCrate(payload.crateId)
+	local fallMultiplier = crateConfig and crateConfig.FallDurationMultiplier or 1
+	if not playSwayFallTween(crate, startCFrame, endCFrame, token, fallMultiplier) then
 		return
 	end
 

@@ -2,18 +2,52 @@ local RollChances = {}
 
 local DEFAULT_LUCK_DONOR_COUNT = 2
 
+-- DropWeights sum to 100, so each weight reads directly as a percentage.
 RollChances.Crates = {
-	CommonCrate = {
-		DisplayName = "Common Crate",
-		DropWeight = 70,
+	Crate = {
+		DisplayName = "Crate",
+		DropWeight = 16.7,
 		LuckMultiplier = 1,
 		TemplateName = "CommonCrate",
 	},
-	LuckyCrate = {
-		DisplayName = "Lucky Crate",
-		DropWeight = 30,
+	YellowLuckyBlock = {
+		DisplayName = "Yellow Lucky Block",
+		DropWeight = 16.7,
 		LuckMultiplier = 2,
-		TemplateName = "LuckyCrate",
+		TemplateName = "YellowLuckyBlock",
+		FallDurationMultiplier = 2,
+		DonorCount = 2,
+	},
+	BlueLuckyBlock = {
+		DisplayName = "Blue Lucky Block",
+		DropWeight = 16.7,
+		LuckMultiplier = 3,
+		TemplateName = "BlueLuckyBlock",
+		FallDurationMultiplier = 2,
+		DonorCount = 2,
+	},
+	RedLuckyBlock = {
+		DisplayName = "Red Lucky Block",
+		DropWeight = 16.7,
+		LuckMultiplier = 4,
+		TemplateName = "RedLuckyBlock",
+		FallDurationMultiplier = 2,
+		DonorCount = 2,
+	},
+	PurpleAngelLuckyBlock = {
+		DisplayName = "Purple Angel Lucky Block",
+		DropWeight = 16.7,
+		LuckMultiplier = 10,
+		TemplateName = "PurpleAngelLuckyBlock",
+		FallDurationMultiplier = 3,
+		DonorCount = 2,
+	},
+	ChainedLuckyBlock = {
+		DisplayName = "Chained Lucky Block",
+		DropWeight = 16.7,
+		LuckMultiplier = 25,
+		TemplateName = "ChainedLuckyBlock",
+		FallDurationMultiplier = 4,
 		DonorCount = 2,
 	},
 }
@@ -229,6 +263,9 @@ function RollChances.Validate(errors)
 		end
 		if crate.LuckMultiplier ~= nil and (type(crate.LuckMultiplier) ~= "number" or crate.LuckMultiplier < 1) then
 			errors[#errors + 1] = string.format("RollChances crate %s has invalid LuckMultiplier", tostring(crateId))
+		end
+		if crate.FallDurationMultiplier ~= nil and (type(crate.FallDurationMultiplier) ~= "number" or crate.FallDurationMultiplier <= 0) then
+			errors[#errors + 1] = string.format("RollChances crate %s has invalid FallDurationMultiplier", tostring(crateId))
 		end
 	end
 
