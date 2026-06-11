@@ -23,6 +23,7 @@ local BILLBOARD_HIDE_TWEEN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.Eas
 local BILLBOARD_POP_START_SCALE = 0.18
 local BILLBOARD_MANAGED_MAX_DISTANCE = 100000
 local BILLBOARD_DISTANCE_CHECK_INTERVAL = 0.15
+local GROUP_FADE_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local function darken(color, amount)
 	return Color3.new(
@@ -386,6 +387,30 @@ function UiEffects.BindBillboardDistancePop(billboard)
 
 	ensureBillboardDistanceConnection()
 	updateDistanceBillboard(billboard)
+end
+
+-- Wraps a gui's children in a CanvasGroup so the whole panel can fade as one
+-- layer via GroupTransparency (BillboardGuis have no group transparency of
+-- their own).
+function UiEffects.WrapInCanvasGroup(container)
+	local canvas = Instance.new("CanvasGroup")
+	canvas.Name = "canvas"
+	canvas.BackgroundTransparency = 1
+	canvas.BorderSizePixel = 0
+	canvas.Size = UDim2.fromScale(1, 1)
+	for _, child in ipairs(container:GetChildren()) do
+		child.Parent = canvas
+	end
+	canvas.Parent = container
+	return canvas
+end
+
+function UiEffects.SetGroupTransparency(canvas, transparency, instant)
+	if instant then
+		canvas.GroupTransparency = transparency
+		return
+	end
+	tween(canvas, GROUP_FADE_TWEEN, { GroupTransparency = transparency })
 end
 
 function UiEffects.SetTextStack(root, text)

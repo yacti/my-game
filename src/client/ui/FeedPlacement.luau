@@ -25,7 +25,8 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
-local PLACEMENT_EDIT_FLOOR_OFFSET = 3
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
+local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
@@ -248,13 +249,17 @@ function FeedPlacement.start()
 	local placementEdit = placementEditTemplate:Clone()
 	UiEffects.BindBillboardPop(placementEdit)
 	placementEdit.Enabled = false
+
+	-- Wrapped so the whole panel fades as one layer while dragging.
+	local placementEditCanvas = UiEffects.WrapInCanvasGroup(placementEdit)
+	placementEdit.StudsOffsetWorldSpace = PLACEMENT_EDIT_OFFSET
 	placementEdit.Parent = PlayerGui
 
-	local options = placementEdit:FindFirstChild("options")
+	local options = placementEditCanvas:FindFirstChild("options")
 	local confirmBtn = options and options:FindFirstChild("confirm")
 	local moveBtn = options and options:FindFirstChild("move")
 	local rotateBtn = options and options:FindFirstChild("rotate")
-	local tipLabel = placementEdit:FindFirstChild("tip")
+	local tipLabel = placementEditCanvas:FindFirstChild("tip")
 	if not (confirmBtn and confirmBtn:IsA("GuiButton")
 		and moveBtn and moveBtn:IsA("GuiButton")
 		and rotateBtn and rotateBtn:IsA("GuiButton")) then
@@ -317,20 +322,6 @@ function FeedPlacement.start()
 		return nil
 	end
 
-	local function updatePlacementEditOffset()
-		local floor = getPlayerFloor and getPlayerFloor() or nil
-		local adornee = placementEdit.Adornee
-		if not (floor and floor:IsA("BasePart") and adornee and selectedLX ~= nil and selectedLZ ~= nil) then
-			return
-		end
-		local worldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(
-			selectedLX,
-			floor.Size.Y / 2 + PLACEMENT_EDIT_FLOOR_OFFSET,
-			selectedLZ
-		))
-		placementEdit.StudsOffsetWorldSpace = worldPosition - adornee.Position
-	end
-
 	local function setConfirmVisible(visible)
 		if not confirmBtn or not confirmDefaults then return end
 		confirmBtn.Visible = visible and confirmDefaults.Visible or false
@@ -352,15 +343,12 @@ function FeedPlacement.start()
 
 	local function setPlacementEditVisible(visible)
 		placementEdit.Adornee = visible and previewAdornee() or nil
-		if not placementEdit.Adornee then
-			placementEdit.StudsOffsetWorldSpace = Vector3.zero
-		else
-			updatePlacementEditOffset()
-		end
 		placementEdit.Enabled = visible and placementEdit.Adornee ~= nil
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = moving and "Release to place" or "Hold to move"
 		end
+		local targetTransparency = moving and PLACEMENT_EDIT_DRAG_TRANSPARENCY or 0
+		UiEffects.SetGroupTransparency(placementEditCanvas, targetTransparency, not placementEdit.Enabled)
 	end
 
 	setPlacementEditVisible(false)
@@ -565,7 +553,6 @@ function FeedPlacement.start()
 		if shouldUseTreeSaplingPreview() then
 			GrowingVisuals.AlignBottomToFloorTop(preview, getPlayerFloor())
 		end
-		updatePlacementEditOffset()
 	end
 
 	local function getPreviewBounds()
@@ -673,7 +660,6 @@ function FeedPlacement.start()
 			local cframe = getSelectedCFrame()
 			if cframe then
 				tweenPreviewTo(cframe)
-				updatePlacementEditOffset()
 			end
 			setPreviewBlocked(previewPlacementBlocked())
 		end

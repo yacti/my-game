@@ -30,7 +30,8 @@ local FLOOR_Y_TOLERANCE_BELOW = 5
 local FLOOR_Y_TOLERANCE_ABOVE = 14
 local SELECTION_ALLOWED_COLOR = Color3.fromRGB(0, 228, 10)
 local SELECTION_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
-local PLACEMENT_EDIT_FLOOR_OFFSET = 3
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
+local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
@@ -496,13 +497,16 @@ function FeedEditController.start()
 	local placementEdit = placementEditTemplate:Clone()
 	UiEffects.BindBillboardPop(placementEdit)
 	placementEdit.Enabled = false
+	-- Wrapped so the whole panel fades as one layer while dragging.
+	local placementEditCanvas = UiEffects.WrapInCanvasGroup(placementEdit)
+	placementEdit.StudsOffsetWorldSpace = PLACEMENT_EDIT_OFFSET
 	placementEdit.Parent = playerGui
 
-	local options = placementEdit:FindFirstChild("options")
+	local options = placementEditCanvas:FindFirstChild("options")
 	local confirmButton = options and options:FindFirstChild("confirm")
 	local moveButton = options and options:FindFirstChild("move")
 	local rotateButton = options and options:FindFirstChild("rotate")
-	local tipLabel = placementEdit:FindFirstChild("tip")
+	local tipLabel = placementEditCanvas:FindFirstChild("tip")
 	if not (moveButton and moveButton:IsA("GuiButton") and rotateButton and rotateButton:IsA("GuiButton")) then
 		warn("[FeedEditController] PlacementEdit missing move/rotate GuiButtons")
 		placementEdit:Destroy()
@@ -548,17 +552,6 @@ function FeedEditController.start()
 		return floor.CFrame
 			* CFrame.new(selectedLX, floor.Size.Y / 2 + selectedPivotOffset, selectedLZ)
 			* CFrame.Angles(0, selectedLRY, 0)
-	end
-
-	local function updatePlacementEditOffset()
-		local floor = getPlayerFloor()
-		if not (floor and selectedPrimary and selectedFeed) then return end
-		local worldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(
-			selectedLX,
-			floor.Size.Y / 2 + PLACEMENT_EDIT_FLOOR_OFFSET,
-			selectedLZ
-		))
-		placementEdit.StudsOffsetWorldSpace = worldPosition - selectedPrimary.Position
 	end
 
 	local function selectedBoundsAt(cframe)
@@ -659,7 +652,6 @@ function FeedEditController.start()
 		if not cframe then return end
 		cancelRotationTween()
 		setObjectCFrame(selectedFeed, cframe)
-		updatePlacementEditOffset()
 		setSelectionBlocked(selectedPlacementBlocked(cframe))
 	end
 
@@ -682,7 +674,7 @@ function FeedEditController.start()
 		selectionTap:Cancel()
 		placementEdit.Enabled = false
 		placementEdit.Adornee = nil
-		placementEdit.StudsOffsetWorldSpace = Vector3.zero
+		UiEffects.SetGroupTransparency(placementEditCanvas, 0, true)
 		selectionBox.Adornee = nil
 		selectionBox.Parent = nil
 	end
@@ -782,6 +774,7 @@ function FeedEditController.start()
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = "Release to move"
 		end
+		UiEffects.SetGroupTransparency(placementEditCanvas, PLACEMENT_EDIT_DRAG_TRANSPARENCY)
 	end
 
 	local function stopMoving()
@@ -790,6 +783,7 @@ function FeedEditController.start()
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = currentBlocked and "Blocked" or "Hold to move"
 		end
+		UiEffects.SetGroupTransparency(placementEditCanvas, 0)
 		if not selectedFeed or not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
 			clearSelection(false)
 			return
@@ -826,7 +820,6 @@ function FeedEditController.start()
 		local cframe = selectedTargetCFrame()
 		if not cframe then return end
 		tweenSelectedTo(cframe)
-		updatePlacementEditOffset()
 		setSelectionBlocked(selectedPlacementBlocked(cframe))
 		sendMoveRequest()
 	end

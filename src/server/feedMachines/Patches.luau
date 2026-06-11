@@ -35,7 +35,7 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local Patches = {}
 
 local HARVEST_RESPAWN_DELAY = 3
-local OFFLINE_GROW_FRACTION = 1 / 1000
+local OFFLINE_GROW_FRACTION = 1 / 100
 local EDIT_MODE_ATTR = "EditMode"
 
 -- Offline progress runs at this fraction of the online rate. Tunable in one
