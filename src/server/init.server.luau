@@ -802,11 +802,18 @@ local function handlePlayerAdded(player)
 			if not toolsRestored then
 				toolsRestored = true
 				task.wait(0.5)
+				-- Materialize at most the cap; hoarded profiles beyond it would
+				-- otherwise burst thousands of replicated instances on join.
+				local foodBudget = Food.MAX_TOOLS
 				for foodType, count in pairs(profile.Data.FoodInventory or {}) do
-					for _ = 1, count do
+					for _ = 1, math.min(count, foodBudget) do
 						local tool = Food.MakeTool(foodType)
-						if tool then tool.Parent = player.Backpack end
+						if tool then
+							tool.Parent = player.Backpack
+							foodBudget -= 1
+						end
 					end
+					if foodBudget <= 0 then break end
 				end
 				for feedType, count in pairs(profile.Data.FeedInventory or {}) do
 					if type(count) == "number" then

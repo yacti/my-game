@@ -399,4 +399,22 @@ function Food.CountByType(player)
 	return counts
 end
 
+-- Hard cap on food Tools a player may hold (Backpack + equipped). Every food
+-- is a unique multi-part Tool that replicates to the owning client, so an
+-- uncapped inventory grows client memory without bound.
+Food.MAX_TOOLS = 100
+
+function Food.CountTools(player)
+	local total = 0
+	for _, item in pairs(player.Backpack:GetChildren()) do
+		if Food.IsFood(item) then
+			total += 1
+		end
+	end
+	if Food.IsFood(equippedTool(player)) then
+		total += 1
+	end
+	return total
+end
+
 return Food

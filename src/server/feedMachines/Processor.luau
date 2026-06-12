@@ -110,16 +110,17 @@ local function dispenseAllReady(machine, s, player)
 	while i <= #s.queue do
 		local item = s.queue[i]
 		if now - item.depositedAt >= duration then
-			table.remove(s.queue, i)
 			local foodId = item.foodId or item.foodType -- foodType kept for old saves
 			local inputXP = tonumber(item.xp) or Food.BaseXP(foodId)
 			local boostXP = inputXP * mult
 			local tool    = Food.MakeTool(foodId, boostXP)
-			if tool then
-				if not ToolGrantService.GrantTool(player, tool) then
-					tool:Destroy()
-				end
+			if tool and not ToolGrantService.GrantTool(player, tool) then
+				tool:Destroy()
+				-- Grant blocked (e.g. food cap): keep the item queued so the
+				-- player can collect it after freeing inventory space.
+				break
 			end
+			table.remove(s.queue, i)
 		else
 			i += 1
 		end

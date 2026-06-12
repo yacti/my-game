@@ -126,18 +126,19 @@ local function dispenseAllReady(machine, s, player)
 	while i <= #s.queue do
 		local item = s.queue[i]
 		if type(item.readyAt) == "number" and now >= item.readyAt then
-			table.remove(s.queue, i)
 			local sourceFoodId = item.sourceFoodId or item.foodId or item.foodType
 			if type(sourceFoodId) == "string" and sourceFoodId ~= "" then
 				local sourceXP = tonumber(item.sourceXP) or tonumber(item.xp) or Food.BaseXP(sourceFoodId)
 				local boostXP = sourceXP * multiplier
 				local tool = Food.MakeJamTool(producerFeedType, sourceFoodId, boostXP)
-				if tool then
-					if not ToolGrantService.GrantTool(player, tool) then
-						tool:Destroy()
-					end
+				if tool and not ToolGrantService.GrantTool(player, tool) then
+					tool:Destroy()
+					-- Grant blocked (e.g. food cap): keep the item queued so the
+					-- player can collect it after freeing inventory space.
+					break
 				end
 			end
+			table.remove(s.queue, i)
 		else
 			i += 1
 		end

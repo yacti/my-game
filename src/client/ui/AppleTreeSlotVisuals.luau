@@ -39,7 +39,9 @@ local animated = {}
 local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
-local shakeIds = {}
+-- Weak keys: shake tokens are plain numbers, so destroyed trees fall out on
+-- GC instead of being pinned by their token entry forever.
+local shakeIds = setmetatable({}, { __mode = "k" })
 local groundMarkers = {}
 local shakeTargetCache = {}
 

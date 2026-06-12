@@ -20,6 +20,7 @@ local UPDATE_SECONDS = 0.25
 
 local player = Players.LocalPlayer
 local tracked = {}
+local trackedAncestryConns = {} -- [Instance] = RBXScriptConnection, paired with tracked
 local candidateConnections = {}
 local template = nil
 local warnedTemplate = false
@@ -135,17 +136,28 @@ local function formatRemaining(seconds)
 	return string.format("%ds", remainder)
 end
 
+-- The single drop path: the AncestryChanged connection must die with the
+-- tracked entry, or machines accumulate one connection per timer cycle.
+local function dropTracked(instance)
+	local gui = tracked[instance]
+	if gui then gui:Destroy() end
+	tracked[instance] = nil
+	local conn = trackedAncestryConns[instance]
+	if conn then
+		conn:Disconnect()
+		trackedAncestryConns[instance] = nil
+	end
+end
+
 local function update(instance, gui)
 	if not isInOwnPlot(instance) then
-		if gui then gui:Destroy() end
-		tracked[instance] = nil
+		dropTracked(instance)
 		return
 	end
 
 	local titleText, endAt = timerContext(instance)
 	if not titleText then
-		if gui then gui:Destroy() end
-		tracked[instance] = nil
+		dropTracked(instance)
 		return
 	end
 
@@ -156,8 +168,7 @@ local function update(instance, gui)
 			warn("[TimerBillboards] TimerBillboard missing TitleLabel or TimeLabel")
 			warnedLabels = true
 		end
-		gui:Destroy()
-		tracked[instance] = nil
+		dropTracked(instance)
 		return
 	end
 
@@ -182,14 +193,12 @@ local function attach(instance)
 	gui.Parent = adornee
 	UiEffects.BindBillboardDistancePop(gui)
 	tracked[instance] = gui
-	update(instance, gui)
-
-	RuntimeGuard.Connect(instance.AncestryChanged, "TimerBillboards.AncestryChanged", function()
+	trackedAncestryConns[instance] = RuntimeGuard.Connect(instance.AncestryChanged, "TimerBillboards.AncestryChanged", function()
 		if not instance:IsDescendantOf(Workspace) then
-			if tracked[instance] then tracked[instance]:Destroy() end
-			tracked[instance] = nil
+			dropTracked(instance)
 		end
 	end)
+	update(instance, gui)
 end
 
 local function refreshCandidate(instance)
@@ -264,9 +273,8 @@ local function watchCurrentPlot()
 		plotDescendantAdded = nil
 	end
 	clearAllCandidateWatches()
-	for instance, gui in pairs(tracked) do
-		if gui then gui:Destroy() end
-		tracked[instance] = nil
+	for instance in pairs(tracked) do
+		dropTracked(instance)
 	end
 
 	local plot = PlotResolver.ResolveForPlayer(player)

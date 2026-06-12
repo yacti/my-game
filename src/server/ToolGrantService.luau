@@ -1,6 +1,9 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local NotificationService = require(script.Parent:WaitForChild("NotificationService"))
+
+local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 
 local ToolGrantService = {}
@@ -8,7 +11,9 @@ local ToolGrantService = {}
 local DEFERRED_AUTO_EQUIP_DELAY = 0.05
 local DEFAULT_AUTO_EQUIP_BURST_GAP = 3
 local AUTO_EQUIP_POLICY_FIRST_IN_BURST = "firstInBurst"
+local FOOD_CAP_NOTIFY_COOLDOWN = 2
 local autoEquipLastRequestByUserId = {}
+local foodCapNotifiedAtByUserId = {}
 
 local function shouldAutoEquip(options)
 	return type(options) ~= "table" or options.autoEquip ~= false
@@ -100,6 +105,22 @@ function ToolGrantService.EquipLatest(player, tool)
 	return ok == true
 end
 
+-- Rate-limited so cap-blocked pickup spam (trees allow 5 clicks/s) does not
+-- flood the notification feed.
+local function notifyFoodCapReached(player)
+	local key = userKey(player)
+	if key == nil then
+		return
+	end
+	local now = os.clock()
+	local notifiedAt = foodCapNotifiedAtByUserId[key]
+	if notifiedAt and now - notifiedAt < FOOD_CAP_NOTIFY_COOLDOWN then
+		return
+	end
+	foodCapNotifiedAtByUserId[key] = now
+	NotificationService.Error(player, string.format("Food inventory full (%d max). Feed or process some food first.", Food.MAX_TOOLS))
+end
+
 function ToolGrantService.GrantTool(player, tool, options)
 	if not (tool and tool:IsA("Tool")) then
 		return false, "invalid-tool"
@@ -107,6 +128,10 @@ function ToolGrantService.GrantTool(player, tool, options)
 	local backpack = player and player:FindFirstChildOfClass("Backpack")
 	if not backpack then
 		return false, "no-backpack"
+	end
+	if Food.IsFood(tool) and Food.CountTools(player) >= Food.MAX_TOOLS then
+		notifyFoodCapReached(player)
+		return false, "food-inventory-full"
 	end
 
 	tool.Parent = backpack
@@ -143,6 +168,7 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "ToolGrantService.PlayerRemoving", 
 	local key = userKey(player)
 	if key ~= nil then
 		autoEquipLastRequestByUserId[key] = nil
+		foodCapNotifiedAtByUserId[key] = nil
 	end
 end)
 

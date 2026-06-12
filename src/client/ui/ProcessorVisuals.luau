@@ -148,6 +148,9 @@ local function bounceModel(model)
 	record.up = up
 	up.Completed:Connect(function()
 		if activeBounces[model] ~= record or not model.Parent then
+			if activeBounces[model] == record then
+				activeBounces[model] = nil
+			end
 			value:Destroy()
 			return
 		end

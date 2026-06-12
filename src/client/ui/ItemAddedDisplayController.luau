@@ -382,6 +382,11 @@ local function tryProcessFoodTool(tool, retriesRemaining)
 		return
 	end
 	seenFoodTools[key] = true
+	-- Entries must survive Backpack<->Character moves but not the tool itself,
+	-- or the set grows by one key for every food ever picked up.
+	RuntimeGuard.Connect(tool.Destroying, "ItemAddedDisplay.FoodToolDestroying", function()
+		seenFoodTools[key] = nil
+	end)
 
 	if shouldSuppressFood(foodId) then
 		return

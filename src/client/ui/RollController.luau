@@ -1174,6 +1174,10 @@ local function playCrateFall(payload, token)
 	local crateConfig = RollChances.GetCrate(payload.crateId)
 	local fallMultiplier = crateConfig and crateConfig.FallDurationMultiplier or 1
 	if not playSwayFallTween(crate, startCFrame, endCFrame, token, fallMultiplier) then
+		-- Roll superseded mid-fall. clearOwnerReveals can't reach this offer
+		-- (trackActiveReveal only runs after landing), so reap the crate here
+		-- or it stays in Workspace forever with its looped animation playing.
+		clearOfferEffects(payload.offerId)
 		return
 	end
 
@@ -1182,6 +1186,7 @@ local function playCrateFall(payload, token)
 		crate:Destroy()
 	end
 	if not isCurrentRoll(token) then
+		clearOfferEffects(payload.offerId)
 		return
 	end
 

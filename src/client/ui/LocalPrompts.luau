@@ -34,6 +34,7 @@ LocalPrompts.AutoModes = {
 local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
+local targetAncestryConns = {} -- [Instance] = { [kind] = RBXScriptConnection }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
@@ -633,6 +634,14 @@ local function removePrompt(target, kind)
 		if next(pendingBucket) == nil then pendingPromptParents[target] = nil end
 	end
 
+	local connBucket = targetAncestryConns[target]
+	local ancestryConn = connBucket and connBucket[kind]
+	if ancestryConn then
+		ancestryConn:Disconnect()
+		connBucket[kind] = nil
+		if next(connBucket) == nil then targetAncestryConns[target] = nil end
+	end
+
 	local bucket = byTarget[target]
 	local prompt = bucket and bucket[kind]
 	if prompt then
@@ -752,7 +761,11 @@ addPrompt = function(target, kind, action)
 		end
 		PromptInteract:FireServer(action, target)
 	end)
-	RuntimeGuard.Connect(target.AncestryChanged, "LocalPrompts.TargetAncestryChanged." .. tostring(kind), function()
+	-- Stored and disconnected in removePrompt: many targets (ground markers,
+	-- machines) outlive their prompts by a whole session, so an unstored
+	-- connection here stacks one closure per add/remove cycle.
+	targetAncestryConns[target] = targetAncestryConns[target] or {}
+	targetAncestryConns[target][kind] = RuntimeGuard.Connect(target.AncestryChanged, "LocalPrompts.TargetAncestryChanged." .. tostring(kind), function()
 		if not target:IsDescendantOf(Workspace) then
 			removePrompt(target, kind)
 		end
