@@ -156,6 +156,9 @@ local function spawnFoodAtSlot(slot)
 		clone:PivotTo(slot.anchor.CFrame)
 		-- Initialize before parenting so clients never see a full-size flash.
 		clone:ScaleTo(PatchScale.ComputeScale(slot.baseXP or 0, slot.patchXP))
+		-- Stream the fruit as one unit so clients never ScaleTo a model whose
+		-- remaining parts arrive later at server geometry.
+		clone.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	end
 	clone.Parent = slot.anchor
 	return clone
@@ -494,6 +497,23 @@ function Patches.HarvestAnchor(anchor, player)
 	local s = state[entry.machine]
 	if not s or not entry.machine.Parent then return false end
 	return harvest(entry.machine, s, entry.slotIndex, player)
+end
+
+-- Re-syncs each slot food model's server-side geometry to its current derived
+-- scale. Server geometry otherwise stays at the last published scale (clients
+-- render live growth locally; see PatchSlotVisuals), so callers must resync
+-- before pivoting the machine or the replicated part CFrames stomp clients'
+-- scaled layouts. Geometry only: growth bookkeeping is untouched.
+function Patches.ResyncVisualScales(machine)
+	local s = state[machine]
+	if not s then return end
+	local now = serverNow()
+	for _, slot in ipairs(s.slots) do
+		local food = slot.foodPart
+		if food and food:IsA("Model") and food.Parent then
+			food:ScaleTo(PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP))
+		end
+	end
 end
 
 return Patches

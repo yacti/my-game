@@ -18,6 +18,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local State   = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
+local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnchor"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -25,7 +26,9 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
-local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
+-- World-space gap above the placeable's bounding-box top (the panel anchors
+-- to a PlacementEditAnchor attachment, not a fixed part).
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 2.5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
@@ -207,20 +210,6 @@ local function setPreviewCFrame(preview, cframe)
 	end
 end
 
-local function firstBasePart(root)
-	if root:IsA("BasePart") then
-		return root
-	end
-	if root:IsA("Model") then
-		for _, descendant in ipairs(root:GetDescendants()) do
-			if descendant:IsA("BasePart") then
-				return descendant
-			end
-		end
-	end
-	return nil
-end
-
 local function placementBoundsPart(model)
 	local hitbox = model:FindFirstChild(EDIT_SELECTION_HITBOX_NAME)
 	if hitbox and hitbox:IsA("BasePart") then
@@ -317,9 +306,7 @@ function FeedPlacement.start()
 
 	local function previewAdornee()
 		if not (preview and preview.Parent) then return nil end
-		if preview:IsA("BasePart") then return preview end
-		if preview:IsA("Model") then return preview.PrimaryPart or firstBasePart(preview) end
-		return nil
+		return PlacementEditAnchor.Attach(preview)
 	end
 
 	local function setConfirmVisible(visible)

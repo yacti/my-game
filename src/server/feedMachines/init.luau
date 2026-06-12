@@ -195,6 +195,15 @@ function FeedMachines.ApplyOfflineProgress(machine, context)
 	return true
 end
 
+-- Re-syncs server-side visual geometry (e.g. patch slot fruit scale) so a
+-- subsequent pivot replicates a consistent snapshot. Optional per class.
+function FeedMachines.ResyncVisualScales(machine)
+	local mod = impl(machine)
+	if mod and mod.ResyncVisualScales then
+		RuntimeGuard.Run("FeedMachines.ResyncVisualScales", mod.ResyncVisualScales, machine)
+	end
+end
+
 function FeedMachines.Interact(machine, player)
 	local mod = impl(machine)
 	if mod and mod.Interact then

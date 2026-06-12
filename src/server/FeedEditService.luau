@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
+local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
@@ -289,6 +290,9 @@ function FeedEditService.Start(config)
 			if movingCosmetic then
 				movedCFrame = PlotService.RepositionCosmetic(plot, placeable, snappedLX, snappedLZ, snappedLRY)
 			else
+				-- Resync before pivoting so the move replicates fruit at its
+				-- true current scale instead of the last published one.
+				FeedMachines.ResyncVisualScales(placeable)
 				movedCFrame = PlotService.RepositionFeed(plot, placeable, snappedLX, snappedLZ, snappedLRY)
 			end
 			if not movedCFrame then
@@ -303,6 +307,7 @@ function FeedEditService.Start(config)
 					if movingCosmetic then
 						PlotService.RepositionCosmetic(plot, placeable, oldLX, oldLZ, oldLRY)
 					else
+						FeedMachines.ResyncVisualScales(placeable)
 						PlotService.RepositionFeed(plot, placeable, oldLX, oldLZ, oldLRY)
 					end
 					PetMotionService.RefreshPlotRoutes(plot)

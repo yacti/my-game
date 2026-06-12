@@ -22,6 +22,8 @@ local MAX_SCALE_UPDATES_PER_STEP = 80
 
 local player = Players.LocalPlayer
 local tracked = {} -- [foodModel] = record
+local pendingScaleSync = {} -- array of foodModels awaiting a one-shot true-scale apply
+local pendingScaleSyncSet = {} -- [foodModel] = true (dedup for pendingScaleSync)
 
 local function isPatchSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -38,11 +40,11 @@ local function foodPosition(food)
 	return Vector3.zero
 end
 
-local function currentScaleFor(record, now)
+local function currentScaleFor(food, machine, now)
 	-- Slot XP is derived locally from the replicated growth anchor; the
-	-- server only re-publishes attributes on harvest/respawn/restore.
-	local xp = PatchGrowth.ComputeXPForFood(record.food, record.machine, now)
-	local patchXP = record.machine and record.machine:GetAttribute(State.Feed.XP)
+	-- server only re-publishes attributes on harvest/respawn/restore/move.
+	local xp = PatchGrowth.ComputeXPForFood(food, machine, now)
+	local patchXP = machine and machine:GetAttribute(State.Feed.XP)
 	return PatchScale.ComputeScale(xp, patchXP)
 end
 
@@ -69,7 +71,7 @@ local function applyScale(record, now)
 		return false
 	end
 
-	local scale = currentScaleFor(record, now)
+	local scale = currentScaleFor(food, record.machine, now)
 	if record.lastScale and math.abs(record.lastScale - scale) < 0.0001 then
 		return false
 	end
@@ -105,6 +107,13 @@ local function track(food)
 			cleanup(food)
 		end
 	end))
+
+	-- A replicated machine move stomps locally scaled part layouts; drop the
+	-- cached scale so the next pass re-applies against the fresh geometry.
+	local anchor = food.Parent
+	addConnection(record, RuntimeGuard.Connect(anchor:GetPropertyChangedSignal("CFrame"), "PatchSlotVisuals.AnchorMoved", function()
+		record.lastScale = nil
+	end))
 end
 
 local function scanRoot(root)
@@ -116,15 +125,46 @@ local function scanRoot(root)
 	end
 end
 
+-- One-shot true-scale sync for fruit as it replicates in (initial join
+-- snapshot and later stream-ins), at any distance; ongoing growth updates
+-- stay range gated. Drained by the heartbeat under the shared budget.
+local function queueScaleSync(obj)
+	if pendingScaleSyncSet[obj] then return end
+	if not (obj:IsA("Model") and isPatchSlotFood(obj)) then return end
+	pendingScaleSyncSet[obj] = true
+	table.insert(pendingScaleSync, obj)
+end
+
+local function drainScaleSyncQueue(now, budget)
+	local applied = 0
+	while #pendingScaleSync > 0 and applied < budget do
+		local food = table.remove(pendingScaleSync)
+		pendingScaleSyncSet[food] = nil
+		if food:IsDescendantOf(Workspace) then
+			local machine = food.Parent and food.Parent.Parent
+			if machine then
+				local scale = currentScaleFor(food, machine, now)
+				food:ScaleTo(scale)
+				local record = tracked[food]
+				if record then
+					record.lastScale = scale
+				end
+				applied += 1
+			end
+		end
+	end
+	return applied
+end
+
 -- Per-item RuntimeGuard.Run is hoisted out of this pass; the Heartbeat
 -- connection wrapper already guards the whole tick.
 local function updateVisibleScales()
+	local now = Workspace:GetServerTimeNow()
+	local scaled = drainScaleSyncQueue(now, MAX_SCALE_UPDATES_PER_STEP)
+
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
-
-	local now = Workspace:GetServerTimeNow()
-	local scaled = 0
 	for food, record in pairs(tracked) do
 		if not food:IsDescendantOf(Workspace) then
 			cleanup(food)
@@ -156,6 +196,22 @@ function PatchSlotVisuals.start()
 			end
 		end,
 	})
+
+	-- True scale on load: fruit replicates in at the server's last published
+	-- scale, so sync every fruit once as it appears — initial snapshot and
+	-- later stream-ins alike — regardless of distance.
+	RuntimeGuard.Spawn("PatchSlotVisuals.InitialScaleSync", function()
+		if not game:IsLoaded() then
+			game.Loaded:Wait()
+		end
+		local plots, container = PlotScope.CandidatePlots()
+		RuntimeGuard.Connect(container.DescendantAdded, "PatchSlotVisuals.StreamedIn", queueScaleSync)
+		for _, plot in ipairs(plots) do
+			for _, obj in ipairs(plot:GetDescendants()) do
+				queueScaleSync(obj)
+			end
+		end
+	end)
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "PatchSlotVisuals.Heartbeat", function(dt)

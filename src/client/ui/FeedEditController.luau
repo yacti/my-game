@@ -13,6 +13,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
+local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnchor"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -30,7 +31,9 @@ local FLOOR_Y_TOLERANCE_BELOW = 5
 local FLOOR_Y_TOLERANCE_ABOVE = 14
 local SELECTION_ALLOWED_COLOR = Color3.fromRGB(0, 228, 10)
 local SELECTION_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
-local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
+-- World-space gap above the placeable's bounding-box top (the panel anchors
+-- to a PlacementEditAnchor attachment, not a fixed part).
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 2.5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
@@ -470,6 +473,7 @@ function FeedEditController.start()
 	local buttonVisible = false
 	local selectedFeed = nil
 	local selectedPrimary = nil
+	local selectedAnchor = nil
 	local selectedPivotOffset = 0
 	local selectedPrimaryOffset = CFrame.new()
 	local selectedLX = 0
@@ -674,6 +678,10 @@ function FeedEditController.start()
 		selectionTap:Cancel()
 		placementEdit.Enabled = false
 		placementEdit.Adornee = nil
+		if selectedAnchor then
+			selectedAnchor:Destroy()
+			selectedAnchor = nil
+		end
 		UiEffects.SetGroupTransparency(placementEditCanvas, 0, true)
 		selectionBox.Adornee = nil
 		selectionBox.Parent = nil
@@ -713,7 +721,8 @@ function FeedEditController.start()
 		local _, lry, _ = localCF:ToEulerAnglesXYZ()
 		selectedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 
-		placementEdit.Adornee = primary
+		selectedAnchor = PlacementEditAnchor.Attach(feed)
+		placementEdit.Adornee = selectedAnchor or primary
 		placementEdit.Enabled = true
 		selectionBox.Adornee = primary
 		selectionBox.Parent = primary

@@ -137,4 +137,12 @@ function PlotScope.Bind(opts)
 	RuntimeGuard.Run(label .. ".InitialScope", refresh)
 end
 
+-- All currently replicated plot containers, regardless of distance. The
+-- container holding them (Workspace.Plots or Workspace) is returned second
+-- so callers can watch it for late-streamed descendants.
+function PlotScope.CandidatePlots()
+	local folder = Workspace:FindFirstChild("Plots")
+	return candidatePlots(), folder or Workspace
+end
+
 return PlotScope
