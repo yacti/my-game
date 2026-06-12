@@ -637,6 +637,9 @@ local function removePrompt(target, kind)
 	local prompt = bucket and bucket[kind]
 	if prompt then
 		local parent = prompt.Parent
+		-- Hide before destroying so a shown prompt fires PromptHidden for the
+		-- customizer instead of relying solely on its Destroying fallback.
+		prompt.Enabled = false
 		prompt:Destroy()
 		if parent and isLocalPromptAttachment(parent) then
 			parent:Destroy()

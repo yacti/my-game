@@ -25,6 +25,8 @@ local PRICE_ATTRIBUTE = "PromptPrice"
 local PRICE_AFFORDABLE_COLOR = Color3.fromRGB(126, 229, 124)
 local PRICE_UNAFFORDABLE_COLOR = Color3.fromRGB(236, 95, 95)
 
+local PROMPT_DESTROY_DELAY_SECONDS = 0.2
+
 local GAMEPAD_BUTTON_IMAGE = {
 	[Enum.KeyCode.ButtonX] = "rbxasset://textures/ui/Controls/xboxX.png",
 	[Enum.KeyCode.ButtonY] = "rbxasset://textures/ui/Controls/xboxY.png",
@@ -541,11 +543,11 @@ local function createPrompt(prompt, inputType)
 			priceCurrencyConnection:Disconnect()
 		end
 
-		for _, tween in ipairs(tweensForFadeOut) do
-			tween:Play()
-		end
+		-- Hide instantly; defer the Destroy so in-flight deferred signals and
+		-- tweens finish against a live instance.
+		promptUI.Enabled = false
 
-		task.wait(tweenInfoFast.Time)
+		task.wait(PROMPT_DESTROY_DELAY_SECONDS)
 		promptUI:Destroy()
 	end
 end
@@ -561,8 +563,34 @@ function ProximityPromptCustomizer.start()
 			return
 		end
 
-		prompt.PromptHidden:Wait()
-		cleanup()
+		-- PromptHidden never fires for a prompt destroyed while shown (Destroy
+		-- disconnects its signals), so listen for Destroying as well or the
+		-- cloned billboard and its connections leak in PlayerGui.
+		local hiddenConnection = nil
+		local destroyingConnection = nil
+		local cleanedUp = false
+		local function runCleanup()
+			if cleanedUp then
+				return
+			end
+			cleanedUp = true
+			if hiddenConnection then
+				hiddenConnection:Disconnect()
+				hiddenConnection = nil
+			end
+			if destroyingConnection then
+				destroyingConnection:Disconnect()
+				destroyingConnection = nil
+			end
+			cleanup()
+		end
+
+		hiddenConnection = RuntimeGuard.Connect(prompt.PromptHidden, "ProximityPromptCustomizer.PromptHidden", runCleanup)
+		destroyingConnection = RuntimeGuard.Connect(prompt.Destroying, "ProximityPromptCustomizer.PromptDestroying", runCleanup)
+		if prompt.Parent == nil then
+			-- Destroyed before this handler ran; neither signal will fire.
+			runCleanup()
+		end
 	end)
 end
 
