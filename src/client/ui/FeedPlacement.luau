@@ -79,6 +79,14 @@ end
 
 local FeedPlacement = {}
 
+-- True while a placement preview has a selected grid cell (confirm panel up).
+-- Read by OnboardingController to hide the tutorial clicker during previews.
+local hasActiveSelection = false
+
+function FeedPlacement.HasActiveSelection()
+	return hasActiveSelection
+end
+
 local PLACEMENT_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before placing another feed machine.",
 	["no-cosmetic-tool"] = "Equip a cosmetic before placing.",
@@ -408,6 +416,7 @@ function FeedPlacement.start()
 		currentRotation = 0
 		selectedLX      = nil
 		selectedLZ      = nil
+		hasActiveSelection = false
 		previewPlacementHeight = nil
 		previewBoundsOffset = CFrame.new()
 		previewBoundsSize = nil
@@ -740,6 +749,7 @@ function FeedPlacement.start()
 		setGridEffectEnabled(true)
 		selectedLX = snappedLX
 		selectedLZ = snappedLZ
+		hasActiveSelection = true
 		applyPreviewCFrame()
 		setPlacementEditVisible(true)
 		setPreviewBlocked(previewPlacementBlocked())
@@ -989,6 +999,7 @@ function FeedPlacement.start()
 				currentRotation = 0
 				selectedLX = nil
 				selectedLZ = nil
+				hasActiveSelection = false
 				currentPlacementBlocked = true
 				setPlacementEditVisible(false)
 				setConfirmVisible(true)
@@ -1037,6 +1048,7 @@ function FeedPlacement.start()
 			currentRotation = 0
 			selectedLX      = nil
 			selectedLZ      = nil
+			hasActiveSelection = false
 			currentPlacementBlocked = true
 			setPlacementEditVisible(false)
 			setConfirmVisible(true)

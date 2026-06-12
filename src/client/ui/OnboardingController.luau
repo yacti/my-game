@@ -10,6 +10,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
+local FeedPlacement = require(script.Parent:WaitForChild("FeedPlacement"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local RollController = require(script.Parent:WaitForChild("RollController"))
@@ -19,15 +20,31 @@ local OnboardingController = {}
 local ARROW_HEIGHT = 6
 local SEED_PREVIEW_ARROW_HEIGHT = 9.5
 local PET_ARROW_HEIGHT = 9
-local PLANT_ARROW_HEIGHT = 22
-local PLANT_ARROW_SCALE = 2
 local ARROW_BOB_HEIGHT = 0.75
 local ARROW_BOB_PERIOD = 1.15
 local ARROW_FOLLOW_SPEED = 7
 local ARROW_Z_ROTATION_SPEED = math.rad(180)
 local CLICKER_POP_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local CLICKER_SETTLE_TWEEN = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local CLICKER_GROUND_OFFSET_Y = 2
+local PATCH_SPOT_SIZE = 4
+local PATCH_SPOT_QUERY_HEIGHT = 4
+local PATCH_SPOT_QUERY_INSET = 0.05
+local PATCH_SPOT_STEP = 2
 local FINAL_NOTE_FADE_TWEEN = TweenInfo.new(Onboarding.FinalNoteFadeSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Stages with no floating arrow: progress-bar stages plus every stage the
+-- ClickerOnboarding billboard covers instead.
+local NO_MAIN_ARROW_STAGES = {
+	[Onboarding.Stages.CollectApple] = true,
+	[Onboarding.Stages.ShakeAppleTree] = true,
+	[Onboarding.Stages.MakeCurrency] = true,
+	[Onboarding.Stages.GatherPumpkinXP] = true,
+	[Onboarding.Stages.RollAppleTreeSeed] = true,
+	[Onboarding.Stages.RollPumpkinSeed] = true,
+	[Onboarding.Stages.PlantAppleTreeSeed] = true,
+	[Onboarding.Stages.PlantPumpkinSeed] = true,
+}
 
 local player = Players.LocalPlayer
 
@@ -37,15 +54,14 @@ local currentProgress = {}
 local mainArrow = nil
 local mainBaseCFrame = nil
 local mainTargetCFrame = nil
-local mainTargetScale = 1
-local mainArrowDefaultScale = 1
-local mainArrowAppliedScale = nil
 local mainArrowStartTime = 0
 local fruitArrows = {}
 local templateRotation = CFrame.new()
 local clickerBillboard = nil
+local clickerAnchor = nil
 local clickerBaseSize = nil
 local lastClickCount = 0
+local patchSpotCache = nil
 local warnedMissingArrow = false
 local warnedMissingClicker = false
 local finalNoteToken = 0
@@ -291,8 +307,6 @@ local function ensureMainArrow()
 	if mainArrow then
 		local pivot = mainArrow:GetPivot()
 		templateRotation = pivot - pivot.Position
-		mainArrowDefaultScale = mainArrow:GetScale()
-		mainArrowAppliedScale = nil
 		mainBaseCFrame = nil
 		mainTargetCFrame = nil
 		mainArrowStartTime = os.clock()
@@ -307,9 +321,6 @@ local function destroyMainArrow()
 	end
 	mainBaseCFrame = nil
 	mainTargetCFrame = nil
-	mainTargetScale = 1
-	mainArrowDefaultScale = 1
-	mainArrowAppliedScale = nil
 	mainArrowStartTime = 0
 end
 
@@ -691,9 +702,6 @@ local function appleGroundFruits()
 end
 
 local function singleArrowTarget()
-	if currentStage == Onboarding.Stages.RollPumpkinSeed or currentStage == Onboarding.Stages.RollAppleTreeSeed then
-		return rollButton()
-	end
 	if currentStage == Onboarding.Stages.BuyPumpkinSeed then
 		local reveal = RollController.GetActiveTutorialReveal(Onboarding.Seeds.Pumpkin)
 		return reveal and { instance = reveal, arrowHeight = SEED_PREVIEW_ARROW_HEIGHT } or nil
@@ -701,14 +709,6 @@ local function singleArrowTarget()
 	if currentStage == Onboarding.Stages.BuyAppleTreeSeed then
 		local reveal = RollController.GetActiveTutorialReveal(Onboarding.Seeds.AppleTree)
 		return reveal and { instance = reveal, arrowHeight = SEED_PREVIEW_ARROW_HEIGHT } or nil
-	end
-	if currentStage == Onboarding.Stages.PlantPumpkinSeed or currentStage == Onboarding.Stages.PlantAppleTreeSeed then
-		local center = starterAreaCenter()
-		return center and {
-			position = center,
-			arrowHeight = PLANT_ARROW_HEIGHT,
-			arrowScale = PLANT_ARROW_SCALE,
-		} or nil
 	end
 	if currentStage == Onboarding.Stages.HarvestPumpkin then
 		return pumpkinTarget()
@@ -728,7 +728,7 @@ local function targetWorldPosition(target)
 		return target.position
 	end
 	-- Table targets may track a live instance instead of a static position so
-	-- per-stage arrowHeight/arrowScale overrides still follow a moving target.
+	-- per-stage arrowHeight overrides still follow a moving target.
 	if type(target) == "table" then
 		target = target.instance
 		if target == nil then
@@ -751,31 +751,8 @@ local function arrowHeightForTarget(target)
 	return type(target) == "table" and tonumber(target.arrowHeight) or ARROW_HEIGHT
 end
 
-local function arrowScaleForTarget(target)
-	local scale = type(target) == "table" and tonumber(target.arrowScale) or 1
-	return math.max(scale or 1, 0.1)
-end
-
-local function applyMainArrowScale(scale)
-	if not mainArrow then
-		return
-	end
-	scale = math.max(tonumber(scale) or 1, 0.1)
-	if mainArrowAppliedScale == scale then
-		return
-	end
-	mainArrowAppliedScale = scale
-	pcall(function()
-		mainArrow:ScaleTo(mainArrowDefaultScale * scale)
-	end)
-end
-
 local function updateMainTarget()
-	if currentStage == Onboarding.Stages.CollectApple
-		or currentStage == Onboarding.Stages.ShakeAppleTree
-		or currentStage == Onboarding.Stages.MakeCurrency
-		or currentStage == Onboarding.Stages.GatherPumpkinXP
-		or not Onboarding.IsActive(currentStage) then
+	if NO_MAIN_ARROW_STAGES[currentStage] or not Onboarding.IsActive(currentStage) then
 		destroyMainArrow()
 		return
 	end
@@ -788,8 +765,6 @@ local function updateMainTarget()
 	end
 
 	if ensureMainArrow() then
-		mainTargetScale = arrowScaleForTarget(target)
-		applyMainArrowScale(mainTargetScale)
 		mainTargetCFrame = cframeAbove(position, arrowHeightForTarget(target))
 		if not mainBaseCFrame then
 			mainBaseCFrame = mainTargetCFrame
@@ -838,23 +813,207 @@ local function updateFruitTargets()
 	end
 end
 
+local function plotFloor()
+	local currentPlot = plot()
+	local floor = currentPlot and currentPlot:FindFirstChild("Floor")
+	if floor and floor:IsA("BasePart") then
+		return floor, currentPlot
+	end
+	return nil, currentPlot
+end
+
+local function unlockedGridParts(currentPlot)
+	local parts = {}
+	if not currentPlot then return parts end
+	for _, folderName in ipairs({ PlotGrid.Folders.Starter, PlotGrid.Folders.Unlockable }) do
+		local folder = currentPlot:FindFirstChild(folderName)
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				if child:IsA("BasePart") and child:GetAttribute(State.Grid.Unlocked) == true then
+					parts[#parts + 1] = child
+				end
+			end
+		end
+	end
+	return parts
+end
+
+local function placeableHitboxRootFromPart(currentPlot, part)
+	local current = part
+	while current and current ~= currentPlot do
+		local feedType = current:GetAttribute(State.Feed.Type)
+		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") then return current end
+			return nil
+		end
+		local cosmeticId = current:GetAttribute(State.Cosmetic.Id)
+		if type(cosmeticId) == "string" and cosmeticId ~= "" and current:GetAttribute(State.Cosmetic.Index) then
+			if current:IsA("BasePart") then return current end
+			if current:IsA("Model") then return current end
+			return nil
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function patchSpotOccupied(currentPlot, floor, lx, lz)
+	local boxCFrame = floor.CFrame * CFrame.new(lx, floor.Size.Y / 2 + PATCH_SPOT_QUERY_HEIGHT / 2, lz)
+	local boxSize = Vector3.new(
+		PATCH_SPOT_SIZE - PATCH_SPOT_QUERY_INSET,
+		PATCH_SPOT_QUERY_HEIGHT,
+		PATCH_SPOT_SIZE - PATCH_SPOT_QUERY_INSET
+	)
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { currentPlot }
+	for _, part in ipairs(workspace:GetPartBoundsInBox(boxCFrame, boxSize, params)) do
+		if placeableHitboxRootFromPart(currentPlot, part) then
+			return true
+		end
+	end
+	return false
+end
+
+local function findFreePatchSpot(currentPlot, floor)
+	local half = PATCH_SPOT_SIZE / 2
+	-- Candidates are integer floor-local points (matching FeedPlacement's 1-stud
+	-- snap) whose footprint fits inside a single unlocked grid part, so any
+	-- hinted spot is a genuinely placeable cell.
+	local candidates = {}
+	for _, gridPart in ipairs(unlockedGridParts(currentPlot)) do
+		local center = floor.CFrame:PointToObjectSpace(gridPart.Position)
+		local minX = math.ceil(center.X - gridPart.Size.X / 2 + half)
+		local maxX = math.floor(center.X + gridPart.Size.X / 2 - half)
+		local minZ = math.ceil(center.Z - gridPart.Size.Z / 2 + half)
+		local maxZ = math.floor(center.Z + gridPart.Size.Z / 2 - half)
+		for lx = minX, maxX, PATCH_SPOT_STEP do
+			for lz = minZ, maxZ, PATCH_SPOT_STEP do
+				candidates[#candidates + 1] = { lx = lx, lz = lz }
+			end
+		end
+	end
+
+	local centerWorld = starterAreaCenter()
+	local centerLocal = centerWorld and floor.CFrame:PointToObjectSpace(centerWorld) or Vector3.zero
+	table.sort(candidates, function(a, b)
+		local distanceA = (a.lx - centerLocal.X) ^ 2 + (a.lz - centerLocal.Z) ^ 2
+		local distanceB = (b.lx - centerLocal.X) ^ 2 + (b.lz - centerLocal.Z) ^ 2
+		if distanceA ~= distanceB then
+			return distanceA < distanceB
+		end
+		if a.lx ~= b.lx then
+			return a.lx < b.lx
+		end
+		return a.lz < b.lz
+	end)
+
+	for _, candidate in ipairs(candidates) do
+		if not patchSpotOccupied(currentPlot, floor, candidate.lx, candidate.lz) then
+			return floor.CFrame:PointToWorldSpace(Vector3.new(candidate.lx, floor.Size.Y / 2, candidate.lz))
+		end
+	end
+	return nil
+end
+
+local function freePatchSpotPosition()
+	local floor, currentPlot = plotFloor()
+	if not (floor and currentPlot) then
+		return nil
+	end
+	if patchSpotCache and patchSpotCache.plot == currentPlot then
+		return patchSpotCache.position or nil
+	end
+	local position = findFreePatchSpot(currentPlot, floor)
+	patchSpotCache = { plot = currentPlot, position = position or false }
+	return position
+end
+
+-- Projects the target onto the floor's top plane so the billboard floats a
+-- consistent CLICKER_GROUND_OFFSET_Y above the ground regardless of whether
+-- the input Y came from a grid-part center or the floor surface.
+local function clickerFloorAnchor(worldPosition)
+	local floor = plotFloor()
+	if not floor then
+		return nil
+	end
+	if not (clickerAnchor and clickerAnchor.Parent == floor) then
+		if clickerAnchor then
+			clickerAnchor:Destroy()
+		end
+		clickerAnchor = Instance.new("Attachment")
+		clickerAnchor.Name = "__OnboardingClickerAnchor"
+		clickerAnchor.Parent = floor
+	end
+	local floorLocal = floor.CFrame:PointToObjectSpace(worldPosition)
+	clickerAnchor.WorldPosition = floor.CFrame:PointToWorldSpace(
+		Vector3.new(floorLocal.X, floor.Size.Y / 2 + CLICKER_GROUND_OFFSET_Y, floorLocal.Z)
+	)
+	return clickerAnchor
+end
+
+-- The roll button carries a Studio-authored TutorialClicker Attachment marking
+-- where the billboard should sit; fall back to the button part if absent.
+local function rollClickerAdornee()
+	local button = rollButton()
+	if not button then
+		return nil
+	end
+	local attachment = button:FindFirstChild("TutorialClicker")
+	if attachment and attachment:IsA("Attachment") then
+		return attachment
+	end
+	return button
+end
+
+local function clickerTarget()
+	if currentStage == Onboarding.Stages.ShakeAppleTree then
+		local primary = treePrimary()
+		return primary and { adornee = primary, alwaysOnTop = true } or nil
+	end
+	if currentStage == Onboarding.Stages.RollAppleTreeSeed or currentStage == Onboarding.Stages.RollPumpkinSeed then
+		local adornee = rollClickerAdornee()
+		return adornee and { adornee = adornee } or nil
+	end
+	if currentStage == Onboarding.Stages.PlantAppleTreeSeed or currentStage == Onboarding.Stages.PlantPumpkinSeed then
+		if FeedPlacement.HasActiveSelection() then
+			return nil
+		end
+		local position
+		if currentStage == Onboarding.Stages.PlantPumpkinSeed then
+			position = freePatchSpotPosition() or starterAreaCenter()
+		else
+			position = starterAreaCenter()
+		end
+		local anchor = position and clickerFloorAnchor(position)
+		return anchor and { adornee = anchor } or nil
+	end
+	return nil
+end
+
 local function destroyClicker()
 	if clickerBillboard then
 		clickerBillboard:Destroy()
 		clickerBillboard = nil
+	end
+	if clickerAnchor then
+		clickerAnchor:Destroy()
+		clickerAnchor = nil
 	end
 	clickerBaseSize = nil
 	lastClickCount = 0
 end
 
 local function ensureClicker()
-	local primary = treePrimary()
-	if currentStage ~= Onboarding.Stages.ShakeAppleTree or not primary then
+	local target = clickerTarget()
+	if not target then
 		destroyClicker()
 		return
 	end
 	if clickerBillboard and clickerBillboard.Parent then
-		clickerBillboard.Adornee = primary
+		clickerBillboard.Adornee = target.adornee
+		clickerBillboard.AlwaysOnTop = target.alwaysOnTop == true
 		return
 	end
 
@@ -869,7 +1028,8 @@ local function ensureClicker()
 
 	clickerBillboard = template:Clone()
 	clickerBillboard.Name = "__OnboardingClicker"
-	clickerBillboard.Adornee = primary
+	clickerBillboard.Adornee = target.adornee
+	clickerBillboard.AlwaysOnTop = target.alwaysOnTop == true
 	clickerBillboard.StudsOffset = Vector3.zero
 	clickerBillboard.StudsOffsetWorldSpace = Vector3.zero
 	clickerBillboard.Parent = playerGui()
@@ -948,6 +1108,9 @@ end
 
 local function applyState(state)
 	state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
+	if state.Stage ~= currentStage then
+		patchSpotCache = nil
+	end
 	currentStage = state.Stage
 	currentProgress = state.Progress or {}
 	ensureTargetCache()
