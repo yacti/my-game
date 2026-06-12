@@ -6,13 +6,13 @@ local DEFAULT_LUCK_DONOR_COUNT = 2
 RollChances.Crates = {
 	Crate = {
 		DisplayName = "Crate",
-		DropWeight = 16.7,
+		DropWeight = 50,
 		LuckMultiplier = 1,
 		TemplateName = "CommonCrate",
 	},
 	YellowLuckyBlock = {
 		DisplayName = "Yellow Lucky Block",
-		DropWeight = 16.7,
+		DropWeight = 5,
 		LuckMultiplier = 2,
 		TemplateName = "YellowLuckyBlock",
 		FallDurationMultiplier = 2,
@@ -20,7 +20,7 @@ RollChances.Crates = {
 	},
 	BlueLuckyBlock = {
 		DisplayName = "Blue Lucky Block",
-		DropWeight = 16.7,
+		DropWeight = 3,
 		LuckMultiplier = 3,
 		TemplateName = "BlueLuckyBlock",
 		FallDurationMultiplier = 2,
@@ -28,7 +28,7 @@ RollChances.Crates = {
 	},
 	RedLuckyBlock = {
 		DisplayName = "Red Lucky Block",
-		DropWeight = 16.7,
+		DropWeight = 1,
 		LuckMultiplier = 4,
 		TemplateName = "RedLuckyBlock",
 		FallDurationMultiplier = 2,
@@ -36,7 +36,7 @@ RollChances.Crates = {
 	},
 	PurpleAngelLuckyBlock = {
 		DisplayName = "Purple Angel Lucky Block",
-		DropWeight = 16.7,
+		DropWeight = 0.75,
 		LuckMultiplier = 10,
 		TemplateName = "PurpleAngelLuckyBlock",
 		FallDurationMultiplier = 3,
@@ -44,7 +44,7 @@ RollChances.Crates = {
 	},
 	ChainedLuckyBlock = {
 		DisplayName = "Chained Lucky Block",
-		DropWeight = 16.7,
+		DropWeight = 0.25,
 		LuckMultiplier = 25,
 		TemplateName = "ChainedLuckyBlock",
 		FallDurationMultiplier = 4,
