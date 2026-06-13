@@ -37,6 +37,11 @@ local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
+local RARE_TEASE_RARITIES = {
+	Rarities.Legendary,
+	Rarities.Mythical,
+	Rarities.Secret,
+}
 
 local DROP_AREA_VISIBILITY_OPTIONS = {
 	RuntimeHiddenAsVisible = true,
@@ -206,12 +211,198 @@ local function collectRollPool()
 	return entries
 end
 
-local function rollEntryForSeed(seedId)
+local function seedPreviewPayload(entry)
+	return {
+		category = RollRewards.Categories.Seed,
+		rewardId = entry.rewardId,
+		seedId = entry.seedId,
+		feedType = entry.feedType,
+		displayName = entry.displayName,
+		rarity = entry.rarity,
+		price = entry.price,
+		chanceN = entry.chanceN,
+		rngChanceText = NumberFormatter.ChanceN(entry.chanceN),
+	}
+end
+
+local function collectSeedEntries(entries)
+	local seedEntries = {}
+	for _, entry in ipairs(entries) do
+		if entry.category == RollRewards.Categories.Seed then
+			seedEntries[#seedEntries + 1] = entry
+		end
+	end
+	return seedEntries
+end
+
+local function randomSeedEntry(seedEntries, usedSeedIds, rarity, allowUsed)
+	local candidates = {}
+	for _, entry in ipairs(seedEntries) do
+		local matchesRarity = rarity == nil or entry.rarity == rarity
+		local isUsed = usedSeedIds and usedSeedIds[entry.seedId] == true
+		if matchesRarity and (allowUsed or not isUsed) then
+			candidates[#candidates + 1] = entry
+		end
+	end
+	if #candidates == 0 then
+		return nil
+	end
+	return candidates[rng:NextInteger(1, #candidates)]
+end
+
+local function weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, allowUsed)
+	local candidates = {}
+	for _, entry in ipairs(seedEntries) do
+		local isUsed = usedSeedIds and usedSeedIds[entry.seedId] == true
+		if allowUsed or not isUsed then
+			candidates[#candidates + 1] = entry
+		end
+	end
+	if #candidates == 0 then
+		return nil
+	end
+
+	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent)
+	if not rewardWeights then
+		return nil
+	end
+
+	local rewardKey = RollChances.WeightedChoice(rewardWeights, rng)
+	if not rewardKey then
+		return nil
+	end
+	for _, entry in ipairs(candidates) do
+		if entry.id == rewardKey then
+			return entry
+		end
+	end
+	return nil
+end
+
+local function weightedRareTeaseRarity(availableRarities)
+	local weights = RollConfig.Reveal.SeedRareTeaseWeights
+	local totalWeight = 0
+	for _, rarity in ipairs(RARE_TEASE_RARITIES) do
+		if not availableRarities or availableRarities[rarity] == true then
+			totalWeight += tonumber(weights[rarity]) or 0
+		end
+	end
+	if totalWeight <= 0 then
+		return nil
+	end
+
+	local pick = rng:NextNumber(0, totalWeight)
+	local cumulative = 0
+	for _, rarity in ipairs(RARE_TEASE_RARITIES) do
+		if not availableRarities or availableRarities[rarity] == true then
+			cumulative += tonumber(weights[rarity]) or 0
+			if pick <= cumulative then
+				return rarity
+			end
+		end
+	end
+	return RARE_TEASE_RARITIES[#RARE_TEASE_RARITIES]
+end
+
+local function availableRareTeaseRarities(seedEntries, usedSeedIds, allowUsed)
+	local available = {}
+	for _, rarity in ipairs(RARE_TEASE_RARITIES) do
+		if randomSeedEntry(seedEntries, usedSeedIds, rarity, allowUsed) then
+			available[rarity] = true
+		end
+	end
+	return next(available) ~= nil and available or nil
+end
+
+local function rareTeaseSeedEntry(seedEntries, usedSeedIds)
+	local rarity = weightedRareTeaseRarity()
+	local entry = rarity and randomSeedEntry(seedEntries, usedSeedIds, rarity, false) or nil
+	if entry then
+		return entry
+	end
+
+	local fallbackRarities = availableRareTeaseRarities(seedEntries, usedSeedIds, false)
+	local fallbackRarity = fallbackRarities and weightedRareTeaseRarity(fallbackRarities) or nil
+	entry = fallbackRarity and randomSeedEntry(seedEntries, usedSeedIds, fallbackRarity, false) or nil
+	if entry then
+		return entry
+	end
+
+	fallbackRarities = availableRareTeaseRarities(seedEntries, usedSeedIds, true)
+	fallbackRarity = fallbackRarities and weightedRareTeaseRarity(fallbackRarities) or nil
+	return fallbackRarity and randomSeedEntry(seedEntries, usedSeedIds, fallbackRarity, true) or nil
+end
+
+local function rollSeedPreviewCount()
+	local options = RollConfig.Reveal.SeedPreviewCountOptions
+	local candidates = {}
+	if type(options) == "table" then
+		for _, count in ipairs(options) do
+			count = tonumber(count)
+			if type(count) == "number" and count == count and math.abs(count) < math.huge and count > 0 then
+				candidates[#candidates + 1] = math.floor(count)
+			end
+		end
+	end
+	if #candidates == 0 then
+		local fallback = RollConfig.MaxSeedPreviewCount()
+		return fallback > 0 and fallback or 0
+	end
+	return candidates[rng:NextInteger(1, #candidates)]
+end
+
+local function buildSeedPreviewSeeds(rolled, entries, crateId, profile)
+	if rolled.category ~= RollRewards.Categories.Seed then
+		return nil
+	end
+
+	local count = rollSeedPreviewCount()
+	if count <= 0 then
+		return nil
+	end
+
+	local seedEntries = collectSeedEntries(entries)
+	if #seedEntries == 0 then
+		return nil
+	end
+
+	local previews = table.create(count)
+	local usedSeedIds = {}
+	if type(rolled.seedId) == "string" then
+		usedSeedIds[rolled.seedId] = true
+	end
+
+	for index = 1, count do
+		local entry = nil
+		if rng:NextNumber(0, 1) < RollConfig.Reveal.SeedRareTeaseChance then
+			entry = rareTeaseSeedEntry(seedEntries, usedSeedIds)
+		end
+		entry = entry
+			or weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, false)
+			or weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, true)
+		if entry then
+			previews[index] = entry
+			usedSeedIds[entry.seedId] = true
+		end
+	end
+
+	local payloads = table.create(count)
+	for index = 1, count do
+		local entry = previews[index]
+		if entry then
+			payloads[#payloads + 1] = seedPreviewPayload(entry)
+		end
+	end
+	return #payloads > 0 and payloads or nil
+end
+
+local function rollEntryForSeed(seedId, entries)
 	if type(seedId) ~= "string" or seedId == "" then
 		return nil, "invalid-seed"
 	end
 	local rewardKey = RollRewards.RewardKey(RollRewards.Categories.Seed, seedId)
-	for _, entry in ipairs(collectRollPool()) do
+	for _, entry in ipairs(entries or collectRollPool()) do
 		if entry.id == rewardKey then
 			local rolled = table.clone(entry)
 			rolled.rngChanceText = "Tutorial reward"
@@ -222,8 +413,8 @@ local function rollEntryForSeed(seedId)
 	return nil, "missing-tutorial-seed"
 end
 
-local function rollRewardForCrate(crateId, profile)
-	local entries = collectRollPool()
+local function rollRewardForCrate(crateId, profile, entries)
+	entries = entries or collectRollPool()
 	if #entries == 0 then
 		return nil, "empty-roll-pool"
 	end
@@ -480,12 +671,13 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	locks[key] = true
-	local ok, success, codeOrOffers, batchIdOrNil, publicOffersOrNil, tutorialSeedIdOrNil = pcall(function()
+	local ok, success, codeOrOffers, batchIdOrNil, publicOffersOrNil, tutorialSeedIdOrNil, visualDurationOrNil = pcall(function()
 		local offerMap = {}
 		local effectOffers = {}
 		local publicOffers = {}
 		local guaranteedSeedId = OnboardingService.GuaranteedRollSeed(profile)
 		local usedGuaranteedSeedId = nil
+		local rollPool = collectRollPool()
 
 		for _, dropArea in ipairs(dropAreas) do
 			local crateId = RollChances.RollCrate(rng)
@@ -495,12 +687,12 @@ function RollService.Roll(player, target, plot, profile)
 
 			local rolled, rollCode
 			if guaranteedSeedId and not usedGuaranteedSeedId then
-				rolled, rollCode = rollEntryForSeed(guaranteedSeedId)
+				rolled, rollCode = rollEntryForSeed(guaranteedSeedId, rollPool)
 				if rolled then
 					usedGuaranteedSeedId = guaranteedSeedId
 				end
 			else
-				rolled, rollCode = rollRewardForCrate(crateId, profile)
+				rolled, rollCode = rollRewardForCrate(crateId, profile, rollPool)
 			end
 			if not rolled then
 				return false, rollCode or "reward-roll-failed"
@@ -509,6 +701,7 @@ function RollService.Roll(player, target, plot, profile)
 			nextOfferId += 1
 			local offerId = nextOfferId
 			local crate = RollChances.GetCrate(crateId)
+			local previewSeeds = buildSeedPreviewSeeds(rolled, rollPool, crateId, profile)
 			offerMap[offerId] = {
 				offerId = offerId,
 				category = rolled.category,
@@ -540,6 +733,7 @@ function RollService.Roll(player, target, plot, profile)
 				price = rolled.price,
 				chanceN = rolled.chanceN,
 				rngChanceText = rolled.rngChanceText,
+				previewSeeds = previewSeeds,
 				tutorialGuaranteed = rolled.tutorialGuaranteed == true,
 			}
 			publicOffers[#publicOffers + 1] = {
@@ -573,8 +767,9 @@ function RollService.Roll(player, target, plot, profile)
 
 		clearPendingOffers(player)
 		pendingOffers[key] = offerMap
-		rollCooldownUntil[key] = os.clock() + RollConfig.RollVisualDuration()
-		return true, effectOffers, rollBatchId, publicOffers, usedGuaranteedSeedId
+		local visualDuration = RollConfig.RollVisualDurationForOffers(effectOffers)
+		rollCooldownUntil[key] = os.clock() + visualDuration
+		return true, effectOffers, rollBatchId, publicOffers, usedGuaranteedSeedId, visualDuration
 	end)
 	locks[key] = nil
 
@@ -593,12 +788,13 @@ function RollService.Roll(player, target, plot, profile)
 	end
 
 	local effectOffers = codeOrOffers
+	local visualDuration = visualDurationOrNil or RollConfig.RollVisualDurationForOffers(effectOffers)
 	if tutorialSeedIdOrNil then
 		OnboardingService.OnRollCreated(player, profile, tutorialSeedIdOrNil)
 	end
 	sendClearOwnerOffers(player)
 	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers)
-	task.delay(RollConfig.RollVisualDuration(), function()
+	task.delay(visualDuration, function()
 		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {})
 	end)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
