@@ -396,6 +396,8 @@ When changing feeds or rolls, update Studio templates and attributes, server cla
 
 When creating, granting, consuming, or deleting inventory tools, assign and carry a GUID through `ToolIdentity`. Server requests that consume a tool should resolve the submitted GUID and destroy that exact instance if it still matches, rather than searching by tool name or display text.
 
+Food tools are capped at `Food.MAX_TOOLS` (100, counting Backpack + equipped) because each food is a unique multi-part Tool that replicates to the owning client, so an uncapped inventory grows client memory without bound. `ToolGrantService.GrantTool` enforces the cap: a food grant at the limit is refused (returns `false, "food-inventory-full"`) with a rate-limited notification. Every caller that mints a food tool must handle grant failure by destroying the orphaned tool, and producers should leave the source recoverable — tree pickups keep the ground pile, patch harvest keeps the slot, and `Processor`/`JamBarrel` dequeue only after a successful grant so blocked outputs stay queued for later collection. Join-time inventory re-materialization in `init.server.luau` is bounded by the same cap, so a profile hoarding more than the cap materializes at most `Food.MAX_TOOLS` and the next snapshot persists the trimmed count.
+
 Treat `ProfileStore.luau` as third-party vendored code.
 
 There is no standardized automated Luau toolchain in the repo yet. Do not invent formatting/lint rules casually; use focused Studio playtests or validator checks for gameplay-facing changes until StyLua/Selene/Luau analysis are adopted.

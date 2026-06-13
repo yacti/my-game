@@ -38,6 +38,10 @@ Run this checklist before publishing a live build.
   inventory, currency, and patch/processor/tree machine state.
 - Tree ground piles restore as invisible authoritative marker state, not replicated
   visible fruit model geometry.
+- Food tool inventory caps at 100 (`Food.MAX_TOOLS`, Backpack + equipped). At the cap,
+  pickups/harvests/processor/jam output are refused with a rate-limited "inventory full"
+  notification and the source stays recoverable (ground pile, patch slot, or machine
+  queue retained); a profile hoarding more than 100 food materializes at most 100 on join.
 
 ## Gameplay Security
 
