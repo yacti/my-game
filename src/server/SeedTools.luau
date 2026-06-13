@@ -192,10 +192,15 @@ function SeedTools.ApplyPrepared(player, profile, prepared)
 		return false, "no-backpack"
 	end
 
+	local granted, code = ToolGrantService.GrantTools(player, prepared.tools)
+	if not granted then
+		destroyPrepared(prepared)
+		return false, code
+	end
+
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
 	profile.Data.SeedInventory[seedId] = (profile.Data.SeedInventory[seedId] or 0) + amount
-
-	return ToolGrantService.GrantTools(player, prepared.tools)
+	return true
 end
 
 function SeedTools.DestroyPrepared(prepared)

@@ -65,10 +65,15 @@ function FeedRewardService.ApplyPrepared(player, profile, prepared)
 		return false, "no-backpack"
 	end
 
+	local granted, code = ToolGrantService.GrantTools(player, prepared.tools)
+	if not granted then
+		destroyPrepared(prepared)
+		return false, code
+	end
+
 	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 	profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + amount
-
-	return ToolGrantService.GrantTools(player, prepared.tools)
+	return true
 end
 
 function FeedRewardService.DestroyPrepared(prepared)

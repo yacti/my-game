@@ -33,6 +33,7 @@ local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
+local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
@@ -47,6 +48,7 @@ local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State    = require(Shared:WaitForChild("State"))
@@ -802,43 +804,51 @@ local function handlePlayerAdded(player)
 			if not toolsRestored then
 				toolsRestored = true
 				task.wait(0.5)
-				-- Materialize at most the cap; hoarded profiles beyond it would
-				-- otherwise burst thousands of replicated instances on join.
-				local foodBudget = Food.MAX_TOOLS
-				for foodType, count in pairs(profile.Data.FoodInventory or {}) do
-					for _ = 1, math.min(count, foodBudget) do
-						local tool = Food.MakeTool(foodType)
-						if tool then
-							tool.Parent = player.Backpack
-							foodBudget -= 1
+				-- Materialize at most the global cap; hoarded profiles beyond it
+				-- would otherwise burst thousands of replicated instances on join.
+				local remainingSlots = Inventory.RemainingSlots(player)
+				local function sortedKeys(map)
+					local keys = {}
+					if type(map) == "table" then
+						for key in pairs(map) do
+							keys[#keys + 1] = key
 						end
 					end
-					if foodBudget <= 0 then break end
+					table.sort(keys, function(left, right)
+						return tostring(left) < tostring(right)
+					end)
+					return keys
 				end
-				for feedType, count in pairs(profile.Data.FeedInventory or {}) do
-					if type(count) == "number" then
+				local function restoreCountedTool(makeTool)
+					if remainingSlots <= 0 then
+						return false
+					end
+					local tool = makeTool()
+					if not tool then
+						return remainingSlots > 0
+					end
+					if Inventory.IsCountableTool(tool) then
+						remainingSlots -= 1
+					end
+					tool.Parent = player.Backpack
+					return remainingSlots > 0
+				end
+				local function restoreMap(map, makeTool)
+					for _, itemId in ipairs(sortedKeys(map)) do
+						local count = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
 						for _ = 1, count do
-							local tool = FeedMachineTools.MakeFeedTool(feedType)
-							if tool then tool.Parent = player.Backpack end
+							if not restoreCountedTool(function()
+								return makeTool(itemId)
+							end) then
+								return
+							end
 						end
 					end
 				end
-				for seedId, count in pairs(profile.Data.SeedInventory or {}) do
-					if type(count) == "number" then
-						for _ = 1, count do
-							local tool = SeedTools.MakeSeedTool(seedId)
-							if tool then tool.Parent = player.Backpack end
-						end
-					end
-				end
-				for cosmeticId, count in pairs(profile.Data.CosmeticInventory or {}) do
-					if type(count) == "number" then
-						for _ = 1, count do
-							local tool = CosmeticTools.MakeCosmeticTool(cosmeticId)
-							if tool then tool.Parent = player.Backpack end
-						end
-					end
-				end
+				restoreMap(profile.Data.FoodInventory, Food.MakeTool)
+				restoreMap(profile.Data.FeedInventory, FeedMachineTools.MakeFeedTool)
+				restoreMap(profile.Data.SeedInventory, SeedTools.MakeSeedTool)
+				restoreMap(profile.Data.CosmeticInventory, CosmeticTools.MakeCosmeticTool)
 			end
 		end
 
@@ -965,6 +975,13 @@ end)
 
 RuntimeGuard.Run("ShovelService.Start", function()
 	ShovelService.Start({
+		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = OfflineProgressService.IsPending,
+	})
+end)
+
+RuntimeGuard.Run("InventoryDeleteService.Start", function()
+	InventoryDeleteService.Start({
 		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = OfflineProgressService.IsPending,
 	})

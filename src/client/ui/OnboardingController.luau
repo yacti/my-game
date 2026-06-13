@@ -31,6 +31,7 @@ local PATCH_SPOT_SIZE = 4
 local PATCH_SPOT_QUERY_HEIGHT = 4
 local PATCH_SPOT_QUERY_INSET = 0.05
 local PATCH_SPOT_STEP = 2
+local PLANT_FRONT_INSET = 4
 local FINAL_NOTE_FADE_TWEEN = TweenInfo.new(Onboarding.FinalNoteFadeSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 -- Stages with no floating arrow: progress-bar stages plus every stage the
@@ -68,6 +69,7 @@ local finalNoteToken = 0
 local finalNoteTweens = {}
 local finalNoteTransparency = setmetatable({}, { __mode = "k" })
 local targetCache = nil
+local plotFloor = nil
 
 local function playerGui()
 	return player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui")
@@ -634,6 +636,38 @@ local function starterAreaCenter()
 	return sum / count
 end
 
+local function starterAreaFrontPosition()
+	local floor, currentPlot = plotFloor()
+	local starterArea = currentPlot and currentPlot:FindFirstChild("StarterArea")
+	if not (floor and starterArea) then
+		return nil
+	end
+
+	local minX, maxX = math.huge, -math.huge
+	local minZ = math.huge
+	local count = 0
+	for _, child in ipairs(starterArea:GetChildren()) do
+		if child:IsA("BasePart") then
+			local half = child.Size / 2
+			for _, sx in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					local world = child.CFrame:PointToWorldSpace(Vector3.new(sx * half.X, 0, sz * half.Z))
+					local localPoint = floor.CFrame:PointToObjectSpace(world)
+					minX = math.min(minX, localPoint.X)
+					maxX = math.max(maxX, localPoint.X)
+					minZ = math.min(minZ, localPoint.Z)
+				end
+			end
+			count += 1
+		end
+	end
+	if count == 0 then
+		return nil
+	end
+
+	return floor.CFrame:PointToWorldSpace(Vector3.new((minX + maxX) / 2, floor.Size.Y / 2, minZ + PLANT_FRONT_INSET))
+end
+
 local function feedMachine(feedType)
 	local cache = ensureTargetCache()
 	local machine = cache and cache.feedByType[feedType] or nil
@@ -813,7 +847,7 @@ local function updateFruitTargets()
 	end
 end
 
-local function plotFloor()
+plotFloor = function()
 	local currentPlot = plot()
 	local floor = currentPlot and currentPlot:FindFirstChild("Floor")
 	if floor and floor:IsA("BasePart") then
@@ -895,11 +929,11 @@ local function findFreePatchSpot(currentPlot, floor)
 		end
 	end
 
-	local centerWorld = starterAreaCenter()
-	local centerLocal = centerWorld and floor.CFrame:PointToObjectSpace(centerWorld) or Vector3.zero
+	local targetWorld = starterAreaFrontPosition() or starterAreaCenter()
+	local targetLocal = targetWorld and floor.CFrame:PointToObjectSpace(targetWorld) or Vector3.zero
 	table.sort(candidates, function(a, b)
-		local distanceA = (a.lx - centerLocal.X) ^ 2 + (a.lz - centerLocal.Z) ^ 2
-		local distanceB = (b.lx - centerLocal.X) ^ 2 + (b.lz - centerLocal.Z) ^ 2
+		local distanceA = (a.lx - targetLocal.X) ^ 2 + (a.lz - targetLocal.Z) ^ 2
+		local distanceB = (b.lx - targetLocal.X) ^ 2 + (b.lz - targetLocal.Z) ^ 2
 		if distanceA ~= distanceB then
 			return distanceA < distanceB
 		end
@@ -982,9 +1016,9 @@ local function clickerTarget()
 		end
 		local position
 		if currentStage == Onboarding.Stages.PlantPumpkinSeed then
-			position = freePatchSpotPosition() or starterAreaCenter()
+			position = freePatchSpotPosition() or starterAreaFrontPosition() or starterAreaCenter()
 		else
-			position = starterAreaCenter()
+			position = starterAreaFrontPosition() or starterAreaCenter()
 		end
 		local anchor = position and clickerFloorAnchor(position)
 		return anchor and { adornee = anchor } or nil

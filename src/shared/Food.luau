@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 local Assets = require(script.Parent:WaitForChild("Assets"))
+local Inventory = require(script.Parent:WaitForChild("Inventory"))
 local Rarities = require(script.Parent:WaitForChild("Rarities"))
 
 local Food = {}
@@ -399,10 +400,9 @@ function Food.CountByType(player)
 	return counts
 end
 
--- Hard cap on food Tools a player may hold (Backpack + equipped). Every food
--- is a unique multi-part Tool that replicates to the owning client, so an
--- uncapped inventory grows client memory without bound.
-Food.MAX_TOOLS = 100
+-- Backward-compatible alias for older callers. New grant enforcement uses the
+-- global inventory cap in Inventory.luau.
+Food.MAX_TOOLS = Inventory.MAX_ITEMS
 
 function Food.CountTools(player)
 	local total = 0

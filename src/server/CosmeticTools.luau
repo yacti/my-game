@@ -131,10 +131,15 @@ function CosmeticTools.ApplyPrepared(player, profile, prepared)
 		return false, "no-backpack"
 	end
 
+	local granted, code = ToolGrantService.GrantTools(player, prepared.tools)
+	if not granted then
+		destroyPrepared(prepared)
+		return false, code
+	end
+
 	profile.Data.CosmeticInventory = profile.Data.CosmeticInventory or {}
 	profile.Data.CosmeticInventory[cosmeticId] = (profile.Data.CosmeticInventory[cosmeticId] or 0) + amount
-
-	return ToolGrantService.GrantTools(player, prepared.tools)
+	return true
 end
 
 function CosmeticTools.DestroyPrepared(prepared)

@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local NotificationService = require(script.Parent:WaitForChild("NotificationService"))
 
-local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local Inventory = require(ReplicatedStorage.Shared:WaitForChild("Inventory"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 
 local ToolGrantService = {}
@@ -11,9 +11,9 @@ local ToolGrantService = {}
 local DEFERRED_AUTO_EQUIP_DELAY = 0.05
 local DEFAULT_AUTO_EQUIP_BURST_GAP = 3
 local AUTO_EQUIP_POLICY_FIRST_IN_BURST = "firstInBurst"
-local FOOD_CAP_NOTIFY_COOLDOWN = 2
+local INVENTORY_CAP_NOTIFY_COOLDOWN = 2
 local autoEquipLastRequestByUserId = {}
-local foodCapNotifiedAtByUserId = {}
+local inventoryCapNotifiedAtByUserId = {}
 
 local function shouldAutoEquip(options)
 	return type(options) ~= "table" or options.autoEquip ~= false
@@ -107,18 +107,28 @@ end
 
 -- Rate-limited so cap-blocked pickup spam (trees allow 5 clicks/s) does not
 -- flood the notification feed.
-local function notifyFoodCapReached(player)
+local function notifyInventoryCapReached(player)
 	local key = userKey(player)
 	if key == nil then
 		return
 	end
 	local now = os.clock()
-	local notifiedAt = foodCapNotifiedAtByUserId[key]
-	if notifiedAt and now - notifiedAt < FOOD_CAP_NOTIFY_COOLDOWN then
+	local notifiedAt = inventoryCapNotifiedAtByUserId[key]
+	if notifiedAt and now - notifiedAt < INVENTORY_CAP_NOTIFY_COOLDOWN then
 		return
 	end
-	foodCapNotifiedAtByUserId[key] = now
-	NotificationService.Error(player, string.format("Food inventory full (%d max). Feed or process some food first.", Food.MAX_TOOLS))
+	inventoryCapNotifiedAtByUserId[key] = now
+	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+end
+
+local function countGrantTools(tools)
+	local count = 0
+	for _, tool in ipairs(tools) do
+		if Inventory.IsCountableTool(tool) then
+			count += 1
+		end
+	end
+	return count
 end
 
 function ToolGrantService.GrantTool(player, tool, options)
@@ -129,9 +139,9 @@ function ToolGrantService.GrantTool(player, tool, options)
 	if not backpack then
 		return false, "no-backpack"
 	end
-	if Food.IsFood(tool) and Food.CountTools(player) >= Food.MAX_TOOLS then
-		notifyFoodCapReached(player)
-		return false, "food-inventory-full"
+	if Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player) <= 0 then
+		notifyInventoryCapReached(player)
+		return false, "inventory-full"
 	end
 
 	tool.Parent = backpack
@@ -148,6 +158,11 @@ function ToolGrantService.GrantTools(player, tools, options)
 	local backpack = player and player:FindFirstChildOfClass("Backpack")
 	if not backpack then
 		return false, "no-backpack"
+	end
+	local count = countGrantTools(tools)
+	if count > Inventory.RemainingSlots(player) then
+		notifyInventoryCapReached(player)
+		return false, "inventory-full"
 	end
 
 	local latest = nil
@@ -168,7 +183,7 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "ToolGrantService.PlayerRemoving", 
 	local key = userKey(player)
 	if key ~= nil then
 		autoEquipLastRequestByUserId[key] = nil
-		foodCapNotifiedAtByUserId[key] = nil
+		inventoryCapNotifiedAtByUserId[key] = nil
 	end
 end)
 

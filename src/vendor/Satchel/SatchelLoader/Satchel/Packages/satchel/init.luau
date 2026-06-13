@@ -43,8 +43,11 @@ require(script.Attribution)
 
 -- Local game patch: item tools can carry rarity metadata for Satchel name styling.
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
+local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 -- Constants --
 local PREFERRED_TRANSPARENCY: number = GuiService.PreferredTransparency or 1
@@ -121,6 +124,13 @@ local CATEGORY_BUTTON_WIDTH: number = 88
 local CATEGORY_BUTTON_HEIGHT: number = 34
 local CATEGORY_BUTTON_GAP: number = 6
 local CATEGORY_SELECTED_COLOR: Color3 = Color3.new(0 / 255, 162 / 255, 1)
+local DELETE_UI = {
+	Gap = 18,
+	Color = Color3.new(190 / 255, 45 / 255, 45 / 255),
+	SelectedColor = Color3.new(125 / 255, 20 / 255, 20 / 255),
+	ConfirmColor = Color3.new(55 / 255, 160 / 255, 80 / 255),
+	CancelColor = Color3.new(95 / 255, 95 / 255, 95 / 255),
+}
 
 -- Misc
 local FONT_FAMILY: Font = targetScript:GetAttribute("FontFace")
@@ -198,6 +208,15 @@ local MainFrame: Frame = nil
 local HotbarFrame: Frame = nil
 local InventoryFrame: Frame = nil
 local CategoryFilterFrame: Frame = nil
+local DeleteUi = {
+	mode = false,
+	selectedGuids = {},
+	requestCounter = 0,
+	statusLabel = nil :: TextLabel?,
+	deleteButton = nil :: TextButton?,
+	confirmButton = nil :: TextButton?,
+	cancelButton = nil :: TextButton?,
+}
 local VRInventorySelector: any = nil
 local ScrollingFrame: ScrollingFrame = nil
 local UIGridFrame: Frame = nil
@@ -209,6 +228,7 @@ local changeToolFunc: any = nil
 local Character: Model = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid: any = Character:WaitForChild("Humanoid")
 local Backpack: Instance = Player:WaitForChild("Backpack")
+local InventoryDeleteRequestRemote: RemoteEvent = Remotes.get(Remotes.Names.InventoryDeleteRequest)
 
 local Slots = {} -- List of all Slots by index
 local LowestEmptySlot: any = nil
@@ -321,6 +341,139 @@ local function slotMatchesCategory(slot: any): boolean
 	return true
 end
 
+function DeleteUi.isSelectableTool(tool: Tool?): boolean
+	return Inventory.IsCountableTool(tool) and ToolIdentity.GuidOf(tool) ~= nil
+end
+
+function DeleteUi.isGuidSelected(guid: string?): boolean
+	return type(guid) == "string" and DeleteUi.selectedGuids[guid] == true
+end
+
+function DeleteUi.countSelectedGuids(): number
+	local count = 0
+	for _ in pairs(DeleteUi.selectedGuids) do
+		count += 1
+	end
+	return count
+end
+
+function DeleteUi.countCategoryTools(category: string): number
+	local count = 0
+	for _, slot in ipairs(Slots) do
+		if slot.Tool and Inventory.IsCountableTool(slot.Tool) then
+			if category == CATEGORY_ALL or slotMatchesCategory(slot) then
+				count += 1
+			end
+		end
+	end
+	return count
+end
+
+function DeleteUi.categoryDisplayName(category: string): string
+	if category == CATEGORY_ALL then
+		return "All items"
+	end
+	return category
+end
+
+function DeleteUi.updateStatusLabel(): ()
+	if not DeleteUi.statusLabel then
+		return
+	end
+	if DeleteUi.mode then
+		DeleteUi.statusLabel.Text = string.format("DELETE MODE %d/%d", DeleteUi.countSelectedGuids(), Inventory.MAX_ITEMS)
+	else
+		DeleteUi.statusLabel.Text = string.format(
+			"%s %d/%d",
+			DeleteUi.categoryDisplayName(ActiveInventoryCategory),
+			DeleteUi.countCategoryTools(ActiveInventoryCategory),
+			Inventory.MAX_ITEMS
+		)
+	end
+end
+
+function DeleteUi.updateControls(): ()
+	if DeleteUi.deleteButton then
+		DeleteUi.deleteButton.BackgroundTransparency = DeleteUi.mode and BACKGROUND_TRANSPARENCY or SLOT_LOCKED_TRANSPARENCY
+		DeleteUi.deleteButton.BackgroundColor3 = DeleteUi.mode and DELETE_UI.Color or BACKGROUND_COLOR
+	end
+	local hasSelection = DeleteUi.countSelectedGuids() > 0
+	if DeleteUi.confirmButton then
+		DeleteUi.confirmButton.Visible = DeleteUi.mode
+		DeleteUi.confirmButton.Active = hasSelection
+		DeleteUi.confirmButton.AutoButtonColor = hasSelection
+		DeleteUi.confirmButton.BackgroundColor3 = hasSelection and DELETE_UI.ConfirmColor or DELETE_UI.CancelColor
+	end
+	if DeleteUi.cancelButton then
+		DeleteUi.cancelButton.Visible = DeleteUi.mode
+	end
+end
+
+function DeleteUi.updateAllSlotViews(): ()
+	for _, slot in ipairs(Slots) do
+		if slot.UpdateDeleteView then
+			slot:UpdateDeleteView()
+		end
+	end
+end
+
+function DeleteUi.refresh(): ()
+	DeleteUi.updateStatusLabel()
+	DeleteUi.updateControls()
+	DeleteUi.updateAllSlotViews()
+end
+
+function DeleteUi.pruneSelection(): ()
+	for guid in pairs(DeleteUi.selectedGuids) do
+		local stillPresent = false
+		for _, slot in ipairs(Slots) do
+			local tool = slot.Tool
+			if DeleteUi.isSelectableTool(tool) and ToolIdentity.GuidOf(tool) == guid then
+				stillPresent = true
+				break
+			end
+		end
+		if not stillPresent then
+			DeleteUi.selectedGuids[guid] = nil
+		end
+	end
+end
+
+function DeleteUi.setMode(active: boolean): ()
+	DeleteUi.mode = active == true
+	if not DeleteUi.mode then
+		DeleteUi.selectedGuids = {}
+	end
+	DeleteUi.pruneSelection()
+	DeleteUi.refresh()
+end
+
+function DeleteUi.toggleSelection(slot: any): ()
+	local tool = slot and slot.Tool
+	if not DeleteUi.isSelectableTool(tool) then
+		return
+	end
+	local guid = ToolIdentity.GuidOf(tool)
+	DeleteUi.selectedGuids[guid] = not DeleteUi.selectedGuids[guid] or nil
+	DeleteUi.refresh()
+end
+
+function DeleteUi.confirmSelection(): ()
+	DeleteUi.pruneSelection()
+	local guids = {}
+	for guid in pairs(DeleteUi.selectedGuids) do
+		guids[#guids + 1] = guid
+	end
+	if #guids <= 0 then
+		DeleteUi.refresh()
+		return
+	end
+	table.sort(guids)
+	DeleteUi.requestCounter += 1
+	InventoryDeleteRequestRemote:FireServer(tostring(DeleteUi.requestCounter), guids)
+	DeleteUi.setMode(false)
+end
+
 local function updateCategoryButtonStyles(): ()
 	for category, button in pairs(CategoryButtons) do
 		if button and button:IsA("TextButton") then
@@ -371,6 +524,7 @@ local function AdjustInventoryFrames(): ()
 			end
 		end
 		UpdateScrollingFrameCanvasSize()
+		DeleteUi.updateStatusLabel()
 		return
 	end
 
@@ -392,6 +546,7 @@ local function AdjustInventoryFrames(): ()
 		end
 	end
 	UpdateScrollingFrameCanvasSize()
+	DeleteUi.updateStatusLabel()
 end
 
 local function setActiveInventoryCategory(category: string): ()
@@ -508,6 +663,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolRarityChangeConn: RBXScriptConnection? = nil
 	local ToolRarityRenderConn: RBXScriptConnection? = nil
 	local HighlightFrame: any = nil -- UIStroke
+	local DeleteHighlightFrame: UIStroke = nil
 	local SelectionObj: ImageLabel = nil
 
 	--NOTE: The following are only defined for Hotbar Slots
@@ -520,6 +676,20 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local function UpdateSlotFading(): ()
 		SlotFrame.SelectionImageObject = nil
 		SlotFrame.BackgroundTransparency = SlotFrame.Draggable and 0 or SLOT_LOCKED_TRANSPARENCY
+		local deleteSelected = slot.Tool and DeleteUi.isGuidSelected(ToolIdentity.GuidOf(slot.Tool))
+		SlotFrame.BackgroundColor3 = deleteSelected and DELETE_UI.SelectedColor or BACKGROUND_COLOR
+		if deleteSelected then
+			if not DeleteHighlightFrame then
+				DeleteHighlightFrame = Instance.new("UIStroke")
+				DeleteHighlightFrame.Name = "DeleteBorder"
+				DeleteHighlightFrame.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				DeleteHighlightFrame.Thickness = SLOT_EQUIP_THICKNESS
+			end
+			DeleteHighlightFrame.Color = DELETE_UI.Color
+			DeleteHighlightFrame.Parent = SlotFrame
+		elseif DeleteHighlightFrame then
+			DeleteHighlightFrame.Parent = nil
+		end
 	end
 
 	local function disconnectToolRarityRender(): ()
@@ -634,11 +804,12 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		local hotbarSlot: boolean = (self.Index <= NumberOfHotbarSlots)
 		local inventoryOpen: boolean = InventoryFrame.Visible
 
-		if (not hotbarSlot or inventoryOpen) and not UserInputService.VREnabled then
+		if (not hotbarSlot or inventoryOpen) and not UserInputService.VREnabled and not DeleteUi.mode then
 			SlotFrame.Draggable = true
 		end
 
 		self:UpdateEquipView()
+		self:UpdateDeleteView()
 
 		if hotbarSlot then
 			FullHotbarSlots = FullHotbarSlots + 1
@@ -665,6 +836,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		if not self.Tool then
 			return
 		end
+		local clearingTool = self.Tool
 
 		-- Disconnect tool event if it exists
 		if ToolChangeConn then
@@ -676,12 +848,17 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		ToolIcon.Image = ""
 		ToolName.Text = ""
 		ToolName.TextColor3 = TEXT_COLOR
+		if DeleteHighlightFrame then
+			DeleteHighlightFrame.Parent = nil
+		end
 		if ToolTip then
 			ToolTip.Text = ""
 			ToolTip.Visible = false
 		end
 		SlotFrame.Draggable = false
 
+		SlotsByTool[clearingTool] = nil
+		self.Tool = nil
 		self:UpdateEquipView(true) -- Show as unequipped
 
 		if self.Index <= NumberOfHotbarSlots then
@@ -693,8 +870,6 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			end
 		end
 
-		SlotsByTool[self.Tool] = nil
-		self.Tool = nil
 		LowestEmptySlot = FindLowestEmpty()
 	end
 
@@ -717,6 +892,19 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		else -- In the Backpack
 			if HighlightFrame then
 				HighlightFrame.Parent = nil
+			end
+		end
+		UpdateSlotFading()
+	end
+
+	function slot:UpdateDeleteView(): ...any
+		if self.Tool and not UserInputService.VREnabled then
+			if DeleteUi.mode then
+				SlotFrame.Draggable = false
+			elseif self.Index <= NumberOfHotbarSlots then
+				SlotFrame.Draggable = InventoryFrame.Visible
+			else
+				SlotFrame.Draggable = true
 			end
 		end
 		UpdateSlotFading()
@@ -771,7 +959,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			if UserInputService.VREnabled then
 				SlotFrame.Draggable = false
 			else
-				SlotFrame.Draggable = not on
+				SlotFrame.Draggable = (not on) and not DeleteUi.mode
 			end
 			UpdateSlotFading()
 		end
@@ -875,7 +1063,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	ToolName.TextColor3 = TEXT_COLOR
 	ToolName.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
 	ToolName.TextStrokeColor3 = TEXT_STROKE_COLOR
-	ToolName.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	ToolName.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
 	ToolName.TextSize = FONT_SIZE
 	ToolName.Size = UDim2.new(1, -SLOT_EQUIP_THICKNESS * 2, 1, -SLOT_EQUIP_THICKNESS * 2)
 	ToolName.Position = UDim2.fromScale(0.5, 0.5)
@@ -895,7 +1083,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		ToolTip.TextColor3 = TEXT_COLOR
 		ToolTip.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
 		ToolTip.TextStrokeColor3 = TEXT_STROKE_COLOR
-		ToolTip.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+		ToolTip.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
 		ToolTip.TextSize = FONT_SIZE
 		ToolTip.ZIndex = 2
 		ToolTip.TextWrapped = false
@@ -968,6 +1156,9 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		local startParent: any = nil
 
 		SlotFrame.DragBegin:Connect(function(dragPoint: UDim2): ()
+			if DeleteUi.mode then
+				return
+			end
 			Dragging[SlotFrame] = true
 			startPoint = dragPoint
 
@@ -1187,6 +1378,8 @@ local function OnChildAdded(child: Instance): () -- To Character or Backpack
 	end
 
 	BackpackScript.BackpackItemAdded:Fire()
+	DeleteUi.pruneSelection()
+	DeleteUi.refresh()
 end
 
 local function OnChildRemoved(child: Instance): () -- From Character or Backpack
@@ -1218,12 +1411,16 @@ local function OnChildRemoved(child: Instance): () -- From Character or Backpack
 	end
 
 	BackpackScript.BackpackItemRemoved:Fire()
+	DeleteUi.pruneSelection()
+	DeleteUi.refresh()
 	if isInventoryEmpty() then
 		BackpackScript.BackpackEmpty:Fire()
 	end
 end
 
 local function OnCharacterAdded(character: Model): ()
+	DeleteUi.setMode(false)
+
 	-- First, clean up any old slots
 	for i: number = #Slots, 1, -1 do
 		local slot = Slots[i]
@@ -1514,6 +1711,11 @@ end
 
 -- selene: allow(unused_variable)
 function changeSlot(slot: any): ()
+	if DeleteUi.mode then
+		DeleteUi.toggleSelection(slot)
+		return
+	end
+
 	local swapInVr: boolean = not VRService.VREnabled or InventoryFrame.Visible
 
 	if slot.Frame == GuiService.SelectedObject and swapInVr then
@@ -1783,7 +1985,7 @@ CategoryFilterFrame.Name = "CategoryFilters"
 CategoryFilterFrame.BackgroundTransparency = 1
 CategoryFilterFrame.Size = UDim2.fromOffset(
 	CATEGORY_BUTTON_WIDTH,
-	(3 * CATEGORY_BUTTON_HEIGHT) + (2 * CATEGORY_BUTTON_GAP)
+	(6 * CATEGORY_BUTTON_HEIGHT) + (4 * CATEGORY_BUTTON_GAP) + DELETE_UI.Gap
 )
 CategoryFilterFrame.Visible = false
 CategoryFilterFrame.Parent = MainFrame
@@ -1795,7 +1997,7 @@ for categoryIndex, category in ipairs(categoryList) do
 	button.Text = category
 	button.BackgroundColor3 = BACKGROUND_COLOR
 	button.BorderSizePixel = 0
-	button.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	button.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
 	button.TextSize = FONT_SIZE
 	button.TextColor3 = TEXT_COLOR
 	button.TextStrokeTransparency = 0.25
@@ -1820,7 +2022,53 @@ for categoryIndex, category in ipairs(categoryList) do
 
 	CategoryButtons[category] = button
 end
+
+local function makeDeleteControl(name: string, text: string, yOffset: number, color: Color3): TextButton
+	local button: TextButton = Instance.new("TextButton")
+	button.Name = name
+	button.Text = text
+	button.BackgroundColor3 = color
+	button.BorderSizePixel = 0
+	button.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+	button.TextSize = FONT_SIZE
+	button.TextColor3 = TEXT_COLOR
+	button.TextStrokeTransparency = 0.25
+	button.TextStrokeColor3 = Color3.new(0, 0, 0)
+	button.Size = UDim2.fromOffset(CATEGORY_BUTTON_WIDTH, CATEGORY_BUTTON_HEIGHT)
+	button.Position = UDim2.fromOffset(0, yOffset)
+	button.Parent = CategoryFilterFrame
+
+	local buttonCorner: UICorner = Instance.new("UICorner")
+	buttonCorner.Name = "Corner"
+	buttonCorner.CornerRadius = SEARCH_CORNER_RADIUS
+	buttonCorner.Parent = button
+
+	local buttonBorder: UIStroke = Instance.new("UIStroke")
+	buttonBorder.Name = "Border"
+	buttonBorder.Color = SEARCH_BORDER_COLOR
+	buttonBorder.Thickness = SEARCH_BORDER_THICKNESS
+	buttonBorder.Transparency = SEARCH_BORDER_TRANSPARENCY
+	buttonBorder.Parent = button
+
+	return button
+end
+
+local deleteY = (3 * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP)) + DELETE_UI.Gap
+DeleteUi.deleteButton = makeDeleteControl("DeleteFilter", "Delete", deleteY, BACKGROUND_COLOR)
+DeleteUi.confirmButton = makeDeleteControl("ConfirmDelete", "Confirm", deleteY + CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP, DELETE_UI.ConfirmColor)
+DeleteUi.cancelButton = makeDeleteControl("CancelDelete", "Cancel", deleteY + (2 * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP)), DELETE_UI.CancelColor)
+DeleteUi.confirmButton.Visible = false
+DeleteUi.cancelButton.Visible = false
+
+DeleteUi.deleteButton.MouseButton1Click:Connect(function(): ()
+	DeleteUi.setMode(not DeleteUi.mode)
+end)
+DeleteUi.confirmButton.MouseButton1Click:Connect(DeleteUi.confirmSelection)
+DeleteUi.cancelButton.MouseButton1Click:Connect(function(): ()
+	DeleteUi.setMode(false)
+end)
 updateCategoryButtonStyles()
+DeleteUi.refresh()
 
 VRInventorySelector = Instance.new("TextButton")
 VRInventorySelector.Name = "VRInventorySelector"
@@ -1966,7 +2214,7 @@ local function addGamepadHint(hintImageString: string, hintTextString: string): 
 	local hintText: TextLabel = Instance.new("TextLabel")
 	hintText.Name = "HintText"
 	hintText.AutomaticSize = Enum.AutomaticSize.XY
-	hintText.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	hintText.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
 	hintText.TextSize = (IsTenFootInterface and 32 or 19)
 	hintText.BackgroundTransparency = 1
 	hintText.Text = hintTextString
@@ -2042,6 +2290,21 @@ local function resizeGamepadHintsFrame(): ()
 	end
 end
 
+DeleteUi.statusLabel = Instance.new("TextLabel")
+DeleteUi.statusLabel.Name = "CategoryStatus"
+DeleteUi.statusLabel.BackgroundTransparency = 1
+DeleteUi.statusLabel.TextColor3 = TEXT_COLOR
+DeleteUi.statusLabel.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
+DeleteUi.statusLabel.TextStrokeColor3 = TEXT_STROKE_COLOR
+DeleteUi.statusLabel.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
+DeleteUi.statusLabel.TextSize = FONT_SIZE + (IsTenFootInterface and 6 or 4)
+DeleteUi.statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+DeleteUi.statusLabel.TextYAlignment = Enum.TextYAlignment.Center
+DeleteUi.statusLabel.Size = UDim2.new(1, -SEARCH_WIDTH_PIXELS - (SEARCH_BUFFER_PIXELS * 4), 0, INVENTORY_HEADER_SIZE)
+DeleteUi.statusLabel.Position = UDim2.fromOffset(SEARCH_BUFFER_PIXELS * 2, 0)
+DeleteUi.statusLabel.Parent = InventoryFrame
+DeleteUi.updateStatusLabel()
+
 local searchFrame: Frame = Instance.new("Frame")
 do -- Search stuff
 	searchFrame.Name = "Search"
@@ -2075,7 +2338,7 @@ do -- Search stuff
 	searchBox.TextColor3 = TEXT_COLOR
 	searchBox.TextStrokeTransparency = TEXT_STROKE_TRANSPARENCY
 	searchBox.TextStrokeColor3 = TEXT_STROKE_COLOR
-	searchBox.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	searchBox.FontFace = Font.new(FONT_FAMILY.Family, Enum.FontWeight.Bold, Enum.FontStyle.Normal)
 	searchBox.PlaceholderText = SEARCH_TEXT_PLACEHOLDER
 	searchBox.TextColor3 = TEXT_COLOR
 	searchBox.TextTransparency = TEXT_STROKE_TRANSPARENCY
@@ -2226,6 +2489,9 @@ do -- Make the Inventory expand/collapse arrow (unless TopBar)
 			local nowOpen: boolean = InventoryFrame.Visible
 			if CategoryFilterFrame then
 				CategoryFilterFrame.Visible = nowOpen
+			end
+			if not nowOpen and DeleteUi.mode then
+				DeleteUi.setMode(false)
 			end
 			AdjustHotbarFrames()
 			HotbarFrame.Active = not HotbarFrame.Active

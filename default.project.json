@@ -84,6 +84,12 @@
             "Sandboxed": true
           }
         },
+        "InventoryDeleteRequest": {
+          "$className": "RemoteEvent"
+        },
+        "InventoryDeleteResult": {
+          "$className": "RemoteEvent"
+        },
         "PromptInteract": {
           "$className": "RemoteEvent"
         },
