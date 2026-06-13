@@ -827,6 +827,14 @@ local function validateCosmeticShopUi(menu, errors)
 	validateShopUi(menu, "CosmeticShop", false, errors)
 end
 
+local function validateRobuxShopUi(menu, errors)
+	local panel = child(menu, "RobuxShop", "GuiObject", errors)
+	if not panel then return end
+
+	descendant(panel, "CloseButton", "GuiButton", errors)
+	descendant(panel, "SFHolder", "ScrollingFrame", errors)
+end
+
 local function validateBillboardTemplate(billboardFolder, name, labelName, errors)
 	local billboard = child(billboardFolder, name, "BillboardGui", errors)
 	if billboard and labelName then
@@ -1305,6 +1313,7 @@ local function validateUi(errors, warnings)
 		local leftButtons = child(hud, "LeftButtons", "GuiObject", errors)
 		if leftButtons then
 			child(leftButtons, "RebirthButton", "GuiButton", errors)
+			child(leftButtons, "ShopButton", "GuiButton", errors)
 		end
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
@@ -1318,6 +1327,7 @@ local function validateUi(errors, warnings)
 		validateRebirthUi(menu, errors)
 		validateGearShopUi(menu, errors)
 		validateCosmeticShopUi(menu, errors)
+		validateRobuxShopUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
 	end
 
@@ -1338,6 +1348,14 @@ local function validateUi(errors, warnings)
 
 	validatePromptTemplates(ui, errors)
 	validateProximityPromptCustomizerUi(ui, errors)
+end
+
+local function validateRobuxShopPart(warnings)
+	local map = child(Workspace, "Map", nil, warnings)
+	if not map then return end
+	local shopParts = child(map, "ShopParts", nil, warnings)
+	if not shopParts then return end
+	child(shopParts, "RobuxShop", "BasePart", warnings)
 end
 
 local function validateRemotes(errors)
@@ -1605,6 +1623,7 @@ function AssetValidator.validate()
 	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings, warnings)
+	validateRobuxShopPart(warnings)
 	validateLoadingScreenSource(warnings)
 	validatePlots(errors)
 

@@ -28,6 +28,7 @@ local CONTROLLERS = {
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
+	"RobuxShopController",
 	"JoinBackShowcaseController",
 	"AutoPromptButtonController",
 	"GearShopController",
