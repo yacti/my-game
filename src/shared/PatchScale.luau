@@ -5,7 +5,7 @@ local PatchScale = {}
 PatchScale.DEFAULT_XP = 1
 PatchScale.MIN = 0.3
 PatchScale.MAX = 2.75
-PatchScale.MAX_BASE_XP_MULTIPLIER = 500
+PatchScale.MAX_BASE_XP_MULTIPLIER = 1250
 
 function PatchScale.NormalizePatchXP(value)
 	if type(value) ~= "number" or value <= 0 then
