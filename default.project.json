@@ -48,6 +48,9 @@
         "CosmeticShopPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "SeedPackPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

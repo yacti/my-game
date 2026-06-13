@@ -6,6 +6,9 @@ local PREVIEW_SCALE = 1.25
 local PET_TARGET_MAX_DIMENSION = 5
 local PET_VIEWPORT_ZOOM = 2.2
 local ROTATION_SECONDS = 12
+local VIEWPORT_AMBIENT = Color3.fromRGB(255, 255, 255)
+local VIEWPORT_LIGHT_COLOR = Color3.fromRGB(185, 185, 185)
+local VIEWPORT_LIGHT_DIRECTION = Vector3.new(-1, -1, -1)
 local TAU = math.pi * 2
 local rotationConnections = setmetatable({}, { __mode = "k" })
 
@@ -155,9 +158,9 @@ function ViewportPreview.Render(viewport, template, options)
 	camera.CFrame = CFrame.new(Vector3.new(distance, distance * 0.45, distance), Vector3.new())
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
-	viewport.Ambient = Color3.fromRGB(180, 180, 180)
-	viewport.LightColor = Color3.fromRGB(255, 255, 255)
-	viewport.LightDirection = Vector3.new(-0.4, -1, -0.35)
+	viewport.Ambient = VIEWPORT_AMBIENT
+	viewport.LightColor = VIEWPORT_LIGHT_COLOR
+	viewport.LightDirection = VIEWPORT_LIGHT_DIRECTION
 	startRotation(viewport, rig)
 	return true
 end

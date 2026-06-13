@@ -29,6 +29,7 @@ local CONTROLLERS = {
 	"LocalPrompts",
 	"HudController",
 	"RobuxShopController",
+	"SeedPackShopController",
 	"JoinBackShowcaseController",
 	"AutoPromptButtonController",
 	"GearShopController",

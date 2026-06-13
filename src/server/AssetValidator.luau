@@ -23,6 +23,7 @@ local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
+local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local AssetValidator = {}
@@ -835,6 +836,76 @@ local function validateRobuxShopUi(menu, errors)
 	descendant(panel, "SFHolder", "ScrollingFrame", errors)
 end
 
+local function validateSeedPackCard(card, source, errors)
+	descendant(card, "Title", "TextLabel", errors)
+	descendant(card, "BuyButton", "GuiButton", errors)
+	descendant(card, "BuyThree", "GuiButton", errors)
+	local iconHolder = descendant(card, "IconHolder", "GuiObject", errors)
+	if iconHolder then
+		child(iconHolder, "Icon", "ImageLabel", errors)
+	end
+
+	local items = child(card, "Items", "GuiObject", errors)
+	if not items then
+		return
+	end
+	local templates = {}
+	for _, item in ipairs(items:GetChildren()) do
+		if item.Name == "Template" and item:IsA("GuiObject") then
+			templates[#templates + 1] = item
+		end
+	end
+	if #templates ~= 3 then
+		add(errors, source .. ".Items must contain exactly three Template GuiObjects")
+	end
+	for index, template in ipairs(templates) do
+		local templateSource = source .. ".Items.Template[" .. tostring(index) .. "]"
+		descendant(template, "Icon", "ViewportFrame", errors)
+		descendant(template, "Chance", "TextLabel", errors)
+		if not template.Visible then
+			add(errors, templateSource .. " should be visible in the Studio-authored card")
+		end
+	end
+end
+
+local function validateSeedPacksUi(menu, errors)
+	local panel = child(menu, "RobuxShop", "GuiObject", errors)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local seedPacks = holder and child(holder, "SeedPacks", "GuiObject", errors)
+	if not seedPacks then return end
+
+	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
+		local card = child(seedPacks, pack.PackId, "GuiObject", errors)
+		if card then
+			validateSeedPackCard(card, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.SeedPacks." .. tostring(pack.PackId), errors)
+		end
+	end
+end
+
+local function validatePackRollFrameUi(menu, errors)
+	local panel = child(menu, "PackRollFrame", "GuiObject", errors)
+	if not panel then return end
+
+	local itemRollHolder = child(panel, "ItemRollHolder", "GuiObject", errors)
+	child(panel, "ContinueButton", "GuiButton", errors)
+	child(panel, "Slice", "GuiObject", errors)
+	child(panel, "OpenHint", "TextLabel", errors)
+	child(panel, "ConsoleIcon", "ImageLabel", errors)
+	local packHolder = itemRollHolder and child(itemRollHolder, "PackHolder", "GuiObject", errors)
+	if not packHolder then
+		return
+	end
+
+	child(packHolder, "Result", "ViewportFrame", errors)
+	child(packHolder, "RayResult", "ImageLabel", errors)
+	child(packHolder, "ItemName", "TextLabel", errors)
+	child(packHolder, "Rarity", "TextLabel", errors)
+	child(packHolder, "Chance", "TextLabel", errors)
+	child(packHolder, "Pack", "ImageButton", errors)
+	child(packHolder, "FTUEDrag", "ImageLabel", errors)
+end
+
 local function validateBillboardTemplate(billboardFolder, name, labelName, errors)
 	local billboard = child(billboardFolder, name, "BillboardGui", errors)
 	if billboard and labelName then
@@ -1160,6 +1231,19 @@ local function validateCosmeticShopBalance(errors)
 	end
 end
 
+local function validateShopBalance(errors)
+	ShopBalance.Validate(errors)
+	for packIndex, pack in ipairs(ShopBalance.AllSeedPacks()) do
+		local source = "ShopBalance.SeedPacks[" .. tostring(packIndex) .. "]"
+		for rewardIndex, reward in ipairs(pack.Rewards or {}) do
+			local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
+			if not Seeds.GetTemplate(reward.SeedId) then
+				add(errors, rewardSource .. " has unknown SeedId " .. tostring(reward.SeedId))
+			end
+		end
+	end
+end
+
 local function validateCosmeticToolContract(errors)
 	local tool = Assets.Find(Assets.Names.CosmeticTool)
 	if not tool then
@@ -1195,6 +1279,10 @@ local function validateShopProductIds(errors)
 	end
 	for index, item in ipairs(CosmeticShopBalance.All()) do
 		addProductIdSource(seenProducts, item.DevProductId, "CosmeticShopBalance.Items[" .. tostring(index) .. "].DevProductId", errors)
+	end
+	for index, pack in ipairs(ShopBalance.AllSeedPacks()) do
+		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].DevProductId", errors)
+		addProductIdSource(seenProducts, pack.BuyThreeDevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].BuyThreeDevProductId", errors)
 	end
 end
 
@@ -1328,6 +1416,8 @@ local function validateUi(errors, warnings)
 		validateGearShopUi(menu, errors)
 		validateCosmeticShopUi(menu, errors)
 		validateRobuxShopUi(menu, errors)
+		validateSeedPacksUi(menu, errors)
+		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
 	end
 
@@ -1619,6 +1709,7 @@ function AssetValidator.validate()
 	validateRollDropAreaBalance(errors)
 	validateGearShopBalance(errors)
 	validateCosmeticShopBalance(errors)
+	validateShopBalance(errors)
 	validateShopProductIds(errors)
 	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)

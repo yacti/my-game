@@ -41,6 +41,7 @@ local PromptInteractionService = require(Server:WaitForChild("PromptInteractionS
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
 local RollService       = require(Server:WaitForChild("RollService"))
+local SeedPackShopService = require(Server:WaitForChild("SeedPackShopService"))
 local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
@@ -92,11 +93,13 @@ RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantP
 RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
+RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
 		gearShopService = GearShopService,
 		cosmeticShopService = CosmeticShopService,
+		seedPackShopService = SeedPackShopService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)

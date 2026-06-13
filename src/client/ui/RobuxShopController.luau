@@ -12,6 +12,7 @@ local RobuxShopController = {}
 local HUD_NAME = "HUD"
 local HUD_LEFT_BUTTONS_NAME = "LeftButtons"
 local HUD_SHOP_BUTTON_NAME = "ShopButton"
+local HUD_SHOP_ALERT_NAME = "Alert"
 local PANEL_NAME = "RobuxShop"
 local SHOP_MENU_GROUP = "Shop"
 local SHOP_PART_NAME = "RobuxShop"
@@ -107,9 +108,14 @@ function RobuxShopController.start()
 	if openButton then
 		UiEffects.BindButton(openButton)
 	end
+	local shopAlert = openButton and openButton:FindFirstChild(HUD_SHOP_ALERT_NAME)
+	if shopAlert and shopAlert:IsA("GuiObject") then
+		shopAlert.Visible = true
+	end
 
 	local panelState = UiEffects.PreparePanel(panel)
 	local isOpen = false
+	local hasOpenedShop = false
 	local openedByProximity = false
 	local manuallyClosed = false
 	local wasNear = false
@@ -119,6 +125,12 @@ function RobuxShopController.start()
 	local function showPanel()
 		local source = pendingOpenSource
 		openedByProximity = source == "proximity"
+		if not hasOpenedShop then
+			hasOpenedShop = true
+			if shopAlert and shopAlert.Parent then
+				shopAlert.Visible = false
+			end
+		end
 		if isOpen then
 			return
 		end
