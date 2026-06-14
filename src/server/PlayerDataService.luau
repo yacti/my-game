@@ -40,6 +40,7 @@ local DATA_TEMPLATE = {
 	FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number? } }
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
+	PendingGrowSkipReservation = nil,
 	StarterPackPurchased = false,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
@@ -212,6 +213,32 @@ local function sanitizePendingFoodStealReservation(value)
 		return nil
 	end
 	return clean
+end
+
+local function sanitizePendingGrowSkipReservation(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	local reservationId = value.reservationId
+	if type(reservationId) ~= "string" or reservationId == "" then
+		return nil
+	end
+	local productId = math.max(math.floor(tonumber(value.productId) or 0), 0)
+	local feedIndex = math.max(math.floor(tonumber(value.feedIndex) or 0), 0)
+	local seedId = value.seedId
+	local createdAt = math.floor(tonumber(value.createdAt) or os.time())
+	local expiresAt = math.floor(tonumber(value.expiresAt) or 0)
+	if productId <= 0 or feedIndex <= 0 or type(seedId) ~= "string" or seedId == "" or expiresAt <= 0 then
+		return nil
+	end
+	return {
+		reservationId = reservationId,
+		productId = productId,
+		feedIndex = feedIndex,
+		seedId = seedId,
+		createdAt = createdAt,
+		expiresAt = expiresAt,
+	}
 end
 
 local function ensureValidData(profile)
@@ -388,6 +415,7 @@ local function ensureValidData(profile)
 	end
 	profile.Data.ProcessedReceipts = processedReceipts
 	profile.Data.PendingFoodStealReservation = sanitizePendingFoodStealReservation(profile.Data.PendingFoodStealReservation)
+	profile.Data.PendingGrowSkipReservation = sanitizePendingGrowSkipReservation(profile.Data.PendingGrowSkipReservation)
 
 	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true
 

@@ -49,6 +49,7 @@ local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local GRID_UNLOCK_PROMPT_DISTANCE = 5
+local GRID_UNLOCK_PROMPT_HOLD_DURATION = 5
 local CRATE_ROLL_PROMPT_DISTANCE = RollConfig.Button.InteractionDistance
 local CRATE_ROLL_PROMPT_Y_OFFSET = -3
 local FAR_PROMPT_REFRESH_BUFFER = 12
@@ -480,7 +481,7 @@ local function configurePrompt(prompt, kind)
 	end
 	if kind == "GridPartUnlock" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0.25
+		prompt.HoldDuration = GRID_UNLOCK_PROMPT_HOLD_DURATION
 	else
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 	end

@@ -128,10 +128,14 @@ end
 
 local function formatRemaining(seconds)
 	seconds = math.max(math.ceil(seconds), 0)
-	local minutes = math.floor(seconds / 60)
+	local hours = math.floor(seconds / 3600)
+	local minutes = math.floor((seconds % 3600) / 60)
 	local remainder = seconds % 60
+	if hours > 0 then
+		return string.format("%02d:%02d:%02d", hours, minutes, remainder)
+	end
 	if minutes > 0 then
-		return string.format("%dm %02ds", minutes, remainder)
+		return string.format("%02d:%02d", minutes, remainder)
 	end
 	return string.format("%ds", remainder)
 end

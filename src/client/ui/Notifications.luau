@@ -114,6 +114,8 @@ function Notifications.show(payload)
 	end
 	if normalized.sound == SoundEffects.Names.FruitPop then
 		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+	elseif normalized.sound then
+		SoundEffects.Play(normalized.sound)
 	end
 
 	local label = template:Clone()

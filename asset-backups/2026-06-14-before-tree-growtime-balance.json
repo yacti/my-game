@@ -1,0 +1,101 @@
+[
+  {
+    "FeedType": "AppleTree",
+    "Name": "Apple Tree Seed",
+    "Rarity": "Common",
+    "Price": 100,
+    "RollChanceN": 3,
+    "SeedID": "AppleTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "BananaTree",
+    "Name": "Banana Tree Seed",
+    "Rarity": "Epic",
+    "Price": 12500,
+    "RollChanceN": 853,
+    "SeedID": "BananaTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "BloodOrangeTree",
+    "Name": "Blood Orange Tree Seed",
+    "Rarity": "Legendary",
+    "Price": 50000,
+    "RollChanceN": 42667,
+    "SeedID": "BloodOrangeTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "Cactus",
+    "Name": "Cactus Seed",
+    "Rarity": "Epic",
+    "Price": 15000,
+    "RollChanceN": 1200,
+    "SeedID": "CactusSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "CherryTree",
+    "Name": "Cherry Tree Seed",
+    "Rarity": "Epic",
+    "Price": 7500,
+    "RollChanceN": 512,
+    "SeedID": "CherryTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "DragonfruitTree",
+    "Name": "Dragonfruit Tree Seed",
+    "Rarity": "Mythical",
+    "Price": 85000,
+    "RollChanceN": 85333,
+    "SeedID": "DragonfruitTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "DurianTree",
+    "Name": "Durian Tree Seed",
+    "Rarity": "Secret",
+    "Price": 120000,
+    "RollChanceN": 5120000,
+    "SeedID": "DurianTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "FigTree",
+    "Name": "Fig Tree Seed",
+    "Rarity": "Legendary",
+    "Price": 35000,
+    "RollChanceN": 2560,
+    "SeedID": "FigTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "GoldenAppleTree",
+    "Name": "Golden Apple Tree Seed",
+    "Rarity": "Secret",
+    "Price": 100000,
+    "RollChanceN": 1200000,
+    "SeedID": "GoldenAppleTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "OrangeTree",
+    "Name": "Orange Tree Seed",
+    "Rarity": "Rare",
+    "Price": 2000,
+    "RollChanceN": 85,
+    "SeedID": "OrangeTreeSeed",
+    "GrowTime": 1
+  },
+  {
+    "FeedType": "PlumTree",
+    "Name": "Plum Tree Seed",
+    "Rarity": "Rare",
+    "Price": 3500,
+    "RollChanceN": 256,
+    "SeedID": "PlumTreeSeed",
+    "GrowTime": 1
+  }
+]

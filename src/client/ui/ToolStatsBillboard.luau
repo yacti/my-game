@@ -59,7 +59,7 @@ local function build(tool)
 
 	local function render()
 		local xp = tool:GetAttribute(State.Food.XP) or 0
-		label.Text = NumberFormatter.XP(xp, "xp")
+		label.Text = NumberFormatter.XP(xp, " XP")
 	end
 	render()
 

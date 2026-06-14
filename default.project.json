@@ -75,6 +75,15 @@
             "Sandboxed": true
           }
         },
+        "GrowSkipRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
+        "GrowSkipResult": {
+          "$className": "RemoteEvent"
+        },
         "ServerLuckPurchaseRequest": {
           "$className": "RemoteEvent"
         },
@@ -184,6 +193,12 @@
           "$className": "Sound",
           "$properties": {
             "SoundId": "rbxassetid://330274138"
+          }
+        },
+        "FoodStolen": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://70749158169652"
           }
         },
         "ConfettiSound": {

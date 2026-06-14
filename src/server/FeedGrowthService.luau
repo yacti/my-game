@@ -59,6 +59,34 @@ function FeedGrowthService.IsGrowing(instance)
 	return instance ~= nil and instance:GetAttribute(State.Seed.Phase) == GROWING_PHASE
 end
 
+function FeedGrowthService.GetGrowingInfo(instance)
+	if not FeedGrowthService.IsGrowing(instance) then
+		return nil
+	end
+
+	local data = state[instance]
+	local seedId = data and data.seedId or instance:GetAttribute(State.Seed.Id)
+	local feedType = data and data.feedType or instance:GetAttribute(State.Feed.Type) or seedTemplateFeedType(seedId)
+	local growEndAt = instance:GetAttribute(State.Seed.GrowEndAt)
+	local growTime = data and data.growTime or Seeds.GrowTimeFor(seedId)
+	local plantedAt = data and data.plantedAt
+	if not plantedAt and type(growEndAt) == "number" and type(growTime) == "number" then
+		plantedAt = growEndAt - growTime
+	end
+
+	return {
+		seedId = seedId,
+		feedType = feedType,
+		feedClass = FeedMachines.GetClass(feedType),
+		plot = data and data.plot or nil,
+		owner = data and data.owner or nil,
+		plantedAt = plantedAt,
+		growTime = growTime,
+		growEndAt = growEndAt,
+		offlineProgressPending = data and data.offlineProgressPending == true or false,
+	}
+end
+
 local function hidePatchFoodMarkers(machine)
 	for _, descendant in ipairs(machine:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Name == "BaseFood" then
@@ -226,6 +254,24 @@ function FeedGrowthService.ApplyOfflineProgress(context)
 	end
 
 	return true, matured
+end
+
+function FeedGrowthService.ForceMature(instance)
+	if not FeedGrowthService.IsGrowing(instance) then
+		return nil, "not-growing"
+	end
+	local data = state[instance]
+	if not data then
+		return nil, "not-registered"
+	end
+	if data.offlineProgressPending == true then
+		return nil, "offline-progress"
+	end
+	local mature = matureInstance(instance)
+	if not mature then
+		return nil, "mature-failed"
+	end
+	return mature, "ok"
 end
 
 function FeedGrowthService.Serialize(instance)

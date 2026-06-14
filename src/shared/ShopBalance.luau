@@ -109,6 +109,10 @@ ShopBalance.FoodSteal = {
 	DevProductId = 3604630642,
 }
 
+ShopBalance.GrowSkip = {
+	DevProductId = 3604690049,
+}
+
 ShopBalance.GamePassKeys = {
 	VIP = "VIP",
 	Luck2x = "Luck2x",
@@ -241,6 +245,15 @@ local function copyFoodSteal(config)
 	}
 end
 
+local function copyGrowSkip(config)
+	if type(config) ~= "table" then
+		return nil
+	end
+	return {
+		DevProductId = int(config.DevProductId, 0),
+	}
+end
+
 local function copyGamePass(config)
 	if type(config) ~= "table" then
 		return nil
@@ -344,6 +357,10 @@ function ShopBalance.GetFoodSteal()
 	return copyFoodSteal(ShopBalance.FoodSteal)
 end
 
+function ShopBalance.GetGrowSkip()
+	return copyGrowSkip(ShopBalance.GrowSkip)
+end
+
 function ShopBalance.GetVIP()
 	return ShopBalance.GamePassForKey(ShopBalance.GamePassKeys.VIP)
 end
@@ -415,6 +432,15 @@ function ShopBalance.FoodStealForProductId(productIdValue)
 		return nil
 	end
 	return copyFoodSteal(config)
+end
+
+function ShopBalance.GrowSkipForProductId(productIdValue)
+	local target = productId(productIdValue)
+	local config = ShopBalance.GrowSkip
+	if target <= 0 or type(config) ~= "table" or productId(config.DevProductId) ~= target then
+		return nil
+	end
+	return copyGrowSkip(config)
 end
 
 function ShopBalance.StarterPackTotalAmount(pack)
@@ -741,6 +767,13 @@ function ShopBalance.Validate(errors)
 		add("ShopBalance.FoodSteal must be a table")
 	else
 		validateProduct(foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId")
+	end
+
+	local growSkip = ShopBalance.GrowSkip
+	if type(growSkip) ~= "table" then
+		add("ShopBalance.GrowSkip must be a table")
+	else
+		validateProduct(growSkip.DevProductId, "ShopBalance.GrowSkip.DevProductId")
 	end
 
 	local serverLuck = ShopBalance.ServerLuck

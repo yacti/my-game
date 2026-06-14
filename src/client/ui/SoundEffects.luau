@@ -20,6 +20,7 @@ SoundEffects.Names = {
 	TreeShaken = "TreeShaken",
 	PetFed = "PetFed",
 	MoneyCollected = "MoneyCollected",
+	FoodStolen = "FoodStolen",
 	Confetti = "ConfettiSound",
 	Drumroll = "Drumroll",
 	RollButtonClick = "RollButtonClick",

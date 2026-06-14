@@ -38,6 +38,7 @@ local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService")
 local FoodStealService = require(Server:WaitForChild("FoodStealService"))
 local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
+local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -128,6 +129,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		starterPackShopService = StarterPackShopService,
 		serverLuckService = ServerLuckService,
 		foodStealService = FoodStealService,
+		growSkipService = GrowSkipService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)
@@ -1062,6 +1064,8 @@ RuntimeGuard.Run("FoodStealService.Start", function()
 		snapshotProfileState = snapshotProfileState,
 	})
 end)
+
+RuntimeGuard.Run("GrowSkipService.Start", GrowSkipService.Start)
 
 RuntimeGuard.Run("FeedPlacementService.Start", function()
 	FeedPlacementService.Start({

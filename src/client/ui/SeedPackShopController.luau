@@ -18,6 +18,7 @@ local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 
@@ -936,6 +937,7 @@ local function enqueueReveal(payload)
 		return
 	end
 	ConfettiEffect.Emit()
+	SoundEffects.Play(SoundEffects.Names.RollReveal)
 	revealQueue[#revealQueue + 1] = payload
 	if not activeReveal then
 		showNextReveal()

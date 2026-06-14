@@ -19,6 +19,7 @@ local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -606,11 +607,15 @@ function FoodStealService.ProcessReceipt(receiptInfo)
 		if reservation then
 			local sourcePlayer = Players:GetPlayerByUserId(int(reservation.sourceOwnerUserId, 0))
 			local sourceName = sourcePlayer and sourcePlayer.DisplayName or sourcePlayer and sourcePlayer.Name or "Player"
-			NotificationService.Success(player, string.format(
-				"You have stolen %s's %s!",
-				sourceName,
-				foodDisplayName(reservation.foodId)
-			))
+			NotificationService.Notify(player, {
+				kind = NotificationConfig.Kinds.Success,
+				text = string.format(
+					"You have stolen %s's %s!",
+					sourceName,
+					foodDisplayName(reservation.foodId)
+				),
+				sound = "FoodStolen",
+			})
 		else
 			NotificationService.Error(player, "Could not find the food steal reservation.")
 		end
