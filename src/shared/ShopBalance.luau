@@ -66,12 +66,26 @@ ShopBalance.StarterPack = {
 	},
 }
 
+ShopBalance.VIP = {
+	GamePassId = 1875159706,
+	PetCashEarnRate = 1.25,
+	LuckBonusPercent = 25,
+}
+
 local function int(value, minimum)
 	value = tonumber(value)
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
 		return minimum or 0
 	end
 	return math.max(math.floor(value), minimum or 0)
+end
+
+local function finiteNumber(value, fallback)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return fallback or 0
+	end
+	return value
 end
 
 local function copyReward(reward)
@@ -122,6 +136,17 @@ local function copyStarterPack(pack)
 	}
 end
 
+local function copyVIP(config)
+	if type(config) ~= "table" then
+		return nil
+	end
+	return {
+		GamePassId = int(config.GamePassId, 0),
+		PetCashEarnRate = finiteNumber(config.PetCashEarnRate, 1),
+		LuckBonusPercent = finiteNumber(config.LuckBonusPercent, 0),
+	}
+end
+
 local function productId(value)
 	return int(value, 0)
 end
@@ -168,6 +193,15 @@ end
 
 function ShopBalance.GetStarterPack()
 	return copyStarterPack(ShopBalance.StarterPack)
+end
+
+function ShopBalance.GetVIP()
+	return copyVIP(ShopBalance.VIP)
+end
+
+function ShopBalance.VIPGamePassId()
+	local config = ShopBalance.VIP
+	return productId(config and config.GamePassId)
 end
 
 function ShopBalance.StarterPackForProductId(productIdValue)
@@ -318,6 +352,12 @@ function ShopBalance.Validate(errors)
 		seenProducts[id] = source
 	end
 
+	local function validateGamePass(id, source)
+		if type(id) ~= "number" or id <= 0 or id % 1 ~= 0 then
+			add(source .. " has invalid gamepass id")
+		end
+	end
+
 	for index, pack in ipairs(ShopBalance.SeedPacks) do
 		local source = "ShopBalance.SeedPacks[" .. tostring(index) .. "]"
 		if type(pack) ~= "table" then
@@ -438,6 +478,25 @@ function ShopBalance.Validate(errors)
 			if expectedFrom ~= int(serverLuck.MaxMultiplier, 1) then
 				add("ShopBalance.ServerLuck.Steps must end at MaxMultiplier")
 			end
+		end
+	end
+
+	local vip = ShopBalance.VIP
+	if type(vip) ~= "table" then
+		add("ShopBalance.VIP must be a table")
+	else
+		validateGamePass(vip.GamePassId, "ShopBalance.VIP.GamePassId")
+		if type(vip.PetCashEarnRate) ~= "number"
+			or vip.PetCashEarnRate <= 0
+			or vip.PetCashEarnRate ~= vip.PetCashEarnRate
+			or math.abs(vip.PetCashEarnRate) == math.huge then
+			add("ShopBalance.VIP has invalid PetCashEarnRate")
+		end
+		if type(vip.LuckBonusPercent) ~= "number"
+			or vip.LuckBonusPercent < 0
+			or vip.LuckBonusPercent ~= vip.LuckBonusPercent
+			or math.abs(vip.LuckBonusPercent) == math.huge then
+			add("ShopBalance.VIP has invalid LuckBonusPercent")
 		end
 	end
 

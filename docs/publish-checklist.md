@@ -95,6 +95,13 @@ Run this checklist before publishing a live build.
 - Buy Server Luck from the Robux shop, verify all players receive the notification
   and local confetti, and verify `HUD.Buffs.ServerLuck` hides at `1x` and shows
   the active multiplier/timer while boosted.
+- Buy VIP gamepass id `1875159706` from both Robux shop locations, verify both VIP
+  cards show `Sold`, `HUD.Buffs.VIP` shows only for VIP owners, Sold state
+  persists after rejoin through Marketplace ownership verification, pet cash-rate
+  billboards show the 1.25x VIP rate, online/offline pet cash generation use
+  `PetCashEarnRate = 1.25`, and roll luck includes VIP as an additive `+25%`
+  source. Because VIP affects random crate odds, review paid-random-item policy
+  and odds disclosure together with Server Luck before publishing.
 - Buy Starter Pack from the Robux shop, verify it grants six `AppleTreeSeed`
   tools across four displayed reward slots, shows `Sold` after purchase, stays
   sold after rejoin, blocks a second in-game purchase attempt, does not double-grant

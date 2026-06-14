@@ -953,6 +953,32 @@ local function validateStarterPackShopUi(menu, warnings)
 	end
 end
 
+local function validateVipShopCard(card, warnings)
+	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
+	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
+	if price then
+		descendant(price, "Price", "TextLabel", warnings)
+	end
+	child(card, "Sold", "ImageLabel", warnings)
+end
+
+local function validateVipShopUi(menu, warnings)
+	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
+	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
+	local featuredCard = featured and child(featured, "VIP", "GuiObject", warnings)
+	if featuredCard then
+		validateVipShopCard(featuredCard, warnings)
+	end
+
+	local gamepasses = holder and child(holder, "Gamepasses", "GuiObject", warnings)
+	local gamepassesCard = gamepasses and child(gamepasses, "VIP", "GuiObject", warnings)
+	if gamepassesCard then
+		validateVipShopCard(gamepassesCard, warnings)
+	end
+end
+
 local function validatePackRollFrameUi(menu, errors)
 	local panel = child(menu, "PackRollFrame", "GuiObject", errors)
 	if not panel then return end
@@ -1107,6 +1133,14 @@ local function validateServerLuckHud(hud, warnings)
 
 	child(serverLuck, "Timer", "TextLabel", warnings)
 	child(serverLuck, "Multiplier", "TextLabel", warnings)
+end
+
+local function validateVipHud(hud, warnings)
+	local buffs = child(hud, "Buffs", "GuiObject", warnings)
+	local vip = buffs and child(buffs, "VIP", "GuiObject", warnings)
+	if not vip then return end
+
+	child(vip, "Icon", "ImageLabel", warnings)
 end
 
 local function validateAutoPromptButton(hud, errors)
@@ -1488,6 +1522,7 @@ local function validateUi(errors, warnings)
 		validateHudCurrency(hud, errors)
 		validateJoinBackShowcaseUi(hud, warnings)
 		validateServerLuckHud(hud, warnings)
+		validateVipHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
 		if rollButtons then
@@ -1514,6 +1549,7 @@ local function validateUi(errors, warnings)
 		validateRobuxShopUi(menu, errors)
 		validateServerLuckShopUi(menu, warnings)
 		validateStarterPackShopUi(menu, warnings)
+		validateVipShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)

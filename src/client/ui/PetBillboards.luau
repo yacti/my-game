@@ -13,8 +13,10 @@ local Balance = require(Shared:WaitForChild("Balance"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State   = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PetBillboards = {}
@@ -50,6 +52,28 @@ local function descendant(parent, name, className)
 	return nil
 end
 
+local function vipEarnRate()
+	if PlayerStateStore.Get(PlayerStateStore.Fields.VipOwned) ~= true then
+		return 1
+	end
+	local vip = ShopBalance.GetVIP()
+	local earnRate = tonumber(vip and vip.PetCashEarnRate) or 1
+	if type(earnRate) ~= "number" or earnRate ~= earnRate or math.abs(earnRate) == math.huge or earnRate <= 0 then
+		return 1
+	end
+	return earnRate
+end
+
+local function refreshAll()
+	for pet, record in pairs(attached) do
+		if pet.Parent and type(record) == "table" and type(record.render) == "function" then
+			record.render()
+		else
+			attached[pet] = nil
+		end
+	end
+end
+
 local function attach(pet)
 	if attached[pet] then return end
 	local activeTemplates = loadTemplates()
@@ -64,7 +88,8 @@ local function attach(pet)
 		return
 	end
 
-	attached[pet] = true
+	local record = {}
+	attached[pet] = record
 
 	local billboard = activeTemplates.Stats:Clone()
 	UiEffects.BindBillboardPop(billboard)
@@ -115,7 +140,7 @@ local function attach(pet)
 		local xp    = pet:GetAttribute(State.Pet.XP)    or 0
 		local money = pet:GetAttribute(State.Pet.Money) or 0
 		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
-		local moneyRate = pet:GetAttribute(State.Pet.MoneyRate) or 0
+		local moneyRate = (pet:GetAttribute(State.Pet.MoneyRate) or 0) * vipEarnRate()
 		local nickname = pet:GetAttribute(State.Pet.Nickname)
 		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
 
@@ -131,6 +156,7 @@ local function attach(pet)
 			xpBar.Visible = type(maxXP) == "number" and maxXP > 0
 		end
 	end
+	record.render = render
 
 	render()
 	refreshNameColor()
@@ -180,6 +206,7 @@ local function watchWorkspace()
 end
 
 function PetBillboards.start()
+	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, refreshAll)
 	watchWorkspace()
 end
 

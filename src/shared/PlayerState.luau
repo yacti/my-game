@@ -15,6 +15,7 @@ PlayerState.Fields = {
 	UnlockedGridKeys = "UnlockedGridKeys",
 	Onboarding = "Onboarding",
 	StarterPackPurchased = "StarterPackPurchased",
+	VipOwned = "VipOwned",
 	JoinBackShowcase = "JoinBackShowcase",
 }
 

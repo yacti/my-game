@@ -49,6 +49,7 @@ local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local VipService = require(Server:WaitForChild("VipService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
@@ -98,6 +99,7 @@ RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
+RuntimeGuard.Run("VipService.Start", VipService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
@@ -517,18 +519,19 @@ end
 
 -- ── Currency / offline helpers ────────────────────────────────────────────────
 
-local function applyOfflineEarnings(plot, profile, lastSeen, joinTime)
+local function applyOfflineEarnings(player, plot, profile, lastSeen, joinTime)
 	lastSeen = tonumber(lastSeen) or profile.Data.LastSeen or 0
 	if lastSeen == 0 then return true end
 	local elapsed = (tonumber(joinTime) or os.time()) - lastSeen
 	if elapsed <= 0 then return true end
 
+	local earnRate = VipService.PetCashEarnRate(player)
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		if petData then
 			local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
-			petData.money = (petData.money or 0) + rate * elapsed * OFFLINE_PET_EARN_FRACTION
+			petData.money = (petData.money or 0) + rate * elapsed * OFFLINE_PET_EARN_FRACTION * earnRate
 			pet:SetAttribute(State.Pet.Money, petData.money)
 		end
 	end
@@ -536,7 +539,7 @@ local function applyOfflineEarnings(plot, profile, lastSeen, joinTime)
 end
 
 OfflineProgressService.RegisterSystem("PetMoney", function(context)
-	return applyOfflineEarnings(context.plot, context.profile, context.lastSeen, context.joinTime)
+	return applyOfflineEarnings(context.player, context.plot, context.profile, context.lastSeen, context.joinTime)
 end)
 
 OfflineProgressService.RegisterSystem("FeedMachines", function(context)
@@ -567,12 +570,13 @@ local function startPetMoneyLoop(player, plot, profile)
 				if OfflineProgressService.IsPending(player) then
 					return
 				end
+				local earnRate = VipService.PetCashEarnRate(player)
 				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 					local idx = pet:GetAttribute(State.Pet.Index)
 					local petData = profile.Data.Pets[idx]
 					if petData then
 						local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
-						petData.money = (petData.money or 0) + rate
+						petData.money = (petData.money or 0) + rate * earnRate
 						pet:SetAttribute(State.Pet.Money, petData.money)
 					end
 				end
@@ -786,8 +790,9 @@ local function handlePlayerAdded(player)
 			PlotService.PlaceCosmeticWithIndex(plot, placement.id, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 		end
 
+		VipService.RefreshOwnership(player)
 		if not deferOfflineProgress then
-			applyOfflineEarnings(plot, profile)
+			applyOfflineEarnings(player, plot, profile)
 		end
 
 		PlayerReplicaService.Create(player, profile)

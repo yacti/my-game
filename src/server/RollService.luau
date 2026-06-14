@@ -12,6 +12,7 @@ local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService")
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
+local VipService = require(Server:WaitForChild("VipService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
@@ -62,6 +63,11 @@ local rng = Random.new()
 
 local function userKey(player)
 	return player and player.UserId or nil
+end
+
+local function playerLuckPercent(player, profile)
+	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	return luckPercent + VipService.LuckBonusPercent(player)
 end
 
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
@@ -251,7 +257,7 @@ local function randomSeedEntry(seedEntries, usedSeedIds, rarity, allowUsed)
 	return candidates[rng:NextInteger(1, #candidates)]
 end
 
-local function weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, allowUsed)
+local function weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, allowUsed)
 	local candidates = {}
 	for _, entry in ipairs(seedEntries) do
 		local isUsed = usedSeedIds and usedSeedIds[entry.seedId] == true
@@ -263,7 +269,7 @@ local function weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, all
 		return nil
 	end
 
-	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	local luckPercent = playerLuckPercent(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
 	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent, serverLuckMultiplier)
 	if not rewardWeights then
@@ -354,7 +360,7 @@ local function rollSeedPreviewCount()
 	return candidates[rng:NextInteger(1, #candidates)]
 end
 
-local function buildSeedPreviewSeeds(rolled, entries, crateId, profile)
+local function buildSeedPreviewSeeds(rolled, entries, crateId, player, profile)
 	if rolled.category ~= RollRewards.Categories.Seed then
 		return nil
 	end
@@ -381,8 +387,8 @@ local function buildSeedPreviewSeeds(rolled, entries, crateId, profile)
 			entry = rareTeaseSeedEntry(seedEntries, usedSeedIds)
 		end
 		entry = entry
-			or weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, false)
-			or weightedSeedEntry(crateId, profile, seedEntries, usedSeedIds, true)
+			or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, false)
+			or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, true)
 		if entry then
 			previews[index] = entry
 			usedSeedIds[entry.seedId] = true
@@ -415,13 +421,13 @@ local function rollEntryForSeed(seedId, entries)
 	return nil, "missing-tutorial-seed"
 end
 
-local function rollRewardForCrate(crateId, profile, entries)
+local function rollRewardForCrate(crateId, player, profile, entries)
 	entries = entries or collectRollPool()
 	if #entries == 0 then
 		return nil, "empty-roll-pool"
 	end
 
-	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	local luckPercent = playerLuckPercent(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
 	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, entries, luckPercent, serverLuckMultiplier)
 	if not rewardWeights then
@@ -695,7 +701,7 @@ function RollService.Roll(player, target, plot, profile)
 					usedGuaranteedSeedId = guaranteedSeedId
 				end
 			else
-				rolled, rollCode = rollRewardForCrate(crateId, profile, rollPool)
+				rolled, rollCode = rollRewardForCrate(crateId, player, profile, rollPool)
 			end
 			if not rolled then
 				return false, rollCode or "reward-roll-failed"
@@ -704,7 +710,7 @@ function RollService.Roll(player, target, plot, profile)
 			nextOfferId += 1
 			local offerId = nextOfferId
 			local crate = RollChances.GetCrate(crateId)
-			local previewSeeds = buildSeedPreviewSeeds(rolled, rollPool, crateId, profile)
+			local previewSeeds = buildSeedPreviewSeeds(rolled, rollPool, crateId, player, profile)
 			offerMap[offerId] = {
 				offerId = offerId,
 				category = rolled.category,

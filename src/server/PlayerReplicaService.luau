@@ -14,6 +14,7 @@ local PlayerReplicaService = {}
 local token = Replica.Token(PlayerState.Token)
 local replicas = {}
 local readyConnections = {}
+local vipOwned = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -62,8 +63,9 @@ local function copyOnboardingState(value)
 	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
 end
 
-local function stateFromProfile(profile)
+local function stateFromProfile(player, profile)
 	local data = profile and profile.Data or {}
+	local key = userKey(player)
 	return {
 		[PlayerState.Fields.ProfileReady] = profile ~= nil,
 		[PlayerState.Fields.Currency] = integer(data.Currency, 0),
@@ -77,6 +79,7 @@ local function stateFromProfile(profile)
 		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
+		[PlayerState.Fields.VipOwned] = key ~= nil and vipOwned[key] == true or false,
 	}
 end
 
@@ -156,7 +159,7 @@ function PlayerReplicaService.Create(player, profile)
 		Tags = {
 			UserId = key,
 		},
-		Data = stateFromProfile(profile),
+		Data = stateFromProfile(player, profile),
 	})
 	replicas[key] = replica
 	subscribeWhenReady(player, replica)
@@ -194,7 +197,7 @@ function PlayerReplicaService.PublishProfile(player, profile)
 	if not (replica and replica:IsActive()) then
 		return false
 	end
-	for fieldName, value in pairs(stateFromProfile(profile)) do
+	for fieldName, value in pairs(stateFromProfile(player, profile)) do
 		local ok = RuntimeGuard.Run("PlayerReplicaService.PublishProfile." .. tostring(fieldName), function()
 			replica:Set({ fieldName }, value)
 		end)
@@ -259,6 +262,14 @@ function PlayerReplicaService.PublishStarterPackPurchased(player, profile)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.StarterPackPurchased, data.StarterPackPurchased == true)
 end
 
+function PlayerReplicaService.PublishVipOwned(player, owned)
+	local key = userKey(player)
+	if key then
+		vipOwned[key] = owned == true
+	end
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.VipOwned, owned == true)
+end
+
 function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 	if type(payload) ~= "table" then
 		return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, nil)
@@ -271,7 +282,11 @@ function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)
+	local key = userKey(player)
 	PlayerReplicaService.Destroy(player)
+	if key then
+		vipOwned[key] = nil
+	end
 end)
 
 return PlayerReplicaService
