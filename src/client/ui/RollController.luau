@@ -1161,6 +1161,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	local liftedCFrame = floorCFrame + Vector3.new(0, SEED_LIFT_HEIGHT, 0)
 	fadeIn(blackClone)
 	attachRarityParticle(blackClone, Color3.new(1, 1, 1))
+	addRevealBillboard(blackClone, payload)
 
 	if not playSeedBeatTween(blackClone, floorCFrame, liftedCFrame, token) then
 		if blackClone.Parent then
