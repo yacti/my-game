@@ -1,3 +1,4 @@
+local ContextActionService = game:GetService("ContextActionService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -5,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -12,6 +14,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
+local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
@@ -27,6 +30,8 @@ local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
 local RUNTIME_SLICE_NAME = "__SeedPackSlice"
 local CONSOLE_OPEN_KEYCODE = Enum.KeyCode.ButtonX
 local FALLBACK_CONSOLE_OPEN_ICON = "rbxasset://textures/ui/Controls/xboxX.png"
+local SLICE_CAMERA_SINK_ACTION = "SeedPackShopController.SliceCameraSink"
+local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
 
 local PACK_REWARD_PREVIEW_OPTIONS = {
 	targetMaxDimension = 3,
@@ -60,6 +65,8 @@ local pendingSliced = {}
 local packOpenFtueCompleted = false
 local activeFtueDrag = nil
 local ftueToken = 0
+local cameraSinkBound = false
+local productPriceById = {}
 
 local function hasConnectedController()
 	if UserInputService.GamepadEnabled then
@@ -137,6 +144,64 @@ local function setTextStack(root, text)
 	UiEffects.SetTextStack(root, tostring(text or ""))
 end
 
+local function robuxText(productId, onLoaded)
+	productId = tonumber(productId) or 0
+	if productId <= 0 then
+		return "Robux"
+	end
+	if productPriceById[productId] then
+		return productPriceById[productId]
+	end
+
+	productPriceById[productId] = "Robux"
+	RuntimeGuard.Spawn("SeedPackShopController.ProductInfo", function()
+		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
+		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
+			productPriceById[productId] = NumberFormatter.Format(info.PriceInRobux)
+			if onLoaded then
+				onLoaded()
+			end
+		end
+	end)
+	return productPriceById[productId]
+end
+
+local function releaseSliceCameraSink()
+	if not cameraSinkBound then
+		return
+	end
+	ContextActionService:UnbindAction(SLICE_CAMERA_SINK_ACTION)
+	cameraSinkBound = false
+end
+
+local function bindSliceCameraSink()
+	if cameraSinkBound then
+		return
+	end
+	cameraSinkBound = true
+	ContextActionService:BindActionAtPriority(
+		SLICE_CAMERA_SINK_ACTION,
+		function(_, _, inputObject)
+			if dragging and activeInputType == Enum.UserInputType.Touch and inputObject == activeInput then
+				return Enum.ContextActionResult.Sink
+			end
+			return Enum.ContextActionResult.Pass
+		end,
+		false,
+		SLICE_CAMERA_SINK_PRIORITY,
+		Enum.UserInputType.Touch
+	)
+end
+
+local function resetDragState()
+	dragging = false
+	activeInput = nil
+	activeInputType = nil
+	dragStartPosition = nil
+	lastPosition = nil
+	releaseSliceCameraSink()
+end
+
 local function setRarityLabel(label, rarity)
 	if not label then
 		return
@@ -185,10 +250,18 @@ local function renderRewardSlot(slot, reward, pack)
 	local icon = findDescendant(slot, "Icon", "ViewportFrame")
 	local chance = findDescendant(slot, "Chance", "TextLabel")
 	local seedId = reward and reward.SeedId
+	local rarity = Seeds.RarityFor(seedId)
+	local displayName = Seeds.DisplayNameFor(seedId)
 	ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PACK_REWARD_PREVIEW_OPTIONS)
 	if chance then
 		setTextStack(chance, ShopBalance.ChanceText(pack, reward))
 	end
+	HoverOver.Bind(slot, function()
+		return {
+			name = displayName,
+			rarity = rarity,
+		}
+	end)
 end
 
 local function renderPackCard(pack)
@@ -213,8 +286,12 @@ local function renderPackCard(pack)
 
 	local buyButton = frame:FindFirstChild("BuyButton")
 	local buyThree = frame:FindFirstChild("BuyThree")
+	local buyButtonPrice = buyButton and findDescendant(buyButton, "Price", "TextLabel")
 	if buyButton and buyButton:IsA("GuiButton") then
 		UiEffects.BindButton(buyButton)
+		if not buyButtonPrice then
+			warn("[SeedPackShopController] Missing SeedPacks." .. tostring(pack.PackId) .. ".BuyButton.Price")
+		end
 	end
 	if buyThree and buyThree:IsA("GuiButton") then
 		UiEffects.BindButton(buyThree)
@@ -224,6 +301,7 @@ local function renderPackCard(pack)
 		pack = pack,
 		buyButton = buyButton and buyButton:IsA("GuiButton") and buyButton or nil,
 		buyThree = buyThree and buyThree:IsA("GuiButton") and buyThree or nil,
+		buyButtonPrice = buyButtonPrice,
 	}
 end
 
@@ -240,14 +318,19 @@ local function promptProduct(productId)
 	end)
 end
 
-local function setRowsEnabled(rows)
+local function renderRows(rows)
 	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true
 	for _, row in ipairs(rows) do
+		local buyOneProductId = tonumber(row.pack.DevProductId) or 0
+		local buyThreeProductId = tonumber(row.pack.BuyThreeDevProductId) or 0
 		if row.buyButton then
-			UiEffects.SetButtonEnabled(row.buyButton, ready and (tonumber(row.pack.DevProductId) or 0) > 0)
+			setTextStack(row.buyButtonPrice, robuxText(buyOneProductId, function()
+				renderRows(rows)
+			end))
+			UiEffects.SetButtonEnabled(row.buyButton, ready and buyOneProductId > 0)
 		end
 		if row.buyThree then
-			UiEffects.SetButtonEnabled(row.buyThree, ready and (tonumber(row.pack.BuyThreeDevProductId) or 0) > 0)
+			UiEffects.SetButtonEnabled(row.buyThree, ready and buyThreeProductId > 0)
 		end
 	end
 end
@@ -356,9 +439,7 @@ local function buildReveal(payload)
 	pendingSliced = {}
 	ftueToken += 1
 	activeFtueDrag = nil
-	dragging = false
-	activeInput = nil
-	activeInputType = nil
+	resetDragState()
 	template.Visible = false
 	if sliceTemplate and sliceTemplate:IsA("GuiObject") then
 		sliceTemplate.Visible = false
@@ -705,13 +786,9 @@ local function finishDrag(endPosition)
 		return
 	end
 	local startPosition = dragStartPosition
-	dragging = false
-	activeInput = nil
-	activeInputType = nil
-	dragStartPosition = nil
-	lastPosition = nil
 	local slice = activeSlice
 	activeSlice = nil
+	resetDragState()
 
 	if not (startPosition and endPosition) or (endPosition - startPosition).Magnitude < SLICE_MIN_DRAG_DISTANCE then
 		pendingSliced = {}
@@ -741,6 +818,9 @@ local function beginDrag(input)
 	lastPosition = position
 	activeSlice = createSliceFrame(position, position)
 	pendingSliced = {}
+	if activeInputType == Enum.UserInputType.Touch then
+		bindSliceCameraSink()
+	end
 end
 
 local function continueDrag(input)
@@ -880,6 +960,7 @@ function SeedPackShopController.start()
 		end,
 		close = function(switching)
 			rollOpen = false
+			resetDragState()
 			if switching then
 				rollPanel.Visible = false
 				rollPanel.Position = rollPanelState.closedPosition
@@ -926,9 +1007,9 @@ function SeedPackShopController.start()
 	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "SeedPackShopController.GamepadDisconnected", refreshConsoleHint)
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
-		setRowsEnabled(rows)
+		renderRows(rows)
 	end)
-	setRowsEnabled(rows)
+	renderRows(rows)
 end
 
 return SeedPackShopController

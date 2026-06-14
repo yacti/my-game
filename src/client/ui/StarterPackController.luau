@@ -12,6 +12,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
+local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
@@ -169,15 +170,23 @@ local function renderRewardSlot(slot, reward)
 	local amountLabel = child(slot, "Amount", "TextLabel") or descendant(slot, "Amount", "TextLabel")
 	local seedId = reward and reward.SeedId
 	local amount = math.max(math.floor(tonumber(reward and reward.Amount) or 0), 0)
+	local displayName = Seeds.DisplayNameFor(seedId)
+	local rarity = Seeds.RarityFor(seedId)
 
 	slot.Visible = reward ~= nil
 	ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PREVIEW_OPTIONS)
-	setTextStack(nameLabel, Seeds.DisplayNameFor(seedId))
-	registerRarityLabel(nameLabel, Seeds.RarityFor(seedId))
+	setTextStack(nameLabel, displayName)
+	registerRarityLabel(nameLabel, rarity)
 	if amountLabel then
 		amountLabel.Visible = amount > 1
 		setTextStack(amountLabel, amount > 1 and string.format("(%s)", NumberFormatter.Integer(amount)) or "")
 	end
+	HoverOver.Bind(slot, function()
+		return {
+			name = displayName,
+			rarity = rarity,
+		}
+	end)
 end
 
 local function bindCard(card)

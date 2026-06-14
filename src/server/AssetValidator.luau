@@ -1138,6 +1138,17 @@ local function validateHudCurrency(hud, errors)
 	child(currency, "CurrencyLabel", "TextLabel", errors)
 end
 
+local function validateHoverOverHud(hud, warnings)
+	local hoverOver = child(hud, "HoverOver", "GuiObject", warnings)
+	if not hoverOver then return end
+
+	local holder = child(hoverOver, "Holder", "GuiObject", warnings)
+	if not holder then return end
+
+	child(holder, "ItemName", "TextLabel", warnings)
+	child(holder, "Rarity", "TextLabel", warnings)
+end
+
 local function validateJoinBackShowcaseUi(hud, warnings)
 	local textFrame = hud:FindFirstChild("JoinBackText")
 	if not (textFrame and textFrame:IsA("GuiObject")) then
@@ -1552,6 +1563,7 @@ local function validateUi(errors, warnings)
 	local hud = child(ui, "HUD", "ScreenGui", errors)
 	if hud then
 		validateHudCurrency(hud, errors)
+		validateHoverOverHud(hud, warnings)
 		validateJoinBackShowcaseUi(hud, warnings)
 		validateServerLuckHud(hud, warnings)
 		validateVipHud(hud, warnings)
