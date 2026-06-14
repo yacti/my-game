@@ -23,6 +23,7 @@ local HUD_LEFT_BUTTONS_NAME = "LeftButtons"
 local HUD_REBIRTH_BUTTON_NAME = "RebirthButton"
 local MENU_REBIRTH_FRAME_NAME = "Rebirth"
 local STATE_RETRY_SECONDS = 2
+local productPriceById = {}
 
 local function findDescendant(root, name, className)
 	if not root then
@@ -50,6 +51,28 @@ local function rewardText(reward)
 		return prefix .. tostring(reward.displayName or reward.feedType or "Feed Machine")
 	end
 	return prefix .. tostring(reward.displayName or reward.kind or "Reward")
+end
+
+local function robuxText(productId, onLoaded)
+	productId = tonumber(productId) or 0
+	if productId <= 0 then
+		return "Robux"
+	end
+	if productPriceById[productId] then
+		return productPriceById[productId]
+	end
+
+	productPriceById[productId] = "Robux"
+	RuntimeGuard.Spawn("RebirthController.ProductInfo", function()
+		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
+		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
+			productPriceById[productId] = NumberFormatter.Format(info.PriceInRobux)
+			if onLoaded then
+				onLoaded()
+			end
+		end
+	end)
+	return productPriceById[productId]
 end
 
 local function petTemplateFor(petId)
@@ -113,6 +136,7 @@ function RebirthController.start()
 	local rebirthButton = findDescendant(rebirthFrame, "RebirthButton", "GuiButton")
 	local rebirthCannotAfford = rebirthButton and findDescendant(rebirthButton, "CannotAfford", "GuiObject")
 	local skipButton = findDescendant(rebirthFrame, "SkipButton", "GuiButton")
+	local skipButtonPrice = skipButton and findDescendant(skipButton, "Price", "TextLabel")
 	local tierLabel = findDescendant(rebirthFrame, "TierLabel", "TextLabel")
 	local cashLabel = findDescendant(rebirthFrame, "CashLabel", "TextLabel")
 	local progressBar = findDescendant(rebirthFrame, "ProgressBar", "GuiObject")
@@ -123,7 +147,7 @@ function RebirthController.start()
 	local petViewportTemplate = petHolderTemplate and findDescendant(petHolderTemplate, "PetIcon", "ViewportFrame")
 	local errorLabel = findDescendant(rebirthFrame, "ErrorLabel", "TextLabel")
 
-	if not (panel and closeButton and rebirthButton and skipButton and tierLabel and cashLabel and progressFill and rewardList and rewardTemplate and petHolderTemplate and petViewportTemplate) then
+	if not (panel and closeButton and rebirthButton and skipButton and skipButtonPrice and tierLabel and cashLabel and progressFill and rewardList and rewardTemplate and petHolderTemplate and petViewportTemplate) then
 		warn("[RebirthController] Rebirth UI is missing required named instances")
 		return
 	end
@@ -294,6 +318,7 @@ function RebirthController.start()
 			if rebirthCannotAfford then
 				rebirthCannotAfford.Visible = false
 			end
+			UiEffects.SetTextStack(skipButtonPrice, "Robux")
 			UiEffects.SetButtonEnabled(skipButton, false)
 			renderRewards({})
 			return
@@ -309,6 +334,7 @@ function RebirthController.start()
 		if rebirthCannotAfford then
 			rebirthCannotAfford.Visible = readyToAttemptRebirth and currentCurrency < nextPrice
 		end
+		UiEffects.SetTextStack(skipButtonPrice, robuxText(skipProductId, render))
 		UiEffects.SetButtonEnabled(skipButton, state.profileReady == true and type(skipProductId) == "number" and skipProductId > 0 and not pendingRequest)
 		renderRewards(state.rewards)
 	end

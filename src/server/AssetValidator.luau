@@ -876,7 +876,10 @@ local function validateRebirthUi(menu, errors)
 	descendant(rebirthFrame, "Panel", "GuiObject", errors)
 	descendant(rebirthFrame, "CloseButton", "GuiButton", errors)
 	descendant(rebirthFrame, "RebirthButton", "GuiButton", errors)
-	descendant(rebirthFrame, "SkipButton", "GuiButton", errors)
+	local skipButton = descendant(rebirthFrame, "SkipButton", "GuiButton", errors)
+	if skipButton then
+		descendant(skipButton, "Price", "TextLabel", errors)
+	end
 	descendant(rebirthFrame, "TierLabel", "TextLabel", errors)
 	descendant(rebirthFrame, "CashLabel", "TextLabel", errors)
 	local progressBar = descendant(rebirthFrame, "ProgressBar", "GuiObject", errors)

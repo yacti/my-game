@@ -65,9 +65,10 @@ local function userKey(player)
 	return player and player.UserId or nil
 end
 
-local function playerLuckPercent(player, profile)
-	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
-	return luckPercent + GamePassService.LuckBonusPercent(player)
+local function rollLuckBreakdown(player, profile)
+	local baseLuckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
+	local gamePassLuckPercent = GamePassService.LuckBonusPercent(player)
+	return baseLuckPercent, gamePassLuckPercent, baseLuckPercent + gamePassLuckPercent
 end
 
 local function chanceTextForWeight(weights, rewardKey, fallbackChanceN)
@@ -278,7 +279,7 @@ local function weightedSeedEntry(crateId, player, profile, seedEntries, usedSeed
 		return nil
 	end
 
-	local luckPercent = playerLuckPercent(player, profile)
+	local _, _, luckPercent = rollLuckBreakdown(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
 	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent, serverLuckMultiplier)
 	if not rewardWeights then
@@ -436,14 +437,14 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 		return nil, "empty-roll-pool"
 	end
 
-	local luckPercent = playerLuckPercent(player, profile)
+	local baseLuckPercent, gamePassLuck, luckPercent = rollLuckBreakdown(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
-	local gamePassLuck = GamePassService.LuckBonusPercent(player)
 	if gamePassLuck > 0 then
 		print(string.format(
-			"[GamePassMultipliers] roll-luck user=%s crate=%s gamePassLuck=+%d%% totalPlayerLuck=%.2f%% serverLuck=%.2fx",
+			"[GamePassMultipliers] roll-luck user=%s crate=%s baseRollLuck=%.2f%% gamePassLuck=+%d%% effectivePlayerLuck=%.2f%% serverLuck=%.2fx",
 			tostring(userKey(player)),
 			tostring(crateId),
+			baseLuckPercent,
 			math.floor(gamePassLuck + 0.5),
 			luckPercent,
 			serverLuckMultiplier

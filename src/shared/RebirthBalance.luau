@@ -9,14 +9,14 @@ RebirthBalance.Tiers = {
 		Rewards = {
 			{ kind = "FeedMachine", feedType = "JamBarrel", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3604678866,
 	},
 	[2] = {
 		Price = 250000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3604678885,
 	},
 	[3] = {
 		Price = 3500000,
@@ -26,14 +26,14 @@ RebirthBalance.Tiers = {
 		Rewards = {
 			{ kind = "FeedMachine", feedType = "UpgradedJamBarrel", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3604678897,
 	},
 	[4] = {
 		Price = 20000000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3604678913,
 	},
 	[5] = {
 		Price = 50000000,
@@ -43,7 +43,7 @@ RebirthBalance.Tiers = {
 		Rewards = {
 			{ kind = "FeedMachine", feedType = "GoldenJamBarrel", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3604678927,
 	},
 	[6] = {
 		Price = 200000000,

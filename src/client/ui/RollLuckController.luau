@@ -3,12 +3,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
-local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
-local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -164,15 +162,6 @@ function RollLuckController.start()
 		return state
 	end
 
-	local function gamePassLuckBonus()
-		local map = PlayerStateStore.Get(PlayerStateStore.Fields.GamePassOwnership)
-		local ownership = type(map) == "table" and table.clone(map) or {}
-		if PlayerStateStore.Get(PlayerStateStore.Fields.VipOwned) == true then
-			ownership[ShopBalance.GamePassKeys.VIP] = true
-		end
-		return PlayerBonuses.LuckBonusPercent(ownership)
-	end
-
 	local function requestState()
 		lastStateRequest = os.clock()
 		latestState = buildReplicaState()
@@ -194,10 +183,8 @@ function RollLuckController.start()
 	render = function()
 		local state = latestState or {}
 		currentCurrency = tonumber(state.currency) or currentCurrency
-		local passLuck = gamePassLuckBonus()
-		local baseCurrentLuck = tonumber(state.currentLuckPercent) or 0
-		local currentLuck = baseCurrentLuck + passLuck
-		local nextLuck = (tonumber(state.nextLuckPercent) or baseCurrentLuck) + passLuck
+		local currentLuck = tonumber(state.currentLuckPercent) or 0
+		local nextLuck = tonumber(state.nextLuckPercent) or currentLuck
 		local price = tonumber(state.price)
 
 		if state.isMaxLevel == true then
@@ -270,14 +257,6 @@ function RollLuckController.start()
 		render()
 	end)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
-		latestState = buildReplicaState()
-		render()
-	end)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.GamePassOwnership, function()
-		latestState = buildReplicaState()
-		render()
-	end)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, function()
 		latestState = buildReplicaState()
 		render()
 	end)
