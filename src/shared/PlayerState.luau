@@ -17,6 +17,7 @@ PlayerState.Fields = {
 	StarterPackPurchased = "StarterPackPurchased",
 	GamePassOwnership = "GamePassOwnership",
 	VipOwned = "VipOwned",
+	HourlyPetIncome = "HourlyPetIncome",
 	JoinBackShowcase = "JoinBackShowcase",
 }
 

@@ -914,6 +914,30 @@ local function validateServerLuckShopUi(menu, warnings)
 	end
 end
 
+local function validateCashPackShopCard(card, warnings)
+	descendant(card, "Amount", "TextLabel", warnings)
+	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
+	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
+	if price then
+		descendant(price, "Price", "TextLabel", warnings)
+	end
+end
+
+local function validateCashPacksShopUi(menu, warnings)
+	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
+	local cashPacks = holder and child(holder, "CashPacks", "GuiObject", warnings)
+	if not cashPacks then return end
+
+	for _, pack in ipairs(ShopBalance.AllCashPacks()) do
+		local card = child(cashPacks, pack.PackId, "GuiObject", warnings)
+		if card then
+			validateCashPackShopCard(card, warnings)
+		end
+	end
+end
+
 local function validateStarterPackShopUi(menu, warnings)
 	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
 	if not panel then return end
@@ -1411,6 +1435,9 @@ local function validateShopProductIds(errors)
 		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].DevProductId", errors)
 		addProductIdSource(seenProducts, pack.BuyThreeDevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].BuyThreeDevProductId", errors)
 	end
+	for index, pack in ipairs(ShopBalance.AllCashPacks()) do
+		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.CashPacks[" .. tostring(index) .. "].DevProductId", errors)
+	end
 	local starterPack = ShopBalance.GetStarterPack()
 	if starterPack then
 		addProductIdSource(seenProducts, starterPack.DevProductId, "ShopBalance.StarterPack.DevProductId", errors)
@@ -1553,6 +1580,7 @@ local function validateUi(errors, warnings)
 		validateCosmeticShopUi(menu, errors)
 		validateRobuxShopUi(menu, errors)
 		validateServerLuckShopUi(menu, warnings)
+		validateCashPacksShopUi(menu, warnings)
 		validateStarterPackShopUi(menu, warnings)
 		validateGamePassShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)

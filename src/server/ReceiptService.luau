@@ -14,6 +14,7 @@ local rebirthService = nil
 local gearShopService = nil
 local cosmeticShopService = nil
 local seedPackShopService = nil
+local cashPackShopService = nil
 local starterPackShopService = nil
 local serverLuckService = nil
 
@@ -80,6 +81,12 @@ local function processReceiptTransaction(receiptInfo)
 		and seedPackShopService.HandlesProductId(receiptInfo.ProductId) then
 		return seedPackShopService.ProcessReceipt(receiptInfo)
 	end
+	if cashPackShopService
+		and type(cashPackShopService.HandlesProductId) == "function"
+		and type(cashPackShopService.ProcessReceipt) == "function"
+		and cashPackShopService.HandlesProductId(receiptInfo.ProductId) then
+		return cashPackShopService.ProcessReceipt(receiptInfo)
+	end
 	if starterPackShopService
 		and type(starterPackShopService.HandlesProductId) == "function"
 		and type(starterPackShopService.ProcessReceipt) == "function"
@@ -120,6 +127,7 @@ function ReceiptService.Start(config)
 	gearShopService = config.gearShopService
 	cosmeticShopService = config.cosmeticShopService
 	seedPackShopService = config.seedPackShopService
+	cashPackShopService = config.cashPackShopService
 	starterPackShopService = config.starterPackShopService
 	serverLuckService = config.serverLuckService
 	MarketplaceService.ProcessReceipt = processReceipt

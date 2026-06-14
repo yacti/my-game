@@ -16,6 +16,7 @@ local token = Replica.Token(PlayerState.Token)
 local replicas = {}
 local readyConnections = {}
 local gamePassOwnership = {}
+local hourlyPetIncome = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -27,6 +28,14 @@ local function integer(value, fallback)
 		return fallback or 0
 	end
 	return math.max(math.floor(value), 0)
+end
+
+local function nonnegativeNumber(value, fallback)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return fallback or 0
+	end
+	return math.max(value, 0)
 end
 
 local function copyCountMap(map)
@@ -74,6 +83,10 @@ local function vipOwnedForKey(key)
 	return type(map) == "table" and map[vipKey] == true or false
 end
 
+local function hourlyIncomeForKey(key)
+	return nonnegativeNumber(key and hourlyPetIncome[key] or nil, 0)
+end
+
 local function copyOnboardingState(value)
 	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
 end
@@ -96,6 +109,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
+		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
 	}
 end
 
@@ -296,6 +310,15 @@ function PlayerReplicaService.PublishVipOwned(player, owned)
 	return PlayerReplicaService.PublishGamePassOwnership(player, ownership)
 end
 
+function PlayerReplicaService.PublishHourlyPetIncome(player, amount)
+	local key = userKey(player)
+	local safeAmount = nonnegativeNumber(amount, 0)
+	if key then
+		hourlyPetIncome[key] = safeAmount
+	end
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.HourlyPetIncome, safeAmount)
+end
+
 function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 	if type(payload) ~= "table" then
 		return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, nil)
@@ -312,6 +335,7 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemovin
 	PlayerReplicaService.Destroy(player)
 	if key then
 		gamePassOwnership[key] = nil
+		hourlyPetIncome[key] = nil
 	end
 end)
 

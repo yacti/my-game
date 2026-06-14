@@ -121,6 +121,13 @@ Run this checklist before publishing a live build.
   sold after rejoin, blocks a second in-game purchase attempt, does not double-grant
   on receipt retry, and refuses purchase preflight when fewer than six inventory
   slots are open.
+- Buy each Robux cash pack (`3604620536`, `3604620549`, `3604620570`,
+  `3604620596`) from `RobuxShop.SFHolder.CashPacks`, verify each purchase can
+  be repeated, grants the rounded displayed cash amount once per receipt, and
+  does not double-grant on receipt retry.
+- Evolve a pet, rebirth, and buy VIP/x2 Cash, then verify Robux cash pack amounts
+  update from the live hourly pet income cache and use online pet income rather
+  than the offline earning fraction.
 - Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and
   verify the plant deletes, saves, and does not delete processors or other plots.
 - Click tree fruit on multiple `FeedClass = "Tree"` templates, verify nearby

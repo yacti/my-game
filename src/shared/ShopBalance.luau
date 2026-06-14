@@ -36,6 +36,41 @@ ShopBalance.SeedPacks = {
 	},
 }
 
+ShopBalance.CashPacks = {
+	{
+		PackId = "CashPack1",
+		DisplayName = "Cash Pack 1",
+		DevProductId = 3604620536,
+		HoursOfIncome = 0.25,
+		BaseReward = 1000,
+		Order = 1,
+	},
+	{
+		PackId = "CashPack2",
+		DisplayName = "Cash Pack 2",
+		DevProductId = 3604620549,
+		HoursOfIncome = 1,
+		BaseReward = 5000,
+		Order = 2,
+	},
+	{
+		PackId = "CashPack3",
+		DisplayName = "Cash Pack 3",
+		DevProductId = 3604620570,
+		HoursOfIncome = 2,
+		BaseReward = 10000,
+		Order = 3,
+	},
+	{
+		PackId = "CashPack4",
+		DisplayName = "Cash Pack 4",
+		DevProductId = 3604620596,
+		HoursOfIncome = 5,
+		BaseReward = 25000,
+		Order = 4,
+	},
+}
+
 ShopBalance.ServerLuck = {
 	DurationSeconds = 15 * 60,
 	BaseMultiplier = 1,
@@ -174,6 +209,20 @@ local function copyStarterPack(pack)
 	}
 end
 
+local function copyCashPack(pack)
+	if type(pack) ~= "table" then
+		return nil
+	end
+	return {
+		PackId = pack.PackId,
+		DisplayName = pack.DisplayName,
+		DevProductId = pack.DevProductId,
+		HoursOfIncome = finiteNumber(pack.HoursOfIncome, 0),
+		BaseReward = int(pack.BaseReward, 0),
+		Order = int(pack.Order, 0),
+	}
+end
+
 local function copyGamePass(config)
 	if type(config) ~= "table" then
 		return nil
@@ -232,6 +281,38 @@ function ShopBalance.SeedPackForProductId(productIdValue)
 		end
 		if productId(pack.BuyThreeDevProductId) == target then
 			return copyPack(pack), 3
+		end
+	end
+	return nil
+end
+
+function ShopBalance.AllCashPacks()
+	local packs = {}
+	for _, pack in ipairs(ShopBalance.CashPacks or {}) do
+		local copy = copyCashPack(pack)
+		if copy then
+			packs[#packs + 1] = copy
+		end
+	end
+	table.sort(packs, function(a, b)
+		local orderA = tonumber(a.Order) or 0
+		local orderB = tonumber(b.Order) or 0
+		if orderA ~= orderB then
+			return orderA < orderB
+		end
+		return tostring(a.PackId) < tostring(b.PackId)
+	end)
+	return packs
+end
+
+function ShopBalance.CashPackForProductId(productIdValue)
+	local target = productId(productIdValue)
+	if target <= 0 then
+		return nil
+	end
+	for _, pack in ipairs(ShopBalance.CashPacks or {}) do
+		if productId(pack.DevProductId) == target then
+			return copyCashPack(pack)
 		end
 	end
 	return nil
@@ -366,6 +447,40 @@ function ShopBalance.ServerLuckProductForCurrentMultiplier(multiplier)
 	return step and productId(step.DevProductId) or 0
 end
 
+function ShopBalance.RoundCashPackAmount(amount)
+	amount = finiteNumber(amount, 0)
+	if amount <= 0 then
+		return 0
+	end
+	local step = 1
+	while amount / step >= 100 do
+		step *= 10
+	end
+	if amount >= 1000 then
+		local displayUnit = 1000
+		while amount / displayUnit >= 1000 do
+			displayUnit *= 1000
+		end
+		if amount / displayUnit >= 5 and step < displayUnit then
+			step = displayUnit
+		end
+	end
+	return math.max(math.floor((amount / step) + 0.5) * step, 1)
+end
+
+function ShopBalance.CashPackPayout(pack, hourlyIncome)
+	if type(pack) ~= "table" then
+		return 0
+	end
+	local hours = finiteNumber(pack.HoursOfIncome, 0)
+	if hours <= 0 then
+		return 0
+	end
+	local baseReward = int(pack.BaseReward, 0)
+	local incomeReward = ShopBalance.RoundCashPackAmount(finiteNumber(hourlyIncome, 0) * hours)
+	return math.max(baseReward, incomeReward)
+end
+
 function ShopBalance.TotalWeight(pack)
 	local total = 0
 	for _, reward in ipairs(pack and pack.Rewards or {}) do
@@ -492,6 +607,48 @@ function ShopBalance.Validate(errors)
 				if type(reward.Weight) ~= "number" or reward.Weight <= 0 or reward.Weight ~= reward.Weight or math.abs(reward.Weight) == math.huge then
 					add(rewardSource .. " has invalid Weight")
 				end
+			end
+		end
+	end
+
+	local cashPacks = ShopBalance.CashPacks
+	if type(cashPacks) ~= "table" or #cashPacks ~= 4 then
+		add("ShopBalance.CashPacks must define exactly four packs")
+	else
+		local seenCashPackIds = {}
+		for index, pack in ipairs(cashPacks) do
+			local source = "ShopBalance.CashPacks[" .. tostring(index) .. "]"
+			if type(pack) ~= "table" then
+				add(source .. " must be a table")
+				continue
+			end
+			if type(pack.PackId) ~= "string" or pack.PackId == "" then
+				add(source .. " has invalid PackId")
+			elseif seenPacks[pack.PackId] or seenCashPackIds[pack.PackId] then
+				add("Duplicate shop PackId " .. tostring(pack.PackId))
+			else
+				seenCashPackIds[pack.PackId] = true
+				seenPacks[pack.PackId] = true
+			end
+			if type(pack.DisplayName) ~= "string" or pack.DisplayName == "" then
+				add(source .. " has invalid DisplayName")
+			end
+			validateProduct(pack.DevProductId, source .. ".DevProductId")
+			if type(pack.HoursOfIncome) ~= "number"
+				or pack.HoursOfIncome <= 0
+				or pack.HoursOfIncome ~= pack.HoursOfIncome
+				or math.abs(pack.HoursOfIncome) == math.huge then
+				add(source .. " has invalid HoursOfIncome")
+			end
+			if type(pack.BaseReward) ~= "number"
+				or pack.BaseReward <= 0
+				or pack.BaseReward ~= pack.BaseReward
+				or math.abs(pack.BaseReward) == math.huge
+				or pack.BaseReward % 1 ~= 0 then
+				add(source .. " has invalid BaseReward")
+			end
+			if type(pack.Order) ~= "number" or pack.Order <= 0 or pack.Order % 1 ~= 0 then
+				add(source .. " has invalid Order")
 			end
 		end
 	end

@@ -19,10 +19,12 @@ require(Server:WaitForChild("PlotLoader")).Load()
 require(Server:WaitForChild("AssetValidator")).validate()
 requireReplicaServer()
 
+local CashPackShopService = require(Server:WaitForChild("CashPackShopService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
+local PetIncomeService  = require(Server:WaitForChild("PetIncomeService"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
 local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
@@ -97,8 +99,19 @@ RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
+RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
+RuntimeGuard.Run("PetIncomeService.Start", function()
+	PetIncomeService.Start({
+		PetCashMultiplier = GamePassService.PetCashMultiplier,
+	})
+end)
+RuntimeGuard.Run("GamePassService.RegisterOwnershipChangedCallback", function()
+	GamePassService.RegisterOwnershipChangedCallback(function(player)
+		PetIncomeService.Refresh(player)
+	end)
+end)
 RuntimeGuard.Run("GamePassService.Start", GamePassService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
@@ -106,6 +119,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		gearShopService = GearShopService,
 		cosmeticShopService = CosmeticShopService,
 		seedPackShopService = SeedPackShopService,
+		cashPackShopService = CashPackShopService,
 		starterPackShopService = StarterPackShopService,
 		serverLuckService = ServerLuckService,
 	})
@@ -766,6 +780,7 @@ local function handlePlayerAdded(player)
 		RollService.ApplyDropAreaVisibility(plot, profile)
 
 		PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
+		RuntimeGuard.Run("PetIncomeService.TrackPlayerPlot." .. label, PetIncomeService.TrackPlayerPlot, player, plot)
 		local maturedOnLoad = {}
 		for index, placement in ipairs(profile.Data.FeedPlacements or {}) do
 			if type(placement) == "table" and placement.phase == FeedGrowthService.Phase then

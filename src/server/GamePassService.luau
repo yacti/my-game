@@ -19,6 +19,7 @@ local LOG_PREFIX = "[GamePassService]"
 
 local started = false
 local ownershipByUserId = {}
+local ownershipChangedCallbacks = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -70,6 +71,12 @@ local function publishOwnership(player)
 		return false
 	end
 	return PlayerReplicaService.PublishGamePassOwnership(player, ownershipForUserId(key))
+end
+
+local function notifyOwnershipChanged(player)
+	for _, callback in ipairs(ownershipChangedCallbacks) do
+		RuntimeGuard.Run("GamePassService.OwnershipChangedCallback", callback, player)
+	end
 end
 
 local function configuredPasses()
@@ -125,9 +132,10 @@ end
 local function applyLookupResult(player, pass, ok, owns, code)
 	local key = userKey(player)
 	if not key or not pass then
-		return
+		return false
 	end
 	local ownership = ownershipForUserId(key)
+	local previous = ownership[pass.Key] == true
 	if ok then
 		ownership[pass.Key] = owns == true
 		print(string.format("%s verified user=%s pass=%s owns=%s", LOG_PREFIX, tostring(key), tostring(pass.Key), tostring(owns == true)))
@@ -143,6 +151,7 @@ local function applyLookupResult(player, pass, ok, owns, code)
 			tostring(code or "lookup-failed")
 		))
 	end
+	return previous ~= (ownership[pass.Key] == true)
 end
 
 function GamePassService.RefreshOwnership(player, options)
@@ -172,9 +181,12 @@ function GamePassService.RefreshOwnership(player, options)
 	for _, pass in ipairs(passes) do
 		task.spawn(function()
 			local ok, owns, code = queryOwnership(player, pass)
-			applyLookupResult(player, pass, ok, owns, code)
+			local changed = applyLookupResult(player, pass, ok, owns, code)
 			pending -= 1
 			publishOwnership(player)
+			if changed then
+				notifyOwnershipChanged(player)
+			end
 		end)
 	end
 
@@ -224,6 +236,19 @@ end
 
 function GamePassService.FoodXPMultiplier(player)
 	return PlayerBonuses.FoodXPMultiplier(GamePassService.OwnershipMap(player))
+end
+
+function GamePassService.RegisterOwnershipChangedCallback(callback)
+	if type(callback) ~= "function" then
+		return nil
+	end
+	table.insert(ownershipChangedCallbacks, callback)
+	local index = #ownershipChangedCallbacks
+	return function()
+		if ownershipChangedCallbacks[index] == callback then
+			table.remove(ownershipChangedCallbacks, index)
+		end
+	end
 end
 
 function GamePassService.Start()
