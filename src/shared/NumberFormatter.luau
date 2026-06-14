@@ -102,8 +102,26 @@ function NumberFormatter.Integer(value)
 	return NumberFormatter.Format(math.floor(finiteNumber(value)))
 end
 
+function NumberFormatter.IntegerWithSeparators(value)
+	local number = math.floor(finiteNumber(value))
+	local sign = number < 0 and "-" or ""
+	local text = tostring(math.abs(number))
+	while true do
+		local nextText, replacements = text:gsub("^(%d+)(%d%d%d)", "%1,%2")
+		text = nextText
+		if replacements == 0 then
+			break
+		end
+	end
+	return sign .. text
+end
+
 function NumberFormatter.Currency(amount)
 	return "$" .. NumberFormatter.Format(math.max(math.floor(finiteNumber(amount)), 0))
+end
+
+function NumberFormatter.CurrencyExact(amount)
+	return "$" .. NumberFormatter.IntegerWithSeparators(math.max(math.floor(finiteNumber(amount)), 0))
 end
 
 function NumberFormatter.CurrencyRate(amount)

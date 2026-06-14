@@ -86,19 +86,22 @@ ShopBalance.ServerLuck = {
 }
 
 ShopBalance.StarterPackRewardKinds = {
+	Cash = "Cash",
 	FeedMachine = "FeedMachine",
 	Seed = "Seed",
 }
+
+ShopBalance.CashRewardIcon = "rbxassetid://87193004065802"
+ShopBalance.CashRewardTextColor = Color3.fromRGB(76, 217, 100)
 
 ShopBalance.StarterPack = {
 	PackId = "StarterPack",
 	DisplayName = "Starter Pack",
 	DevProductId = 3604596908,
 	Rewards = {
-		{ Kind = ShopBalance.StarterPackRewardKinds.FeedMachine, FeedType = "JamBarrel", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 10000 },
 		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "WatermelonSeed", Amount = 1 },
 		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PlumTreeSeed", Amount = 1 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "MushroomSeed", Amount = 1 },
 	},
 }
 
@@ -417,7 +420,9 @@ end
 function ShopBalance.StarterPackTotalAmount(pack)
 	local total = 0
 	for _, reward in ipairs(pack and pack.Rewards or {}) do
-		total += int(reward and reward.Amount, 0)
+		if reward and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
+			total += int(reward.Amount, 0)
+		end
 	end
 	return total
 end
@@ -698,8 +703,8 @@ function ShopBalance.Validate(errors)
 		end
 		validateProduct(starterPack.DevProductId, source .. ".DevProductId")
 
-		if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards ~= 4 then
-			add(source .. " must define exactly four Rewards")
+		if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards ~= 3 then
+			add(source .. " must define exactly three Rewards")
 		else
 			for rewardIndex, reward in ipairs(starterPack.Rewards) do
 				local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
@@ -708,7 +713,8 @@ function ShopBalance.Validate(errors)
 					continue
 				end
 				if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed
-					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine then
+					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine
+					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
 					add(rewardSource .. " has invalid Kind")
 				end
 				if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed

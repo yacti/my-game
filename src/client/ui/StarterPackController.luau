@@ -25,7 +25,7 @@ local StarterPackController = {}
 local PANEL_NAME = "RobuxShop"
 local CARD_NAME = "StarterPack"
 local PREVIEW_OPTIONS = {
-	targetMaxDimension = 3,
+	targetMaxDimension = 6,
 	zoom = 1.8,
 }
 
@@ -193,6 +193,9 @@ local function feedTemplateFor(feedType)
 end
 
 local function rewardDisplayInfo(reward)
+	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
+		return nil, NumberFormatter.CurrencyExact(reward.Amount), nil
+	end
 	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine then
 		local feedType = reward.FeedType
 		local template = feedTemplateFor(feedType)
@@ -206,18 +209,35 @@ end
 
 local function renderRewardSlot(slot, reward)
 	local icon = descendant(slot, "Icon", "ViewportFrame")
+	local iconImage = child(slot, "IconImage", "ImageLabel") or descendant(slot, "IconImage", "ImageLabel")
 	local nameLabel = child(slot, "Name", "TextLabel") or descendant(slot, "Name", "TextLabel")
 	local amountLabel = child(slot, "Amount", "TextLabel") or descendant(slot, "Amount", "TextLabel")
 	local amount = math.max(math.floor(tonumber(reward and reward.Amount) or 0), 0)
 	local template, displayName, rarity = rewardDisplayInfo(reward)
+	local isCash = reward ~= nil and reward.Kind == ShopBalance.StarterPackRewardKinds.Cash
 
 	slot.Visible = reward ~= nil
-	ViewportPreview.Render(icon, template, PREVIEW_OPTIONS)
+	if icon then
+		icon.Visible = not isCash
+		ViewportPreview.Render(icon, template, PREVIEW_OPTIONS)
+	end
+	if iconImage then
+		iconImage.Visible = isCash
+		iconImage.Image = isCash and ShopBalance.CashRewardIcon or ""
+	end
 	setTextStack(nameLabel, displayName)
-	registerRarityLabel(nameLabel, rarity)
+	if isCash then
+		if nameLabel then
+			rarityLabels[nameLabel] = nil
+		end
+		applyColorToLabelStack(nameLabel, ShopBalance.CashRewardTextColor)
+	else
+		registerRarityLabel(nameLabel, rarity)
+	end
 	if amountLabel then
-		amountLabel.Visible = amount > 1
-		setTextStack(amountLabel, amount > 1 and string.format("(%s)", NumberFormatter.Integer(amount)) or "")
+		local showAmount = not isCash and amount > 1
+		amountLabel.Visible = showAmount
+		setTextStack(amountLabel, showAmount and string.format("(%s)", NumberFormatter.Integer(amount)) or "")
 	end
 	HoverOver.Bind(slot, function()
 		return {
@@ -229,23 +249,22 @@ end
 
 local function bindCard(card)
 	local pack = ShopBalance.GetStarterPack()
+	local rewards = pack and pack.Rewards or {}
 	local buyButton = child(card, "BuyButton", "GuiButton")
 	local priceLabel = buyButton and descendant(buyButton, "Price", "TextLabel")
 	local title = child(card, "Name", "TextLabel")
 	local sold = child(card, "Sold", "GuiObject")
 	local items = child(card, "Items", "GuiObject")
 	local slots = sortedGuiChildren(items, "Template")
-	if not (pack and buyButton and priceLabel and sold and items and #slots == 4) then
+	if not (pack and buyButton and priceLabel and sold and items and #slots >= #rewards) then
 		warn("[StarterPackController] StarterPack card is missing required named instances")
 		return nil
 	end
 
 	UiEffects.BindButton(buyButton)
 	setTextStack(title, pack.DisplayName or "Starter Pack")
-	for index, reward in ipairs(pack.Rewards or {}) do
-		if slots[index] then
-			renderRewardSlot(slots[index], reward)
-		end
+	for index, slot in ipairs(slots) do
+		renderRewardSlot(slot, rewards[index])
 	end
 
 	local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)

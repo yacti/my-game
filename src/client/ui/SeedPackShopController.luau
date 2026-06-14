@@ -36,7 +36,7 @@ local SLICE_CAMERA_SINK_ACTION = "SeedPackShopController.SliceCameraSink"
 local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
 
 local PACK_REWARD_PREVIEW_OPTIONS = {
-	targetMaxDimension = 3,
+	targetMaxDimension = 6,
 	zoom = 1.8,
 }
 local REVEAL_PREVIEW_OPTIONS = {

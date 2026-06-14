@@ -1048,6 +1048,16 @@ local function validateCashPacksShopUi(menu, warnings)
 end
 
 local function validateStarterPackShopUi(menu, warnings)
+	local starterPack = ShopBalance.GetStarterPack()
+	local expectedTemplates = #(starterPack and starterPack.Rewards or {})
+	local hasCashReward = false
+	for _, reward in ipairs(starterPack and starterPack.Rewards or {}) do
+		if reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
+			hasCashReward = true
+			break
+		end
+	end
+
 	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
@@ -1072,12 +1082,18 @@ local function validateStarterPackShopUi(menu, warnings)
 			templates[#templates + 1] = item
 		end
 	end
-	if #templates ~= 4 then
-		add(warnings, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items must contain exactly four Template GuiObjects")
+	if #templates ~= expectedTemplates then
+		add(warnings, string.format(
+			"ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items must contain exactly %d Template GuiObjects",
+			expectedTemplates
+		))
 	end
 	for index, template in ipairs(templates) do
 		local source = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items.Template[" .. tostring(index) .. "]"
 		descendant(template, "Icon", "ViewportFrame", warnings)
+		if hasCashReward then
+			descendant(template, "IconImage", "ImageLabel", warnings)
+		end
 		descendant(template, "Name", "TextLabel", warnings)
 		descendant(template, "Amount", "TextLabel", warnings)
 		if not template.Visible then

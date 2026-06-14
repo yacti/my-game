@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -69,6 +70,10 @@ local function addFeedCount(counts, feedType, amount)
 	counts[feedType] = int(counts[feedType]) + int(amount)
 end
 
+local function addCashAmount(prepared, amount)
+	prepared.cashAmount = int(prepared.cashAmount) + int(amount)
+end
+
 local function destroyPrepared(prepared)
 	if type(prepared) ~= "table" then
 		return
@@ -80,7 +85,7 @@ local function destroyPrepared(prepared)
 	end
 end
 
-local function rollbackPrepared(profile, prepared)
+local function rollbackPrepared(player, profile, prepared)
 	if type(prepared) ~= "table" then
 		return
 	end
@@ -105,6 +110,12 @@ local function rollbackPrepared(profile, prepared)
 			end
 		end
 	end
+
+	local cashAmount = int(prepared.cashAmount)
+	if cashAmount > 0 then
+		local currentCurrency = int(data and data.Currency)
+		CurrencyService.SetBalanceForServer(player, profile, math.max(currentCurrency - cashAmount, 0), true)
+	end
 	destroyPrepared(prepared)
 end
 
@@ -113,10 +124,13 @@ local function prepareRewards(pack)
 		tools = {},
 		seedCounts = {},
 		feedCounts = {},
+		cashAmount = 0,
 	}
 	for _, reward in ipairs(pack and pack.Rewards or {}) do
 		local amount = int(reward.Amount)
-		if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed then
+		if reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
+			addCashAmount(prepared, amount)
+		elseif reward.Kind == ShopBalance.StarterPackRewardKinds.Seed then
 			local seedGrant, code = SeedTools.PrepareGrant(reward.SeedId, amount)
 			if not seedGrant then
 				destroyPrepared(prepared)
@@ -149,17 +163,33 @@ local function grantPrepared(player, profile, prepared)
 		destroyPrepared(prepared)
 		return false, "invalid-grant"
 	end
-	if not player:FindFirstChildOfClass("Backpack") then
+	local tools = prepared.tools or {}
+	if #tools > 0 and not player:FindFirstChildOfClass("Backpack") then
 		destroyPrepared(prepared)
 		return false, "no-backpack"
 	end
 
-	local granted, code = ToolGrantService.GrantTools(player, prepared.tools, {
-		autoEquip = false,
-	})
-	if not granted then
-		destroyPrepared(prepared)
-		return false, code or "grant-failed"
+	local cashAmount = int(prepared.cashAmount)
+	if cashAmount > 0 then
+		local _, cashCode = CurrencyService.Add(player, profile, cashAmount, true)
+		if cashCode then
+			destroyPrepared(prepared)
+			return false, cashCode
+		end
+	end
+
+	if #tools > 0 then
+		local granted, code = ToolGrantService.GrantTools(player, tools, {
+			autoEquip = false,
+		})
+		if not granted then
+			if cashAmount > 0 then
+				local currentCurrency = int(profile.Data.Currency)
+				CurrencyService.SetBalanceForServer(player, profile, math.max(currentCurrency - cashAmount, 0), true)
+			end
+			destroyPrepared(prepared)
+			return false, code or "grant-failed"
+		end
 	end
 
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
@@ -292,7 +322,7 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 		if not saveProfile(profile) then
 			ReceiptService.ClearProcessed(profile, purchaseId)
 			profile.Data.StarterPackPurchased = wasPurchased
-			rollbackPrepared(profile, prepared)
+			rollbackPrepared(player, profile, prepared)
 			granted = false
 			return
 		end
@@ -305,7 +335,7 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 		ReceiptService.ClearProcessed(profile, purchaseId)
 		profile.Data.StarterPackPurchased = wasPurchased
 		if granted and prepared then
-			rollbackPrepared(profile, prepared)
+			rollbackPrepared(player, profile, prepared)
 			granted = false
 		elseif prepared then
 			destroyPrepared(prepared)
@@ -314,6 +344,7 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 	end
 
 	PlayerReplicaService.PublishInventories(player, profile)
+	CurrencyService.Publish(player, profile)
 	PlayerReplicaService.PublishStarterPackPurchased(player, profile)
 
 	if granted then
