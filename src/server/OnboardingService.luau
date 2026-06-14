@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local OnboardingAnalyticsService = require(Server:WaitForChild("OnboardingAnalyticsService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -189,6 +190,7 @@ setStage = function(player, profile, nextStage)
 	state.Stage = nextStage
 	resetStageProgressFor(state, nextStage)
 	publishOnboarding(player, profile)
+	OnboardingAnalyticsService.LogStage(player, nextStage)
 	if nextStage == Onboarding.Stages.FinalNote then
 		scheduleFinalNoteCompletion(player, profile)
 	else
@@ -272,7 +274,11 @@ function OnboardingService.SetStage(player, profile, nextStage)
 end
 
 function OnboardingService.ApplyCurrentStageEntry(player, profile)
-	if stageFor(profile) == Onboarding.Stages.FinalNote then
+	local currentStage = stageFor(profile)
+	if Onboarding.IsActive(currentStage) then
+		OnboardingAnalyticsService.LogStage(player, currentStage)
+	end
+	if currentStage == Onboarding.Stages.FinalNote then
 		scheduleFinalNoteCompletion(player, profile)
 		return false
 	end
