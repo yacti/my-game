@@ -34,6 +34,8 @@ local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
+local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService"))
+local FoodStealService = require(Server:WaitForChild("FoodStealService"))
 local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
@@ -122,6 +124,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		cashPackShopService = CashPackShopService,
 		starterPackShopService = StarterPackShopService,
 		serverLuckService = ServerLuckService,
+		foodStealService = FoodStealService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)
@@ -203,11 +206,13 @@ local function collectFeedState(plot, player)
 		captureTool(player.Character:FindFirstChildWhichIsA("Tool"))
 	end
 
+	local foodInventoryItems = FoodInventoryService.SerializeTools(player)
 	return {
 		FeedPlacements = placements,
 		FeedInventory = feedInventory,
 		SeedInventory = SeedTools.CountBySeed(player),
-		FoodInventory = Food.CountByType(player),
+		FoodInventoryItems = foodInventoryItems,
+		FoodInventory = FoodInventoryService.CountRecords(foodInventoryItems),
 	}
 end
 
@@ -282,6 +287,7 @@ local function snapshotProfileState(player, plot, profile)
 	profile.Data.CosmeticInventory = cosmeticState.CosmeticInventory
 	profile.Data.FeedInventory = feedState.FeedInventory
 	profile.Data.SeedInventory = feedState.SeedInventory
+	profile.Data.FoodInventoryItems = feedState.FoodInventoryItems
 	profile.Data.FoodInventory = feedState.FoodInventory
 	profile.Data.LastSeen = os.time()
 	local publishRunOk, published = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
@@ -304,7 +310,8 @@ local function snapshotFoodCollection(player, plot, profile, feed)
 	end
 	profile.Data.FeedPlacements = profile.Data.FeedPlacements or {}
 	profile.Data.FeedPlacements[feedIndex] = placement
-	profile.Data.FoodInventory = Food.CountByType(player)
+	profile.Data.FoodInventoryItems = FoodInventoryService.SerializeTools(player)
+	profile.Data.FoodInventory = FoodInventoryService.CountRecords(profile.Data.FoodInventoryItems)
 	profile.Data.LastSeen = os.time()
 	local publishRunOk, published = RuntimeGuard.Run(
 		"snapshotFoodCollection.publishFoodInventory",
@@ -894,7 +901,13 @@ local function handlePlayerAdded(player)
 						end
 					end
 				end
-				restoreMap(profile.Data.FoodInventory, Food.MakeTool)
+				for _, record in ipairs(FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)) do
+					if not restoreCountedTool(function()
+						return FoodInventoryService.MakeTool(record)
+					end) then
+						break
+					end
+				end
 				restoreMap(profile.Data.FeedInventory, FeedMachineTools.MakeFeedTool)
 				restoreMap(profile.Data.SeedInventory, SeedTools.MakeSeedTool)
 				restoreMap(profile.Data.CosmeticInventory, CosmeticTools.MakeCosmeticTool)
@@ -1033,6 +1046,12 @@ RuntimeGuard.Run("InventoryDeleteService.Start", function()
 	InventoryDeleteService.Start({
 		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = OfflineProgressService.IsPending,
+	})
+end)
+
+RuntimeGuard.Run("FoodStealService.Start", function()
+	FoodStealService.Start({
+		snapshotProfileState = snapshotProfileState,
 	})
 end)
 

@@ -226,6 +226,8 @@ local function setGroundMarkerState(marker, slot, foodId, xp)
 	marker:SetAttribute(State.Food.Id, foodId)
 	marker:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	marker:SetAttribute(State.Food.XP, xp)
+	marker:SetAttribute(State.Food.StealReservationId, slot.ground and slot.ground.stealReservationId or nil)
+	marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground and slot.ground.stealReservationExpiresAt or nil)
 end
 
 local function clearGroundMarkerState(marker)
@@ -234,6 +236,8 @@ local function clearGroundMarkerState(marker)
 	marker:SetAttribute(State.Food.Id, nil)
 	marker:SetAttribute(State.Food.Type, nil)
 	marker:SetAttribute(State.Food.XP, nil)
+	marker:SetAttribute(State.Food.StealReservationId, nil)
+	marker:SetAttribute(State.Food.StealReservationExpiresAt, nil)
 end
 
 local function destroySlotGround(slot)
@@ -241,6 +245,28 @@ local function destroySlotGround(slot)
 	groundToSlot[slot.ground.marker] = nil
 	clearGroundMarkerState(slot.ground.marker)
 	slot.ground = nil
+end
+
+local function clearGroundStealReservation(slot)
+	if not slot or not slot.ground then
+		return
+	end
+	slot.ground.stealReservationId = nil
+	slot.ground.stealReservationExpiresAt = nil
+	slot.ground.marker:SetAttribute(State.Food.StealReservationId, nil)
+	slot.ground.marker:SetAttribute(State.Food.StealReservationExpiresAt, nil)
+end
+
+local function clearExpiredGroundStealReservation(slot)
+	if not slot or not slot.ground or slot.ground.stealReservationId == nil then
+		return false
+	end
+	local expiresAt = tonumber(slot.ground.stealReservationExpiresAt)
+	if expiresAt and expiresAt > os.time() then
+		return false
+	end
+	clearGroundStealReservation(slot)
+	return true
 end
 
 -- forward decl so handlers can call each other
@@ -251,6 +277,7 @@ local function spawnSlotGround(machine, s, slot, foodId, xp)
 		foodId   = foodId,
 		xp       = xp,
 		marker   = slot.marker,
+		stealReservationId = nil,
 	}
 	groundToSlot[slot.marker] = {
 		machine = machine,
@@ -269,6 +296,8 @@ pickupSlotGround = function(machine, s, slot, player)
 	if player ~= s.owner then return false end
 	if s.owner:GetAttribute("EditMode") == true then return false end
 	if not slot.ground then return false end
+	clearExpiredGroundStealReservation(slot)
+	if slot.ground.stealReservationId ~= nil then return false end
 	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
 	if not tool then return false end
 	if not ToolGrantService.GrantTool(player, tool, {
@@ -293,6 +322,10 @@ local function applyDrop(machine, s, slot, foodId, player)
 	local dropXP = dropXPFor(foodId) * xpMultiplierFor(machine)
 	local dropped = false
 	if slot.ground then
+		clearExpiredGroundStealReservation(slot)
+		if slot.ground.stealReservationId ~= nil then
+			return
+		end
 		addXPToSlotGround(slot, dropXP)
 		dropped = true
 	else
@@ -546,6 +579,71 @@ function TreeClicker.PickupGround(ground, player)
 		current = current.Parent
 	end
 	return false
+end
+
+local function recordForGround(ground)
+	local current = ground
+	while current do
+		local record = groundToSlot[current]
+		if record and record.machine.Parent and state[record.machine] == record.state then
+			return record
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+function TreeClicker.ReserveStealTarget(ground, player, reservationId, expiresAt)
+	if type(reservationId) ~= "string" or reservationId == "" then return false, "invalid-reservation" end
+	local record = recordForGround(ground)
+	if not record then return false, "not-tree-ground" end
+	local machine = record.machine
+	local s = record.state
+	local slot = record.slot
+	if player == s.owner then return false, "own-food" end
+	if s.owner and s.owner:GetAttribute("EditMode") == true then return false, "source-edit-mode" end
+	if not slot.ground then return false, "no-food" end
+	clearExpiredGroundStealReservation(slot)
+	if slot.ground.stealReservationId ~= nil then return false, "reserved" end
+
+	slot.ground.stealReservationId = reservationId
+	slot.ground.stealReservationExpiresAt = tonumber(expiresAt) or os.time()
+	slot.ground.marker:SetAttribute(State.Food.StealReservationId, reservationId)
+	slot.ground.marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground.stealReservationExpiresAt)
+	return true, {
+		foodId = slot.ground.foodId,
+		xp = slot.ground.xp,
+		sourceKind = "Tree",
+		sourceOwnerUserId = s.owner and s.owner.UserId or 0,
+		sourceFeedIndex = machine:GetAttribute(State.Feed.Index),
+		sourceSlotIndex = slot.n,
+	}, machine
+end
+
+local function slotForReservation(machine, reservation)
+	local s = machine and state[machine]
+	if not s then return nil end
+	local slotIndex = reservation and reservation.sourceSlotIndex
+	for _, slot in ipairs(s.slots) do
+		if slot.n == slotIndex then
+			return slot
+		end
+	end
+	return nil
+end
+
+function TreeClicker.ReleaseSteal(machine, reservation, reservationId)
+	local slot = slotForReservation(machine, reservation)
+	if not slot or not slot.ground or slot.ground.stealReservationId ~= reservationId then return false end
+	clearGroundStealReservation(slot)
+	return true
+end
+
+function TreeClicker.CommitSteal(machine, reservation, reservationId)
+	local slot = slotForReservation(machine, reservation)
+	if not slot or not slot.ground or slot.ground.stealReservationId ~= reservationId then return false end
+	destroySlotGround(slot)
+	return true, machine
 end
 
 function TreeClicker.StressClick(machine, player)

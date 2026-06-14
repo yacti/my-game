@@ -1453,6 +1453,10 @@ local function validateShopProductIds(errors)
 	if starterPack then
 		addProductIdSource(seenProducts, starterPack.DevProductId, "ShopBalance.StarterPack.DevProductId", errors)
 	end
+	local foodSteal = ShopBalance.GetFoodSteal()
+	if foodSteal then
+		addProductIdSource(seenProducts, foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId", errors)
+	end
 	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
 		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
 	end

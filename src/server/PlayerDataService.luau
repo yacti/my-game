@@ -10,13 +10,16 @@ local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
+local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 6
+local CURRENT_DATA_VERSION = 7
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
-local STARTER_FEED_INVENTORY = {}
+local STARTER_FEED_INVENTORY = {
+	PumpkinPatch = 1,
+}
 local STARTER_COSMETIC_INVENTORY = {}
 
 local DEPRECATED_FEED_TYPES = {
@@ -36,7 +39,9 @@ local DATA_TEMPLATE = {
 	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
+	FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number? } }
 	ProcessedReceipts = {},
+	PendingFoodStealReservation = nil,
 	StarterPackPurchased = false,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
@@ -154,11 +159,61 @@ local function migrateData(data)
 			if data.Onboarding == nil then
 				data.Onboarding = Onboarding.CompleteState()
 			end
+		elseif nextVersion == 7 then
+			if type(data.FoodInventoryItems) ~= "table" then
+				data.FoodInventoryItems = FoodInventoryService.RecordsFromCountMap(data.FoodInventory)
+			end
 		end
 
 		version = nextVersion
 		data.DataVersion = version
 	end
+end
+
+local function sanitizePendingFoodStealReservation(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	local item = FoodInventoryService.SanitizeRecord({
+		foodId = value.foodId,
+		xp = value.xp,
+		scale = value.scale,
+	})
+	if not item then
+		return nil
+	end
+	local reservationId = value.reservationId
+	if type(reservationId) ~= "string" or reservationId == "" then
+		return nil
+	end
+	local sourceKind = value.sourceKind
+	if sourceKind ~= "Patch" and sourceKind ~= "Tree" then
+		return nil
+	end
+	local productId = math.max(math.floor(tonumber(value.productId) or 0), 0)
+	if productId <= 0 then
+		return nil
+	end
+	local clean = {
+		reservationId = reservationId,
+		productId = productId,
+		foodId = item.foodId,
+		xp = item.xp,
+		scale = item.scale,
+		sourceKind = sourceKind,
+		sourceOwnerUserId = math.floor(tonumber(value.sourceOwnerUserId) or 0),
+		sourceFeedIndex = math.floor(tonumber(value.sourceFeedIndex) or 0),
+		sourceSlotIndex = math.floor(tonumber(value.sourceSlotIndex) or 0),
+		sourceCommitted = value.sourceCommitted == true,
+		sourceUnavailable = value.sourceUnavailable == true,
+		compensationCash = math.max(math.floor(tonumber(value.compensationCash) or 0), 0),
+		createdAt = math.floor(tonumber(value.createdAt) or os.time()),
+		expiresAt = math.floor(tonumber(value.expiresAt) or 0),
+	}
+	if clean.sourceOwnerUserId <= 0 or clean.sourceFeedIndex <= 0 or clean.sourceSlotIndex <= 0 or clean.expiresAt <= 0 then
+		return nil
+	end
+	return clean
 end
 
 local function ensureValidData(profile)
@@ -318,15 +373,12 @@ local function ensureValidData(profile)
 	end
 	profile.Data.SeedInventory = seedInventory
 
-	local foodInventory = {}
-	if type(profile.Data.FoodInventory) == "table" then
-		for foodId, count in pairs(profile.Data.FoodInventory) do
-			if type(foodId) == "string" and type(count) == "number" and count > 0 then
-				foodInventory[foodId] = math.floor(count)
-			end
-		end
+	local foodInventoryItems = FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)
+	if #foodInventoryItems == 0 and type(profile.Data.FoodInventory) == "table" then
+		foodInventoryItems = FoodInventoryService.RecordsFromCountMap(profile.Data.FoodInventory)
 	end
-	profile.Data.FoodInventory = foodInventory
+	profile.Data.FoodInventoryItems = foodInventoryItems
+	profile.Data.FoodInventory = FoodInventoryService.CountRecords(foodInventoryItems)
 
 	local processedReceipts = {}
 	if type(profile.Data.ProcessedReceipts) == "table" then
@@ -337,6 +389,7 @@ local function ensureValidData(profile)
 		end
 	end
 	profile.Data.ProcessedReceipts = processedReceipts
+	profile.Data.PendingFoodStealReservation = sanitizePendingFoodStealReservation(profile.Data.PendingFoodStealReservation)
 
 	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true
 

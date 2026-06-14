@@ -84,6 +84,8 @@ State.Food = {
 	Id      = "FoodId",   -- exact template key, e.g. Pumpkin1
 	Type    = "FoodType", -- broad group/category, e.g. Fruit
 	XP      = "XP",
+	StealReservationId = "FoodStealReservationId",
+	StealReservationExpiresAt = "FoodStealReservationExpiresAt",
 	-- Patch slot growth anchor (server clock, Workspace:GetServerTimeNow()).
 	-- Slot XP is derived: XP + floor((now - GrowthStart) / GrowRate) * patchXP.
 	-- Absent while a slot is frozen (offline progress pending) or respawning.

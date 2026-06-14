@@ -52,6 +52,7 @@ local CONTROLLERS = {
 	"PetAnimations",
 	"ToolStatsBillboard",
 	"SlotXPBillboard",
+	"FoodStealController",
 	"PatchSlotVisuals",
 	"AppleTreeSlotVisuals",
 	"TimerBillboards",

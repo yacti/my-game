@@ -57,6 +57,21 @@
         "StarterPackPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "FoodStealRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
+        "FoodStealResult": {
+          "$className": "RemoteEvent"
+        },
+        "FoodStealCancel": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
         "ServerLuckPurchaseRequest": {
           "$className": "RemoteEvent"
         },

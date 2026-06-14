@@ -229,6 +229,45 @@ function FeedMachines.PickupTreeGround(ground, player)
 	return table.unpack(results, 2, results.n)
 end
 
+function FeedMachines.ReserveStealTarget(target, player, reservationId, expiresAt)
+	local patchResults = table.pack(RuntimeGuard.Run("FeedMachines.ReserveStealPatch", Patches.ReserveStealTarget, target, player, reservationId, expiresAt))
+	if patchResults[1] == true and patchResults[2] == true then
+		return table.unpack(patchResults, 2, patchResults.n)
+	end
+	local treeResults = table.pack(RuntimeGuard.Run("FeedMachines.ReserveStealTree", Trees.ReserveStealTarget, target, player, reservationId, expiresAt))
+	if treeResults[1] == true and treeResults[2] == true then
+		return table.unpack(treeResults, 2, treeResults.n)
+	end
+	if patchResults[1] == true and patchResults[3] and patchResults[3] ~= "not-patch" then
+		return false, patchResults[3]
+	end
+	if treeResults[1] == true then
+		return false, treeResults[3]
+	end
+	return false, "invalid-target"
+end
+
+function FeedMachines.ReleaseSteal(machine, reservation, reservationId)
+	local mod = impl(machine)
+	if mod and mod.ReleaseSteal then
+		local ok, released = RuntimeGuard.Run("FeedMachines.ReleaseSteal", mod.ReleaseSteal, machine, reservation, reservationId)
+		return ok == true and released == true
+	end
+	return false
+end
+
+function FeedMachines.CommitSteal(machine, reservation, reservationId)
+	local mod = impl(machine)
+	if mod and mod.CommitSteal then
+		local results = table.pack(RuntimeGuard.Run("FeedMachines.CommitSteal", mod.CommitSteal, machine, reservation, reservationId))
+		if results[1] ~= true then
+			return nil
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return nil
+end
+
 function FeedMachines.StressClickTree(machine, player)
 	local results = table.pack(RuntimeGuard.Run("FeedMachines.StressClickTree", Trees.StressClick, machine, player))
 	if results[1] ~= true then
