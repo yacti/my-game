@@ -10,8 +10,6 @@ local NICKNAMES = {
 	"Seb",
 	"Aidan",
 	"Daniel",
-	"Mami",
-	"Padre",
 	"Greg",
 	"Will",
 	"Leo",
@@ -69,6 +67,34 @@ local NICKNAMES = {
 	"Sasha",
 	"Gracie",
 	"Tilly",
+	"Butter Chicken",
+	"Nessie",
+	"Dorito",
+	"Taco",
+	"Noodle",
+	"Heatwave",
+	"Ramen",
+	"Chip",
+	"Thor",
+	"Kebab",
+	"Zeus",
+	"Tila",
+	"Tikka",
+	"Masala",
+	"Nala",
+	"Loki",
+	"Medusa",
+	"Aphrodite",
+	"Venus",
+	"Poseidon",
+	"Athena",
+	"Aries",
+	"Hermes",
+	
+
+
+
+
 }
 
 local COLOR_OVERRIDES = {
