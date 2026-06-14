@@ -914,6 +914,45 @@ local function validateServerLuckShopUi(menu, warnings)
 	end
 end
 
+local function validateStarterPackShopUi(menu, warnings)
+	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
+	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
+	local card = featured and child(featured, "StarterPack", "GuiObject", warnings)
+	if not card then return end
+
+	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
+	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
+	if price then
+		descendant(price, "Price", "TextLabel", warnings)
+	end
+	child(card, "Sold", "ImageLabel", warnings)
+
+	local items = child(card, "Items", "GuiObject", warnings)
+	if not items then
+		return
+	end
+	local templates = {}
+	for _, item in ipairs(items:GetChildren()) do
+		if item.Name == "Template" and item:IsA("GuiObject") then
+			templates[#templates + 1] = item
+		end
+	end
+	if #templates ~= 4 then
+		add(warnings, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items must contain exactly four Template GuiObjects")
+	end
+	for index, template in ipairs(templates) do
+		local source = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items.Template[" .. tostring(index) .. "]"
+		descendant(template, "Icon", "ViewportFrame", warnings)
+		descendant(template, "Name", "TextLabel", warnings)
+		descendant(template, "Amount", "TextLabel", warnings)
+		if not template.Visible then
+			add(warnings, source .. " should be visible in the Studio-authored card")
+		end
+	end
+end
+
 local function validatePackRollFrameUi(menu, errors)
 	local panel = child(menu, "PackRollFrame", "GuiObject", errors)
 	if not panel then return end
@@ -1282,6 +1321,15 @@ local function validateShopBalance(errors)
 			end
 		end
 	end
+	local starterPack = ShopBalance.GetStarterPack()
+	if starterPack then
+		for rewardIndex, reward in ipairs(starterPack.Rewards or {}) do
+			local rewardSource = "ShopBalance.StarterPack.Rewards[" .. tostring(rewardIndex) .. "]"
+			if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and not Seeds.GetTemplate(reward.SeedId) then
+				add(errors, rewardSource .. " has unknown SeedId " .. tostring(reward.SeedId))
+			end
+		end
+	end
 end
 
 local function validateCosmeticToolContract(errors)
@@ -1323,6 +1371,10 @@ local function validateShopProductIds(errors)
 	for index, pack in ipairs(ShopBalance.AllSeedPacks()) do
 		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].DevProductId", errors)
 		addProductIdSource(seenProducts, pack.BuyThreeDevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].BuyThreeDevProductId", errors)
+	end
+	local starterPack = ShopBalance.GetStarterPack()
+	if starterPack then
+		addProductIdSource(seenProducts, starterPack.DevProductId, "ShopBalance.StarterPack.DevProductId", errors)
 	end
 	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
 		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
@@ -1461,6 +1513,7 @@ local function validateUi(errors, warnings)
 		validateCosmeticShopUi(menu, errors)
 		validateRobuxShopUi(menu, errors)
 		validateServerLuckShopUi(menu, warnings)
+		validateStarterPackShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)

@@ -37,6 +37,7 @@ local DATA_TEMPLATE = {
 	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	ProcessedReceipts = {},
+	StarterPackPurchased = false,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
@@ -336,6 +337,8 @@ local function ensureValidData(profile)
 		end
 	end
 	profile.Data.ProcessedReceipts = processedReceipts
+
+	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true
 
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = STARTING_CURRENCY

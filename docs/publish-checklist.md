@@ -95,6 +95,11 @@ Run this checklist before publishing a live build.
 - Buy Server Luck from the Robux shop, verify all players receive the notification
   and local confetti, and verify `HUD.Buffs.ServerLuck` hides at `1x` and shows
   the active multiplier/timer while boosted.
+- Buy Starter Pack from the Robux shop, verify it grants six `AppleTreeSeed`
+  tools across four displayed reward slots, shows `Sold` after purchase, stays
+  sold after rejoin, blocks a second in-game purchase attempt, does not double-grant
+  on receipt retry, and refuses purchase preflight when fewer than six inventory
+  slots are open.
 - Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and
   verify the plant deletes, saves, and does not delete processors or other plots.
 - Click tree fruit on multiple `FeedClass = "Tree"` templates, verify nearby

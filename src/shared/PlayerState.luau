@@ -14,6 +14,7 @@ PlayerState.Fields = {
 	FoodInventory = "FoodInventory",
 	UnlockedGridKeys = "UnlockedGridKeys",
 	Onboarding = "Onboarding",
+	StarterPackPurchased = "StarterPackPurchased",
 	JoinBackShowcase = "JoinBackShowcase",
 }
 

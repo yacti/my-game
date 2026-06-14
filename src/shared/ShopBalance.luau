@@ -50,6 +50,22 @@ ShopBalance.ServerLuck = {
 	},
 }
 
+ShopBalance.StarterPackRewardKinds = {
+	Seed = "Seed",
+}
+
+ShopBalance.StarterPack = {
+	PackId = "StarterPack",
+	DisplayName = "Starter Pack",
+	DevProductId = 3604596908,
+	Rewards = {
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 3 },
+	},
+}
+
 local function int(value, minimum)
 	value = tonumber(value)
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
@@ -78,6 +94,30 @@ local function copyPack(pack)
 		DisplayName = pack.DisplayName,
 		DevProductId = pack.DevProductId,
 		BuyThreeDevProductId = pack.BuyThreeDevProductId,
+		Rewards = rewards,
+	}
+end
+
+local function copyStarterPackReward(reward)
+	return {
+		Kind = reward and reward.Kind or nil,
+		SeedId = reward and reward.SeedId or nil,
+		Amount = int(reward and reward.Amount, 0),
+	}
+end
+
+local function copyStarterPack(pack)
+	if type(pack) ~= "table" then
+		return nil
+	end
+	local rewards = {}
+	for _, reward in ipairs(pack.Rewards or {}) do
+		rewards[#rewards + 1] = copyStarterPackReward(reward)
+	end
+	return {
+		PackId = pack.PackId,
+		DisplayName = pack.DisplayName,
+		DevProductId = pack.DevProductId,
 		Rewards = rewards,
 	}
 end
@@ -124,6 +164,27 @@ function ShopBalance.SeedPackForProductId(productIdValue)
 		end
 	end
 	return nil
+end
+
+function ShopBalance.GetStarterPack()
+	return copyStarterPack(ShopBalance.StarterPack)
+end
+
+function ShopBalance.StarterPackForProductId(productIdValue)
+	local target = productId(productIdValue)
+	local pack = ShopBalance.StarterPack
+	if target <= 0 or type(pack) ~= "table" or productId(pack.DevProductId) ~= target then
+		return nil
+	end
+	return copyStarterPack(pack)
+end
+
+function ShopBalance.StarterPackTotalAmount(pack)
+	local total = 0
+	for _, reward in ipairs(pack and pack.Rewards or {}) do
+		total += int(reward and reward.Amount, 0)
+	end
+	return total
 end
 
 function ShopBalance.AllServerLuckSteps()
@@ -291,6 +352,49 @@ function ShopBalance.Validate(errors)
 				end
 				if type(reward.Weight) ~= "number" or reward.Weight <= 0 or reward.Weight ~= reward.Weight or math.abs(reward.Weight) == math.huge then
 					add(rewardSource .. " has invalid Weight")
+				end
+			end
+		end
+	end
+
+	local starterPack = ShopBalance.StarterPack
+	if type(starterPack) ~= "table" then
+		add("ShopBalance.StarterPack must be a table")
+	else
+		local source = "ShopBalance.StarterPack"
+		if type(starterPack.PackId) ~= "string" or starterPack.PackId == "" then
+			add(source .. " has invalid PackId")
+		elseif seenPacks[starterPack.PackId] then
+			add("Duplicate shop PackId " .. tostring(starterPack.PackId))
+		else
+			seenPacks[starterPack.PackId] = true
+		end
+		if type(starterPack.DisplayName) ~= "string" or starterPack.DisplayName == "" then
+			add(source .. " has invalid DisplayName")
+		end
+		validateProduct(starterPack.DevProductId, source .. ".DevProductId")
+
+		if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards ~= 4 then
+			add(source .. " must define exactly four Rewards")
+		else
+			for rewardIndex, reward in ipairs(starterPack.Rewards) do
+				local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
+				if type(reward) ~= "table" then
+					add(rewardSource .. " must be a table")
+					continue
+				end
+				if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed then
+					add(rewardSource .. " has invalid Kind")
+				end
+				if type(reward.SeedId) ~= "string" or reward.SeedId == "" then
+					add(rewardSource .. " has invalid SeedId")
+				end
+				if type(reward.Amount) ~= "number"
+					or reward.Amount <= 0
+					or reward.Amount ~= reward.Amount
+					or math.abs(reward.Amount) == math.huge
+					or reward.Amount % 1 ~= 0 then
+					add(rewardSource .. " has invalid Amount")
 				end
 			end
 		end

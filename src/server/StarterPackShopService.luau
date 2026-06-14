@@ -1,0 +1,317 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Server = script.Parent
+local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
+local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
+local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local ReceiptService = require(Server:WaitForChild("ReceiptService"))
+local SeedTools = require(Server:WaitForChild("SeedTools"))
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Inventory = require(Shared:WaitForChild("Inventory"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+
+local StarterPackShopService = {}
+
+local REQUEST_RATE_SECONDS = 0.5
+
+local started = false
+local locks = {}
+local lastRequest = {}
+
+local purchaseRequestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
+local purchaseResultRemote = Remotes.get(Remotes.Names.StarterPackPurchaseResult)
+
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
+local function int(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return 0
+	end
+	return math.max(math.floor(value), 0)
+end
+
+local function saveProfile(profile)
+	local ok = pcall(function()
+		profile:Save()
+	end)
+	return ok
+end
+
+local function sendPurchaseResult(player, requestId, success, code, payload)
+	local result = type(payload) == "table" and payload or {}
+	result.requestId = requestId
+	result.success = success == true
+	result.code = code
+	purchaseResultRemote:FireClient(player, result)
+end
+
+local function addSeedCount(counts, seedId, amount)
+	if type(seedId) ~= "string" or seedId == "" then
+		return
+	end
+	counts[seedId] = int(counts[seedId]) + int(amount)
+end
+
+local function destroyPrepared(prepared)
+	if type(prepared) ~= "table" then
+		return
+	end
+	for _, tool in ipairs(prepared.tools or {}) do
+		if tool then
+			tool:Destroy()
+		end
+	end
+end
+
+local function rollbackPrepared(profile, prepared)
+	local inventory = profile and profile.Data and profile.Data.SeedInventory
+	if type(inventory) == "table" then
+		for seedId, amount in pairs(prepared and prepared.counts or {}) do
+			inventory[seedId] = math.max(int(inventory[seedId]) - int(amount), 0)
+			if inventory[seedId] <= 0 then
+				inventory[seedId] = nil
+			end
+		end
+	end
+	destroyPrepared(prepared)
+end
+
+local function prepareRewards(pack)
+	local prepared = {
+		tools = {},
+		counts = {},
+	}
+	for _, reward in ipairs(pack and pack.Rewards or {}) do
+		if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed then
+			destroyPrepared(prepared)
+			return nil, "invalid-reward"
+		end
+
+		local amount = int(reward.Amount)
+		local seedGrant, code = SeedTools.PrepareGrant(reward.SeedId, amount)
+		if not seedGrant then
+			destroyPrepared(prepared)
+			return nil, code or "grant-failed"
+		end
+		for _, tool in ipairs(seedGrant.tools or {}) do
+			prepared.tools[#prepared.tools + 1] = tool
+		end
+		addSeedCount(prepared.counts, reward.SeedId, amount)
+	end
+	return prepared, "ok"
+end
+
+local function grantPrepared(player, profile, prepared)
+	if not (player and profile and type(prepared) == "table") then
+		destroyPrepared(prepared)
+		return false, "invalid-grant"
+	end
+	if not player:FindFirstChildOfClass("Backpack") then
+		destroyPrepared(prepared)
+		return false, "no-backpack"
+	end
+
+	local granted, code = ToolGrantService.GrantTools(player, prepared.tools, {
+		autoEquip = false,
+	})
+	if not granted then
+		destroyPrepared(prepared)
+		return false, code or "grant-failed"
+	end
+
+	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
+	for seedId, amount in pairs(prepared.counts or {}) do
+		profile.Data.SeedInventory[seedId] = int(profile.Data.SeedInventory[seedId]) + int(amount)
+	end
+	return true, "ok"
+end
+
+local function requiredSlots(pack)
+	return ShopBalance.StarterPackTotalAmount(pack)
+end
+
+function StarterPackShopService.HandlesProductId(productId)
+	return ShopBalance.StarterPackForProductId(productId) ~= nil
+end
+
+local function onPurchaseRequest(player, requestId)
+	if type(requestId) ~= "number" then
+		return
+	end
+
+	local pack = ShopBalance.GetStarterPack()
+	local profile = PlayerDataService.GetProfile(player)
+	if not (pack and profile) then
+		sendPurchaseResult(player, requestId, false, "profile-not-ready")
+		return
+	end
+	if OfflineProgressService.IsPending(player) then
+		sendPurchaseResult(player, requestId, false, "offline-progress")
+		return
+	end
+	if profile.Data.StarterPackPurchased == true then
+		sendPurchaseResult(player, requestId, false, "already-owned")
+		return
+	end
+
+	local key = userKey(player)
+	if not key then
+		sendPurchaseResult(player, requestId, false, "invalid-player")
+		return
+	end
+	local now = os.clock()
+	if lastRequest[key] and now - lastRequest[key] < REQUEST_RATE_SECONDS then
+		sendPurchaseResult(player, requestId, false, "rate-limited")
+		return
+	end
+	lastRequest[key] = now
+	if locks[key] then
+		sendPurchaseResult(player, requestId, false, "busy")
+		return
+	end
+
+	local slots = requiredSlots(pack)
+	if Inventory.RemainingSlots(player) < slots then
+		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+		sendPurchaseResult(player, requestId, false, "inventory-full", {
+			requiredSlots = slots,
+		})
+		return
+	end
+
+	sendPurchaseResult(player, requestId, true, "ok", {
+		productId = int(pack.DevProductId),
+		requiredSlots = slots,
+	})
+end
+
+function StarterPackShopService.ProcessReceipt(receiptInfo)
+	local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	local profile = player and PlayerDataService.GetProfile(player)
+	local pack = ShopBalance.StarterPackForProductId(receiptInfo.ProductId)
+	local purchaseId = ReceiptService.Key(receiptInfo.PurchaseId)
+	if not (player and profile and pack and purchaseId) then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if ReceiptService.HasProcessed(profile, purchaseId) then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	if OfflineProgressService.IsPending(player) then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local key = userKey(player)
+	if not key or locks[key] then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	locks[key] = true
+	local granted = false
+	local resultCode = "server-error"
+	local prepared = nil
+	local wasPurchased = profile.Data.StarterPackPurchased == true
+
+	local ok, err = pcall(function()
+		if wasPurchased then
+			resultCode = "save-failed"
+			ReceiptService.MarkProcessed(profile, purchaseId)
+			if saveProfile(profile) then
+				resultCode = "already-owned"
+			else
+				ReceiptService.ClearProcessed(profile, purchaseId)
+			end
+			return
+		end
+
+		resultCode = "inventory-full"
+		if Inventory.RemainingSlots(player) < requiredSlots(pack) then
+			return
+		end
+
+		prepared, resultCode = prepareRewards(pack)
+		if not prepared then
+			return
+		end
+
+		granted, resultCode = grantPrepared(player, profile, prepared)
+		if not granted then
+			prepared = nil
+			return
+		end
+
+		resultCode = "save-failed"
+		profile.Data.StarterPackPurchased = true
+		ReceiptService.MarkProcessed(profile, purchaseId)
+		if not saveProfile(profile) then
+			ReceiptService.ClearProcessed(profile, purchaseId)
+			profile.Data.StarterPackPurchased = wasPurchased
+			rollbackPrepared(profile, prepared)
+			granted = false
+			return
+		end
+		resultCode = "ok"
+	end)
+	locks[key] = nil
+
+	if not ok then
+		warn("[StarterPackShopService] Receipt grant failed: " .. tostring(err))
+		ReceiptService.ClearProcessed(profile, purchaseId)
+		profile.Data.StarterPackPurchased = wasPurchased
+		if granted and prepared then
+			rollbackPrepared(profile, prepared)
+			granted = false
+		elseif prepared then
+			destroyPrepared(prepared)
+		end
+		resultCode = "server-error"
+	end
+
+	PlayerReplicaService.PublishInventories(player, profile)
+	PlayerReplicaService.PublishStarterPackPurchased(player, profile)
+
+	if granted then
+		NotificationService.Success(player, string.format("Purchased %s!", pack.DisplayName or "Starter Pack"))
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	if resultCode == "already-owned" then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+
+	if resultCode == "inventory-full" then
+		-- ToolGrantService emits a rate-limited notification if the cap is hit
+		-- during grant; preflight also notifies before opening the purchase UI.
+	elseif resultCode == "no-backpack" then
+		NotificationService.Error(player, "Could not grant your starter pack yet. Please rejoin and try again.")
+	else
+		NotificationService.Error(player, "Could not grant your starter pack yet.")
+	end
+	warn("[StarterPackShopService] Receipt grant failed: " .. tostring(resultCode))
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+function StarterPackShopService.Start()
+	if started then
+		return
+	end
+	started = true
+
+	RuntimeGuard.Connect(Players.PlayerRemoving, "StarterPackShopService.PlayerRemoving", function(player)
+		local key = userKey(player)
+		if key then
+			locks[key] = nil
+			lastRequest[key] = nil
+		end
+	end)
+	RuntimeGuard.Connect(purchaseRequestRemote.OnServerEvent, "StarterPackShopService.PurchaseRequest", onPurchaseRequest)
+end
+
+return StarterPackShopService

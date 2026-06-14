@@ -51,6 +51,12 @@
         "SeedPackPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "StarterPackPurchaseRequest": {
+          "$className": "RemoteEvent"
+        },
+        "StarterPackPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
         "ServerLuckPurchaseRequest": {
           "$className": "RemoteEvent"
         },

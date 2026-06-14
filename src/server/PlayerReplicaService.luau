@@ -76,6 +76,7 @@ local function stateFromProfile(profile)
 		[PlayerState.Fields.FoodInventory] = copyCountMap(data.FoodInventory),
 		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
+		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
 	}
 end
 
@@ -251,6 +252,11 @@ end
 function PlayerReplicaService.PublishOnboarding(player, profile)
 	local data = profile and profile.Data or {}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.Onboarding, copyOnboardingState(data.Onboarding))
+end
+
+function PlayerReplicaService.PublishStarterPackPurchased(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.StarterPackPurchased, data.StarterPackPurchased == true)
 end
 
 function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
