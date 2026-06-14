@@ -5,6 +5,7 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RuntimeGuard"))
+local ResponsiveUi = require(script.Parent:WaitForChild("ResponsiveUi"))
 
 local MenuGui = {}
 
@@ -133,6 +134,7 @@ local function initializeMenu(menu)
 	if not (menu and menu:IsA("ScreenGui")) then
 		return
 	end
+	ResponsiveUi.BindRoot(menu)
 	if menu:GetAttribute(MENU_INITIALIZED_ATTR) == true then
 		return
 	end

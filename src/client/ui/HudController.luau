@@ -7,6 +7,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local ResponsiveHud = require(script.Parent:WaitForChild("ResponsiveHud"))
+local ResponsiveUi = require(script.Parent:WaitForChild("ResponsiveUi"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local HudController = {}
@@ -53,6 +55,8 @@ function HudController.start()
 	local gui = cloneTemplate()
 	if not gui then return end
 	gui.Parent = PlayerGui
+	ResponsiveUi.BindRoot(gui)
+	ResponsiveHud.Bind(gui)
 
 	local leftButtons = gui:FindFirstChild(LEFT_BUTTONS_NAME)
 	if leftButtons and leftButtons:IsA("GuiObject") then
