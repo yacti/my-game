@@ -111,6 +111,79 @@ local function removeDeprecatedFeedPlacements(data)
 	data.FeedPlacements = placements
 end
 
+local function finiteNumber(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return nil
+	end
+	return value
+end
+
+local function nonnegativeNumber(value)
+	value = finiteNumber(value)
+	if value == nil then
+		return nil
+	end
+	return math.max(value, 0)
+end
+
+local function nonemptyString(value)
+	return type(value) == "string" and value ~= "" and value or nil
+end
+
+local function sanitizeFeedQueueItem(item)
+	if type(item) ~= "table" then
+		return nil
+	end
+
+	local legacyFoodId = nonemptyString(item.foodId) or nonemptyString(item.foodType)
+	local sourceFoodId = nonemptyString(item.sourceFoodId)
+	local readyAt = finiteNumber(item.readyAt)
+	local depositedAt = finiteNumber(item.depositedAt)
+
+	if sourceFoodId or readyAt then
+		local clean = {
+			sourceFoodId = sourceFoodId or legacyFoodId,
+		}
+		if not clean.sourceFoodId then
+			return nil
+		end
+
+		local sourceXP = nonnegativeNumber(item.sourceXP)
+		if sourceXP == nil then
+			sourceXP = nonnegativeNumber(item.xp)
+		end
+		if sourceXP ~= nil then
+			clean.sourceXP = sourceXP
+		end
+
+		if readyAt ~= nil then
+			clean.readyAt = readyAt
+		elseif depositedAt ~= nil then
+			-- JamBarrel.Apply can reconstruct readyAt from legacy depositedAt.
+			clean.depositedAt = depositedAt
+		else
+			return nil
+		end
+
+		return clean
+	end
+
+	if not (legacyFoodId and depositedAt) then
+		return nil
+	end
+
+	local clean = {
+		foodId = legacyFoodId,
+		depositedAt = depositedAt,
+	}
+	local xp = nonnegativeNumber(item.xp)
+	if xp ~= nil then
+		clean.xp = xp
+	end
+	return clean
+end
+
 local function migrateData(data)
 	if type(data) ~= "table" then
 		return
@@ -373,11 +446,9 @@ local function ensureValidData(profile)
 				if type(placement.queue) == "table" then
 					clean.queue = {}
 					for _, item in ipairs(placement.queue) do
-						if type(item) == "table" and type(item.foodId or item.foodType) == "string" then
-							clean.queue[#clean.queue + 1] = {
-								foodId = item.foodId or item.foodType,
-								depositedAt = tonumber(item.depositedAt) or os.time(),
-							}
+						local queueItem = sanitizeFeedQueueItem(item)
+						if queueItem then
+							clean.queue[#clean.queue + 1] = queueItem
 						end
 					end
 				end
