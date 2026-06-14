@@ -43,6 +43,9 @@ function Notifications.Normalize(payload)
 		normalized.text = payload.text or payload.message or payload[1]
 		normalized.kind = payload.kind
 		normalized.lifetime = payload.lifetime or payload.duration
+		if type(payload.sound) == "string" and payload.sound ~= "" then
+			normalized.sound = payload.sound
+		end
 	end
 
 	if type(normalized.text) ~= "string" then

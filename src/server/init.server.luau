@@ -57,6 +57,7 @@ local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService")
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local State    = require(Shared:WaitForChild("State"))
@@ -65,6 +66,7 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 local PlotStressTest = nil
+local AnimalAmbientSoundService = require(Server:WaitForChild("AnimalAmbientSoundService"))
 
 if RunService:IsStudio() then
 	local devFolder = Server:FindFirstChild("dev")
@@ -96,6 +98,7 @@ end
 
 RuntimeGuard.Run("PlotGridService.ResetVacantPlotsToPreviewRows", PlotGridService.ResetVacantPlotsToPreviewRows)
 RuntimeGuard.Run("PlotService.SyncVacantPlotVisibility", PlotService.SyncVacantPlotVisibility)
+RuntimeGuard.Run("AnimalAmbientSoundService.Start", AnimalAmbientSoundService.Start)
 
 RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
@@ -327,7 +330,11 @@ end
 
 local function notifyGrown(player, feed)
 	if not (player and feed) then return end
-	NotificationService.Success(player, string.format("%s has grown!", feed.Name))
+	NotificationService.Notify(player, {
+		kind = NotificationConfig.Kinds.Success,
+		text = string.format("%s has grown!", feed.Name),
+		sound = "FruitPop",
+	})
 end
 
 RuntimeGuard.Run("FeedGrowthService.Start", function()
@@ -443,6 +450,7 @@ local function tryEvolvePet(plot, pet, profile)
 
 	if evolved then
 		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq)
+		AnimalAmbientSoundService.PlayEvolutionBurst(activePet)
 	end
 
 	return activePet, evolved

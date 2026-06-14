@@ -2,8 +2,8 @@
 -- module). Visual behavior is preserved from the original; the implementation
 -- follows the rulebook instead of the original's shape: all pieces simulate
 -- under ONE shared RenderStepped connection (not one per piece), the ScreenGui
--- and celebration sound are created lazily once and reused across bursts, and
--- the sound plays without busy-waiting on load.
+-- is created lazily once, and the replicated celebration sound is cloned and
+-- reused across bursts without busy-waiting on load.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -12,12 +12,12 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local ConfettiEffect = {}
 
 local DEFAULT_AMOUNT = 250
 local MAX_ACTIVE_PIECES = 600
-local SOUND_ID = "rbxassetid://2789427964"
 local GRAVITY = 75
 local FALL_LIMIT = 1.3
 local FADE_IN_TWEEN = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut)
@@ -35,7 +35,6 @@ local BASE_COLORS = {
 local player = Players.LocalPlayer
 
 local screenGui = nil
-local sound = nil
 local pieces = {} -- [frame] = { velocityX, velocityY, rotationSpeed, startClock }
 local pieceCount = 0
 local stepConnection = nil
@@ -56,22 +55,8 @@ local function ensureGui()
 	return screenGui
 end
 
-local function playSound(gui)
-	if not (sound and sound.Parent) then
-		sound = Instance.new("Sound")
-		sound.Name = "ConfettiSound"
-		sound.SoundId = SOUND_ID
-		sound.Parent = gui
-	end
-	if sound.IsLoaded then
-		sound:Play()
-	else
-		local pending = sound
-		RuntimeGuard.Spawn("ConfettiEffect.PlaySoundWhenLoaded", function()
-			pending.Loaded:Wait()
-			pending:Play()
-		end)
-	end
+local function playSound()
+	SoundEffects.Play(SoundEffects.Names.Confetti)
 end
 
 local function createPiece(spawnPos)
@@ -171,7 +156,7 @@ function ConfettiEffect.Emit(amount, spawnPos)
 	if not gui then
 		return
 	end
-	playSound(gui)
+	playSound()
 
 	amount = math.min(amount, math.max(MAX_ACTIVE_PIECES - pieceCount, 0))
 	local startClock = os.clock()

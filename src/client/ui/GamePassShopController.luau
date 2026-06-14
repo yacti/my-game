@@ -7,6 +7,7 @@ local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 
+local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -52,6 +53,18 @@ local function ownsPass(passKey)
 		return true
 	end
 	return ownershipMap()[passKey] == true
+end
+
+local function hasNewOwnedPass(newMap, oldMap)
+	if type(newMap) ~= "table" or type(oldMap) ~= "table" then
+		return false
+	end
+	for passKey, owned in pairs(newMap) do
+		if owned == true and oldMap[passKey] ~= true then
+			return true
+		end
+	end
+	return false
 end
 
 local function robuxText(id, onLoaded)
@@ -188,8 +201,18 @@ function GamePassShopController.start()
 	end)
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, renderAll)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.GamePassOwnership, renderAll)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, renderAll)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.GamePassOwnership, function(newValue, oldValue)
+		if hasNewOwnedPass(newValue, oldValue) then
+			ConfettiEffect.Emit()
+		end
+		renderAll()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, function(newValue, oldValue)
+		if newValue == true and oldValue == false then
+			ConfettiEffect.Emit()
+		end
+		renderAll()
+	end)
 	renderAll()
 end
 

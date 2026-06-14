@@ -10,6 +10,7 @@ local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -161,6 +162,9 @@ function RebirthController.start()
 		if errorLabel then
 			errorLabel.Text = text or ""
 			errorLabel.Visible = text ~= nil and text ~= ""
+		end
+		if text ~= nil and text ~= "" then
+			UiEffects.PlayError()
 		end
 	end
 
@@ -387,6 +391,7 @@ function RebirthController.start()
 			setError(tostring(payload.code or "Could not rebirth."))
 		else
 			setError(nil)
+			ConfettiEffect.Emit()
 		end
 		render()
 	end)

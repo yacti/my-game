@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 
@@ -211,6 +212,7 @@ local function playUnlockEffect(gridPart)
 		return
 	end
 
+	SoundEffects.Play(SoundEffects.Names.RollReveal)
 	if waitForFloorVisible(gridPart) then
 		animateFloor(gridPart)
 	end

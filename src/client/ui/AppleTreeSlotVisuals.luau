@@ -16,6 +16,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
@@ -768,6 +769,7 @@ function TreeVisuals.start()
 		if typeof(anchor) ~= "Instance" or not anchor:IsA("BasePart") then return end
 		if typeof(marker) ~= "Instance" or not marker:IsA("BasePart") then return end
 		if type(foodId) ~= "string" then return end
+		SoundEffects.PlayVaried(SoundEffects.Names.TreeShaken)
 		shakeTree(tree)
 		renderDrop(anchor, marker, foodId, duration)
 	end)

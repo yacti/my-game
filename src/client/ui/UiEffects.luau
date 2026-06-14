@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local UiEffects = {}
 
@@ -94,13 +95,14 @@ local function ensureInputEndedConnection()
 	end)
 end
 
-function UiEffects.BindButton(button)
+function UiEffects.BindButton(button, options)
 	if not (button and button:IsA("GuiButton")) then
 		return
 	end
 	if button:GetAttribute(BUTTON_EFFECTS_ATTR) == true then
 		return
 	end
+	options = type(options) == "table" and options or {}
 	button:SetAttribute(BUTTON_EFFECTS_ATTR, true)
 
 	local colorProp, baseColor = buttonColorTarget(button)
@@ -163,6 +165,15 @@ function UiEffects.BindButton(button)
 
 	RuntimeGuard.Connect(button.MouseButton1Up, "UiEffects.MouseButton1Up", function()
 		releasePress()
+	end)
+
+	RuntimeGuard.Connect(button.Activated, "UiEffects.Activated", function()
+		if button.Active == false then
+			return
+		end
+		if options.silent ~= true then
+			SoundEffects.Play(SoundEffects.Names.UiButtonClick)
+		end
 	end)
 
 	RuntimeGuard.Connect(button.Destroying, "UiEffects.ButtonDestroying", function()
@@ -480,9 +491,13 @@ function UiEffects.PreparePanel(panel)
 	}
 end
 
-function UiEffects.PlayOpen(panel, state)
+function UiEffects.PlayOpen(panel, state, options)
 	if not (panel and state) then
 		return nil
+	end
+	options = type(options) == "table" and options or {}
+	if options.silent ~= true then
+		SoundEffects.Play(SoundEffects.Names.UiOpen)
 	end
 	panel.Visible = true
 	panel.Position = state.closedPosition
@@ -493,12 +508,16 @@ function UiEffects.PlayOpen(panel, state)
 	})
 end
 
-function UiEffects.PlayClose(panel, state, onComplete)
+function UiEffects.PlayClose(panel, state, onComplete, options)
 	if not (panel and state) then
 		if onComplete then
 			onComplete()
 		end
 		return nil
+	end
+	options = type(options) == "table" and options or {}
+	if options.silent ~= true then
+		SoundEffects.Play(SoundEffects.Names.UiClose)
 	end
 	local closeTween = tween(panel, CLOSE_TWEEN, {
 		Position = state.closedPosition,
@@ -511,6 +530,10 @@ function UiEffects.PlayClose(panel, state, onComplete)
 		end
 	end)
 	return closeTween
+end
+
+function UiEffects.PlayError()
+	SoundEffects.Play(SoundEffects.Names.Error)
 end
 
 return UiEffects

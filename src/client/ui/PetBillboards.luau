@@ -5,6 +5,7 @@
 -- and incur no replication traffic.
 
 local Workspace         = game:GetService("Workspace")
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 
@@ -18,6 +19,8 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State   = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PetBillboards = {}
@@ -74,6 +77,11 @@ local function refreshAll()
 			attached[pet] = nil
 		end
 	end
+end
+
+local function isOwnPet(pet)
+	local plot = PlotResolver.ResolveForPlayer(Players.LocalPlayer)
+	return plot ~= nil and pet:IsDescendantOf(plot)
 end
 
 local function attach(pet)
@@ -159,12 +167,23 @@ local function attach(pet)
 		end
 	end
 	record.render = render
+	record.lastMoney = pet:GetAttribute(State.Pet.Money) or 0
+
+	local function handleMoneyChanged()
+		local previousMoney = tonumber(record.lastMoney) or 0
+		local currentMoney = tonumber(pet:GetAttribute(State.Pet.Money)) or 0
+		record.lastMoney = currentMoney
+		if previousMoney >= 1 and currentMoney <= 0 and isOwnPet(pet) then
+			SoundEffects.PlayVaried(SoundEffects.Names.MoneyCollected)
+		end
+		render()
+	end
 
 	render()
 	refreshNameColor()
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.XP), "PetBillboards.XPChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MaxXP), "PetBillboards.MaxXPChanged", render)
-	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", handleMoneyChanged)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MoneyRate), "PetBillboards.MoneyRateChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetBillboards.IdChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Nickname), "PetBillboards.NicknameChanged", render)

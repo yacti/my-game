@@ -7,9 +7,9 @@ ShopBalance.SeedPacks = {
 		DevProductId = 3593513166,
 		BuyThreeDevProductId = 3593513259,
 		Rewards = {
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
+			{ SeedId = "OrangeTreeSeed", Weight = 60 },
+			{ SeedId = "WatermelonSeed", Weight = 35 },
+			{ SeedId = "CherryTreeSeed", Weight = 5 },
 		},
 	},
 	{
@@ -18,9 +18,9 @@ ShopBalance.SeedPacks = {
 		DevProductId = 3593513368,
 		BuyThreeDevProductId = 3604441419,
 		Rewards = {
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
+			{ SeedId = "CornSeed", Weight = 50 },
+			{ SeedId = "MushroomSeed", Weight = 45 },
+			{ SeedId = "PineappleSeed", Weight = 5 },
 		},
 	},
 	{
@@ -29,9 +29,9 @@ ShopBalance.SeedPacks = {
 		DevProductId = 3604441448,
 		BuyThreeDevProductId = 3604441467,
 		Rewards = {
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
-			{ SeedId = "AppleTreeSeed", Weight = 1 },
+			{ SeedId = "FigTreeSeed", Weight = 66 },
+			{ SeedId = "GlowshroomSeed", Weight = 33 },
+			{ SeedId = "DurianTreeSeed", Weight = 1 },
 		},
 	},
 }
@@ -86,6 +86,7 @@ ShopBalance.ServerLuck = {
 }
 
 ShopBalance.StarterPackRewardKinds = {
+	FeedMachine = "FeedMachine",
 	Seed = "Seed",
 }
 
@@ -94,10 +95,10 @@ ShopBalance.StarterPack = {
 	DisplayName = "Starter Pack",
 	DevProductId = 3604596908,
 	Rewards = {
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 1 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "AppleTreeSeed", Amount = 3 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.FeedMachine, FeedType = "JamBarrel", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "WatermelonSeed", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PlumTreeSeed", Amount = 1 },
+		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "MushroomSeed", Amount = 1 },
 	},
 }
 
@@ -192,6 +193,7 @@ end
 local function copyStarterPackReward(reward)
 	return {
 		Kind = reward and reward.Kind or nil,
+		FeedType = reward and reward.FeedType or nil,
 		SeedId = reward and reward.SeedId or nil,
 		Amount = int(reward and reward.Amount, 0),
 	}
@@ -705,11 +707,17 @@ function ShopBalance.Validate(errors)
 					add(rewardSource .. " must be a table")
 					continue
 				end
-				if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed then
+				if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed
+					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine then
 					add(rewardSource .. " has invalid Kind")
 				end
-				if type(reward.SeedId) ~= "string" or reward.SeedId == "" then
+				if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed
+					and (type(reward.SeedId) ~= "string" or reward.SeedId == "") then
 					add(rewardSource .. " has invalid SeedId")
+				end
+				if reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine
+					and (type(reward.FeedType) ~= "string" or reward.FeedType == "") then
+					add(rewardSource .. " has invalid FeedType")
 				end
 				if type(reward.Amount) ~= "number"
 					or reward.Amount <= 0

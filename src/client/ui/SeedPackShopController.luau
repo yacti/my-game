@@ -14,6 +14,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
+local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -934,6 +935,7 @@ local function enqueueReveal(payload)
 	if type(payload) ~= "table" or payload.action ~= "reveal" or type(payload.results) ~= "table" then
 		return
 	end
+	ConfettiEffect.Emit()
 	revealQueue[#revealQueue + 1] = payload
 	if not activeReveal then
 		showNextReveal()

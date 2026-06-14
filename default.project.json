@@ -15,6 +15,9 @@
         "GridUnlockEffect": {
           "$className": "RemoteEvent"
         },
+        "AnimalAmbientSound": {
+          "$className": "RemoteEvent"
+        },
         "CrateRollEffect": {
           "$className": "RemoteEvent"
         },
@@ -132,6 +135,436 @@
         "RebirthResult": {
           "$className": "RemoteEvent"
         }
+      },
+      "Sounds": {
+        "$className": "Folder",
+        "UiOpen": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://1544910054"
+          }
+        },
+        "UiClose": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://5005397921"
+          }
+        },
+        "UiButtonClick": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://6652808984"
+          }
+        },
+        "Error": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://3779045779"
+          }
+        },
+        "FruitPop": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://773858658"
+          }
+        },
+        "TreeShaken": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://136154958168323"
+          }
+        },
+        "PetFed": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://135478009117226"
+          }
+        },
+        "MoneyCollected": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://330274138"
+          }
+        },
+        "ConfettiSound": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://2789427964"
+          }
+        },
+        "Drumroll": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://3075836786"
+          }
+        },
+        "RollButtonClick": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://99907773036037"
+          }
+        },
+        "CrateBreak": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://4004052860"
+          }
+        },
+        "RollReveal": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://8807795651"
+          }
+        },
+        "BirdBackingTrack": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://4915214793",
+            "Volume": 0.03,
+            "Looped": true
+          }
+        },
+        "MusicPlaylist": {
+          "$className": "Folder",
+          "Track1": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://9045766377",
+              "Volume": 0.1
+            }
+          },
+          "Track2": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://113447576287930",
+              "Volume": 0.1
+            }
+          },
+          "Track3": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://9045766074",
+              "Volume": 0.1
+            }
+          },
+          "Track4": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://1848028342",
+              "Volume": 0.1
+            }
+          },
+          "Track5": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://87625732497001",
+              "Volume": 0.1
+            }
+          },
+          "Track6": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://77930513126039",
+              "Volume": 0.1
+            }
+          },
+          "Track7": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://78221801465342",
+              "Volume": 0.1
+            }
+          },
+          "Track8": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://138751599898649",
+              "Volume": 0.1
+            }
+          },
+          "Track9": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://140080440452815",
+              "Volume": 0.1
+            }
+          },
+          "Track10": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://137331770642824",
+              "Volume": 0.1
+            }
+          },
+          "Track11": {
+            "$className": "Sound",
+            "$properties": {
+              "SoundId": "rbxassetid://9045765295",
+              "Volume": 0.1
+            }
+          }
+        },
+        "AnimalAmbientSounds": {
+        "$className": "Folder",
+        "Pet1": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://77584650945481"
+          }
+        },
+        "Pet2": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://5660185015"
+          }
+        },
+        "Pet3": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://131658976855136"
+          }
+        },
+        "Pet4": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://131916027000817"
+          }
+        },
+        "Pet5": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://137619866633824"
+          }
+        },
+        "Pet6": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://6774187532"
+          }
+        },
+        "Pet7": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://114704625041213"
+          }
+        },
+        "Pet8": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://5660185015"
+          }
+        },
+        "Pet9": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://134881862056957"
+          }
+        },
+        "Pet10": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://86240785556441"
+          }
+        },
+        "Pet11": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://124453455193367"
+          }
+        },
+        "Pet12": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://124453455193367"
+          }
+        },
+        "Pet13": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://101153462816009"
+          }
+        },
+        "Pet14": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://101153462816009"
+          }
+        },
+        "Pet15": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://116335766649353"
+          }
+        },
+        "Pet17": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140007222940724"
+          }
+        },
+        "Pet20": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://128142333374736"
+          }
+        },
+        "Pet21": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://137866583821455"
+          }
+        },
+        "Pet23": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://112004335594352"
+          }
+        },
+        "Pet24": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://9114176192"
+          }
+        },
+        "Pet25": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://112004335594352"
+          }
+        },
+        "Pet26": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://9114176192"
+          }
+        },
+        "Pet27": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://112004335594352"
+          }
+        },
+        "Pet29": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://131916027000817"
+          }
+        },
+        "Pet32": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://138088459555467"
+          }
+        },
+        "Pet33": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://116194601692065"
+          }
+        },
+        "Pet34": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://116194601692065"
+          }
+        },
+        "Pet35": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://72762118666744"
+          }
+        },
+        "Pet36": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://89079094196786"
+          }
+        },
+        "Pet37": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://132227823745168"
+          }
+        },
+        "Pet40": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://128142333374736"
+          }
+        },
+        "Pet41": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://128142333374736"
+          }
+        },
+        "Pet42": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://128142333374736"
+          }
+        },
+        "Pet43": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet44": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet45": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet46": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet47": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet48": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet49": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet50": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://138088459555467"
+          }
+        },
+        "Pet51": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://140248198623735"
+          }
+        },
+        "Pet53": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://9125644661"
+          }
+        }
+      }
       },
       "Shared": {
         "$path": "src/shared"

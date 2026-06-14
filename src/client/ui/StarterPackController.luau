@@ -4,13 +4,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local State = require(Shared:WaitForChild("State"))
 
+local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -32,6 +35,7 @@ local nextRequestId = 0
 local pendingRequestId = nil
 local rarityLabels = {}
 local rarityConnection = nil
+local feedTemplateByType = nil
 
 local function child(parent, name, className)
 	local found = parent and parent:FindFirstChild(name)
@@ -164,17 +168,51 @@ local function robuxText(productId, onLoaded)
 	return productPriceById[productId]
 end
 
+local function buildFeedIndex()
+	local result = {}
+	local root = Assets.Find(Assets.Names.FeedMachines)
+	if not root then
+		return result
+	end
+	for _, instance in ipairs(root:GetDescendants()) do
+		if instance:IsA("BasePart") or instance:IsA("Model") then
+			local feedType = instance:GetAttribute(State.Feed.Type)
+			if type(feedType) == "string" and feedType ~= "" and not result[feedType] then
+				result[feedType] = instance
+			end
+		end
+	end
+	return result
+end
+
+local function feedTemplateFor(feedType)
+	if not feedTemplateByType then
+		feedTemplateByType = buildFeedIndex()
+	end
+	return feedTemplateByType[feedType]
+end
+
+local function rewardDisplayInfo(reward)
+	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine then
+		local feedType = reward.FeedType
+		local template = feedTemplateFor(feedType)
+		local rarity = template and template:GetAttribute(State.Feed.Rarity) or nil
+		return template, template and template.Name or feedType, rarity
+	end
+
+	local seedId = reward and reward.SeedId
+	return Seeds.GetTemplate(seedId), Seeds.DisplayNameFor(seedId), Seeds.RarityFor(seedId)
+end
+
 local function renderRewardSlot(slot, reward)
 	local icon = descendant(slot, "Icon", "ViewportFrame")
 	local nameLabel = child(slot, "Name", "TextLabel") or descendant(slot, "Name", "TextLabel")
 	local amountLabel = child(slot, "Amount", "TextLabel") or descendant(slot, "Amount", "TextLabel")
-	local seedId = reward and reward.SeedId
 	local amount = math.max(math.floor(tonumber(reward and reward.Amount) or 0), 0)
-	local displayName = Seeds.DisplayNameFor(seedId)
-	local rarity = Seeds.RarityFor(seedId)
+	local template, displayName, rarity = rewardDisplayInfo(reward)
 
 	slot.Visible = reward ~= nil
-	ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PREVIEW_OPTIONS)
+	ViewportPreview.Render(icon, template, PREVIEW_OPTIONS)
 	setTextStack(nameLabel, displayName)
 	registerRarityLabel(nameLabel, rarity)
 	if amountLabel then
@@ -268,7 +306,12 @@ function StarterPackController.start()
 	end
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, render)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.StarterPackPurchased, render)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.StarterPackPurchased, function(purchased, previousPurchased)
+		if purchased == true and previousPurchased == false then
+			ConfettiEffect.Emit()
+		end
+		render()
+	end)
 	render()
 end
 

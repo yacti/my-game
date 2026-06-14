@@ -17,6 +17,7 @@ local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local RollController = {}
@@ -463,6 +464,7 @@ local function pressButton(button, autoRelease)
 	releasePressedButton()
 	pressedButton = button
 	setButtonPressed(button, true)
+	SoundEffects.Play(SoundEffects.Names.RollButtonClick)
 	if autoRelease then
 		task.delay(BUTTON_PRESS_DURATION + BUTTON_RELEASE_DURATION, function()
 			if pressedButton == button then
@@ -829,6 +831,7 @@ local function playImpactChunks(crateFloor)
 end
 
 local function breakCrate(crate, crateFloor)
+	SoundEffects.PlayVaried(SoundEffects.Names.CrateBreak)
 	playImpactChunks(crateFloor)
 	fadeOut(crate, CRATE_BREAK_FADE_DURATION)
 end
@@ -1068,10 +1071,11 @@ local function previewPayloadFor(parentPayload, preview)
 	return out
 end
 
-local function playSeedBeatTween(clone, floorCFrame, liftedCFrame, token)
+local function playSeedBeatTween(clone, floorCFrame, liftedCFrame, token, onPop)
 	local liftAlpha = Instance.new("NumberValue")
 	liftAlpha.Value = 0
 	local liftTween = nil
+	local popPlayed = false
 	local liftConnection = liftAlpha:GetPropertyChangedSignal("Value"):Connect(function()
 		if not clone.Parent then
 			return
@@ -1085,6 +1089,12 @@ local function playSeedBeatTween(clone, floorCFrame, liftedCFrame, token)
 		end
 		local alpha = liftAlpha.Value
 		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		if not popPlayed and alpha >= 0.08 then
+			popPlayed = true
+			if onPop then
+				onPop()
+			end
+		end
 		local currentScale = SEED_DEFAULT_SCALE + (SEED_EXPANDED_SCALE - SEED_DEFAULT_SCALE) * eased
 		local basePosition = floorCFrame.Position:Lerp(liftedCFrame.Position, eased)
 		local shake = math.sin(alpha * math.pi * 10) * math.rad(SEED_SHAKE_DEGREES)
@@ -1099,6 +1109,9 @@ local function playSeedBeatTween(clone, floorCFrame, liftedCFrame, token)
 	liftTween.Completed:Wait()
 	liftConnection:Disconnect()
 	liftAlpha:Destroy()
+	if not popPlayed and clone.Parent and isCurrentRoll(token) and onPop then
+		onPop()
+	end
 	if clone.Parent and isCurrentRoll(token) then
 		setScaleAtCFrame(clone, SEED_FINAL_SCALE, liftedCFrame)
 	end
@@ -1119,7 +1132,9 @@ local function playSeedPreviewBeat(preview, crateFloor, token, index)
 	attachRarityParticle(clone, Color3.new(1, 1, 1))
 	addRevealBillboard(clone, preview)
 
-	local completed = playSeedBeatTween(clone, floorCFrame, liftedCFrame, token)
+	local completed = playSeedBeatTween(clone, floorCFrame, liftedCFrame, token, function()
+		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+	end)
 	if clone.Parent then
 		clone:Destroy()
 	end
@@ -1162,6 +1177,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	fadeIn(blackClone)
 	attachRarityParticle(blackClone, Color3.new(1, 1, 1))
 	addRevealBillboard(blackClone, payload)
+	SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 
 	if not playSeedBeatTween(blackClone, floorCFrame, liftedCFrame, token) then
 		if blackClone.Parent then
@@ -1184,6 +1200,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	trackRollEffect(clone, payload.offerId)
 	pivotTo(clone, liftedCFrame)
 	fadeIn(clone, SEED_REVEAL_FADE_DURATION)
+	SoundEffects.Play(SoundEffects.Names.RollReveal)
 
 	local emitter = attachRarityParticle(clone, Color3.new(1, 1, 1))
 	local particleExpiresAt = os.clock() + LOCAL_PARTICLE_LIFETIME
@@ -1232,6 +1249,7 @@ local function playMiscReveal(payload, crateFloor, token)
 	local liftedCFrame = floorCFrame + Vector3.new(0, MISC_LIFT_HEIGHT, 0)
 	setScaleAtCFrame(clone, MISC_START_SCALE, floorCFrame)
 	fadeIn(clone)
+	SoundEffects.Play(SoundEffects.Names.RollReveal)
 
 	tweenScaleAtCFrame(clone, floorCFrame, MISC_START_SCALE, MISC_DEFAULT_SCALE, TweenInfo.new(MISC_FADE_IN_DURATION, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
 	local alphaValue = Instance.new("NumberValue")
@@ -1449,6 +1467,7 @@ function RollController.start()
 			clearActiveReveal(payload.offerId)
 			return
 		end
+		UiEffects.PlayError()
 
 		local reveal = activeReveals[payload.offerId]
 		local prompt = reveal and reveal:FindFirstChild("RollOfferBuyPrompt", true)

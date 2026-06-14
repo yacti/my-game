@@ -16,6 +16,7 @@ local State = require(Shared:WaitForChild("State"))
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local PetEvolutionEffects = {}
 
@@ -254,6 +255,18 @@ local function morphEffectToNewPet(effect, newPet, pivot, highlight)
 	task.wait(MORPH_SECONDS)
 end
 
+local function stopSound(sound, stopped)
+	if not (sound and sound.Parent) then
+		return true
+	end
+	if stopped == true then
+		return true
+	end
+	sound:Stop()
+	sound:Destroy()
+	return true
+end
+
 local function remember(hidden, instance, kind, values)
 	if hidden.state[instance] then return false end
 	hidden.state[instance] = { kind = kind, values = values }
@@ -415,16 +428,24 @@ local function playForPet(pet)
 	effect:PivotTo(pivot)
 
 	task.spawn(function()
+		local drumroll = nil
+		local drumrollStopped = false
 		local ok, err = pcall(function()
+			drumroll = SoundEffects.Play(SoundEffects.Names.Drumroll)
+			if drumroll then
+				drumroll.Looped = true
+			end
 			local highlight = playCharge(effect, pivot, oldScale, pet)
 			if pet.Parent then
 				morphEffectToNewPet(effect, pet, pivot, highlight)
 				-- Celebration lands with the morph reveal, right as
 				-- restoreCamera tweens the FOV back out below.
+				drumrollStopped = stopSound(drumroll, drumrollStopped)
 				ConfettiEffect.Emit()
 				showEvolutionNotification(oldPetId, pet)
 			end
 		end)
+		drumrollStopped = stopSound(drumroll, drumrollStopped)
 		restoreCamera()
 		if effect.Parent then effect:Destroy() end
 		restorePet(pet, hiddenPet)

@@ -1,0 +1,174 @@
+local Players = game:GetService("Players")
+local ContentProvider = game:GetService("ContentProvider")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
+local MusicPlaylistController = {}
+
+local LOADING_SCREEN_NAME = "LoadingScreen"
+local SOUNDS_FOLDER_NAME = "Sounds"
+local PLAYLIST_FOLDER_NAME = "MusicPlaylist"
+
+local FADE_IN_SECONDS = 20
+local MIN_SILENCE_SECONDS = 15
+local MAX_SILENCE_SECONDS = 120
+local DEFAULT_VOLUME = 0.1
+local LOAD_TIMEOUT_SECONDS = 15
+local TRACK_END_PADDING_SECONDS = 5
+
+local rng = Random.new()
+local started = false
+
+local function waitForLoadingScreenDismissed()
+	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	local loadingScreen = playerGui:FindFirstChild(LOADING_SCREEN_NAME)
+	if not loadingScreen then
+		return
+	end
+
+	while playerGui:FindFirstChild(LOADING_SCREEN_NAME) do
+		local removed = playerGui.ChildRemoved:Wait()
+		if removed.Name == LOADING_SCREEN_NAME then
+			return
+		end
+	end
+end
+
+local function getPlaylist()
+	local sounds = ReplicatedStorage:WaitForChild(SOUNDS_FOLDER_NAME)
+	return sounds:WaitForChild(PLAYLIST_FOLDER_NAME)
+end
+
+local function getTracks(playlist)
+	local tracks = {}
+	for _, child in ipairs(playlist:GetChildren()) do
+		if child:IsA("Sound") and child.SoundId ~= "" then
+			table.insert(tracks, child)
+		end
+	end
+	return tracks
+end
+
+local function chooseTrack(playlist)
+	local tracks = getTracks(playlist)
+	if #tracks == 0 then
+		return nil
+	end
+	return tracks[rng:NextInteger(1, #tracks)]
+end
+
+local function waitForLoaded(sound)
+	if sound.IsLoaded then
+		return true
+	end
+
+	local loaded = false
+	local connection = sound.Loaded:Connect(function()
+		loaded = true
+	end)
+	local deadline = os.clock() + LOAD_TIMEOUT_SECONDS
+	while sound.Parent and not loaded and not sound.IsLoaded and os.clock() < deadline do
+		task.wait(0.1)
+	end
+	connection:Disconnect()
+
+	return loaded or sound.IsLoaded
+end
+
+local function waitForEnded(sound, ended)
+	local timeLength = tonumber(sound.TimeLength) or 0
+	local timeout = math.max(timeLength + TRACK_END_PADDING_SECONDS, LOAD_TIMEOUT_SECONDS)
+	local deadline = os.clock() + timeout
+	while sound.Parent and not ended() and os.clock() < deadline do
+		task.wait(0.25)
+	end
+	return ended()
+end
+
+local function preloadSound(sound)
+	local ok, err = pcall(function()
+		ContentProvider:PreloadAsync({ sound })
+	end)
+	if not ok then
+		warn("[MusicPlaylistController] Music preload failed: " .. tostring(err))
+	end
+	return waitForLoaded(sound)
+end
+
+local function playTrack(template)
+	local targetVolume = tonumber(template.Volume) or DEFAULT_VOLUME
+	if targetVolume <= 0 then
+		targetVolume = DEFAULT_VOLUME
+	end
+
+	local sound = template:Clone()
+	sound.Name = "CurrentMusicTrack"
+	sound.Looped = false
+	sound.Volume = 0
+	sound.Parent = SoundService
+
+	if not preloadSound(sound) then
+		warn("[MusicPlaylistController] Music track failed to load: " .. template.SoundId)
+		sound:Destroy()
+		return false
+	end
+
+	sound.TimePosition = 0
+	sound.Volume = 0
+
+	local ended = false
+	local endedConnection = sound.Ended:Connect(function()
+		ended = true
+	end)
+
+	sound:Play()
+	TweenService:Create(
+		sound,
+		TweenInfo.new(FADE_IN_SECONDS, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ Volume = targetVolume }
+	):Play()
+
+	local completed = waitForEnded(sound, function()
+		return ended
+	end)
+	endedConnection:Disconnect()
+	sound:Destroy()
+	return completed
+end
+
+local function runPlaylist()
+	waitForLoadingScreenDismissed()
+
+	local playlist = getPlaylist()
+	while true do
+		local template = chooseTrack(playlist)
+		local completed = false
+		if template then
+			local ok, result = RuntimeGuard.Run("MusicPlaylistController.PlayTrack", playTrack, template)
+			completed = ok and result == true
+		else
+			warn("[MusicPlaylistController] ReplicatedStorage.Sounds.MusicPlaylist has no playable tracks")
+		end
+
+		if completed then
+			task.wait(rng:NextNumber(MIN_SILENCE_SECONDS, MAX_SILENCE_SECONDS))
+		else
+			task.wait(1)
+		end
+	end
+end
+
+function MusicPlaylistController.start()
+	if started then
+		return
+	end
+	started = true
+
+	task.spawn(runPlaylist)
+end
+
+return MusicPlaylistController

@@ -6,6 +6,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
+local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local Notifications = {}
 
@@ -107,6 +109,12 @@ function Notifications.show(payload)
 
 	local normalized = NotificationConfig.Normalize(payload)
 	if not normalized then return end
+	if normalized.kind == NotificationConfig.Kinds.Error then
+		UiEffects.PlayError()
+	end
+	if normalized.sound == SoundEffects.Names.FruitPop then
+		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+	end
 
 	local label = template:Clone()
 	label.Name = "Notification"

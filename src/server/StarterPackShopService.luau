@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
@@ -61,6 +62,13 @@ local function addSeedCount(counts, seedId, amount)
 	counts[seedId] = int(counts[seedId]) + int(amount)
 end
 
+local function addFeedCount(counts, feedType, amount)
+	if type(feedType) ~= "string" or feedType == "" then
+		return
+	end
+	counts[feedType] = int(counts[feedType]) + int(amount)
+end
+
 local function destroyPrepared(prepared)
 	if type(prepared) ~= "table" then
 		return
@@ -73,12 +81,27 @@ local function destroyPrepared(prepared)
 end
 
 local function rollbackPrepared(profile, prepared)
-	local inventory = profile and profile.Data and profile.Data.SeedInventory
-	if type(inventory) == "table" then
-		for seedId, amount in pairs(prepared and prepared.counts or {}) do
-			inventory[seedId] = math.max(int(inventory[seedId]) - int(amount), 0)
-			if inventory[seedId] <= 0 then
-				inventory[seedId] = nil
+	if type(prepared) ~= "table" then
+		return
+	end
+
+	local data = profile and profile.Data
+	local seedInventory = data and data.SeedInventory
+	if type(seedInventory) == "table" then
+		for seedId, amount in pairs(prepared.seedCounts or {}) do
+			seedInventory[seedId] = math.max(int(seedInventory[seedId]) - int(amount), 0)
+			if seedInventory[seedId] <= 0 then
+				seedInventory[seedId] = nil
+			end
+		end
+	end
+
+	local feedInventory = data and data.FeedInventory
+	if type(feedInventory) == "table" then
+		for feedType, amount in pairs(prepared.feedCounts or {}) do
+			feedInventory[feedType] = math.max(int(feedInventory[feedType]) - int(amount), 0)
+			if feedInventory[feedType] <= 0 then
+				feedInventory[feedType] = nil
 			end
 		end
 	end
@@ -88,24 +111,35 @@ end
 local function prepareRewards(pack)
 	local prepared = {
 		tools = {},
-		counts = {},
+		seedCounts = {},
+		feedCounts = {},
 	}
 	for _, reward in ipairs(pack and pack.Rewards or {}) do
-		if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed then
+		local amount = int(reward.Amount)
+		if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed then
+			local seedGrant, code = SeedTools.PrepareGrant(reward.SeedId, amount)
+			if not seedGrant then
+				destroyPrepared(prepared)
+				return nil, code or "grant-failed"
+			end
+			for _, tool in ipairs(seedGrant.tools or {}) do
+				prepared.tools[#prepared.tools + 1] = tool
+			end
+			addSeedCount(prepared.seedCounts, reward.SeedId, amount)
+		elseif reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine then
+			local feedGrant, code = FeedRewardService.PrepareGrant(reward.FeedType, amount)
+			if not feedGrant then
+				destroyPrepared(prepared)
+				return nil, code or "grant-failed"
+			end
+			for _, tool in ipairs(feedGrant.tools or {}) do
+				prepared.tools[#prepared.tools + 1] = tool
+			end
+			addFeedCount(prepared.feedCounts, reward.FeedType, amount)
+		else
 			destroyPrepared(prepared)
 			return nil, "invalid-reward"
 		end
-
-		local amount = int(reward.Amount)
-		local seedGrant, code = SeedTools.PrepareGrant(reward.SeedId, amount)
-		if not seedGrant then
-			destroyPrepared(prepared)
-			return nil, code or "grant-failed"
-		end
-		for _, tool in ipairs(seedGrant.tools or {}) do
-			prepared.tools[#prepared.tools + 1] = tool
-		end
-		addSeedCount(prepared.counts, reward.SeedId, amount)
 	end
 	return prepared, "ok"
 end
@@ -129,8 +163,12 @@ local function grantPrepared(player, profile, prepared)
 	end
 
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
-	for seedId, amount in pairs(prepared.counts or {}) do
+	for seedId, amount in pairs(prepared.seedCounts or {}) do
 		profile.Data.SeedInventory[seedId] = int(profile.Data.SeedInventory[seedId]) + int(amount)
+	end
+	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
+	for feedType, amount in pairs(prepared.feedCounts or {}) do
+		profile.Data.FeedInventory[feedType] = int(profile.Data.FeedInventory[feedType]) + int(amount)
 	end
 	return true, "ok"
 end

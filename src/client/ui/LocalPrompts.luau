@@ -22,6 +22,7 @@ local Shovel = require(Shared:WaitForChild("Shovel"))
 local State   = require(Shared:WaitForChild("State"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
 
@@ -301,6 +302,16 @@ local function autoModeForKind(kind)
 		return LocalPrompts.AutoModes.Collect
 	end
 	return nil
+end
+
+local function playPromptSound(kind)
+	if kind == "PetFeed" then
+		SoundEffects.Play(SoundEffects.Names.PetFed, { pitchMin = 1, pitchMax = 1.3 })
+	elseif kind == "PatchHarvest" or kind == "TreeGroundPickup" then
+		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+	elseif kind == "GridPartUnlock" then
+		SoundEffects.Play(SoundEffects.Names.RollReveal)
+	end
 end
 
 local function promptParentFor(instance, kind)
@@ -619,6 +630,7 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 	if isOfflineProgressPending() then
 		return false
 	end
+	playPromptSound(kind)
 	PromptInteract:FireServer(action, target)
 	return true
 end
@@ -759,6 +771,7 @@ addPrompt = function(target, kind, action)
 		if kind == "TreeGroundPickup" then
 			prompt.Enabled = false
 		end
+		playPromptSound(kind)
 		PromptInteract:FireServer(action, target)
 	end)
 	-- Stored and disconnected in removePrompt: many targets (ground markers,

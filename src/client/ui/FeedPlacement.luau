@@ -22,6 +22,7 @@ local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnc
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
@@ -266,6 +267,9 @@ function FeedPlacement.start()
 		placementEdit:Destroy()
 		return
 	end
+	UiEffects.BindButton(confirmBtn)
+	UiEffects.BindButton(moveBtn)
+	UiEffects.BindButton(rotateBtn)
 	local confirmDefaults = {
 		Active = confirmBtn.Active,
 		AutoButtonColor = confirmBtn.AutoButtonColor,
@@ -832,6 +836,7 @@ function FeedPlacement.start()
 		else
 			PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
 		end
+		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	end
 
 	local function beginMoving()

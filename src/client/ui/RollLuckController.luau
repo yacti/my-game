@@ -134,8 +134,9 @@ function RollLuckController.start()
 
 	local RollLuckUpgradeRequest = Remotes.get(Remotes.Names.RollLuckUpgradeRequest)
 	local RollLuckUpgradeResult = Remotes.get(Remotes.Names.RollLuckUpgradeResult)
+	local silentUiEffects = { silent = true }
 
-	UiEffects.BindButton(upgradeButton)
+	UiEffects.BindButton(upgradeButton, silentUiEffects)
 	local panelState = UiEffects.PreparePanel(frame)
 
 	local latestState = nil
@@ -218,7 +219,7 @@ function RollLuckController.start()
 		end
 		isOpen = true
 		transitionToken += 1
-		UiEffects.PlayOpen(frame, panelState)
+		UiEffects.PlayOpen(frame, panelState, silentUiEffects)
 	end
 
 	local function closePanel()
@@ -232,7 +233,7 @@ function RollLuckController.start()
 			if transitionToken == token and not isOpen then
 				frame.Visible = false
 			end
-		end)
+		end, silentUiEffects)
 	end
 
 	RuntimeGuard.Connect(upgradeButton.Activated, "RollLuckController.UpgradeActivated", function()

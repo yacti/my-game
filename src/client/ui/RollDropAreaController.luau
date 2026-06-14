@@ -132,8 +132,9 @@ function RollDropAreaController.start()
 
 	local RollDropAreaUpgradeRequest = Remotes.get(Remotes.Names.RollDropAreaUpgradeRequest)
 	local RollDropAreaUpgradeResult = Remotes.get(Remotes.Names.RollDropAreaUpgradeResult)
+	local silentUiEffects = { silent = true }
 
-	UiEffects.BindButton(upgradeButton)
+	UiEffects.BindButton(upgradeButton, silentUiEffects)
 	local panelState = UiEffects.PreparePanel(frame)
 
 	local latestState = nil
@@ -205,7 +206,7 @@ function RollDropAreaController.start()
 		end
 		isOpen = true
 		transitionToken += 1
-		UiEffects.PlayOpen(frame, panelState)
+		UiEffects.PlayOpen(frame, panelState, silentUiEffects)
 	end
 
 	local function closePanel()
@@ -219,7 +220,7 @@ function RollDropAreaController.start()
 			if transitionToken == token and not isOpen then
 				frame.Visible = false
 			end
-		end)
+		end, silentUiEffects)
 	end
 
 	RuntimeGuard.Connect(upgradeButton.Activated, "RollDropAreaController.UpgradeActivated", function()

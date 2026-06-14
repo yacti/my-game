@@ -261,7 +261,7 @@ function AutoPromptButtonController.start()
 		return
 	end
 
-	UiEffects.BindButton(button)
+	UiEffects.BindButton(button, { silent = true })
 	setButtonMode(nil, false)
 
 	RuntimeGuard.Connect(button.InputBegan, "AutoPromptButton.InputBegan", function(input)

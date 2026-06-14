@@ -17,6 +17,7 @@ local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnc
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local FeedEditController = {}
@@ -518,8 +519,9 @@ function FeedEditController.start()
 		placementEdit:Destroy()
 		return
 	end
-	UiEffects.BindButton(editButton)
-	UiEffects.BindButton(exitEditButton)
+	local silentUiEffects = { silent = true }
+	UiEffects.BindButton(editButton, silentUiEffects)
+	UiEffects.BindButton(exitEditButton, silentUiEffects)
 	local editButtonPanelState = UiEffects.PreparePanel(editButton)
 	local exitEditButtonPanelState = UiEffects.PreparePanel(exitEditButton)
 	if confirmButton and confirmButton:IsA("GuiObject") then
@@ -704,6 +706,7 @@ function FeedEditController.start()
 		pendingTargetCFrame = targetCFrame
 		pendingOriginalCFrame = committedCFrame
 		FeedMoveRequest:FireServer(pendingRequestId, selectedFeed, targetCFrame)
+		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	end
 
 	local function selectFeed(feed)
@@ -852,13 +855,13 @@ function FeedEditController.start()
 		local token = editButtonTransitionToken
 		editButton.Active = open
 		if open then
-			UiEffects.PlayOpen(editButton, editButtonPanelState)
+			UiEffects.PlayOpen(editButton, editButtonPanelState, silentUiEffects)
 		else
 			UiEffects.PlayClose(editButton, editButtonPanelState, function()
 				if editButtonTransitionToken ~= token and editButtonOpen then
 					editButton.Visible = true
 				end
-			end)
+			end, silentUiEffects)
 		end
 	end
 
@@ -871,13 +874,13 @@ function FeedEditController.start()
 		local token = exitEditButtonTransitionToken
 		exitEditButton.Active = open
 		if open then
-			UiEffects.PlayOpen(exitEditButton, exitEditButtonPanelState)
+			UiEffects.PlayOpen(exitEditButton, exitEditButtonPanelState, silentUiEffects)
 		else
 			UiEffects.PlayClose(exitEditButton, exitEditButtonPanelState, function()
 				if exitEditButtonTransitionToken ~= token and exitEditButtonOpen then
 					exitEditButton.Visible = true
 				end
-			end)
+			end, silentUiEffects)
 		end
 	end
 

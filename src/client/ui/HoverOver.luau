@@ -220,7 +220,7 @@ local function disconnectRarityRender()
 end
 
 local function refreshRarityColor()
-	if not (popup and popup.Visible and rarityLabel and activeRarity) then
+	if not (popup and rarityLabel and activeRarity) then
 		return
 	end
 	local color = Rarities.ColorFor(activeRarity, os.clock()) or Rarities.ColorFor(Rarities.Common)

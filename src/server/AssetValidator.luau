@@ -45,6 +45,40 @@ local REQUIRED_ASSET_ROOTS = {
 
 local REQUIRED_REPLICATED_ROOTS = {
 	"Remotes",
+	"Sounds",
+}
+
+local REQUIRED_CLIENT_SOUNDS = {
+	"UiOpen",
+	"UiClose",
+	"UiButtonClick",
+	"Error",
+	"FruitPop",
+	"TreeShaken",
+	"PetFed",
+	"MoneyCollected",
+	"ConfettiSound",
+	"Drumroll",
+	"RollButtonClick",
+	"CrateBreak",
+	"RollReveal",
+	"BirdBackingTrack",
+}
+
+local MUSIC_TRACK_VOLUME = 0.1
+
+local REQUIRED_MUSIC_TRACKS = {
+	Track1 = "rbxassetid://9045766377",
+	Track2 = "rbxassetid://113447576287930",
+	Track3 = "rbxassetid://9045766074",
+	Track4 = "rbxassetid://1848028342",
+	Track5 = "rbxassetid://87625732497001",
+	Track6 = "rbxassetid://77930513126039",
+	Track7 = "rbxassetid://78221801465342",
+	Track8 = "rbxassetid://138751599898649",
+	Track9 = "rbxassetid://140080440452815",
+	Track10 = "rbxassetid://137331770642824",
+	Track11 = "rbxassetid://9045765295",
 }
 
 local REQUIRED_REPLICA_SHARED_MODULES = {
@@ -148,6 +182,78 @@ local function validateReplica(errors)
 	local replicaShared = child(ReplicatedStorage, "ReplicaShared", "Folder", errors)
 	for _, moduleName in ipairs(REQUIRED_REPLICA_SHARED_MODULES) do
 		child(replicaShared, moduleName, "ModuleScript", errors)
+	end
+end
+
+local function validateClientSounds(errors)
+	local sounds = ReplicatedStorage:FindFirstChild("Sounds")
+	if not sounds then
+		return
+	end
+	if not sounds:IsA("Folder") then
+		add(errors, string.format("%s is %s, expected Folder", sounds:GetFullName(), sounds.ClassName))
+		return
+	end
+
+	for _, soundName in ipairs(REQUIRED_CLIENT_SOUNDS) do
+		local sound = child(sounds, soundName, "Sound", errors)
+		if sound and not sound.SoundId:match("^rbxassetid://%d+$") then
+			add(errors, string.format("%s has invalid SoundId %q", sound:GetFullName(), sound.SoundId))
+		end
+	end
+end
+
+local function validateMusicPlaylist(errors)
+	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
+	if not soundRoot then
+		return
+	end
+	local playlist = soundRoot:FindFirstChild("MusicPlaylist")
+	if not playlist then
+		add(errors, "Missing " .. soundRoot:GetFullName() .. ".MusicPlaylist")
+		return
+	end
+	if not playlist:IsA("Folder") then
+		add(errors, string.format("%s is %s, expected Folder", playlist:GetFullName(), playlist.ClassName))
+		return
+	end
+
+	for trackName, soundId in pairs(REQUIRED_MUSIC_TRACKS) do
+		local track = child(playlist, trackName, "Sound", errors)
+		if track then
+			if track.SoundId ~= soundId then
+				add(errors, string.format("%s has SoundId %q, expected %q", track:GetFullName(), track.SoundId, soundId))
+			end
+			if math.abs(track.Volume - MUSIC_TRACK_VOLUME) > 0.001 then
+				add(errors, string.format("%s has Volume %s, expected %.2f", track:GetFullName(), tostring(track.Volume), MUSIC_TRACK_VOLUME))
+			end
+		end
+	end
+end
+
+local function validateAnimalAmbientSounds(errors)
+	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
+	if not soundRoot then
+		return
+	end
+	local sounds = soundRoot:FindFirstChild("AnimalAmbientSounds")
+	if not sounds then
+		add(errors, "Missing " .. soundRoot:GetFullName() .. ".AnimalAmbientSounds")
+		return
+	end
+	if not sounds:IsA("Folder") then
+		add(errors, string.format("%s is %s, expected Folder", sounds:GetFullName(), sounds.ClassName))
+		return
+	end
+
+	for _, instance in ipairs(sounds:GetChildren()) do
+		if not instance:IsA("Sound") then
+			add(errors, string.format("%s is %s, expected Sound", instance:GetFullName(), instance.ClassName))
+		elseif not instance.Name:match("^Pet%d+$") then
+			add(errors, string.format("%s must be named by PetID, e.g. Pet1", instance:GetFullName()))
+		elseif not instance.SoundId:match("^rbxassetid://%d+$") then
+			add(errors, string.format("%s has invalid SoundId %q", instance:GetFullName(), instance.SoundId))
+		end
 	end
 end
 
@@ -1402,6 +1508,10 @@ local function validateShopBalance(errors)
 			if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and not Seeds.GetTemplate(reward.SeedId) then
 				add(errors, rewardSource .. " has unknown SeedId " .. tostring(reward.SeedId))
 			end
+			if reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine
+				and not FeedMachines.GetTemplate(reward.FeedType) then
+				add(errors, rewardSource .. " has unknown FeedType " .. tostring(reward.FeedType))
+			end
 		end
 	end
 end
@@ -1874,6 +1984,9 @@ function AssetValidator.validate()
 	for _, name in ipairs(REQUIRED_REPLICATED_ROOTS) do
 		child(ReplicatedStorage, name, nil, errors)
 	end
+	validateClientSounds(errors)
+	validateMusicPlaylist(errors)
+	validateAnimalAmbientSounds(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)
