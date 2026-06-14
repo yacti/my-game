@@ -4,6 +4,7 @@ local Assets = require(script.Parent:WaitForChild("Assets"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 
 local GrowingVisuals = {}
+local SAPLING_PRIMARY_PART_NAME = "PrimaryPart"
 
 local function findFeedTemplate(feedType)
 	if type(feedType) ~= "string" or feedType == "" then
@@ -55,18 +56,89 @@ local function scaleModelXZ(model, targetSize)
 	end
 end
 
-local function targetPrimarySize(feedType)
+local function targetPrimaryInfo(feedType)
 	local template = findFeedTemplate(feedType)
 	if not template then
-		return nil
+		return nil, nil
 	end
 	if template:IsA("BasePart") then
-		return template.Size
+		return template.Size, CFrame.new()
 	end
 	if template:IsA("Model") and template.PrimaryPart then
-		return template.PrimaryPart.Size
+		local primaryOffset = template:GetPivot():ToObjectSpace(template.PrimaryPart.CFrame)
+		return template.PrimaryPart.Size, primaryOffset - primaryOffset.Position
 	end
-	return nil
+	return nil, nil
+end
+
+local function visualLocalBounds(model, pivot)
+	local boundsCF, boundsSize = model:GetBoundingBox()
+	local minX = math.huge
+	local maxX = -math.huge
+	local minY = math.huge
+	local minZ = math.huge
+	local maxZ = -math.huge
+
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sy in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					boundsSize.X * 0.5 * sx,
+					boundsSize.Y * 0.5 * sy,
+					boundsSize.Z * 0.5 * sz
+				))
+				local localCorner = pivot:PointToObjectSpace(worldCorner)
+				minX = math.min(minX, localCorner.X)
+				maxX = math.max(maxX, localCorner.X)
+				minY = math.min(minY, localCorner.Y)
+				minZ = math.min(minZ, localCorner.Z)
+				maxZ = math.max(maxZ, localCorner.Z)
+			end
+		end
+	end
+
+	if minX == math.huge then
+		return nil
+	end
+	return minX, maxX, minY, minZ, maxZ
+end
+
+local function translateVisibleParts(model, worldOffset)
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CFrame = descendant.CFrame + worldOffset
+		end
+	end
+end
+
+local function addSaplingPrimaryPart(model, primarySize, primaryRotation)
+	if not primarySize then
+		return
+	end
+
+	local pivot = model:GetPivot()
+	local footprintCF = pivot * (primaryRotation or CFrame.new())
+	local minX, maxX, minY, minZ, maxZ = visualLocalBounds(model, footprintCF)
+	if minX then
+		local centerX = (minX + maxX) / 2
+		local centerZ = (minZ + maxZ) / 2
+		local targetBottomY = -primarySize.Y / 2
+		local localOffset = Vector3.new(-centerX, targetBottomY - minY, -centerZ)
+		translateVisibleParts(model, footprintCF:VectorToWorldSpace(localOffset))
+	end
+
+	local footprint = Instance.new("Part")
+	footprint.Name = SAPLING_PRIMARY_PART_NAME
+	footprint.Anchored = true
+	footprint.CanCollide = false
+	footprint.CanQuery = true
+	footprint.CanTouch = true
+	footprint.CastShadow = false
+	footprint.Transparency = 1
+	footprint.Size = primarySize
+	footprint.CFrame = footprintCF
+	footprint.Parent = model
+	model.PrimaryPart = footprint
 end
 
 local function basePartMatchesName(part, names)
@@ -150,9 +222,10 @@ function GrowingVisuals.BuildTreeSapling(feedType)
 	end
 
 	local clone = sapling:Clone()
-	local size = targetPrimarySize(feedType)
+	local size, primaryRotation = targetPrimaryInfo(feedType)
 	if size then
 		scaleModelXZ(clone, size)
+		addSaplingPrimaryPart(clone, size, primaryRotation)
 	end
 	GrowingVisuals.ApplySaplingTreeColors(clone, feedType)
 	return clone

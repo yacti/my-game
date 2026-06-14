@@ -138,6 +138,51 @@ local function boundsFitOnFloor(floor, boundsCF, boundsSize)
 	return true
 end
 
+local function floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+	local minX = math.huge
+	local maxX = -math.huge
+	local minZ = math.huge
+	local maxZ = -math.huge
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				minX = math.min(minX, floorCorner.X)
+				maxX = math.max(maxX, floorCorner.X)
+				minZ = math.min(minZ, floorCorner.Z)
+				maxZ = math.max(maxZ, floorCorner.Z)
+			end
+		end
+	end
+
+	if minX == math.huge then return nil end
+	return minX, maxX, minZ, maxZ
+end
+
+local function boundsOverlapOnFloor(floor, aCF, aSize, bCF, bSize)
+	if not aCF or not aSize or not bCF or not bSize then
+		return true
+	end
+
+	local aMinX, aMaxX, aMinZ, aMaxZ = floorLocalBoundsFromBox(floor, aCF, aSize)
+	local bMinX, bMaxX, bMinZ, bMaxZ = floorLocalBoundsFromBox(floor, bCF, bSize)
+	if not aMinX or not bMinX then
+		return true
+	end
+
+	return aMinX < bMaxX
+		and aMaxX > bMinX
+		and aMinZ < bMaxZ
+		and aMaxZ > bMinZ
+end
+
 local function unlockedGridParts(plot)
 	local parts = {}
 	if not plot then return parts end
@@ -226,6 +271,19 @@ local function placementBoundsPart(model)
 		return hitbox
 	end
 	return model.PrimaryPart
+end
+
+local function placementBoundsForInstance(instance)
+	if instance:IsA("BasePart") then
+		return instance.CFrame, instance.Size
+	end
+	if instance:IsA("Model") then
+		local boundsPart = placementBoundsPart(instance)
+		if boundsPart then
+			return boundsPart.CFrame, boundsPart.Size
+		end
+	end
+	return nil, nil
 end
 
 local function validToolGuid(guid)
@@ -586,6 +644,8 @@ function FeedPlacement.start()
 	local function previewOverlapsPlaceable()
 		local plot = getPlayerPlot()
 		if not plot then return true end
+		local floor = getPlayerFloor()
+		if not floor or not floor:IsA("BasePart") then return true end
 		local boundsCF, boundsSize = getPreviewBounds()
 		if not boundsCF or not boundsSize then return true end
 		local querySize = Vector3.new(
@@ -599,8 +659,12 @@ function FeedPlacement.start()
 		params.FilterDescendantsInstances = { plot }
 
 		for _, part in ipairs(workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
-			if placeableHitboxRootFromPart(plot, part) then
-				return true
+			local placeable = placeableHitboxRootFromPart(plot, part)
+			if placeable then
+				local placeableBoundsCF, placeableBoundsSize = placementBoundsForInstance(placeable)
+				if boundsOverlapOnFloor(floor, boundsCF, querySize, placeableBoundsCF, placeableBoundsSize) then
+					return true
+				end
 			end
 		end
 		return false

@@ -209,7 +209,6 @@ local function placeableHitboxRootFromPart(plot, part)
 	while current and current ~= plot do
 		local feedType = current:GetAttribute(State.Feed.Type)
 		if type(feedType) == "string" and feedType ~= "" and current:GetAttribute(State.Feed.Index) then
-			if current:GetAttribute(State.Seed.Phase) == "GrowingSeed" then return nil end
 			if current:IsA("BasePart") then return current end
 			if current:IsA("Model") then return current end
 			return nil
@@ -236,6 +235,51 @@ local function placeableBounds(instance)
 		end
 	end
 	return nil, nil
+end
+
+local function floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
+	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
+	local minX = math.huge
+	local maxX = -math.huge
+	local minZ = math.huge
+	local maxZ = -math.huge
+
+	for _, sx in ipairs(BOX_CORNER_SIGNS) do
+		for _, sy in ipairs(BOX_CORNER_SIGNS) do
+			for _, sz in ipairs(BOX_CORNER_SIGNS) do
+				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
+					sx * halfBounds.X,
+					sy * halfBounds.Y,
+					sz * halfBounds.Z
+				))
+				local floorCorner = floor.CFrame:PointToObjectSpace(worldCorner)
+				minX = math.min(minX, floorCorner.X)
+				maxX = math.max(maxX, floorCorner.X)
+				minZ = math.min(minZ, floorCorner.Z)
+				maxZ = math.max(maxZ, floorCorner.Z)
+			end
+		end
+	end
+
+	if minX == math.huge then return nil end
+	return minX, maxX, minZ, maxZ
+end
+
+local function boundsOverlapOnFloor(floor, aCF, aSize, bCF, bSize)
+	if not aCF or not aSize or not bCF or not bSize then
+		return true
+	end
+
+	local aMinX, aMaxX, aMinZ, aMaxZ = floorLocalBoundsFromBox(floor, aCF, aSize)
+	local bMinX, bMaxX, bMinZ, bMaxZ = floorLocalBoundsFromBox(floor, bCF, bSize)
+	if not aMinX or not bMinX then
+		return true
+	end
+
+	return aMinX < bMaxX
+		and aMaxX > bMinX
+		and aMinZ < bMaxZ
+		and aMaxZ > bMinZ
 end
 
 local function rayBoxDistance(ray, boundsCF, boundsSize)
@@ -389,6 +433,9 @@ end
 local function pivotFloorOffset(instance)
 	if instance:IsA("BasePart") then
 		return instance.Size.Y / 2
+	end
+	if instance:IsA("Model") and instance.PrimaryPart then
+		return instance.PrimaryPart.Size.Y / 2
 	end
 
 	local pivot = instance:GetPivot()
@@ -644,7 +691,10 @@ function FeedEditController.start()
 		for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
 			local placeable = placeableHitboxRootFromPart(plot, part)
 			if placeable and placeable ~= selectedFeed then
-				return true
+				local placeableBoundsCF, placeableBoundsSize = placeableBounds(placeable)
+				if boundsOverlapOnFloor(floor, boundsCF, querySize, placeableBoundsCF, placeableBoundsSize) then
+					return true
+				end
 			end
 		end
 		return false

@@ -405,6 +405,25 @@ local function configurePatchRuntimeParts(instance, feedType)
 	end
 end
 
+local function configureTreeRuntimeParts(instance, feedType)
+	if FeedMachines.GetClass(feedType) ~= "Tree" or not instance:IsA("Model") then
+		return
+	end
+
+	local primary = instance.PrimaryPart
+	if not primary then
+		return
+	end
+
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local isPrimary = descendant == primary
+			descendant.CanQuery = isPrimary
+			descendant.CanTouch = isPrimary
+		end
+	end
+end
+
 local function applyCosmeticIdentity(instance, cosmeticId, cosmeticIndex)
 	instance:SetAttribute(State.Cosmetic.Id, cosmeticId)
 	instance:SetAttribute(State.Cosmetic.Index, cosmeticIndex)
@@ -659,6 +678,36 @@ local function floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
 	return minX, maxX, minZ, maxZ
 end
 
+local function placementBoundsForInstance(instance)
+	if instance:IsA("BasePart") then
+		return instance.CFrame, instance.Size
+	end
+	if instance:IsA("Model") then
+		local boundsPart = placementBoundsPart(instance)
+		if boundsPart then
+			return boundsPart.CFrame, boundsPart.Size
+		end
+	end
+	return nil, nil
+end
+
+local function boundsOverlapOnFloor(floor, aCF, aSize, bCF, bSize)
+	if not aCF or not aSize or not bCF or not bSize then
+		return true
+	end
+
+	local aMinX, aMaxX, aMinZ, aMaxZ = floorLocalBoundsFromBox(floor, aCF, aSize)
+	local bMinX, bMaxX, bMinZ, bMaxZ = floorLocalBoundsFromBox(floor, bCF, bSize)
+	if not aMinX or not bMinX then
+		return true
+	end
+
+	return aMinX < bMaxX
+		and aMaxX > bMinX
+		and aMinZ < bMaxZ
+		and aMaxZ > bMinZ
+end
+
 local function boundsFitOnFloor(floor, boundsCF, boundsSize)
 	local halfFloorX = floor.Size.X / 2 + FOOTPRINT_BOUNDS_EPSILON
 	local halfFloorZ = floor.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
@@ -881,6 +930,7 @@ function PlotService.PlaceFeedWithIndex(plot, feedType, feedIndex, lx, lz, lry, 
 	stripPromptTemplates(clone)
 	applyFeedIdentity(clone, feedType, feedIndex)
 	configurePatchRuntimeParts(clone, feedType)
+	configureTreeRuntimeParts(clone, feedType)
 
 	local height = templateHeight(clone)
 	anchorAndPlace(clone, localToWorldOnFloorTop(floor, lx, lz, height / 2, lry))
@@ -945,6 +995,9 @@ end
 
 local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlaceable)
 	if not boundsCF or not boundsSize then return true end
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return true end
+
 	local querySize = Vector3.new(
 		math.max(boundsSize.X - OVERLAP_QUERY_INSET, 0.05),
 		boundsSize.Y,
@@ -958,7 +1011,10 @@ local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlace
 	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
 		local hitPlaceable = placeableHitboxRootFromPart(plot, part)
 		if hitPlaceable and hitPlaceable ~= excludedPlaceable then
-			return true
+			local hitBoundsCF, hitBoundsSize = placementBoundsForInstance(hitPlaceable)
+			if boundsOverlapOnFloor(floor, boundsCF, querySize, hitBoundsCF, hitBoundsSize) then
+				return true
+			end
 		end
 	end
 	return false
