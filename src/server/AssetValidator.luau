@@ -883,6 +883,37 @@ local function validateSeedPacksUi(menu, errors)
 	end
 end
 
+local function validateServerLuckShopUi(menu, warnings)
+	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
+	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
+	local card = featured and child(featured, "ServerLuck", "GuiObject", warnings)
+	if not card then return end
+
+	local luckValues = child(card, "LuckValues", "GuiObject", warnings)
+	if luckValues then
+		local currentLuck = child(luckValues, "CurrentLuck", "TextLabel", warnings)
+		if currentLuck then
+			descendant(currentLuck, "CurrentLuck", "TextLabel", warnings)
+		end
+		local nextLuck = child(luckValues, "NextLuck", "TextLabel", warnings)
+		if nextLuck then
+			descendant(nextLuck, "NextLuck", "TextLabel", warnings)
+		end
+	end
+	local iconHolder = child(card, "IconHolder", "GuiObject", warnings)
+	local timer = iconHolder and child(iconHolder, "Timer", "TextLabel", warnings)
+	if timer then
+		descendant(timer, "Timer", "TextLabel", warnings)
+	end
+	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
+	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
+	if price then
+		descendant(price, "Price", "TextLabel", warnings)
+	end
+end
+
 local function validatePackRollFrameUi(menu, errors)
 	local panel = child(menu, "PackRollFrame", "GuiObject", errors)
 	if not panel then return end
@@ -1028,6 +1059,15 @@ local function validateJoinBackShowcaseUi(hud, warnings)
 	if not (flash and flash:IsA("GuiObject")) then
 		add(warnings, "Missing ReplicatedStorage.UI.HUD.JoinBackFlash GuiObject")
 	end
+end
+
+local function validateServerLuckHud(hud, warnings)
+	local buffs = child(hud, "Buffs", "GuiObject", warnings)
+	local serverLuck = buffs and child(buffs, "ServerLuck", "GuiObject", warnings)
+	if not serverLuck then return end
+
+	child(serverLuck, "Timer", "TextLabel", warnings)
+	child(serverLuck, "Multiplier", "TextLabel", warnings)
 end
 
 local function validateAutoPromptButton(hud, errors)
@@ -1284,6 +1324,9 @@ local function validateShopProductIds(errors)
 		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].DevProductId", errors)
 		addProductIdSource(seenProducts, pack.BuyThreeDevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].BuyThreeDevProductId", errors)
 	end
+	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
+		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
+	end
 end
 
 local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
@@ -1392,6 +1435,7 @@ local function validateUi(errors, warnings)
 	if hud then
 		validateHudCurrency(hud, errors)
 		validateJoinBackShowcaseUi(hud, warnings)
+		validateServerLuckHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
 		if rollButtons then
@@ -1416,6 +1460,7 @@ local function validateUi(errors, warnings)
 		validateGearShopUi(menu, errors)
 		validateCosmeticShopUi(menu, errors)
 		validateRobuxShopUi(menu, errors)
+		validateServerLuckShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)

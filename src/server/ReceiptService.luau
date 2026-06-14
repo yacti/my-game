@@ -14,6 +14,7 @@ local rebirthService = nil
 local gearShopService = nil
 local cosmeticShopService = nil
 local seedPackShopService = nil
+local serverLuckService = nil
 
 function ReceiptService.Key(purchaseId)
 	if purchaseId == nil then
@@ -78,6 +79,12 @@ local function processReceiptTransaction(receiptInfo)
 		and seedPackShopService.HandlesProductId(receiptInfo.ProductId) then
 		return seedPackShopService.ProcessReceipt(receiptInfo)
 	end
+	if serverLuckService
+		and type(serverLuckService.HandlesProductId) == "function"
+		and type(serverLuckService.ProcessReceipt) == "function"
+		and serverLuckService.HandlesProductId(receiptInfo.ProductId) then
+		return serverLuckService.ProcessReceipt(receiptInfo)
+	end
 
 	TelemetryService.Warn("receipt_unhandled", {
 		playerId = receiptInfo.PlayerId,
@@ -106,6 +113,7 @@ function ReceiptService.Start(config)
 	gearShopService = config.gearShopService
 	cosmeticShopService = config.cosmeticShopService
 	seedPackShopService = config.seedPackShopService
+	serverLuckService = config.serverLuckService
 	MarketplaceService.ProcessReceipt = processReceipt
 end
 

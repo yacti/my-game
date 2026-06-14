@@ -51,6 +51,15 @@
         "SeedPackPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "ServerLuckPurchaseRequest": {
+          "$className": "RemoteEvent"
+        },
+        "ServerLuckPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
+        "ServerLuckBoosted": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

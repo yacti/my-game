@@ -42,6 +42,7 @@ local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
 local RollService       = require(Server:WaitForChild("RollService"))
 local SeedPackShopService = require(Server:WaitForChild("SeedPackShopService"))
+local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
@@ -94,12 +95,14 @@ RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
+RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
 		gearShopService = GearShopService,
 		cosmeticShopService = CosmeticShopService,
 		seedPackShopService = SeedPackShopService,
+		serverLuckService = ServerLuckService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)

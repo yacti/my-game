@@ -36,6 +36,20 @@ ShopBalance.SeedPacks = {
 	},
 }
 
+ShopBalance.ServerLuck = {
+	DurationSeconds = 15 * 60,
+	BaseMultiplier = 1,
+	MaxMultiplier = 20,
+	Steps = {
+		{ FromMultiplier = 1, ToMultiplier = 2, DevProductId = 3604579183 },
+		{ FromMultiplier = 2, ToMultiplier = 4, DevProductId = 3604579204 },
+		{ FromMultiplier = 4, ToMultiplier = 8, DevProductId = 3604579231 },
+		{ FromMultiplier = 8, ToMultiplier = 12, DevProductId = 3604579237 },
+		{ FromMultiplier = 12, ToMultiplier = 16, DevProductId = 3604579251 },
+		{ FromMultiplier = 16, ToMultiplier = 20, DevProductId = 3604579272 },
+	},
+}
+
 local function int(value, minimum)
 	value = tonumber(value)
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
@@ -72,6 +86,22 @@ local function productId(value)
 	return int(value, 0)
 end
 
+local function copyServerLuckStep(step)
+	if type(step) ~= "table" then
+		return nil
+	end
+	return {
+		FromMultiplier = step.FromMultiplier,
+		ToMultiplier = step.ToMultiplier,
+		DevProductId = step.DevProductId,
+	}
+end
+
+local function serverLuckSteps()
+	local config = ShopBalance.ServerLuck
+	return type(config) == "table" and config.Steps or {}
+end
+
 function ShopBalance.AllSeedPacks()
 	local packs = {}
 	for _, pack in ipairs(ShopBalance.SeedPacks) do
@@ -94,6 +124,59 @@ function ShopBalance.SeedPackForProductId(productIdValue)
 		end
 	end
 	return nil
+end
+
+function ShopBalance.AllServerLuckSteps()
+	local steps = {}
+	for _, step in ipairs(serverLuckSteps()) do
+		steps[#steps + 1] = copyServerLuckStep(step)
+	end
+	return steps
+end
+
+function ShopBalance.ServerLuckStepForProductId(productIdValue)
+	local target = productId(productIdValue)
+	if target <= 0 then
+		return nil
+	end
+	for _, step in ipairs(serverLuckSteps()) do
+		if productId(step.DevProductId) == target then
+			return copyServerLuckStep(step)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.ServerLuckStepForCurrentMultiplier(multiplier)
+	local config = ShopBalance.ServerLuck
+	local maxMultiplier = int(config and config.MaxMultiplier, 1)
+	local current = int(multiplier, 1)
+	local fallback = nil
+	for _, step in ipairs(serverLuckSteps()) do
+		fallback = step
+		if current < int(step.ToMultiplier, 1) then
+			return copyServerLuckStep(step)
+		end
+	end
+	if current >= maxMultiplier and fallback then
+		return copyServerLuckStep(fallback)
+	end
+	return nil
+end
+
+function ShopBalance.ServerLuckNextMultiplier(multiplier)
+	local config = ShopBalance.ServerLuck
+	local baseMultiplier = int(config and config.BaseMultiplier, 1)
+	local step = ShopBalance.ServerLuckStepForCurrentMultiplier(multiplier)
+	if not step then
+		return baseMultiplier
+	end
+	return int(step.ToMultiplier, baseMultiplier)
+end
+
+function ShopBalance.ServerLuckProductForCurrentMultiplier(multiplier)
+	local step = ShopBalance.ServerLuckStepForCurrentMultiplier(multiplier)
+	return step and productId(step.DevProductId) or 0
 end
 
 function ShopBalance.TotalWeight(pack)
@@ -168,7 +251,7 @@ function ShopBalance.Validate(errors)
 			return
 		end
 		if seenProducts[id] then
-			add(string.format("Duplicate seed pack developer product id %d on %s and %s", id, seenProducts[id], source))
+			add(string.format("Duplicate ShopBalance developer product id %d on %s and %s", id, seenProducts[id], source))
 			return
 		end
 		seenProducts[id] = source
@@ -209,6 +292,47 @@ function ShopBalance.Validate(errors)
 				if type(reward.Weight) ~= "number" or reward.Weight <= 0 or reward.Weight ~= reward.Weight or math.abs(reward.Weight) == math.huge then
 					add(rewardSource .. " has invalid Weight")
 				end
+			end
+		end
+	end
+
+	local serverLuck = ShopBalance.ServerLuck
+	if type(serverLuck) ~= "table" then
+		add("ShopBalance.ServerLuck must be a table")
+	else
+		if type(serverLuck.DurationSeconds) ~= "number" or serverLuck.DurationSeconds <= 0 or serverLuck.DurationSeconds % 1 ~= 0 then
+			add("ShopBalance.ServerLuck has invalid DurationSeconds")
+		end
+		if type(serverLuck.BaseMultiplier) ~= "number" or serverLuck.BaseMultiplier < 1 or serverLuck.BaseMultiplier % 1 ~= 0 then
+			add("ShopBalance.ServerLuck has invalid BaseMultiplier")
+		end
+		if type(serverLuck.MaxMultiplier) ~= "number" or serverLuck.MaxMultiplier < 1 or serverLuck.MaxMultiplier % 1 ~= 0 then
+			add("ShopBalance.ServerLuck has invalid MaxMultiplier")
+		end
+		if type(serverLuck.Steps) ~= "table" or #serverLuck.Steps == 0 then
+			add("ShopBalance.ServerLuck must define Steps")
+		else
+			local expectedFrom = int(serverLuck.BaseMultiplier, 1)
+			for index, step in ipairs(serverLuck.Steps) do
+				local source = "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "]"
+				if type(step) ~= "table" then
+					add(source .. " must be a table")
+					continue
+				end
+				if type(step.FromMultiplier) ~= "number" or step.FromMultiplier ~= expectedFrom or step.FromMultiplier % 1 ~= 0 then
+					add(source .. " has invalid FromMultiplier")
+				end
+				if type(step.ToMultiplier) ~= "number"
+					or step.ToMultiplier <= expectedFrom
+					or step.ToMultiplier % 1 ~= 0
+					or step.ToMultiplier > int(serverLuck.MaxMultiplier, 1) then
+					add(source .. " has invalid ToMultiplier")
+				end
+				validateProduct(step.DevProductId, source .. ".DevProductId")
+				expectedFrom = int(step.ToMultiplier, expectedFrom)
+			end
+			if expectedFrom ~= int(serverLuck.MaxMultiplier, 1) then
+				add("ShopBalance.ServerLuck.Steps must end at MaxMultiplier")
 			end
 		end
 	end

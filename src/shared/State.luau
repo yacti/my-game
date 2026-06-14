@@ -36,6 +36,11 @@ State.Player = {
 	OfflineProgressPending = "OfflineProgressPending",
 }
 
+State.ServerLuck = {
+	Multiplier = "ServerLuckMultiplier",
+	EndsAt = "ServerLuckEndsAt",
+}
+
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",

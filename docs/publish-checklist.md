@@ -58,6 +58,8 @@ Run this checklist before publishing a live build.
 - Roblox service calls, receipt paths, runtime callbacks, and long-running loops
   use validation plus `RuntimeGuard`/`pcall` style protection where an error would
   otherwise kill important gameplay behavior.
+- Robux-backed Server Luck affects random crate odds; review current Roblox
+  paid-random-item policy, restrictions, and odds disclosure before publishing.
 
 ## Client Runtime
 
@@ -90,6 +92,9 @@ Run this checklist before publishing a live build.
 - Confirm local prompts show correct per-player context.
 - Confirm local prompt discovery only targets authoritative plot instances and never
   client-local tree fruit visuals.
+- Buy Server Luck from the Robux shop, verify all players receive the notification
+  and local confetti, and verify `HUD.Buffs.ServerLuck` hides at `1x` and shows
+  the active multiplier/timer while boosted.
 - Equip the shovel, click a placed plant, confirm through `YesNoWarning`, and
   verify the plant deletes, saves, and does not delete processors or other plots.
 - Click tree fruit on multiple `FeedClass = "Tree"` templates, verify nearby

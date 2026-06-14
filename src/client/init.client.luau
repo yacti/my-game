@@ -40,6 +40,7 @@ local CONTROLLERS = {
 	"RollLuckController",
 	"RollDropAreaController",
 	"Notifications",
+	"ServerLuckController",
 	"PetBillboards",
 	"PetPreloader",
 	"PetEvolutionEffects",

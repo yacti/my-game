@@ -139,7 +139,31 @@ function RollChances.BaseWeightForChance(chanceN)
 	return 1 / chanceN
 end
 
-function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent)
+function RollChances.EffectiveLuckMultiplier(crateLuckMultiplier, playerLuckPercent, serverLuckMultiplier)
+	crateLuckMultiplier = tonumber(crateLuckMultiplier) or 1
+	if type(crateLuckMultiplier) ~= "number" or crateLuckMultiplier ~= crateLuckMultiplier or math.abs(crateLuckMultiplier) == math.huge then
+		crateLuckMultiplier = 1
+	end
+	crateLuckMultiplier = math.max(crateLuckMultiplier, 1)
+
+	playerLuckPercent = tonumber(playerLuckPercent) or 0
+	if type(playerLuckPercent) ~= "number" or playerLuckPercent ~= playerLuckPercent or math.abs(playerLuckPercent) == math.huge then
+		playerLuckPercent = 0
+	end
+	playerLuckPercent = math.max(playerLuckPercent, 0)
+
+	serverLuckMultiplier = tonumber(serverLuckMultiplier) or 1
+	if type(serverLuckMultiplier) ~= "number" or serverLuckMultiplier ~= serverLuckMultiplier or math.abs(serverLuckMultiplier) == math.huge then
+		serverLuckMultiplier = 1
+	end
+	local serverLuckTerm = serverLuckMultiplier > 1 and serverLuckMultiplier or 0
+	local playerLuckTerm = playerLuckPercent / 100
+
+	-- Luck sources add together so crate, player, and server luck do not scale explosively.
+	return math.max(crateLuckMultiplier + playerLuckTerm + serverLuckTerm, 1)
+end
+
+function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, serverLuckMultiplier)
 	local crate = RollChances.GetCrate(crateId)
 	if not crate then
 		return nil, "unknown-crate"
@@ -161,14 +185,8 @@ function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent)
 		baseWeights[id] = baseWeight
 	end
 
-	playerLuckPercent = tonumber(playerLuckPercent) or 0
-	if type(playerLuckPercent) ~= "number" or playerLuckPercent ~= playerLuckPercent or math.abs(playerLuckPercent) == math.huge then
-		playerLuckPercent = 0
-	end
-	playerLuckPercent = math.max(playerLuckPercent, 0)
-
 	local crateMultiplier = math.max(tonumber(crate.LuckMultiplier) or 1, 1)
-	local multiplier = crateMultiplier * (1 + playerLuckPercent / 100)
+	local multiplier = RollChances.EffectiveLuckMultiplier(crateMultiplier, playerLuckPercent, serverLuckMultiplier)
 	if multiplier <= 1 then
 		return weights
 	end
