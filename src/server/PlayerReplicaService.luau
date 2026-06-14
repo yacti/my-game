@@ -8,13 +8,14 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 
 local PlayerReplicaService = {}
 
 local token = Replica.Token(PlayerState.Token)
 local replicas = {}
 local readyConnections = {}
-local vipOwned = {}
+local gamePassOwnership = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -59,6 +60,20 @@ local function copyStringArray(array)
 	return copy
 end
 
+local function copyGamePassOwnership(map)
+	local copy = {}
+	for _, pass in ipairs(ShopBalance.AllGamePasses()) do
+		copy[pass.Key] = type(map) == "table" and map[pass.Key] == true or false
+	end
+	return copy
+end
+
+local function vipOwnedForKey(key)
+	local vipKey = ShopBalance.GamePassKeys.VIP
+	local map = key and gamePassOwnership[key] or nil
+	return type(map) == "table" and map[vipKey] == true or false
+end
+
 local function copyOnboardingState(value)
 	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
 end
@@ -79,7 +94,8 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
-		[PlayerState.Fields.VipOwned] = key ~= nil and vipOwned[key] == true or false,
+		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
+		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 	}
 end
 
@@ -262,12 +278,22 @@ function PlayerReplicaService.PublishStarterPackPurchased(player, profile)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.StarterPackPurchased, data.StarterPackPurchased == true)
 end
 
-function PlayerReplicaService.PublishVipOwned(player, owned)
+function PlayerReplicaService.PublishGamePassOwnership(player, ownership)
 	local key = userKey(player)
 	if key then
-		vipOwned[key] = owned == true
+		gamePassOwnership[key] = copyGamePassOwnership(ownership)
 	end
-	return PlayerReplicaService.PublishField(player, PlayerState.Fields.VipOwned, owned == true)
+	local safeOwnership = copyGamePassOwnership(ownership)
+	local success = PlayerReplicaService.PublishField(player, PlayerState.Fields.GamePassOwnership, safeOwnership)
+	local vipSuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.VipOwned, safeOwnership[ShopBalance.GamePassKeys.VIP] == true)
+	return success and vipSuccess
+end
+
+function PlayerReplicaService.PublishVipOwned(player, owned)
+	local key = userKey(player)
+	local ownership = key and copyGamePassOwnership(gamePassOwnership[key]) or {}
+	ownership[ShopBalance.GamePassKeys.VIP] = owned == true
+	return PlayerReplicaService.PublishGamePassOwnership(player, ownership)
 end
 
 function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
@@ -285,7 +311,7 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemovin
 	local key = userKey(player)
 	PlayerReplicaService.Destroy(player)
 	if key then
-		vipOwned[key] = nil
+		gamePassOwnership[key] = nil
 	end
 end)
 

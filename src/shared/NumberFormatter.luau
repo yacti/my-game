@@ -107,9 +107,7 @@ function NumberFormatter.Currency(amount)
 end
 
 function NumberFormatter.CurrencyRate(amount)
-	return "$" .. NumberFormatter.Format(math.max(finiteNumber(amount), 0), {
-		smallDecimals = 2,
-	}) .. "/s"
+	return "$" .. NumberFormatter.Format(math.floor(math.max(finiteNumber(amount), 0) + 0.5)) .. "/s"
 end
 
 function NumberFormatter.Percent(value)

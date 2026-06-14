@@ -11,6 +11,7 @@ local RunService        = game:GetService("RunService")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -52,16 +53,17 @@ local function descendant(parent, name, className)
 	return nil
 end
 
-local function vipEarnRate()
-	if PlayerStateStore.Get(PlayerStateStore.Fields.VipOwned) ~= true then
-		return 1
+local function ownershipMap()
+	local map = PlayerStateStore.Get(PlayerStateStore.Fields.GamePassOwnership)
+	local copy = type(map) == "table" and table.clone(map) or {}
+	if PlayerStateStore.Get(PlayerStateStore.Fields.VipOwned) == true then
+		copy[ShopBalance.GamePassKeys.VIP] = true
 	end
-	local vip = ShopBalance.GetVIP()
-	local earnRate = tonumber(vip and vip.PetCashEarnRate) or 1
-	if type(earnRate) ~= "number" or earnRate ~= earnRate or math.abs(earnRate) == math.huge or earnRate <= 0 then
-		return 1
-	end
-	return earnRate
+	return copy
+end
+
+local function petCashMultiplier()
+	return PlayerBonuses.PetCashMultiplier(ownershipMap())
 end
 
 local function refreshAll()
@@ -140,7 +142,7 @@ local function attach(pet)
 		local xp    = pet:GetAttribute(State.Pet.XP)    or 0
 		local money = pet:GetAttribute(State.Pet.Money) or 0
 		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
-		local moneyRate = (pet:GetAttribute(State.Pet.MoneyRate) or 0) * vipEarnRate()
+		local moneyRate = (pet:GetAttribute(State.Pet.MoneyRate) or 0) * petCashMultiplier()
 		local nickname = pet:GetAttribute(State.Pet.Nickname)
 		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
 
@@ -207,6 +209,7 @@ end
 
 function PetBillboards.start()
 	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, refreshAll)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.GamePassOwnership, refreshAll)
 	watchWorkspace()
 end
 

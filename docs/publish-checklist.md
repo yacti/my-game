@@ -102,6 +102,20 @@ Run this checklist before publishing a live build.
   `PetCashEarnRate = 1.25`, and roll luck includes VIP as an additive `+25%`
   source. Because VIP affects random crate odds, review paid-random-item policy
   and odds disclosure together with Server Luck before publishing.
+- Buy x2 Cash gamepass id `1874365753`, verify the `x2Cash` Robux shop card
+  shows `Sold`, ownership persists after rejoin, pet cash-rate billboards use the
+  additive effective rate, and online/offline pet cash generation stacks with VIP
+  as `2.25x` instead of multiplying to `2.5x`.
+- Buy x2 Food XP gamepass id `1876239739`, verify the `x2XP` Robux shop card
+  shows `Sold`, feeding a pet grants double the equipped food tool's stored XP,
+  food tool XP labels remain unchanged, and patch/tree/processor/jam outputs are
+  not changed by the pass.
+- Buy x2 Luck gamepass id `1874769695`, verify the `x2Luck` Robux shop card
+  shows `Sold`, roll luck includes the pass as additive `+100%` player luck,
+  revealed roll chance text reflects effective server-side odds, and player-facing
+  copy does not imply every final rare reward chance is exactly doubled. Because
+  x2 Luck affects random crate odds, review paid-random-item policy and odds
+  disclosure together with Server Luck and VIP before publishing.
 - Buy Starter Pack from the Robux shop, verify it grants six `AppleTreeSeed`
   tools across four displayed reward slots, shows `Sold` after purchase, stays
   sold after rejoin, blocks a second in-game purchase attempt, does not double-grant

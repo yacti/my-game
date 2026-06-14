@@ -31,6 +31,7 @@ local CONTROLLERS = {
 	"RobuxShopController",
 	"SeedPackShopController",
 	"StarterPackController",
+	"GamePassShopController",
 	"VipController",
 	"JoinBackShowcaseController",
 	"AutoPromptButtonController",

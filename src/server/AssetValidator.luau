@@ -953,7 +953,7 @@ local function validateStarterPackShopUi(menu, warnings)
 	end
 end
 
-local function validateVipShopCard(card, warnings)
+local function validateGamePassShopCard(card, warnings)
 	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
 	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
 	if price then
@@ -962,20 +962,25 @@ local function validateVipShopCard(card, warnings)
 	child(card, "Sold", "ImageLabel", warnings)
 end
 
-local function validateVipShopUi(menu, warnings)
+local function validateGamePassShopUi(menu, warnings)
 	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
 	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
-	local featuredCard = featured and child(featured, "VIP", "GuiObject", warnings)
-	if featuredCard then
-		validateVipShopCard(featuredCard, warnings)
-	end
-
 	local gamepasses = holder and child(holder, "Gamepasses", "GuiObject", warnings)
-	local gamepassesCard = gamepasses and child(gamepasses, "VIP", "GuiObject", warnings)
-	if gamepassesCard then
-		validateVipShopCard(gamepassesCard, warnings)
+
+	for _, pass in ipairs(ShopBalance.AllGamePasses()) do
+		if type(pass.FeaturedCardName) == "string" and pass.FeaturedCardName ~= "" then
+			local featuredCard = featured and child(featured, pass.FeaturedCardName, "GuiObject", warnings)
+			if featuredCard then
+				validateGamePassShopCard(featuredCard, warnings)
+			end
+		end
+
+		local gamepassesCard = gamepasses and child(gamepasses, pass.ShopCardName, "GuiObject", warnings)
+		if gamepassesCard then
+			validateGamePassShopCard(gamepassesCard, warnings)
+		end
 	end
 end
 
@@ -1549,7 +1554,7 @@ local function validateUi(errors, warnings)
 		validateRobuxShopUi(menu, errors)
 		validateServerLuckShopUi(menu, warnings)
 		validateStarterPackShopUi(menu, warnings)
-		validateVipShopUi(menu, warnings)
+		validateGamePassShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)

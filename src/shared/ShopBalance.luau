@@ -66,10 +66,48 @@ ShopBalance.StarterPack = {
 	},
 }
 
-ShopBalance.VIP = {
-	GamePassId = 1875159706,
-	PetCashEarnRate = 1.25,
-	LuckBonusPercent = 25,
+ShopBalance.GamePassKeys = {
+	VIP = "VIP",
+	Luck2x = "Luck2x",
+	Cash2x = "Cash2x",
+	FoodXP2x = "FoodXP2x",
+}
+
+ShopBalance.GamePasses = {
+	VIP = {
+		Key = "VIP",
+		DisplayName = "VIP",
+		GamePassId = 1875159706,
+		ShopCardName = "VIP",
+		FeaturedCardName = "VIP",
+		PetCashMultiplier = 1.25,
+		LuckBonusPercent = 25,
+		Order = 1,
+	},
+	Luck2x = {
+		Key = "Luck2x",
+		DisplayName = "x2 Luck",
+		GamePassId = 1874769695,
+		ShopCardName = "x2Luck",
+		LuckBonusPercent = 100,
+		Order = 2,
+	},
+	Cash2x = {
+		Key = "Cash2x",
+		DisplayName = "x2 Cash",
+		GamePassId = 1874365753,
+		ShopCardName = "x2Cash",
+		PetCashMultiplier = 2,
+		Order = 3,
+	},
+	FoodXP2x = {
+		Key = "FoodXP2x",
+		DisplayName = "x2 Food XP",
+		GamePassId = 1876239739,
+		ShopCardName = "x2XP",
+		FoodXPMultiplier = 2,
+		Order = 4,
+	},
 }
 
 local function int(value, minimum)
@@ -136,14 +174,22 @@ local function copyStarterPack(pack)
 	}
 end
 
-local function copyVIP(config)
+local function copyGamePass(config)
 	if type(config) ~= "table" then
 		return nil
 	end
+	local petCashMultiplier = finiteNumber(config.PetCashMultiplier or config.PetCashEarnRate, 1)
 	return {
+		Key = config.Key,
+		DisplayName = config.DisplayName,
 		GamePassId = int(config.GamePassId, 0),
-		PetCashEarnRate = finiteNumber(config.PetCashEarnRate, 1),
+		ShopCardName = config.ShopCardName,
+		FeaturedCardName = config.FeaturedCardName,
+		PetCashMultiplier = petCashMultiplier,
+		PetCashEarnRate = petCashMultiplier,
 		LuckBonusPercent = finiteNumber(config.LuckBonusPercent, 0),
+		FoodXPMultiplier = finiteNumber(config.FoodXPMultiplier, 1),
+		Order = int(config.Order, 0),
 	}
 end
 
@@ -196,12 +242,58 @@ function ShopBalance.GetStarterPack()
 end
 
 function ShopBalance.GetVIP()
-	return copyVIP(ShopBalance.VIP)
+	return ShopBalance.GamePassForKey(ShopBalance.GamePassKeys.VIP)
 end
 
 function ShopBalance.VIPGamePassId()
-	local config = ShopBalance.VIP
+	local config = ShopBalance.GamePasses[ShopBalance.GamePassKeys.VIP]
 	return productId(config and config.GamePassId)
+end
+
+function ShopBalance.GamePassForKey(key)
+	if type(key) ~= "string" or key == "" then
+		return nil
+	end
+	local config = ShopBalance.GamePasses[key]
+	return copyGamePass(config)
+end
+
+function ShopBalance.GamePassForId(gamePassId)
+	local target = productId(gamePassId)
+	if target <= 0 then
+		return nil
+	end
+	for _, pass in pairs(ShopBalance.GamePasses) do
+		if productId(pass.GamePassId) == target then
+			return copyGamePass(pass)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.GamePassIdForKey(key)
+	local config = type(key) == "string" and ShopBalance.GamePasses[key] or nil
+	return productId(config and config.GamePassId)
+end
+
+function ShopBalance.AllGamePasses()
+	local passes = {}
+	for key, config in pairs(ShopBalance.GamePasses) do
+		local pass = copyGamePass(config)
+		if pass then
+			pass.Key = type(pass.Key) == "string" and pass.Key ~= "" and pass.Key or key
+			passes[#passes + 1] = pass
+		end
+	end
+	table.sort(passes, function(a, b)
+		local orderA = tonumber(a.Order) or 0
+		local orderB = tonumber(b.Order) or 0
+		if orderA ~= orderB then
+			return orderA < orderB
+		end
+		return tostring(a.Key) < tostring(b.Key)
+	end)
+	return passes
 end
 
 function ShopBalance.StarterPackForProductId(productIdValue)
@@ -335,6 +427,7 @@ function ShopBalance.Validate(errors)
 	errors = errors or {}
 	local seenPacks = {}
 	local seenProducts = {}
+	local seenGamePasses = {}
 
 	local function add(message)
 		errors[#errors + 1] = message
@@ -355,7 +448,13 @@ function ShopBalance.Validate(errors)
 	local function validateGamePass(id, source)
 		if type(id) ~= "number" or id <= 0 or id % 1 ~= 0 then
 			add(source .. " has invalid gamepass id")
+			return
 		end
+		if seenGamePasses[id] then
+			add(string.format("Duplicate ShopBalance gamepass id %d on %s and %s", id, seenGamePasses[id], source))
+			return
+		end
+		seenGamePasses[id] = source
 	end
 
 	for index, pack in ipairs(ShopBalance.SeedPacks) do
@@ -481,22 +580,53 @@ function ShopBalance.Validate(errors)
 		end
 	end
 
-	local vip = ShopBalance.VIP
-	if type(vip) ~= "table" then
-		add("ShopBalance.VIP must be a table")
+	local gamePasses = ShopBalance.GamePasses
+	if type(gamePasses) ~= "table" then
+		add("ShopBalance.GamePasses must be a table")
 	else
-		validateGamePass(vip.GamePassId, "ShopBalance.VIP.GamePassId")
-		if type(vip.PetCashEarnRate) ~= "number"
-			or vip.PetCashEarnRate <= 0
-			or vip.PetCashEarnRate ~= vip.PetCashEarnRate
-			or math.abs(vip.PetCashEarnRate) == math.huge then
-			add("ShopBalance.VIP has invalid PetCashEarnRate")
-		end
-		if type(vip.LuckBonusPercent) ~= "number"
-			or vip.LuckBonusPercent < 0
-			or vip.LuckBonusPercent ~= vip.LuckBonusPercent
-			or math.abs(vip.LuckBonusPercent) == math.huge then
-			add("ShopBalance.VIP has invalid LuckBonusPercent")
+		for key, pass in pairs(gamePasses) do
+			local source = "ShopBalance.GamePasses." .. tostring(key)
+			if type(pass) ~= "table" then
+				add(source .. " must be a table")
+				continue
+			end
+			if type(key) ~= "string" or key == "" then
+				add(source .. " has invalid key")
+			end
+			if type(pass.Key) ~= "string" or pass.Key == "" then
+				add(source .. " has invalid Key")
+			elseif pass.Key ~= key then
+				add(source .. ".Key must match its GamePasses key")
+			end
+			if type(pass.DisplayName) ~= "string" or pass.DisplayName == "" then
+				add(source .. " has invalid DisplayName")
+			end
+			if type(pass.ShopCardName) ~= "string" or pass.ShopCardName == "" then
+				add(source .. " has invalid ShopCardName")
+			end
+			validateGamePass(pass.GamePassId, source .. ".GamePassId")
+
+			local petCashMultiplier = pass.PetCashMultiplier
+			if petCashMultiplier ~= nil and (type(petCashMultiplier) ~= "number"
+				or petCashMultiplier <= 0
+				or petCashMultiplier ~= petCashMultiplier
+				or math.abs(petCashMultiplier) == math.huge) then
+				add(source .. " has invalid PetCashMultiplier")
+			end
+			local foodXPMultiplier = pass.FoodXPMultiplier
+			if foodXPMultiplier ~= nil and (type(foodXPMultiplier) ~= "number"
+				or foodXPMultiplier <= 0
+				or foodXPMultiplier ~= foodXPMultiplier
+				or math.abs(foodXPMultiplier) == math.huge) then
+				add(source .. " has invalid FoodXPMultiplier")
+			end
+			local luckBonusPercent = pass.LuckBonusPercent
+			if luckBonusPercent ~= nil and (type(luckBonusPercent) ~= "number"
+				or luckBonusPercent < 0
+				or luckBonusPercent ~= luckBonusPercent
+				or math.abs(luckBonusPercent) == math.huge) then
+				add(source .. " has invalid LuckBonusPercent")
+			end
 		end
 	end
 

@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
+local GamePassService = require(Server:WaitForChild("GamePassService"))
 local InstanceVisibility = require(Server:WaitForChild("InstanceVisibility"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -12,7 +13,6 @@ local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService")
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
-local VipService = require(Server:WaitForChild("VipService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
@@ -67,7 +67,16 @@ end
 
 local function playerLuckPercent(player, profile)
 	local luckPercent = profile and RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel) or 0
-	return luckPercent + VipService.LuckBonusPercent(player)
+	return luckPercent + GamePassService.LuckBonusPercent(player)
+end
+
+local function chanceTextForWeight(weights, rewardKey, fallbackChanceN)
+	local percentages = RollChances.ToPercentages(weights)
+	local percent = percentages and percentages[rewardKey] or nil
+	if type(percent) == "number" and percent > 0 then
+		return NumberFormatter.ChanceN(math.max(math.floor((100 / percent) + 0.5), 1))
+	end
+	return NumberFormatter.ChanceN(fallbackChanceN)
 end
 
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
@@ -429,6 +438,17 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 
 	local luckPercent = playerLuckPercent(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
+	local gamePassLuck = GamePassService.LuckBonusPercent(player)
+	if gamePassLuck > 0 then
+		print(string.format(
+			"[GamePassMultipliers] roll-luck user=%s crate=%s gamePassLuck=+%d%% totalPlayerLuck=%.2f%% serverLuck=%.2fx",
+			tostring(userKey(player)),
+			tostring(crateId),
+			math.floor(gamePassLuck + 0.5),
+			luckPercent,
+			serverLuckMultiplier
+		))
+	end
 	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, entries, luckPercent, serverLuckMultiplier)
 	if not rewardWeights then
 		return nil, weightCode or "invalid-reward-weights"
@@ -451,7 +471,7 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local rolled = table.clone(entry)
-	rolled.rngChanceText = NumberFormatter.ChanceN(entry.chanceN)
+	rolled.rngChanceText = chanceTextForWeight(rewardWeights, rewardKey, entry.chanceN)
 	return rolled
 end
 

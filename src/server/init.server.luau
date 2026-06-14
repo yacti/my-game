@@ -32,6 +32,7 @@ local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
+local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
@@ -49,7 +50,6 @@ local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
-local VipService = require(Server:WaitForChild("VipService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
@@ -99,7 +99,7 @@ RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
-RuntimeGuard.Run("VipService.Start", VipService.Start)
+RuntimeGuard.Run("GamePassService.Start", GamePassService.Start)
 RuntimeGuard.Run("ReceiptService.Start", function()
 	ReceiptService.Start({
 		rebirthService = RebirthService,
@@ -500,6 +500,18 @@ local function feedPet(plot, player, profile, pet)
 	local foodGuid = ToolIdentity.EnsureGuid(food)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return false end
 
+	local foodXPMultiplier = GamePassService.FoodXPMultiplier(player)
+	if foodXPMultiplier ~= 1 then
+		print(string.format(
+			"[GamePassMultipliers] pet-feed-xp user=%s petIndex=%s baseXP=%.2f multiplier=%.2fx finalXP=%.2f",
+			userLabel(player),
+			tostring(idx),
+			foodXP,
+			foodXPMultiplier,
+			foodXP * foodXPMultiplier
+		))
+	end
+	foodXP *= foodXPMultiplier
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet
 	local evolved = false
@@ -525,7 +537,15 @@ local function applyOfflineEarnings(player, plot, profile, lastSeen, joinTime)
 	local elapsed = (tonumber(joinTime) or os.time()) - lastSeen
 	if elapsed <= 0 then return true end
 
-	local earnRate = VipService.PetCashEarnRate(player)
+	local earnRate = GamePassService.PetCashMultiplier(player)
+	if earnRate ~= 1 then
+		print(string.format(
+			"[GamePassMultipliers] offline-pet-cash user=%s elapsed=%s multiplier=%.2fx",
+			userLabel(player),
+			tostring(elapsed),
+			earnRate
+		))
+	end
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
@@ -570,7 +590,7 @@ local function startPetMoneyLoop(player, plot, profile)
 				if OfflineProgressService.IsPending(player) then
 					return
 				end
-				local earnRate = VipService.PetCashEarnRate(player)
+				local earnRate = GamePassService.PetCashMultiplier(player)
 				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 					local idx = pet:GetAttribute(State.Pet.Index)
 					local petData = profile.Data.Pets[idx]
@@ -790,7 +810,7 @@ local function handlePlayerAdded(player)
 			PlotService.PlaceCosmeticWithIndex(plot, placement.id, index, placement.lx or 0, placement.lz or 0, placement.lry or 0)
 		end
 
-		VipService.RefreshOwnership(player)
+		GamePassService.RefreshOwnership(player)
 		if not deferOfflineProgress then
 			applyOfflineEarnings(player, plot, profile)
 		end
