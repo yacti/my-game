@@ -45,7 +45,7 @@ Onboarding.FoodIds = {
 }
 
 Onboarding.CurrencyRequired = 250
-Onboarding.PumpkinXPRequired = 250
+Onboarding.PumpkinXPRequired = 100
 Onboarding.TreeClicksRequired = 8
 Onboarding.ExpandFarmGrid = {
 	X = 2,
@@ -57,6 +57,7 @@ Onboarding.FinalNoteFadeSeconds = 0.45
 local HIDDEN_DURING_ACTIVE_TUTORIAL = {
 	Hud = {
 		"RollButtons",
+		"RebirthButton",
 	},
 	LocalPromptKinds = {
 		"GridPartUnlock",

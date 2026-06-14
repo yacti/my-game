@@ -36,7 +36,7 @@ end
 local function hiddenDuringTutorialObjects(gui)
 	local objects = {}
 	for _, name in ipairs(Onboarding.HiddenDuringActiveTutorial().Hud) do
-		local object = gui:FindFirstChild(name)
+		local object = gui:FindFirstChild(name, true)
 		if object and object:IsA("GuiObject") then
 			objects[#objects + 1] = object
 		else
