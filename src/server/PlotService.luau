@@ -550,7 +550,22 @@ local function fitPetOnUnlockedGrid(plot, pet, floor, lx, lz, lry, preferRandom)
 	end
 	if not fitLX or not fitLZ
 		or not PlotGridService.IsWalkableFootprint(plot, fitLX, fitLZ, paddingX, paddingZ) then
-		return false
+		local looseLX, looseLZ
+		if preferRandom then
+			looseLX, looseLZ = PlotGridService.RandomUnlockedPoint(plot, Random.new(), 0, 0)
+		else
+			looseLX, looseLZ = PlotGridService.NearestUnlockedPoint(plot, lx, lz, 0, 0)
+		end
+		if not looseLX or not looseLZ
+			or not PlotGridService.IsWalkableFootprint(plot, looseLX, looseLZ, 0, 0) then
+			looseLX, looseLZ = PlotGridService.FirstUnlockedPoint(plot, 0, 0)
+		end
+		if not looseLX or not looseLZ
+			or not PlotGridService.IsWalkableFootprint(plot, looseLX, looseLZ, 0, 0) then
+			return false
+		end
+		seatPetOnFloor(pet, floor, looseLX, looseLZ, lry)
+		return true, looseLX, looseLZ
 	end
 	seatPetOnFloor(pet, floor, fitLX, fitLZ, lry)
 	return true, fitLX, fitLZ
@@ -711,14 +726,20 @@ end
 -- saved positions (legacy saves) get a random floor-local position once;
 -- savePetsFromPlot will persist their new lx/lz/lry on the next snapshot.
 function PlotService.SpawnPetsForPlot(plot, pets)
-	pets = pets or {}
+	if type(pets) ~= "table" then
+		pets = {}
+	end
+	local expected = #pets
 	local floor = PlotService.GetFloor(plot)
 	if not floor then
 		warn("[PlotService] " .. plot.Name .. " has no Floor — cannot spawn pets")
-		return
+		return 0, expected
 	end
 
-	for i, petData in ipairs(pets) do
+	local spawned = 0
+	local restoredPets = {}
+	local unspawnedPets = {}
+	for _, petData in ipairs(pets) do
 		local lx, lz, lry = nil, nil, 0
 		local hadSavedPosition = petData.lx ~= nil and petData.lz ~= nil
 		if petData.lx ~= nil and petData.lz ~= nil then
@@ -731,24 +752,43 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 		end
 		if not lx or not lz then
 			warn(string.format("[PlotService] No unlocked grid cell available to spawn pet %s for %s", tostring(petData.petId), plot.Name))
+			unspawnedPets[#unspawnedPets + 1] = petData
 			continue
 		end
 		local petId = petData.petId
-		local clone = PlotService.CreatePet(petId, i, petData.xp or 0, floor, lx, lz, lry)
-		if clone then
-			local fitted = fitPetOnUnlockedGrid(plot, clone, floor, lx, lz, lry, not hadSavedPosition)
-			if not fitted then
-				warn(string.format(
-					"[PlotService] Could not fit pet %s inside unlocked grid for %s",
-					tostring(petId),
-					plot.Name
-				))
-				clone:Destroy()
-				continue
-			end
-			clone.Parent = plot
+		local clone = PlotService.CreatePet(petId, spawned + 1, petData.xp or 0, floor, lx, lz, lry)
+		if not clone then
+			unspawnedPets[#unspawnedPets + 1] = petData
+			continue
 		end
+
+		local fitted = fitPetOnUnlockedGrid(plot, clone, floor, lx, lz, lry, not hadSavedPosition)
+		if not fitted then
+			warn(string.format(
+				"[PlotService] Could not fit pet %s inside unlocked grid for %s",
+				tostring(petId),
+				plot.Name
+			))
+			clone:Destroy()
+			unspawnedPets[#unspawnedPets + 1] = petData
+			continue
+		end
+		clone.Parent = plot
+		spawned += 1
+		restoredPets[#restoredPets + 1] = petData
 	end
+
+	for key in pairs(pets) do
+		pets[key] = nil
+	end
+	for _, petData in ipairs(restoredPets) do
+		pets[#pets + 1] = petData
+	end
+	for _, petData in ipairs(unspawnedPets) do
+		pets[#pets + 1] = petData
+	end
+
+	return spawned, expected
 end
 
 -- Replaces a pet Model in place with a new pet id, keeping its plot position.

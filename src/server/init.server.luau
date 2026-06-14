@@ -61,6 +61,7 @@ local Inventory = require(Shared:WaitForChild("Inventory"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
@@ -93,8 +94,69 @@ local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
 local FOOD_COLLECTION_SNAPSHOT = "FoodCollection"
 
+local minimumPetSnapshotCounts = {}
+
 local function userLabel(player)
 	return tostring(player and player.UserId or "unknown")
+end
+
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
+local function minimumPetCountForRebirths(rebirths)
+	local count = 1
+	rebirths = math.max(math.floor(tonumber(rebirths) or 0), 0)
+	for tierNumber = 1, rebirths do
+		local tier = RebirthBalance.GetTier(tierNumber)
+		if not tier then
+			break
+		end
+		for _, reward in ipairs(tier.PetRewards or {}) do
+			count += math.max(math.floor(tonumber(reward.amount) or 0), 0)
+		end
+	end
+	return count
+end
+
+local function copyPetRecord(pet)
+	if type(pet) ~= "table" then
+		return nil
+	end
+	return {
+		petId = type(pet.petId) == "string" and pet.petId or "Pet1",
+		xp = math.max(tonumber(pet.xp) or 0, 0),
+		money = math.max(tonumber(pet.money) or 0, 0),
+		lx = tonumber(pet.lx),
+		lz = tonumber(pet.lz),
+		lry = tonumber(pet.lry) or 0,
+	}
+end
+
+local function defaultRebirthPetId(slotIndex, rebirths)
+	if slotIndex <= 1 then
+		return "Pet1"
+	end
+
+	local currentSlot = 1
+	rebirths = math.max(math.floor(tonumber(rebirths) or 0), 0)
+	for tierNumber = 1, rebirths do
+		local tier = RebirthBalance.GetTier(tierNumber)
+		if not tier then
+			break
+		end
+		for _, reward in ipairs(tier.PetRewards or {}) do
+			local amount = math.max(math.floor(tonumber(reward.amount) or 0), 0)
+			for _ = 1, amount do
+				currentSlot += 1
+				if currentSlot == slotIndex then
+					return type(reward.petId) == "string" and reward.petId or "Pet1"
+				end
+			end
+		end
+	end
+
+	return "Pet1"
 end
 
 RuntimeGuard.Run("PlotGridService.ResetVacantPlotsToPreviewRows", PlotGridService.ResetVacantPlotsToPreviewRows)
@@ -139,14 +201,17 @@ RuntimeGuard.Run("OfflineProgressService.Start", OfflineProgressService.Start)
 
 -- Rebuild profile.Data.Pets from the current plot state (source of truth is the
 -- spawned Models and their attributes). Preserves xp/money from the existing
--- profile entry when possible; falls back to 0.
-local function collectPetsFromPlot(plot, profile)
+-- profile entry when possible; falls back to 0. Missing existing profile pets
+-- are retained so a partial live spawn cannot erase rebirth pet slots.
+local function collectPetsFromPlot(player, plot, profile)
 	local floor = PlotService.GetFloor(plot)
 	local saved = {}
+	local represented = {}
+	local existingPets = type(profile.Data.Pets) == "table" and profile.Data.Pets or {}
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
-		if idx then
-			local existing = profile.Data.Pets and profile.Data.Pets[idx] or nil
+		if type(idx) == "number" then
+			local existing = existingPets[idx]
 			local entry = {
 				petId = pet:GetAttribute(State.Pet.Id) or (existing and existing.petId) or "Pet1",
 				xp    = existing and existing.xp or 0,
@@ -158,14 +223,44 @@ local function collectPetsFromPlot(plot, profile)
 				local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, PetMotionService.GetLogicalPivot(pet))
 				entry.lx, entry.lz, entry.lry = lx, lz, lry
 			end
-			saved[idx] = entry
+			saved[#saved + 1] = entry
+			represented[idx] = true
+			if idx ~= #saved then
+				pet:SetAttribute(State.Pet.Index, #saved)
+			end
 		end
 	end
+
+	local minimumCount = math.max(#existingPets, minimumPetCountForRebirths(profile.Data.Rebirths))
+	local key = userKey(player)
+	if key and minimumPetSnapshotCounts[key] then
+		minimumCount = math.max(minimumCount, minimumPetSnapshotCounts[key])
+	end
+	for oldIndex, existing in ipairs(existingPets) do
+		if #saved >= minimumCount then
+			break
+		end
+		if not represented[oldIndex] then
+			local copy = copyPetRecord(existing)
+			if copy then
+				saved[#saved + 1] = copy
+			end
+		end
+	end
+	for index = #saved + 1, minimumCount do
+		saved[index] = {
+			petId = defaultRebirthPetId(index, profile.Data.Rebirths),
+			xp = 0,
+			money = 0,
+			lry = 0,
+		}
+	end
+
 	return saved
 end
 
 local function savePetsFromPlot(plot, profile)
-	profile.Data.Pets = collectPetsFromPlot(plot, profile)
+	profile.Data.Pets = collectPetsFromPlot(nil, plot, profile)
 end
 
 -- ── Feed state save ───────────────────────────────────────────────────────────
@@ -280,7 +375,7 @@ local function snapshotProfileState(player, plot, profile)
 			return false
 		end
 	end
-	local petsOk, pets = RuntimeGuard.Run("snapshotProfileState.collectPets", collectPetsFromPlot, plot, profile)
+	local petsOk, pets = RuntimeGuard.Run("snapshotProfileState.collectPets", collectPetsFromPlot, player, plot, profile)
 	local feedOk, feedState = RuntimeGuard.Run("snapshotProfileState.collectFeed", collectFeedState, plot, player)
 	local cosmeticOk, cosmeticState = RuntimeGuard.Run("snapshotProfileState.collectCosmetics", collectCosmeticState, plot, player)
 	if not (petsOk and feedOk and cosmeticOk) then
@@ -759,6 +854,10 @@ local function teardownPlayerState(player, plot, profile, options)
 	end)
 	RuntimeGuard.Run("PlayerTeardown.DestroyReplica." .. label, PlayerReplicaService.Destroy, player)
 	RuntimeGuard.Run("PlayerTeardown.UnloadProfile." .. label, PlayerDataService.UnloadPlayer, player)
+	local key = userKey(player)
+	if key then
+		minimumPetSnapshotCounts[key] = nil
+	end
 end
 
 local function handlePlayerAdded(player)
@@ -796,7 +895,19 @@ local function handlePlayerAdded(player)
 		end
 		RollService.ApplyDropAreaVisibility(plot, profile)
 
-		PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
+		local spawnedPets, expectedPets = PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
+		if type(spawnedPets) == "number" and type(expectedPets) == "number" and spawnedPets < expectedPets then
+			local key = userKey(player)
+			if key then
+				minimumPetSnapshotCounts[key] = math.max(minimumPetSnapshotCounts[key] or 0, expectedPets)
+			end
+			warn(string.format(
+				"[init] Spawned %d/%d profile pets for user %s; snapshots will preserve the profile pet count",
+				spawnedPets,
+				expectedPets,
+				userLabel(player)
+			))
+		end
 		RuntimeGuard.Run("PetIncomeService.TrackPlayerPlot." .. label, PetIncomeService.TrackPlayerPlot, player, plot)
 		local maturedOnLoad = {}
 		for index, placement in ipairs(profile.Data.FeedPlacements or {}) do

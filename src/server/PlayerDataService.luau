@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore"))
 local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
+local RebirthBalance = require(ReplicatedStorage.Shared:WaitForChild("RebirthBalance"))
 local RollDropAreaBalance = require(ReplicatedStorage.Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
@@ -17,6 +18,7 @@ local USE_MOCK_STORE_IN_STUDIO = true
 local CURRENT_DATA_VERSION = 7
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
+local STARTER_PET_ID = "Pet1"
 local STARTER_FEED_INVENTORY = {}
 local STARTER_COSMETIC_INVENTORY = {}
 
@@ -241,6 +243,94 @@ local function sanitizePendingGrowSkipReservation(value)
 	}
 end
 
+local function petSlotFromKey(key)
+	if type(key) == "number" then
+		if key > 0 and key == math.floor(key) then
+			return key
+		end
+		return nil
+	end
+	if type(key) == "string" then
+		local slot = tonumber(key)
+		if type(slot) == "number" and slot > 0 and slot == math.floor(slot) then
+			return slot
+		end
+	end
+	return nil
+end
+
+local function sanitizePetRecord(pet)
+	if type(pet) ~= "table" then
+		return nil
+	end
+	return {
+		petId = type(pet.petId) == "string" and pet.petId
+			or type(pet.type) == "string" and pet.type
+			or STARTER_PET_ID,
+		xp = math.max(tonumber(pet.xp) or 0, 0),
+		money = math.max(tonumber(pet.money) or 0, 0),
+		lx = tonumber(pet.lx),
+		lz = tonumber(pet.lz),
+		lry = tonumber(pet.lry) or 0,
+	}
+end
+
+local function minimumPetIdsForRebirths(rebirths)
+	local petIds = { STARTER_PET_ID }
+	for tierNumber = 1, rebirths do
+		local tier = RebirthBalance.GetTier(tierNumber)
+		if not tier then
+			break
+		end
+		for _, reward in ipairs(tier.PetRewards or {}) do
+			local amount = math.max(math.floor(tonumber(reward.amount) or 0), 0)
+			local petId = type(reward.petId) == "string" and reward.petId or STARTER_PET_ID
+			for _ = 1, amount do
+				petIds[#petIds + 1] = petId
+			end
+		end
+	end
+	return petIds
+end
+
+local function sanitizePets(petsValue, rebirths)
+	local recordsBySlot = {}
+	local slots = {}
+	if type(petsValue) == "table" then
+		for key, pet in pairs(petsValue) do
+			local slot = petSlotFromKey(key)
+			if slot and not recordsBySlot[slot] then
+				local clean = sanitizePetRecord(pet)
+				if clean then
+					recordsBySlot[slot] = clean
+					slots[#slots + 1] = slot
+				end
+			end
+		end
+	end
+
+	table.sort(slots)
+	local pets = {}
+	for _, slot in ipairs(slots) do
+		pets[#pets + 1] = recordsBySlot[slot]
+	end
+
+	local minimumPetIds = minimumPetIdsForRebirths(rebirths)
+	if #pets == 0 then
+		pets[#pets + 1] = { petId = STARTER_PET_ID, xp = 0, money = 0, lry = 0 }
+	end
+	for index = #pets + 1, #minimumPetIds do
+		pets[index] = {
+			petId = minimumPetIds[index],
+			xp = 0,
+			money = 0,
+			lry = 0,
+		}
+	end
+
+	return pets
+end
+
 local function ensureValidData(profile)
 	migrateData(profile.Data)
 	profile:Reconcile()
@@ -252,29 +342,8 @@ local function ensureValidData(profile)
 		profile.Data.DataVersion = dataVersion
 	end
 
-	local pets = {}
-	if type(profile.Data.Pets) == "table" then
-		for i, pet in ipairs(profile.Data.Pets) do
-			if type(pet) == "table" then
-				pets[i] = {
-					petId = type(pet.petId) == "string" and pet.petId
-						or type(pet.type) == "string" and pet.type
-						or "Pet1",
-					xp = math.max(tonumber(pet.xp) or 0, 0),
-					money = math.max(tonumber(pet.money) or 0, 0),
-					lx = tonumber(pet.lx),
-					lz = tonumber(pet.lz),
-					lry = tonumber(pet.lry) or 0,
-				}
-			end
-		end
-	end
-	if #pets == 0 then
-		pets = {
-			{ petId = "Pet1", xp = 0, money = 0 },
-		}
-	end
-	profile.Data.Pets = pets
+	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
+	profile.Data.Pets = sanitizePets(profile.Data.Pets, profile.Data.Rebirths)
 
 	local placements = {}
 	if type(profile.Data.FeedPlacements) == "table" then
@@ -424,7 +493,6 @@ local function ensureValidData(profile)
 	end
 	profile.Data.RollLuckLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	profile.Data.RollDropAreaLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
-	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
 	local unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)
 	if #unlockedGridKeys == 0 then
 		unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridIds)
