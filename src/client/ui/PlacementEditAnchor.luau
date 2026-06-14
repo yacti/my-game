@@ -1,7 +1,7 @@
--- Client-local Attachment centered above a placeable's bounding box, so the
--- PlacementEdit billboard rides a deterministic anchor instead of whichever
--- BasePart happens to be first in the model. The attachment lives in the host
--- part's object space, so it follows drags and yaw rotation rigidly.
+-- Client-local Attachment centered on a placeable's primary-part bottom, so the
+-- PlacementEdit billboard rides a deterministic anchor instead of tall model
+-- bounds. The attachment lives in the host part's object space, so it follows
+-- drags and yaw rotation rigidly.
 
 local PlacementEditAnchor = {}
 
@@ -21,17 +21,13 @@ local function firstBasePart(root)
 	return nil
 end
 
-local function boundsTopCenter(target)
-	if target:IsA("BasePart") then
-		return target.Position + Vector3.new(0, target.Size.Y / 2, 0)
-	end
-	local cframe, size = target:GetBoundingBox()
-	return (cframe * CFrame.new(0, size.Y / 2, 0)).Position
+local function primaryPartBottomCenter(part)
+	return (part.CFrame * CFrame.new(0, -part.Size.Y / 2, 0)).Position
 end
 
--- Returns an Attachment at the target's bounding-box top center, or nil when
+-- Returns an Attachment at the target primary-part bottom center, or nil when
 -- the target has no BasePart yet. Reuses an existing anchor on repeat calls
--- and refreshes its position for the target's current bounds.
+-- and refreshes its position for the target's current primary part.
 function PlacementEditAnchor.Attach(target)
 	local host = firstBasePart(target)
 	if target:IsA("Model") and target.PrimaryPart then
@@ -47,7 +43,7 @@ function PlacementEditAnchor.Attach(target)
 		attachment.Name = ANCHOR_NAME
 		attachment.Parent = host
 	end
-	attachment.WorldPosition = boundsTopCenter(target)
+	attachment.WorldPosition = primaryPartBottomCenter(host)
 	return attachment
 end
 

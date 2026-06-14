@@ -31,9 +31,8 @@ local FLOOR_Y_TOLERANCE_BELOW = 5
 local FLOOR_Y_TOLERANCE_ABOVE = 14
 local SELECTION_ALLOWED_COLOR = Color3.fromRGB(0, 228, 10)
 local SELECTION_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
--- World-space gap above the placeable's bounding-box top (the panel anchors
--- to a PlacementEditAnchor attachment, not a fixed part).
-local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 2.5, 0)
+-- World-space gap above the placeable primary-part bottom.
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
@@ -330,8 +329,9 @@ local function pointInsideGridPart(part, worldPoint)
 		and math.abs(localPoint.Z) <= part.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
 end
 
-local function pointInsideUnlockedGrid(plot, worldPoint)
-	for _, part in ipairs(unlockedGridParts(plot)) do
+local function pointInsideUnlockedGrid(plot, worldPoint, gridParts)
+	local parts = gridParts or unlockedGridParts(plot)
+	for _, part in ipairs(parts) do
 		if pointInsideGridPart(part, worldPoint) then
 			return true
 		end
@@ -363,10 +363,11 @@ local function boundsFitOnFloor(floor, boundsCF, boundsSize)
 	return true
 end
 
-local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
+local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts)
 	if not plot then return false end
 	local halfBounds = Vector3.new(boundsSize.X / 2, 0, boundsSize.Z / 2)
-	if not pointInsideUnlockedGrid(plot, boundsCF.Position) then
+	local parts = gridParts or unlockedGridParts(plot)
+	if not pointInsideUnlockedGrid(plot, boundsCF.Position, parts) then
 		return false
 	end
 	for _, sx in ipairs(BOX_CORNER_SIGNS) do
@@ -376,7 +377,7 @@ local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
 				0,
 				sz * halfBounds.Z
 			))
-			if not pointInsideUnlockedGrid(plot, worldCorner) then
+			if not pointInsideUnlockedGrid(plot, worldCorner, parts) then
 				return false
 			end
 		end
@@ -503,6 +504,7 @@ function FeedEditController.start()
 	placementEdit.Enabled = false
 	-- Wrapped so the whole panel fades as one layer while dragging.
 	local placementEditCanvas = UiEffects.WrapInCanvasGroup(placementEdit)
+	placementEdit.StudsOffset = Vector3.zero
 	placementEdit.StudsOffsetWorldSpace = PLACEMENT_EDIT_OFFSET
 	placementEdit.Parent = playerGui
 
@@ -550,8 +552,8 @@ function FeedEditController.start()
 		end
 	end
 
-	local function selectedTargetCFrame()
-		local floor = getPlayerFloor()
+	local function selectedTargetCFrame(floor)
+		floor = floor or getPlayerFloor()
 		if not floor then return nil end
 		return floor.CFrame
 			* CFrame.new(selectedLX, floor.Size.Y / 2 + selectedPivotOffset, selectedLZ)
@@ -617,13 +619,14 @@ function FeedEditController.start()
 		rotationTween:Play()
 	end
 
-	local function selectedPlacementBlocked(cframe)
-		local floor = getPlayerFloor()
-		local plot = getPlayerPlot()
+	local function selectedPlacementBlocked(cframe, floor, plot, gridParts)
+		floor = floor or getPlayerFloor()
+		plot = plot or getPlayerPlot()
 		if not floor or not plot then return true end
 		local boundsCF, boundsSize = selectedBoundsAt(cframe)
 		if not boundsCF or not boundsSize then return true end
-		if not boundsFitOnFloor(floor, boundsCF, boundsSize) or not boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize) then
+		if not boundsFitOnFloor(floor, boundsCF, boundsSize)
+			or not boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts) then
 			return true
 		end
 		local querySize = Vector3.new(
@@ -646,17 +649,20 @@ function FeedEditController.start()
 	end
 
 	local function setSelectionBlocked(blocked)
+		if currentBlocked == blocked then
+			return
+		end
 		currentBlocked = blocked
 		selectionBox.Color3 = blocked and SELECTION_BLOCKED_COLOR or SELECTION_ALLOWED_COLOR
 	end
 
-	local function applySelectionPreview()
+	local function applySelectionPreview(cframe, floor, plot, gridParts)
 		if not selectedFeed then return end
-		local cframe = selectedTargetCFrame()
+		cframe = cframe or selectedTargetCFrame(floor)
 		if not cframe then return end
 		cancelRotationTween()
 		setObjectCFrame(selectedFeed, cframe)
-		setSelectionBlocked(selectedPlacementBlocked(cframe))
+		setSelectionBlocked(selectedPlacementBlocked(cframe, floor, plot, gridParts))
 	end
 
 	local function clearPending()
@@ -732,30 +738,25 @@ function FeedEditController.start()
 		applySelectionPreview()
 	end
 
-	local function floorPointFromScreen(screenPosition)
-		local floor = getPlayerFloor()
-		local plot = getPlayerPlot()
+	local function floorPointFromScreen(screenPosition, floor)
+		floor = floor or getPlayerFloor()
 		local camera = Workspace.CurrentCamera
-		if not floor or not plot or not camera then return nil end
-
-		local gridParts = unlockedGridParts(plot)
-		if #gridParts == 0 then return nil end
+		if not floor or not camera then return nil end
 
 		local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = gridParts
+		local planePoint = floor.CFrame:PointToWorldSpace(Vector3.new(0, floor.Size.Y / 2, 0))
+		local planeNormal = floor.CFrame.UpVector
+		local denominator = ray.Direction:Dot(planeNormal)
+		if math.abs(denominator) < 0.0001 then return nil end
 
-		local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
-		if not hit then return nil end
-
-		local localTarget = floor.CFrame:PointToObjectSpace(hit.Position)
+		local distance = (planePoint - ray.Origin):Dot(planeNormal) / denominator
+		if distance < 0 then return nil end
+		local localTarget = floor.CFrame:PointToObjectSpace(ray.Origin + ray.Direction * distance)
 		local halfX = floor.Size.X / 2
 		local halfZ = floor.Size.Z / 2
-		if math.abs(localTarget.X) > halfX or math.abs(localTarget.Z) > halfZ then
-			return nil
-		end
-		return math.round(localTarget.X), math.round(localTarget.Z)
+		local lx = math.clamp(math.round(localTarget.X), -halfX, halfX)
+		local lz = math.clamp(math.round(localTarget.Z), -halfZ, halfZ)
+		return lx, lz
 	end
 
 	local function updateDragPreview(screenPosition)
@@ -769,11 +770,20 @@ function FeedEditController.start()
 			return
 		end
 		if not screenPosition then return end
-		local lx, lz = floorPointFromScreen(screenPosition)
+		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
+		if not floor or not plot then return end
+		local lx, lz = floorPointFromScreen(screenPosition, floor)
 		if not lx or not lz then return end
+		if selectedLX == lx and selectedLZ == lz then return end
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return end
+		local worldPoint = floor.CFrame:PointToWorldSpace(Vector3.new(lx, floor.Size.Y / 2, lz))
+		if not pointInsideUnlockedGrid(plot, worldPoint, gridParts) then return end
 		selectedLX = lx
 		selectedLZ = lz
-		applySelectionPreview()
+		local cframe = selectedTargetCFrame(floor)
+		applySelectionPreview(cframe, floor, plot, gridParts)
 	end
 
 	local function beginMoving()

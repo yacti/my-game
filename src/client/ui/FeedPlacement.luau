@@ -26,9 +26,8 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
--- World-space gap above the placeable's bounding-box top (the panel anchors
--- to a PlacementEditAnchor attachment, not a fixed part).
-local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 2.5, 0)
+-- World-space gap above the placeable primary-part bottom.
+local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
@@ -160,8 +159,9 @@ local function pointInsideGridPart(part, worldPoint)
 		and math.abs(localPoint.Z) <= part.Size.Z / 2 + FOOTPRINT_BOUNDS_EPSILON
 end
 
-local function pointInsideUnlockedGrid(plot, worldPoint)
-	for _, part in ipairs(unlockedGridParts(plot)) do
+local function pointInsideUnlockedGrid(plot, worldPoint, gridParts)
+	local parts = gridParts or unlockedGridParts(plot)
+	for _, part in ipairs(parts) do
 		if pointInsideGridPart(part, worldPoint) then
 			return true
 		end
@@ -169,10 +169,11 @@ local function pointInsideUnlockedGrid(plot, worldPoint)
 	return false
 end
 
-local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
+local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts)
 	if not plot then return false end
 	local halfBounds = Vector3.new(boundsSize.X / 2, 0, boundsSize.Z / 2)
-	if not pointInsideUnlockedGrid(plot, boundsCF.Position) then
+	local parts = gridParts or unlockedGridParts(plot)
+	if not pointInsideUnlockedGrid(plot, boundsCF.Position, parts) then
 		return false
 	end
 	for _, sx in ipairs(BOX_CORNER_SIGNS) do
@@ -182,7 +183,7 @@ local function boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
 				0,
 				sz * halfBounds.Z
 			))
-			if not pointInsideUnlockedGrid(plot, worldCorner) then
+			if not pointInsideUnlockedGrid(plot, worldCorner, parts) then
 				return false
 			end
 		end
@@ -249,6 +250,7 @@ function FeedPlacement.start()
 
 	-- Wrapped so the whole panel fades as one layer while dragging.
 	local placementEditCanvas = UiEffects.WrapInCanvasGroup(placementEdit)
+	placementEdit.StudsOffset = Vector3.zero
 	placementEdit.StudsOffsetWorldSpace = PLACEMENT_EDIT_OFFSET
 	placementEdit.Parent = PlayerGui
 
@@ -284,6 +286,7 @@ function FeedPlacement.start()
 	local previewBoundsSize = nil
 	local previewPartColors = {}
 	local currentPlacementBlocked = true
+	local previewBlockedApplied = nil
 	local nextPlacementRequestId = 0
 	local pendingPlacementRequestId = nil
 	local pendingPlacementCFrame = nil
@@ -387,6 +390,7 @@ function FeedPlacement.start()
 			or template:Clone()
 		if not clone then return end
 		clone.Name = "__PlacementPreview"
+		previewBlockedApplied = nil
 		local function preparePreviewPart(part)
 			previewPartColors[part] = part.Color
 			setPreviewProps(part)
@@ -422,6 +426,7 @@ function FeedPlacement.start()
 		previewBoundsSize = nil
 		previewPartColors = {}
 		currentPlacementBlocked = true
+		previewBlockedApplied = nil
 		pendingPlacementRequestId = nil
 		pendingPlacementCFrame = nil
 		pendingSuppressOverlapError = false
@@ -555,9 +560,9 @@ function FeedPlacement.start()
 		return getPreviewBoundsAt(getSelectedCFrame())
 	end
 
-	local function previewFitsOnGridAt(lx, lz)
-		local floor = getPlayerFloor()
-		local plot = getPlayerPlot()
+	local function previewFitsOnGridAt(lx, lz, floor, plot, gridParts)
+		floor = floor or getPlayerFloor()
+		plot = plot or getPlayerPlot()
 		if not floor or not floor:IsA("BasePart") then return false end
 		if not preview then return false end
 		local halfH = (previewPlacementHeight or previewSizeY(preview)) / 2
@@ -566,7 +571,7 @@ function FeedPlacement.start()
 		local boundsCF, boundsSize = getPreviewBoundsAt(floor.CFrame * localCF)
 		if not boundsCF or not boundsSize then return false end
 		return boundsFitOnFloor(floor, boundsCF, boundsSize)
-			and boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize)
+			and boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts)
 	end
 
 	local function previewFitsOnGrid()
@@ -641,6 +646,12 @@ function FeedPlacement.start()
 
 	local function setPreviewBlocked(blocked)
 		currentPlacementBlocked = blocked
+		if previewBlockedApplied == blocked then
+			setConfirmVisible(not blocked)
+			setConfirmEnabled(not blocked)
+			return
+		end
+		previewBlockedApplied = blocked
 		if preview then
 			forEachPreviewPart(preview, function(part)
 				part.Color = blocked and PREVIEW_BLOCKED_COLOR or (previewPartColors[part] or part.Color)
@@ -677,16 +688,18 @@ function FeedPlacement.start()
 		return floor.CFrame:PointToObjectSpace(ray.Origin + ray.Direction * distance)
 	end
 
-	local function nearestUnlockedLocalPoint(localTarget)
-		local floor = getPlayerFloor()
-		local plot = getPlayerPlot()
+	local function nearestUnlockedLocalPoint(localTarget, floor, plot, gridParts)
+		floor = floor or getPlayerFloor()
+		plot = plot or getPlayerPlot()
 		if not floor or not plot then return nil, nil end
+		local parts = gridParts or unlockedGridParts(plot)
+		if #parts == 0 then return nil, nil end
 
 		local halfFloorX = floor.Size.X / 2
 		local halfFloorZ = floor.Size.Z / 2
 		local targetWorld = floor.CFrame:PointToWorldSpace(Vector3.new(localTarget.X, floor.Size.Y / 2, localTarget.Z))
-		local bestFitLX, bestFitLZ, bestFitDistance = nil, nil, math.huge
-		local bestAnyLX, bestAnyLZ, bestAnyDistance = nil, nil, math.huge
+		local bestFitLX, bestFitLZ, bestFitDistanceSq = nil, nil, math.huge
+		local bestAnyLX, bestAnyLZ, bestAnyDistanceSq = nil, nil, math.huge
 		local searchRadius = 1
 		if preview then
 			local halfH = (previewPlacementHeight or previewSizeY(preview)) / 2
@@ -699,20 +712,31 @@ function FeedPlacement.start()
 			end
 		end
 
+		local checkedCells = {}
 		local function consider(lx, lz)
-			local candidateWorld = floor.CFrame:PointToWorldSpace(Vector3.new(lx, floor.Size.Y / 2, lz))
-			if not pointInsideUnlockedGrid(plot, candidateWorld) then return end
-
-			local distance = (Vector2.new(lx, lz) - Vector2.new(localTarget.X, localTarget.Z)).Magnitude
-			if distance < bestAnyDistance then
-				bestAnyLX, bestAnyLZ, bestAnyDistance = lx, lz, distance
+			local checkedColumn = checkedCells[lx]
+			if checkedColumn and checkedColumn[lz] then return end
+			if not checkedColumn then
+				checkedColumn = {}
+				checkedCells[lx] = checkedColumn
 			end
-			if previewFitsOnGridAt(lx, lz) and distance < bestFitDistance then
-				bestFitLX, bestFitLZ, bestFitDistance = lx, lz, distance
+			checkedColumn[lz] = true
+
+			local candidateWorld = floor.CFrame:PointToWorldSpace(Vector3.new(lx, floor.Size.Y / 2, lz))
+			if not pointInsideUnlockedGrid(plot, candidateWorld, parts) then return end
+
+			local dx = lx - localTarget.X
+			local dz = lz - localTarget.Z
+			local distanceSq = dx * dx + dz * dz
+			if distanceSq < bestAnyDistanceSq then
+				bestAnyLX, bestAnyLZ, bestAnyDistanceSq = lx, lz, distanceSq
+			end
+			if previewFitsOnGridAt(lx, lz, floor, plot, parts) and distanceSq < bestFitDistanceSq then
+				bestFitLX, bestFitLZ, bestFitDistanceSq = lx, lz, distanceSq
 			end
 		end
 
-		for _, gridPart in ipairs(unlockedGridParts(plot)) do
+		for _, gridPart in ipairs(parts) do
 			local gridLocal = gridPart.CFrame:PointToObjectSpace(targetWorld)
 			local clampedWorld = gridPart.CFrame:PointToWorldSpace(Vector3.new(
 				math.clamp(gridLocal.X, -gridPart.Size.X / 2, gridPart.Size.X / 2),
@@ -743,8 +767,28 @@ function FeedPlacement.start()
 		if not ensurePreview() then return false end
 		local localTarget = floorLocalPointFromScreen(screenPosition)
 		if not localTarget then return false end
-		local snappedLX, snappedLZ = nearestUnlockedLocalPoint(localTarget)
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return false end
+		local directLX = math.clamp(snapToGrid(localTarget.X), -floor.Size.X / 2, floor.Size.X / 2)
+		local directLZ = math.clamp(snapToGrid(localTarget.Z), -floor.Size.Z / 2, floor.Size.Z / 2)
+		local directWorld = floor.CFrame:PointToWorldSpace(Vector3.new(directLX, floor.Size.Y / 2, directLZ))
+		local directInsideUnlockedGrid = pointInsideUnlockedGrid(plot, directWorld, gridParts)
+		if hasActiveSelection and selectedLX ~= nil and selectedLZ ~= nil then
+			if selectedLX == directLX and selectedLZ == directLZ and directInsideUnlockedGrid then
+				return true
+			end
+		end
+
+		local snappedLX, snappedLZ
+		if directInsideUnlockedGrid and previewFitsOnGridAt(directLX, directLZ, floor, plot, gridParts) then
+			snappedLX, snappedLZ = directLX, directLZ
+		else
+			snappedLX, snappedLZ = nearestUnlockedLocalPoint(localTarget, floor, plot, gridParts)
+		end
 		if snappedLX == nil or snappedLZ == nil then return false end
+		if hasActiveSelection and selectedLX == snappedLX and selectedLZ == snappedLZ then
+			return true
+		end
 
 		setGridEffectEnabled(true)
 		selectedLX = snappedLX
