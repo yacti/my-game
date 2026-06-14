@@ -19,7 +19,7 @@ These gameplay assets live under `ReplicatedStorage.Assets` and are required by 
 - `ReplicatedStorage.Assets.SeedTool`
 - `ReplicatedStorage.Assets.Shovel`
 - `ReplicatedStorage.Assets.Seeds`
-- `ReplicatedStorage.Assets.Misc` (`PlotTemplate`, `Sapling`, `Clouds`, roll rewards such as `Brick`)
+- `ReplicatedStorage.Assets.Misc` (`PlotTemplate`, `Sapling`, `Clouds`, non-roll items such as `Brick`, and misc roll rewards)
 - `ReplicatedStorage.Assets.VFX` (`RarityParticle`)
 - `ReplicatedStorage.UI`
 

@@ -771,6 +771,26 @@ local function validateMisc(errors)
 		end
 	end
 
+	local function validateNonRollMiscTemplate(template)
+		if not RollRewards.IsTemplate(template) then
+			add(errors, string.format("%s is %s, expected BasePart or Model", template:GetFullName(), template.ClassName))
+			return
+		end
+		if not hasBasePart(template) then
+			add(errors, template:GetFullName() .. " has no BasePart descendants")
+		end
+
+		for _, attributeName in ipairs({
+			RollRewards.Attributes.MiscId,
+			RollRewards.Attributes.RollChanceN,
+			RollRewards.Attributes.Price,
+		}) do
+			if template:GetAttribute(attributeName) ~= nil then
+				add(errors, string.format("%s must not have %s while excluded from misc rolls", template:GetFullName(), attributeName))
+			end
+		end
+	end
+
 	local sapling = child(misc, "Sapling", "Model", errors)
 	if sapling then
 		if not hasBasePart(sapling) then
@@ -791,7 +811,7 @@ local function validateMisc(errors)
 
 	local brick = child(misc, "Brick", nil, errors)
 	if brick then
-		validateMiscRollTemplate(brick, "Brick")
+		validateNonRollMiscTemplate(brick)
 	end
 
 	local seenByMiscId = {}
@@ -800,15 +820,19 @@ local function validateMisc(errors)
 			continue
 		end
 		if template == brick then
-			local miscId = template:GetAttribute(RollRewards.Attributes.MiscId)
-			if type(miscId) == "string" and miscId ~= "" then
-				seenByMiscId[miscId] = template
-			end
 			continue
 		end
 		local miscId = template:GetAttribute(RollRewards.Attributes.MiscId)
 		if miscId == nil then
 			continue
+		end
+		if miscId == "Brick" then
+			add(errors, string.format(
+				"%s uses excluded %s %q",
+				template:GetFullName(),
+				RollRewards.Attributes.MiscId,
+				miscId
+			))
 		end
 		validateMiscRollTemplate(template, nil)
 		if type(miscId) == "string" and miscId ~= "" then

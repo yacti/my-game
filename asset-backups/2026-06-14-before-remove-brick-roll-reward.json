@@ -1,0 +1,17 @@
+{
+  "path": "ReplicatedStorage.Assets.Misc.Brick",
+  "className": "Model",
+  "change": "Before removing Brick from the crate misc roll pool.",
+  "attributes": {
+    "MiscID": "Brick",
+    "Price": 500,
+    "Rarity": "Rare",
+    "RollChanceN": 0.01
+  },
+  "children": [
+    {
+      "path": "ReplicatedStorage.Assets.Misc.Brick.Brick",
+      "className": "Part"
+    }
+  ]
+}
