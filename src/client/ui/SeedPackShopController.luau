@@ -12,6 +12,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local State = require(Shared:WaitForChild("State"))
 
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
@@ -67,6 +68,10 @@ local activeFtueDrag = nil
 local ftueToken = 0
 local cameraSinkBound = false
 local productPriceById = {}
+
+local function isSeedPacksAllowed()
+	return player:GetAttribute(State.Player.SeedPacksAllowed) == true
+end
 
 local function hasConnectedController()
 	if UserInputService.GamepadEnabled then
@@ -226,6 +231,13 @@ local function seedPacksFrame()
 	return nil, holder
 end
 
+local function applySeedPacksVisibility()
+	local seedPacks = seedPacksFrame()
+	if seedPacks then
+		seedPacks.Visible = isSeedPacksAllowed()
+	end
+end
+
 local function packFrame(packId)
 	local seedPacks = seedPacksFrame()
 	local frame = seedPacks and seedPacks:FindFirstChild(packId)
@@ -310,6 +322,9 @@ local function promptProduct(productId)
 	if productId <= 0 then
 		return
 	end
+	if not isSeedPacksAllowed() then
+		return
+	end
 	if PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) ~= true then
 		return
 	end
@@ -319,7 +334,8 @@ local function promptProduct(productId)
 end
 
 local function renderRows(rows)
-	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true
+	applySeedPacksVisibility()
+	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true and isSeedPacksAllowed()
 	for _, row in ipairs(rows) do
 		local buyOneProductId = tonumber(row.pack.DevProductId) or 0
 		local buyThreeProductId = tonumber(row.pack.BuyThreeDevProductId) or 0
@@ -931,6 +947,8 @@ function SeedPackShopController.start()
 		return
 	end
 
+	applySeedPacksVisibility()
+
 	local rows = {}
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
 		local row = renderPackCard(pack)
@@ -1007,6 +1025,9 @@ function SeedPackShopController.start()
 	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "SeedPackShopController.GamepadDisconnected", refreshConsoleHint)
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
+		renderRows(rows)
+	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.SeedPacksAllowed), "SeedPackShopController.SeedPacksAllowed", function()
 		renderRows(rows)
 	end)
 	renderRows(rows)

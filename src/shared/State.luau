@@ -34,6 +34,7 @@ State.Pet = {
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
 	OfflineProgressPending = "OfflineProgressPending",
+	SeedPacksAllowed = "SeedPacksAllowed",
 }
 
 State.ServerLuck = {

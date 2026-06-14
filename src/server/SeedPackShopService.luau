@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local PolicyService = game:GetService("PolicyService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
@@ -15,6 +16,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local State = require(Shared:WaitForChild("State"))
 
 local SeedPackShopService = {}
 
@@ -26,6 +28,22 @@ local resultRemote = Remotes.get(Remotes.Names.SeedPackPurchaseResult)
 
 local function userKey(player)
 	return player and player.UserId or nil
+end
+
+local function updateSeedPacksAllowed(player)
+	if not (player and player:IsDescendantOf(Players)) then
+		return
+	end
+
+	player:SetAttribute(State.Player.SeedPacksAllowed, false)
+	local ok, policyInfo = pcall(PolicyService.GetPolicyInfoForPlayerAsync, PolicyService, player)
+	if not (ok and type(policyInfo) == "table") then
+		warn("[SeedPackShopService] Could not load paid random item policy for user " .. tostring(userKey(player)))
+		return
+	end
+	if player:IsDescendantOf(Players) then
+		player:SetAttribute(State.Player.SeedPacksAllowed, policyInfo.ArePaidRandomItemsRestricted ~= true)
+	end
 end
 
 local function int(value)
@@ -249,6 +267,14 @@ function SeedPackShopService.Start()
 		return
 	end
 	started = true
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		RuntimeGuard.Spawn("SeedPackShopService.Policy." .. tostring(userKey(player)), updateSeedPacksAllowed, player)
+	end
+
+	RuntimeGuard.Connect(Players.PlayerAdded, "SeedPackShopService.PlayerAdded", function(player)
+		RuntimeGuard.Spawn("SeedPackShopService.Policy." .. tostring(userKey(player)), updateSeedPacksAllowed, player)
+	end)
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "SeedPackShopService.PlayerRemoving", function(player)
 		local key = userKey(player)
