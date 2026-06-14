@@ -46,10 +46,6 @@ local shakeIds = setmetatable({}, { __mode = "k" })
 local groundMarkers = {}
 local shakeTargetCache = {}
 
--- Forward declaration: scanTreeVisualRoot runs before the definition below and
--- would otherwise resolve `animate` as a nil global, erroring the initial scan.
-local animate
-
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
 	return tree:GetAttribute(State.Feed.Class) == "Tree"
@@ -486,10 +482,30 @@ local function updateGroundVisuals()
 	end
 end
 
+local function animate(food)
+	if animated[food] then return end
+	animated[food] = true
+
+	local parts = partsOf(food)
+	tweenTransparency(parts)
+
+	if food:IsA("BasePart") then
+		tweenPartGrow(food)
+	elseif food:IsA("Model") then
+		tweenModelGrow(food)
+	end
+
+	RuntimeGuard.Connect(food.AncestryChanged, "TreeVisuals.FoodAncestryChanged", function()
+		if not food:IsDescendantOf(Workspace) then
+			animated[food] = nil
+		end
+	end)
+end
+
 local function scanTreeVisualRoot(root)
 	if not root then return end
 	for _, obj in ipairs(root:GetDescendants()) do
-		if isTreeGroundMarker(obj) then
+		if isTreeGroundCandidate(obj) then
 			trackGroundFoodCandidate(obj)
 		elseif isTreeSlotFood(obj) then
 			animate(obj)
@@ -697,26 +713,6 @@ local function shakeTree(tree)
 		end
 		restoreTargets(targets)
 		activeShakeTargets[tree] = nil
-	end)
-end
-
-function animate(food)
-	if animated[food] then return end
-	animated[food] = true
-
-	local parts = partsOf(food)
-	tweenTransparency(parts)
-
-	if food:IsA("BasePart") then
-		tweenPartGrow(food)
-	elseif food:IsA("Model") then
-		tweenModelGrow(food)
-	end
-
-	RuntimeGuard.Connect(food.AncestryChanged, "TreeVisuals.FoodAncestryChanged", function()
-		if not food:IsDescendantOf(Workspace) then
-			animated[food] = nil
-		end
 	end)
 end
 
