@@ -28,6 +28,13 @@ local PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
 	zoom = 1.8,
 }
+local SEED_PREVIEW_OPTIONS = {
+	targetMaxDimension = 6,
+	zoom = 1.8,
+	colorSaturation = 2.5,
+	colorBrightness = 1.55,
+	lightColor = Color3.fromRGB(255, 255, 255),
+}
 
 local player = Players.LocalPlayer
 local productPriceById = {}
@@ -219,7 +226,8 @@ local function renderRewardSlot(slot, reward)
 	slot.Visible = reward ~= nil
 	if icon then
 		icon.Visible = not isCash
-		ViewportPreview.Render(icon, template, PREVIEW_OPTIONS)
+		local previewOptions = reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and SEED_PREVIEW_OPTIONS or PREVIEW_OPTIONS
+		ViewportPreview.Render(icon, template, previewOptions)
 	end
 	if iconImage then
 		iconImage.Visible = isCash

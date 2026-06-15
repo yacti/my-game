@@ -1,4 +1,5 @@
 local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
@@ -19,6 +20,14 @@ local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local ROLL_AREA_NAME = "RollArea"
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
+local STARTER_AREA_NAME = "StarterArea"
+local STARTER_GRID_PART_NAME = "GridPart"
+local PLOT_HOLDER_NAME = "PlotHolder"
+local OWNER_BILLBOARD_NAME = "PlayerName"
+local OWNER_BILLBOARD_FRAME_NAME = "Frame"
+local OWNER_ICON_NAME = "Icon"
+local OWNER_NAME_LABEL_NAME = "Name"
+local plotOwners
 local petNicknameRandom = Random.new()
 
 local ROLL_AREA_VISIBILITY_OPTIONS = {
@@ -46,16 +55,89 @@ local function restoreRollAreaPresentation(plot)
 	InstanceVisibility.SetTreeActive(rollArea, true, ROLL_AREA_VISIBILITY_OPTIONS)
 end
 
+local function getPlotOwnerDisplay(plot)
+	local starterArea = plot and plot:FindFirstChild(STARTER_AREA_NAME)
+	local gridPart = starterArea and starterArea:FindFirstChild(STARTER_GRID_PART_NAME)
+	local holder = gridPart and gridPart:FindFirstChild(PLOT_HOLDER_NAME)
+	local billboard = holder and holder:FindFirstChild(OWNER_BILLBOARD_NAME)
+	if not (billboard and billboard:IsA("BillboardGui")) then
+		return nil, nil, nil
+	end
+
+	local frame = billboard:FindFirstChild(OWNER_BILLBOARD_FRAME_NAME)
+	local icon = frame and frame:FindFirstChild(OWNER_ICON_NAME)
+	local nameLabel = frame and frame:FindFirstChild(OWNER_NAME_LABEL_NAME)
+
+	return billboard,
+		icon and icon:IsA("ImageLabel") and icon or nil,
+		nameLabel and nameLabel:IsA("TextLabel") and nameLabel or nil
+end
+
+local function clearPlotOwnerDisplay(plot)
+	local billboard, icon, nameLabel = getPlotOwnerDisplay(plot)
+	if not billboard then
+		return
+	end
+
+	billboard.Enabled = false
+	if icon then
+		icon.Image = ""
+	end
+	if nameLabel then
+		nameLabel.Text = ""
+	end
+end
+
 local function setPlotVacantPresentation(plot, vacant)
 	if not plot then return end
 	local rollArea = plot:FindFirstChild(ROLL_AREA_NAME)
-	if not rollArea then return end
 
 	if vacant then
-		InstanceVisibility.SetTreeActive(rollArea, false, ROLL_AREA_VISIBILITY_OPTIONS)
+		if rollArea then
+			InstanceVisibility.SetTreeActive(rollArea, false, ROLL_AREA_VISIBILITY_OPTIONS)
+		end
+		clearPlotOwnerDisplay(plot)
 	else
 		restoreRollAreaPresentation(plot)
 	end
+end
+
+local function setPlotOwnerDisplay(plot, player, plotIndex)
+	local billboard, icon, nameLabel = getPlotOwnerDisplay(plot)
+	if not billboard then
+		return
+	end
+
+	billboard.Enabled = true
+	if nameLabel then
+		nameLabel.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
+	end
+	if not icon then
+		return
+	end
+
+	icon.Image = ""
+	local userId = player.UserId
+	if userId <= 0 then
+		return
+	end
+
+	task.spawn(function()
+		local ok, content = pcall(
+			Players.GetUserThumbnailAsync,
+			Players,
+			userId,
+			Enum.ThumbnailType.HeadShot,
+			Enum.ThumbnailSize.Size150x150
+		)
+		if not ok or type(content) ~= "string" or content == "" then
+			warn(string.format("[PlotService] Could not load owner thumbnail for user %d", userId))
+			return
+		end
+		if plotOwners[plotIndex] == userId and icon:IsDescendantOf(plot) then
+			icon.Image = content
+		end
+	end)
 end
 
 local function feedHitboxRootFromPart(plot, part)
@@ -113,7 +195,7 @@ local function collectPlots()
 end
 
 local plots       = collectPlots()
-local plotOwners  = {}
+plotOwners        = {}
 local playerPlots = {}
 local localToWorldOnFloorTop
 local plotPlacementRecords = setmetatable({}, { __mode = "k" })
@@ -274,6 +356,7 @@ function PlotService.AssignPlot(player)
 			plotOwners[i]  = key
 			playerPlots[key] = i
 			setPlotVacantPresentation(plot, false)
+			setPlotOwnerDisplay(plot, player, i)
 			return plot, i
 		end
 	end

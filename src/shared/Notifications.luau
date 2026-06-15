@@ -8,12 +8,14 @@ Notifications.Kinds = {
 	Info = "info",
 	Success = "success",
 	Error = "error",
+	Rebirth = "rebirth",
 }
 
 Notifications.TextColors = {
 	[Notifications.Kinds.Info] = Color3.fromRGB(255, 255, 255),
 	[Notifications.Kinds.Success] = Color3.fromRGB(110, 255, 135),
 	[Notifications.Kinds.Error] = Color3.fromRGB(255, 105, 105),
+	[Notifications.Kinds.Rebirth] = Color3.fromRGB(210, 80, 255),
 }
 
 local DEFAULT_KIND = Notifications.Kinds.Info

@@ -39,6 +39,49 @@ local function anchor(instance)
 	end
 end
 
+local function boostedColor(color, saturationMultiplier, brightnessMultiplier)
+	local h, s, v = color:ToHSV()
+	return Color3.fromHSV(
+		h,
+		math.clamp(s * saturationMultiplier, 0, 1),
+		math.clamp(v * brightnessMultiplier, 0, 1)
+	)
+end
+
+local function boostedColorSequence(sequence, saturationMultiplier, brightnessMultiplier)
+	local keypoints = {}
+	for _, keypoint in ipairs(sequence.Keypoints) do
+		keypoints[#keypoints + 1] = ColorSequenceKeypoint.new(
+			keypoint.Time,
+			boostedColor(keypoint.Value, saturationMultiplier, brightnessMultiplier)
+		)
+	end
+	return ColorSequence.new(keypoints)
+end
+
+local function applyColorBoost(instance, options)
+	local saturationMultiplier = math.max(tonumber(options.colorSaturation) or 1, 0)
+	local brightnessMultiplier = math.max(tonumber(options.colorBrightness) or 1, 0)
+	if saturationMultiplier == 1 and brightnessMultiplier == 1 then
+		return
+	end
+
+	local function apply(item)
+		if item:IsA("BasePart") then
+			item.Color = boostedColor(item.Color, saturationMultiplier, brightnessMultiplier)
+		elseif item:IsA("Decal") then
+			item.Color3 = boostedColor(item.Color3, saturationMultiplier, brightnessMultiplier)
+		elseif item:IsA("ParticleEmitter") or item:IsA("Beam") or item:IsA("Trail") then
+			item.Color = boostedColorSequence(item.Color, saturationMultiplier, brightnessMultiplier)
+		end
+	end
+
+	apply(instance)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		apply(descendant)
+	end
+end
+
 local function boundsSize(instance)
 	if instance:IsA("Model") then
 		local _, size = instance:GetBoundingBox()
@@ -144,8 +187,9 @@ function ViewportPreview.Render(viewport, template, options)
 	world.Parent = viewport
 
 	local clone = template:Clone()
-	anchor(clone)
 	options = type(options) == "table" and options or {}
+	anchor(clone)
+	applyColorBoost(clone, options)
 	scalePreview(clone, options.targetMaxDimension)
 	clone.Parent = world
 	local size = centerAtOrigin(clone)
@@ -158,9 +202,9 @@ function ViewportPreview.Render(viewport, template, options)
 	camera.CFrame = CFrame.new(Vector3.new(distance, distance * 0.45, distance), Vector3.new())
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
-	viewport.Ambient = VIEWPORT_AMBIENT
-	viewport.LightColor = VIEWPORT_LIGHT_COLOR
-	viewport.LightDirection = VIEWPORT_LIGHT_DIRECTION
+	viewport.Ambient = typeof(options.ambient) == "Color3" and options.ambient or VIEWPORT_AMBIENT
+	viewport.LightColor = typeof(options.lightColor) == "Color3" and options.lightColor or VIEWPORT_LIGHT_COLOR
+	viewport.LightDirection = typeof(options.lightDirection) == "Vector3" and options.lightDirection or VIEWPORT_LIGHT_DIRECTION
 	startRotation(viewport, rig)
 	return true
 end

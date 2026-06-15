@@ -39,10 +39,16 @@ local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
 local PACK_REWARD_PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
 	zoom = 1.8,
+	colorSaturation = 2.5,
+	colorBrightness = 1.55,
+	lightColor = Color3.fromRGB(255, 255, 255),
 }
 local REVEAL_PREVIEW_OPTIONS = {
 	targetMaxDimension = 4,
 	zoom = 1.65,
+	colorSaturation = 2.5,
+	colorBrightness = 1.55,
+	lightColor = Color3.fromRGB(255, 255, 255),
 }
 
 local SLICE_THICKNESS_MULTIPLIER = 1.35

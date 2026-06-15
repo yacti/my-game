@@ -1,17 +1,23 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
+local State = require(Shared:WaitForChild("State"))
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
@@ -21,7 +27,10 @@ local RebirthController = {}
 local GENERATED_REWARD_ATTR = "RebirthGeneratedReward"
 local HUD_LEFT_BUTTONS_NAME = "LeftButtons"
 local HUD_REBIRTH_BUTTON_NAME = "RebirthButton"
+local HUD_REBIRTH_ALERT_NAME = "Alert"
 local MENU_REBIRTH_FRAME_NAME = "Rebirth"
+local REBIRTH_AFFORDABLE_NOTIFICATION = "You can now afford to rebirth!"
+local SEED_REWARD_VIEWPORT_ZOOM = 3
 local STATE_RETRY_SECONDS = 2
 local productPriceById = {}
 
@@ -48,7 +57,19 @@ local function rewardText(reward)
 		return "+" .. formattedAmount .. " Pet Slots"
 	end
 	if reward.kind == "FeedMachine" then
-		return prefix .. tostring(reward.displayName or reward.feedType or "Feed Machine")
+		local template = GrowingVisuals.FeedTemplateFor(reward.feedType)
+		local displayName = template and template.Name
+		if type(displayName) ~= "string" or displayName == "" then
+			displayName = reward.displayName
+		end
+		if displayName == reward.feedType or type(displayName) ~= "string" or displayName == "" then
+			displayName = "Feed Machine"
+		end
+		return prefix .. displayName
+	end
+	if reward.kind == "Seed" then
+		local seedName = type(reward.seedId) == "string" and Seeds.DisplayNameFor(reward.seedId) or nil
+		return prefix .. tostring(seedName or reward.displayName or reward.seedId or "Seed")
 	end
 	return prefix .. tostring(reward.displayName or reward.kind or "Reward")
 end
@@ -97,7 +118,45 @@ local function rewardTemplateFor(reward)
 	if reward.kind == "FeedMachine" then
 		return GrowingVisuals.FeedTemplateFor(reward.feedType)
 	end
+	if reward.kind == "Seed" then
+		return Seeds.GetTemplate(reward.seedId)
+	end
 	return nil
+end
+
+local function rewardRarity(reward)
+	if type(reward) ~= "table" then
+		return nil
+	end
+	local rarity
+	if reward.kind == "Seed" then
+		rarity = Seeds.RarityFor(reward.seedId)
+	elseif reward.kind == "FeedMachine" then
+		local template = GrowingVisuals.FeedTemplateFor(reward.feedType)
+		rarity = template and template:GetAttribute(State.Feed.Rarity)
+	end
+	return type(rarity) == "string" and Rarities.IsValid(rarity) and rarity or nil
+end
+
+local function applyColorToTextStack(root, color)
+	if not (root and color) then
+		return
+	end
+	local function applyLabel(label)
+		label.TextColor3 = color
+		local gradient = label:FindFirstChildOfClass("UIGradient")
+		if gradient then
+			gradient.Color = ColorSequence.new(color)
+		end
+	end
+	if root:IsA("TextLabel") or root:IsA("TextButton") then
+		applyLabel(root)
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
+			applyLabel(descendant)
+		end
+	end
 end
 
 local function findHudOpenButton(playerGui)
@@ -133,6 +192,7 @@ function RebirthController.start()
 	local panel = findDescendant(rebirthFrame, "Panel", "GuiObject")
 	local closeButton = findDescendant(rebirthFrame, "CloseButton", "GuiButton")
 	local openButton = findHudOpenButton(playerGui)
+	local hudRebirthAlert = openButton and findDescendant(openButton, HUD_REBIRTH_ALERT_NAME, "GuiObject")
 	local rebirthButton = findDescendant(rebirthFrame, "RebirthButton", "GuiButton")
 	local rebirthCannotAfford = rebirthButton and findDescendant(rebirthButton, "CannotAfford", "GuiObject")
 	local skipButton = findDescendant(rebirthFrame, "SkipButton", "GuiButton")
@@ -158,6 +218,9 @@ function RebirthController.start()
 	if openButton then
 		UiEffects.BindButton(openButton)
 	end
+	if hudRebirthAlert then
+		hudRebirthAlert.Visible = false
+	end
 	rewardTemplate.Visible = false
 	petHolderTemplate.Visible = false
 	rebirthFrame.Visible = false
@@ -180,6 +243,9 @@ function RebirthController.start()
 	local isOpen = false
 	local transitionToken = 0
 	local renderedRewardsSignature = nil
+	local wasAffordableForRebirth = false
+	local rarityRewardRows = setmetatable({}, { __mode = "k" })
+	local rarityRenderConnection = nil
 	local render
 
 	local function setError(text)
@@ -223,11 +289,17 @@ function RebirthController.start()
 		progressFill.Visible = progress > 0
 	end
 
+	local refreshRewardRarityRows
+
 	local function clearGeneratedRewards()
 		for _, child in ipairs(rewardList:GetChildren()) do
 			if child:GetAttribute(GENERATED_REWARD_ATTR) == true then
+				rarityRewardRows[child] = nil
 				child:Destroy()
 			end
+		end
+		if refreshRewardRarityRows then
+			refreshRewardRarityRows()
 		end
 	end
 
@@ -238,6 +310,7 @@ function RebirthController.start()
 				tostring(reward.kind),
 				tostring(reward.petId),
 				tostring(reward.feedType),
+				tostring(reward.seedId),
 				tostring(reward.amount),
 				tostring(reward.displayName),
 			}, "\31")
@@ -245,11 +318,57 @@ function RebirthController.start()
 		return table.concat(parts, "\30")
 	end
 
+	local function disconnectRarityRender()
+		if rarityRenderConnection then
+			rarityRenderConnection:Disconnect()
+			rarityRenderConnection = nil
+		end
+	end
+
+	refreshRewardRarityRows = function()
+		local hasAnimated = false
+		for row, rarity in pairs(rarityRewardRows) do
+			if not (row and row.Parent) then
+				rarityRewardRows[row] = nil
+			else
+				local color = Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common)
+				applyColorToTextStack(row, color)
+				local definition = Rarities.Get(rarity)
+				hasAnimated = hasAnimated or (definition and definition.Animated == true)
+			end
+		end
+		if not hasAnimated then
+			disconnectRarityRender()
+		end
+	end
+
+	local function registerRewardRarityRow(row, reward)
+		local rarity = rewardRarity(reward)
+		if not (row and rarity) then
+			return
+		end
+		rarityRewardRows[row] = rarity
+		refreshRewardRarityRows()
+		local definition = Rarities.Get(rarity)
+		if definition and definition.Animated and not rarityRenderConnection then
+			rarityRenderConnection = RuntimeGuard.Connect(
+				RunService.RenderStepped,
+				"RebirthController.RarityRewardRender",
+				refreshRewardRarityRows
+			)
+		end
+	end
+
 	local function rewardViewportOptions(reward)
 		if type(reward) == "table" and reward.kind == "Pet" then
 			return {
 				targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
 				zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
+			}
+		end
+		if type(reward) == "table" and reward.kind == "Seed" then
+			return {
+				zoom = SEED_REWARD_VIEWPORT_ZOOM,
 			}
 		end
 		return nil
@@ -301,7 +420,25 @@ function RebirthController.start()
 			UiEffects.SetTextStack(row, rewardText(reward))
 			renderRewardViewport(row, rewardTemplateFor(reward), rewardViewportOptions(reward))
 			row.Parent = rewardList
+			registerRewardRarityRow(row, reward)
 		end
+	end
+
+	local function updateAffordabilityPrompt(state)
+		local price = tonumber(state.price) or 0
+		local currency = tonumber(state.currency) or 0
+		local affordable = state.profileReady == true and state.maxTier ~= true and price > 0 and currency >= price
+
+		if hudRebirthAlert then
+			hudRebirthAlert.Visible = affordable
+		end
+		if affordable and not wasAffordableForRebirth then
+			Notifications.show({
+				text = REBIRTH_AFFORDABLE_NOTIFICATION,
+				kind = NotificationConfig.Kinds.Rebirth,
+			})
+		end
+		wasAffordableForRebirth = affordable
 	end
 
 	render = function()
@@ -318,6 +455,7 @@ function RebirthController.start()
 			if rebirthCannotAfford then
 				rebirthCannotAfford.Visible = false
 			end
+			updateAffordabilityPrompt(state)
 			UiEffects.SetTextStack(skipButtonPrice, "Robux")
 			UiEffects.SetButtonEnabled(skipButton, false)
 			renderRewards({})
@@ -334,6 +472,7 @@ function RebirthController.start()
 		if rebirthCannotAfford then
 			rebirthCannotAfford.Visible = readyToAttemptRebirth and currentCurrency < nextPrice
 		end
+		updateAffordabilityPrompt(state)
 		UiEffects.SetTextStack(skipButtonPrice, robuxText(skipProductId, render))
 		UiEffects.SetButtonEnabled(skipButton, state.profileReady == true and type(skipProductId) == "number" and skipProductId > 0 and not pendingRequest)
 		renderRewards(state.rewards)

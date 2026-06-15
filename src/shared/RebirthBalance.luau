@@ -7,7 +7,7 @@ RebirthBalance.Tiers = {
 			{ petId = "Pet1", amount = 1 },
 		},
 		Rewards = {
-			{ kind = "FeedMachine", feedType = "JamBarrel", amount = 1 },
+			{ kind = "Seed", seedId = "MushroomSeed", amount = 1 },
 		},
 		SkipProductId = 3604678866,
 	},
@@ -15,6 +15,9 @@ RebirthBalance.Tiers = {
 		Price = 250000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
+		},
+		Rewards = {
+			{ kind = "FeedMachine", feedType = "JamBarrel", amount = 1 },
 		},
 		SkipProductId = 3604678885,
 	},
@@ -24,7 +27,7 @@ RebirthBalance.Tiers = {
 			{ petId = "Pet1", amount = 1 },
 		},
 		Rewards = {
-			{ kind = "FeedMachine", feedType = "UpgradedJamBarrel", amount = 1 },
+			{ kind = "Seed", seedId = "PineappleSeed", amount = 1 },
 		},
 		SkipProductId = 3604678897,
 	},
@@ -32,6 +35,9 @@ RebirthBalance.Tiers = {
 		Price = 20000000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
+		},
+		Rewards = {
+			{ kind = "FeedMachine", feedType = "UpgradedJamBarrel", amount = 1 },
 		},
 		SkipProductId = 3604678913,
 	},
@@ -41,7 +47,7 @@ RebirthBalance.Tiers = {
 			{ petId = "Pet1", amount = 1 },
 		},
 		Rewards = {
-			{ kind = "FeedMachine", feedType = "GoldenJamBarrel", amount = 1 },
+			{ kind = "Seed", seedId = "BloodOrangeTreeSeed", amount = 1 },
 		},
 		SkipProductId = 3604678927,
 	},
@@ -108,7 +114,13 @@ function RebirthBalance.ToClientRewards(tier)
 				kind = "FeedMachine",
 				feedType = reward.feedType,
 				amount = integer(reward.amount, 0),
-				displayName = tostring(reward.feedType or "Feed Machine"),
+			}
+		elseif reward.kind == "Seed" then
+			rewards[#rewards + 1] = {
+				kind = "Seed",
+				seedId = reward.seedId,
+				amount = integer(reward.amount, 0),
+				displayName = tostring(reward.seedId or "Seed"),
 			}
 		end
 	end

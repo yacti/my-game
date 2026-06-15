@@ -1552,7 +1552,7 @@ local function validateRebirthBalance(errors)
 		end
 
 		for index, reward in ipairs(tier.Rewards or {}) do
-			if type(reward) ~= "table" or reward.kind ~= "FeedMachine" then
+			if type(reward) ~= "table" then
 				add(errors, string.format("%s.Rewards[%d] has unsupported kind", source, index))
 				continue
 			end
@@ -1560,8 +1560,16 @@ local function validateRebirthBalance(errors)
 			if type(amount) ~= "number" or amount < 1 or amount % 1 ~= 0 then
 				add(errors, string.format("%s.Rewards[%d] has invalid amount", source, index))
 			end
-			if type(reward.feedType) ~= "string" or not FeedMachines.GetTemplate(reward.feedType) then
-				add(errors, string.format("%s.Rewards[%d] has unknown feedType %q", source, index, tostring(reward.feedType)))
+			if reward.kind == "FeedMachine" then
+				if type(reward.feedType) ~= "string" or not FeedMachines.GetTemplate(reward.feedType) then
+					add(errors, string.format("%s.Rewards[%d] has unknown feedType %q", source, index, tostring(reward.feedType)))
+				end
+			elseif reward.kind == "Seed" then
+				if type(reward.seedId) ~= "string" or not Seeds.GetTemplate(reward.seedId) then
+					add(errors, string.format("%s.Rewards[%d] has unknown seedId %q", source, index, tostring(reward.seedId)))
+				end
+			else
+				add(errors, string.format("%s.Rewards[%d] has unsupported kind %q", source, index, tostring(reward.kind)))
 			end
 		end
 	end

@@ -11,6 +11,7 @@ local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
+local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -222,38 +223,63 @@ local function preparePetModels(plot, pets)
 	return prepared
 end
 
-local function prepareFeedRewards(tier)
+local function destroyPreparedReward(prepared)
+	if type(prepared) ~= "table" then
+		return
+	end
+	if prepared.kind == "FeedMachine" then
+		FeedRewardService.DestroyPrepared(prepared.grant)
+	elseif prepared.kind == "Seed" then
+		SeedTools.DestroyPrepared(prepared.grant)
+	end
+end
+
+local function prepareRewards(tier)
 	local prepared = {}
 	for _, reward in ipairs(tier.Rewards or {}) do
-		if reward.kind ~= "FeedMachine" then
-			for _, grant in ipairs(prepared) do
-				FeedRewardService.DestroyPrepared(grant)
+		local amount = integer(reward.amount, 0)
+		local grant, code
+		if reward.kind == "FeedMachine" then
+			grant, code = FeedRewardService.PrepareGrant(reward.feedType, amount)
+		elseif reward.kind == "Seed" then
+			grant, code = SeedTools.PrepareGrant(reward.seedId, amount)
+		else
+			for _, existing in ipairs(prepared) do
+				destroyPreparedReward(existing)
 			end
 			return nil, "invalid-reward-kind"
 		end
 
-		local amount = integer(reward.amount, 0)
-		local grant, code = FeedRewardService.PrepareGrant(reward.feedType, amount)
 		if not grant then
 			for _, existing in ipairs(prepared) do
-				FeedRewardService.DestroyPrepared(existing)
+				destroyPreparedReward(existing)
 			end
-			return nil, code or "invalid-feed-reward"
+			return nil, code or "invalid-reward"
 		end
-		prepared[#prepared + 1] = grant
+		prepared[#prepared + 1] = {
+			kind = reward.kind,
+			grant = grant,
+		}
 	end
 	return prepared
 end
 
-local function destroyPreparedFeedRewards(preparedRewards)
-	for _, grant in ipairs(preparedRewards or {}) do
-		FeedRewardService.DestroyPrepared(grant)
+local function destroyPreparedRewards(preparedRewards)
+	for _, prepared in ipairs(preparedRewards or {}) do
+		destroyPreparedReward(prepared)
 	end
 end
 
-local function applyPreparedFeedRewards(player, profile, preparedRewards)
-	for _, grant in ipairs(preparedRewards or {}) do
-		local ok, code = FeedRewardService.ApplyPrepared(player, profile, grant)
+local function applyPreparedRewards(player, profile, preparedRewards)
+	for _, prepared in ipairs(preparedRewards or {}) do
+		local ok, code
+		if prepared.kind == "FeedMachine" then
+			ok, code = FeedRewardService.ApplyPrepared(player, profile, prepared.grant)
+		elseif prepared.kind == "Seed" then
+			ok, code = SeedTools.ApplyPrepared(player, profile, prepared.grant)
+		else
+			ok, code = false, "invalid-reward-kind"
+		end
 		if not ok then
 			return false, code
 		end
@@ -348,10 +374,10 @@ local function runTransaction(player, options)
 	if not preparedPets then
 		return false, preparePetCode
 	end
-	local preparedFeeds, prepareFeedCode = prepareFeedRewards(tier)
-	if not preparedFeeds then
+	local preparedRewards, prepareRewardCode = prepareRewards(tier)
+	if not preparedRewards then
 		destroyPreparedPets(preparedPets)
-		return false, prepareFeedCode
+		return false, prepareRewardCode
 	end
 
 	local snapshot = snapshotProfile(profile)
@@ -359,25 +385,25 @@ local function runTransaction(player, options)
 	local resetOk, resetCode = CurrencyService.ResetToZeroForRebirth(player, profile, minimumCash, true)
 	if not resetOk then
 		destroyPreparedPets(preparedPets)
-		destroyPreparedFeedRewards(preparedFeeds)
+		destroyPreparedRewards(preparedRewards)
 		return false, resetCode
 	end
 
 	profile.Data.Rebirths = tierNumber
 	profile.Data.Pets = targetPets
 
-	local feedsOk, feedsCode = applyPreparedFeedRewards(player, profile, preparedFeeds)
-	if not feedsOk then
+	local rewardsOk, rewardsCode = applyPreparedRewards(player, profile, preparedRewards)
+	if not rewardsOk then
 		restoreProfile(player, profile, snapshot)
 		destroyPreparedPets(preparedPets)
-		destroyPreparedFeedRewards(preparedFeeds)
+		destroyPreparedRewards(preparedRewards)
 		restoreLivePets(plot, snapshot.Pets)
-		return false, feedsCode or "grant-failed"
+		return false, rewardsCode or "grant-failed"
 	end
 
 	if not swapPreparedPets(plot, profile.Data.Pets, preparedPets) then
 		restoreProfile(player, profile, snapshot)
-		destroyPreparedFeedRewards(preparedFeeds)
+		destroyPreparedRewards(preparedRewards)
 		local restored = restoreLivePets(plot, snapshot.Pets)
 		if not restored then
 			warn("[RebirthService] Failed to restore live pet state after rebirth swap failure")
@@ -391,7 +417,7 @@ local function runTransaction(player, options)
 
 	if not saveProfile(profile) then
 		restoreProfile(player, profile, snapshot)
-		destroyPreparedFeedRewards(preparedFeeds)
+		destroyPreparedRewards(preparedRewards)
 		local restored = restoreLivePets(plot, snapshot.Pets)
 		if not restored then
 			warn("[RebirthService] Failed to restore live pet state after profile save failure")
