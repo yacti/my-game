@@ -14,18 +14,22 @@ local AutoPromptButtonController = {}
 local HUD_NAME = "HUD"
 local BUTTON_NAME = "AutoPromptButton"
 local ICON_NAME = "Icon"
+local CORNER_NAME = "UICorner"
 local TOUCH_GUI_NAME = "TouchGui"
 local TOUCH_CONTROL_FRAME_NAME = "TouchControlFrame"
 local JUMP_BUTTON_NAME = "JumpButton"
-local FEED_ICON_TEXT_ATTR = "FeedIconText"
-local COLLECT_ICON_TEXT_ATTR = "CollectIconText"
 local FEED_ICON_IMAGE_ATTR = "FeedIconImage"
 local COLLECT_ICON_IMAGE_ATTR = "CollectIconImage"
 local AUTO_MODE_ATTR = "AutoPromptMode"
+local FEED_ICON_IMAGE = "rbxassetid://119576309332002"
+local COLLECT_ICON_IMAGE = "rbxasset://textures/ui/Controls/TouchTapIcon.png"
+local CONTROL_BACKGROUND_COLOR = Color3.fromRGB(58, 61, 68)
+local CONTROL_BACKGROUND_TRANSPARENCY = 0.28
 local REPEAT_SECONDS = 0.5
 local REFRESH_SECONDS = 0.1
 local GAP_SCALE = 0.12
-local MIN_DIAMETER = 24
+local BUTTON_JUMP_SIZE_SCALE = 0.5 * 1.3 * 1.15
+local MIN_DIAMETER = math.floor(24 * 1.3 * 1.15)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -64,6 +68,79 @@ local function findJumpButton()
 	return nil
 end
 
+local function clearTextSignage(guiObject)
+	if guiObject:IsA("TextLabel") or guiObject:IsA("TextButton") then
+		guiObject.Text = ""
+		guiObject.TextTransparency = 1
+		guiObject.TextStrokeTransparency = 1
+	end
+
+	for _, descendant in ipairs(guiObject:GetDescendants()) do
+		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
+			descendant.Text = ""
+			descendant.TextTransparency = 1
+			descendant.TextStrokeTransparency = 1
+		end
+	end
+end
+
+local function configureButtonIconDefaults()
+	if not button then
+		return
+	end
+
+	button:SetAttribute("FeedIconText", nil)
+	button:SetAttribute("CollectIconText", nil)
+	local feedIconImage = button:GetAttribute(FEED_ICON_IMAGE_ATTR)
+	if type(feedIconImage) ~= "string" or feedIconImage == "" then
+		button:SetAttribute(FEED_ICON_IMAGE_ATTR, FEED_ICON_IMAGE)
+	end
+	local collectIconImage = button:GetAttribute(COLLECT_ICON_IMAGE_ATTR)
+	if type(collectIconImage) ~= "string" or collectIconImage == "" then
+		button:SetAttribute(COLLECT_ICON_IMAGE_ATTR, COLLECT_ICON_IMAGE)
+	end
+end
+
+local function ensureButtonBackgroundShape()
+	if not button then
+		return
+	end
+
+	local corner = button:FindFirstChild(CORNER_NAME)
+	if not (corner and corner:IsA("UICorner")) then
+		corner = Instance.new("UICorner")
+		corner.Name = CORNER_NAME
+		corner.Parent = button
+	end
+	corner.CornerRadius = UDim.new(1, 0)
+end
+
+local function ensureImageIcon(iconObject)
+	if iconObject:IsA("ImageLabel") or iconObject:IsA("ImageButton") then
+		clearTextSignage(iconObject)
+		return iconObject
+	end
+	if not (iconObject:IsA("TextLabel") or iconObject:IsA("TextButton")) then
+		return nil
+	end
+
+	clearTextSignage(iconObject)
+	local imageIcon = iconObject:FindFirstChild("Image")
+	if not (imageIcon and imageIcon:IsA("ImageLabel")) then
+		imageIcon = Instance.new("ImageLabel")
+		imageIcon.Name = "Image"
+		imageIcon.BackgroundTransparency = 1
+		imageIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+		imageIcon.Position = UDim2.fromScale(0.5, 0.5)
+		imageIcon.Size = UDim2.fromScale(1, 1)
+		imageIcon.ZIndex = iconObject.ZIndex + 1
+		imageIcon.ScaleType = Enum.ScaleType.Fit
+		imageIcon.Parent = iconObject
+	end
+	imageIcon.Visible = true
+	return imageIcon
+end
+
 local function copyJumpButtonStyle(jumpButton)
 	if not (button and jumpButton and jumpButton:IsA("GuiObject")) then
 		return
@@ -74,9 +151,12 @@ local function copyJumpButtonStyle(jumpButton)
 	button.BorderColor3 = jumpButton.BorderColor3
 	button.BorderSizePixel = jumpButton.BorderSizePixel
 	button.AutoButtonColor = false
+	button.Image = ""
+	button.BackgroundColor3 = CONTROL_BACKGROUND_COLOR
+	button.BackgroundTransparency = CONTROL_BACKGROUND_TRANSPARENCY
+	button.BorderSizePixel = 0
 
 	if jumpButton:IsA("ImageButton") or jumpButton:IsA("ImageLabel") then
-		button.Image = jumpButton.Image
 		button.ImageColor3 = jumpButton.ImageColor3
 		button.ImageTransparency = jumpButton.ImageTransparency
 		button.ImageRectOffset = jumpButton.ImageRectOffset
@@ -98,13 +178,13 @@ local function positionBesideJumpButton(jumpButton)
 		return false
 	end
 
-	local diameter = math.max(MIN_DIAMETER, math.floor(math.min(jumpSize.X, jumpSize.Y) * 0.5))
+	local diameter = math.max(MIN_DIAMETER, math.floor(math.min(jumpSize.X, jumpSize.Y) * BUTTON_JUMP_SIZE_SCALE))
 	local radius = diameter * 0.5
 	local gap = diameter * GAP_SCALE
 	local jumpPosition = jumpButton.AbsolutePosition
 	local hudPosition = hud.AbsolutePosition
 	local screenCenter = Vector2.new(
-		jumpPosition.X + jumpSize.X - radius,
+		jumpPosition.X - radius - gap,
 		jumpPosition.Y - radius - gap
 	)
 
@@ -127,18 +207,13 @@ local function setIconForMode(mode)
 		return
 	end
 
-	if icon:IsA("TextLabel") or icon:IsA("TextButton") then
-		if mode == LocalPrompts.AutoModes.Feed then
-			icon.Text = tostring(button:GetAttribute(FEED_ICON_TEXT_ATTR) or "F")
-		elseif mode == LocalPrompts.AutoModes.Collect then
-			icon.Text = tostring(button:GetAttribute(COLLECT_ICON_TEXT_ATTR) or "C")
-		end
-	elseif icon:IsA("ImageLabel") or icon:IsA("ImageButton") then
+	if icon:IsA("ImageLabel") or icon:IsA("ImageButton") then
 		local attrName = mode == LocalPrompts.AutoModes.Feed and FEED_ICON_IMAGE_ATTR or COLLECT_ICON_IMAGE_ATTR
 		local image = button:GetAttribute(attrName)
 		if type(image) == "string" and image ~= "" then
 			icon.Image = image
 		end
+		icon.Visible = true
 	end
 end
 
@@ -258,6 +333,13 @@ function AutoPromptButtonController.start()
 	icon = button:FindFirstChild(ICON_NAME)
 	if not (icon and icon:IsA("GuiObject")) then
 		warn("[AutoPromptButtonController] HUD.AutoPromptButton missing Icon GuiObject")
+		return
+	end
+	configureButtonIconDefaults()
+	ensureButtonBackgroundShape()
+	icon = ensureImageIcon(icon)
+	if not icon then
+		warn("[AutoPromptButtonController] HUD.AutoPromptButton Icon must be an image or text-backed GuiObject")
 		return
 	end
 

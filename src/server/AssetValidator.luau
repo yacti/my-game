@@ -1398,13 +1398,26 @@ local function validateVipHud(hud, warnings)
 end
 
 local function validateAutoPromptButton(hud, errors)
-	local button = child(hud, "AutoPromptButton", "GuiButton", errors)
+	local button = child(hud, "AutoPromptButton", "ImageButton", errors)
 	if not button then return end
 	if button.Visible ~= false then
 		add(errors, button:GetFullName() .. " should be hidden template UI (Visible=false)")
 	end
-	child(button, "Icon", "GuiObject", errors)
+	if button.Image ~= "" then
+		add(errors, button:GetFullName() .. " should use a neutral rounded background, not an image glyph")
+	end
+	child(button, "Icon", "ImageLabel", errors)
 	child(button, "UIAspectRatioConstraint", "UIAspectRatioConstraint", errors)
+	child(button, "UICorner", "UICorner", errors)
+	if button:GetAttribute("FeedIconText") ~= nil or button:GetAttribute("CollectIconText") ~= nil then
+		add(errors, button:GetFullName() .. " should use image attributes instead of text icon attributes")
+	end
+	if button:GetAttribute("FeedIconImage") ~= "rbxassetid://119576309332002" then
+		add(errors, button:GetFullName() .. " missing FeedIconImage rbxassetid://119576309332002")
+	end
+	if button:GetAttribute("CollectIconImage") ~= "rbxasset://textures/ui/Controls/TouchTapIcon.png" then
+		add(errors, button:GetFullName() .. " missing CollectIconImage TouchTapIcon.png")
+	end
 end
 
 local function validateRollUpgradeButton(frame, errors)
