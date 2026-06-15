@@ -16,6 +16,7 @@ local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnchor"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -628,6 +629,10 @@ function FeedEditController.start()
 	end
 
 	local function isOfflineProgressPending()
+		local showcase = PlayerStateStore.Get(PlayerStateStore.Fields.JoinBackShowcase)
+		if type(showcase) == "table" then
+			return true
+		end
 		return player:GetAttribute(State.Player.OfflineProgressPending) == true
 	end
 
@@ -1174,6 +1179,16 @@ function FeedEditController.start()
 
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(EDIT_MODE_ATTR), "FeedEditController.EditModeChanged", refreshEditState)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "FeedEditController.OfflineProgressPendingChanged", function()
+		if isOfflineProgressPending() then
+			clearSelection(true)
+			setGridEnabled(false)
+			if editEnabled then
+				FeedEditModeRequest:FireServer(false)
+			end
+		end
+		refreshButtonVisibility()
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.JoinBackShowcase, function()
 		if isOfflineProgressPending() then
 			clearSelection(true)
 			setGridEnabled(false)

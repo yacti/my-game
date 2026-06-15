@@ -37,6 +37,7 @@ local hud = nil
 local button = nil
 local icon = nil
 local pressed = false
+local activePressInput = nil
 local lockedMode = nil
 local currentCandidate = nil
 local refreshAccumulator = 0
@@ -266,7 +267,7 @@ local function refreshIdleState()
 	end
 end
 
-local function beginPress()
+local function beginPress(input)
 	if pressed or not button or not button.Visible then
 		return
 	end
@@ -278,16 +279,21 @@ local function beginPress()
 	end
 
 	pressed = true
+	activePressInput = input
 	lockedMode = currentCandidate.mode
 	setButtonMode(lockedMode, true)
 end
 
-local function endPress()
+local function endPress(input)
 	if not pressed then
+		return
+	end
+	if input ~= nil and activePressInput ~= nil and input ~= activePressInput then
 		return
 	end
 
 	pressed = false
+	activePressInput = nil
 	lockedMode = nil
 	LocalPrompts.EndAutoHold()
 	refreshIdleState()
@@ -328,17 +334,17 @@ function AutoPromptButtonController.start()
 
 	RuntimeGuard.Connect(button.InputBegan, "AutoPromptButton.InputBegan", function(input)
 		if isPressInput(input) then
-			beginPress()
+			beginPress(input)
 		end
 	end)
 	RuntimeGuard.Connect(button.InputEnded, "AutoPromptButton.InputEnded", function(input)
 		if isPressInput(input) then
-			endPress()
+			endPress(input)
 		end
 	end)
 	RuntimeGuard.Connect(UserInputService.InputEnded, "AutoPromptButton.GlobalInputEnded", function(input)
 		if isPressInput(input) then
-			endPress()
+			endPress(input)
 		end
 	end)
 
