@@ -222,6 +222,7 @@ function GrowingVisuals.BuildTreeSapling(feedType)
 	end
 
 	local clone = sapling:Clone()
+	clone.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	local size, primaryRotation = targetPrimaryInfo(feedType)
 	if size then
 		scaleModelXZ(clone, size)

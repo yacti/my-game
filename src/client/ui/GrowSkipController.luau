@@ -18,6 +18,7 @@ local APPLE_TREE_SEED_ID = "AppleTreeSeed"
 local PROMPT_KIND = "GrowSkip"
 local PROMPT_DISTANCE = 10
 local PROMPT_ATTACHMENT_NAME = "__LocalPrompt_GrowSkipAttachment"
+local PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM = 5
 
 local player = Players.LocalPlayer
 local requestRemote = Remotes.get(Remotes.Names.GrowSkipRequest)
@@ -75,10 +76,12 @@ local function attachmentFor(target)
 	end
 	local attachment = part:FindFirstChild(PROMPT_ATTACHMENT_NAME)
 	if attachment and attachment:IsA("Attachment") then
+		attachment.Position = Vector3.new(0, -part.Size.Y * 0.5 + PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM, 0)
 		return attachment
 	end
 	attachment = Instance.new("Attachment")
 	attachment.Name = PROMPT_ATTACHMENT_NAME
+	attachment.Position = Vector3.new(0, -part.Size.Y * 0.5 + PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM, 0)
 	attachment.Parent = part
 	return attachment
 end

@@ -7,16 +7,17 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local TimerBillboards = {}
 
-local TEMPLATE_WAIT_SECONDS = 8
 local TEMPLATE_NAME = "TimerBillboard"
 local TITLE_LABEL_NAME = "TitleLabel"
 local TIME_LABEL_NAME = "TimeLabel"
 local UPDATE_SECONDS = 0.25
+local TIMER_HEIGHT_ABOVE_PRIMARY_BOTTOM = 3
 
 local player = Players.LocalPlayer
 local tracked = {}
@@ -26,19 +27,19 @@ local template = nil
 local warnedTemplate = false
 local warnedLabels = false
 local plotDescendantAdded = nil
+local scanRevision = 0
 
 local function getTemplate()
-	if template ~= nil then
-		return template ~= false and template or nil
+	if template and template.Parent then
+		return template
 	end
 
-	local found = BillboardGuiTemplates.WaitFor(TEMPLATE_NAME, TEMPLATE_WAIT_SECONDS)
+	local found = BillboardGuiTemplates.Find(TEMPLATE_NAME)
 	if not (found and found:IsA("BillboardGui")) then
 		if not warnedTemplate then
 			warn("[TimerBillboards] Missing " .. BillboardGuiTemplates.Path(TEMPLATE_NAME) .. " BillboardGui")
 			warnedTemplate = true
 		end
-		template = false
 		return nil
 	end
 
@@ -126,6 +127,21 @@ local function hasActiveTimer(instance)
 	return title ~= nil and type(endAt) == "number"
 end
 
+local function shouldWatchCandidate(instance)
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
+		return false
+	end
+	if instance:GetAttribute(State.Feed.Index) ~= nil then
+		return true
+	end
+	if instance:GetAttribute(State.Seed.Phase) ~= nil or instance:GetAttribute(State.Seed.GrowEndAt) ~= nil then
+		return true
+	end
+	return instance:GetAttribute(State.Feed.QueueReadyAt) ~= nil
+		or instance:GetAttribute(State.Feed.QueueCount) ~= nil
+		or instance:GetAttribute(State.Feed.ReadyCount) ~= nil
+end
+
 local function formatRemaining(seconds)
 	seconds = math.max(math.ceil(seconds), 0)
 	local hours = math.floor(seconds / 3600)
@@ -194,6 +210,11 @@ local function attach(instance)
 	local gui = baseTemplate:Clone()
 	UiEffects.BindBillboardPop(gui)
 	gui.Adornee = adornee
+	if instance:GetAttribute(State.Seed.Phase) == "GrowingSeed"
+		and instance:GetAttribute(State.Feed.Class) == "Tree" then
+		gui.StudsOffset = Vector3.zero
+		gui.StudsOffsetWorldSpace = Vector3.new(0, -adornee.Size.Y * 0.5 + TIMER_HEIGHT_ABOVE_PRIMARY_BOTTOM, 0)
+	end
 	gui.Parent = adornee
 	UiEffects.BindBillboardDistancePop(gui)
 	tracked[instance] = gui
@@ -234,7 +255,7 @@ end
 
 local function watchCandidate(instance)
 	if candidateConnections[instance] then return end
-	if not (instance:IsA("BasePart") or instance:IsA("Model")) then return end
+	if not shouldWatchCandidate(instance) then return end
 	if not isInOwnPlot(instance) then return end
 
 	local conns = {}
@@ -272,6 +293,8 @@ local function scan()
 end
 
 local function watchCurrentPlot()
+	scanRevision += 1
+	local revision = scanRevision
 	if plotDescendantAdded then
 		plotDescendantAdded:Disconnect()
 		plotDescendantAdded = nil
@@ -291,8 +314,19 @@ local function watchCurrentPlot()
 				watchCandidate(instance)
 			end)
 		end)
+		task.delay(0.5, function()
+			RuntimeGuard.Run("TimerBillboards.AttachDelayed", function()
+				watchCandidate(instance)
+			end)
+		end)
 	end)
 	scan()
+	task.delay(0.5, function()
+		if revision ~= scanRevision then
+			return
+		end
+		RuntimeGuard.Run("TimerBillboards.DelayedScan", scan)
+	end)
 end
 
 function TimerBillboards.start()
@@ -300,6 +334,14 @@ function TimerBillboards.start()
 		RuntimeGuard.Run("TimerBillboards.WatchInitialPlot", watchCurrentPlot)
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "TimerBillboards.AssignedPlotChanged", watchCurrentPlot)
+	RuntimeGuard.Connect(Workspace.ChildAdded, "TimerBillboards.WorkspaceChildAdded", function(child)
+		if child.Name == "Plots" and child:IsA("Folder") then
+			task.defer(watchCurrentPlot)
+		end
+	end)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
+		task.defer(watchCurrentPlot)
+	end)
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "TimerBillboards.Heartbeat", function(dt)
@@ -310,6 +352,11 @@ function TimerBillboards.start()
 		elapsed = 0
 		for instance, gui in pairs(tracked) do
 			RuntimeGuard.Run("TimerBillboards.Update", update, instance, gui)
+		end
+		for instance in pairs(candidateConnections) do
+			if not tracked[instance] and hasActiveTimer(instance) then
+				RuntimeGuard.Run("TimerBillboards.RetryAttach", refreshCandidate, instance)
+			end
 		end
 	end)
 end
