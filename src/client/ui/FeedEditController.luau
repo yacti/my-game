@@ -26,6 +26,9 @@ local EDIT_MODE_ATTR = "EditMode"
 local HUD_NAME = "HUD"
 local EDIT_BUTTON_NAME = "EditModeButton"
 local EXIT_EDIT_BUTTON_NAME = "ExitEditMode"
+local TOPBAR_EDIT_ICON_NAME = "EditMode"
+local TOPBAR_EDIT_ICON_IMAGE = "rbxassetid://116968621046326"
+local EDIT_MODE_ICON_PENDING_SECONDS = 1.5
 local PLACEMENT_EDIT_NAME = "PlacementEdit"
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local FLOOR_Y_TOLERANCE_BELOW = 5
@@ -54,6 +57,25 @@ local MOVE_FAILURE_MESSAGES = {
 }
 
 local GROWING_PLANT_MESSAGE = "You can't move growing plants!"
+
+local function requireTopbarIcon()
+	local satchelRoot = ReplicatedStorage:WaitForChild("Satchel", 10)
+	if not satchelRoot then
+		warn("[FeedEditController] Missing ReplicatedStorage.Satchel; edit toolbar icon will not start")
+		return nil
+	end
+
+	local loader = satchelRoot:WaitForChild("SatchelLoader", 10)
+	local satchelModule = loader and loader:WaitForChild("Satchel", 10)
+	local packages = satchelModule and satchelModule:WaitForChild("Packages", 10)
+	local topbarPlus = packages and packages:WaitForChild("topbarplus", 10)
+	if not topbarPlus then
+		warn("[FeedEditController] Missing Satchel TopbarPlus module; edit toolbar icon will not start")
+		return nil
+	end
+
+	return require(topbarPlus)
+end
 
 local function moveFailureMessage(reason)
 	return MOVE_FAILURE_MESSAGES[reason] or "Could not move that machine."
@@ -496,14 +518,19 @@ function FeedEditController.start()
 		return
 	end
 
-	local editButton = hud:FindFirstChild(EDIT_BUTTON_NAME, true)
-	if not (editButton and editButton:IsA("GuiButton")) then
-		warn("[FeedEditController] HUD missing EditModeButton GuiButton")
-		return
+	local oldEditButton = hud:FindFirstChild(EDIT_BUTTON_NAME, true)
+	if oldEditButton and oldEditButton:IsA("GuiButton") then
+		oldEditButton.Visible = false
+		oldEditButton.Active = false
 	end
 	local exitEditButton = hud:FindFirstChild(EXIT_EDIT_BUTTON_NAME, true)
 	if not (exitEditButton and exitEditButton:IsA("GuiButton")) then
 		warn("[FeedEditController] HUD missing ExitEditMode GuiButton")
+		return
+	end
+
+	local Icon = requireTopbarIcon()
+	if not Icon then
 		return
 	end
 
@@ -538,14 +565,33 @@ function FeedEditController.start()
 	local pendingOriginalCFrame = nil
 	local ignoreWorldInputUntil = 0
 	local lastForcedOffRequest = 0
-	local editButtonOpen = false
 	local exitEditButtonOpen = false
-	local editButtonTransitionToken = 0
 	local exitEditButtonTransitionToken = 0
+	local syncingEditModeIcon = false
+	local pendingDesiredEditMode = nil
+	local pendingDesiredEditModeExpiresAt = 0
 	local rotationTween = nil
 	local rotationTweenValue = nil
 	local rotationTweenConnection = nil
 	local rotationTweenToken = 0
+
+	local editModeIcon = Icon.new()
+		:setName(TOPBAR_EDIT_ICON_NAME)
+		:setImage(TOPBAR_EDIT_ICON_IMAGE)
+		:setImageScale(0.58)
+		:setCaption("Edit mode")
+		:setOrder(0)
+		:autoDeselect(false)
+	editModeIcon:modifyTheme({
+		{ "IconButton", "BackgroundColor3", Color3.fromRGB(0, 0, 0) },
+		{ "IconButton", "BackgroundTransparency", 0.2 },
+		{ "IconCorners", "CornerRadius", UDim.new(1, 0) },
+		{ "IconImage", "ImageColor3", Color3.fromRGB(255, 255, 255), "Deselected" },
+		{ "IconImage", "ImageColor3", Color3.fromRGB(255, 65, 65), "Selected" },
+		{ "IconSpot", "BackgroundTransparency", 1, "Selected" },
+		{ "IconSpotGradient", "Enabled", false, "Selected" },
+	})
+	editModeIcon:setEnabled(false)
 
 	local placementEdit = placementEditTemplate:Clone()
 	UiEffects.BindBillboardPop(placementEdit)
@@ -567,9 +613,7 @@ function FeedEditController.start()
 		return
 	end
 	local silentUiEffects = { silent = true }
-	UiEffects.BindButton(editButton, silentUiEffects)
 	UiEffects.BindButton(exitEditButton, silentUiEffects)
-	local editButtonPanelState = UiEffects.PreparePanel(editButton)
 	local exitEditButtonPanelState = UiEffects.PreparePanel(exitEditButton)
 	if confirmButton and confirmButton:IsA("GuiObject") then
 		confirmButton.Visible = false
@@ -896,22 +940,12 @@ function FeedEditController.start()
 		sendMoveRequest()
 	end
 
-	local function setEditButtonOpen(open)
-		if editButtonOpen == open then
-			return
-		end
-		editButtonOpen = open
-		editButtonTransitionToken += 1
-		local token = editButtonTransitionToken
-		editButton.Active = open
-		if open then
-			UiEffects.PlayOpen(editButton, editButtonPanelState, silentUiEffects)
+	local function setPendingDesiredEditMode(enabled)
+		pendingDesiredEditMode = enabled
+		if enabled == nil then
+			pendingDesiredEditModeExpiresAt = 0
 		else
-			UiEffects.PlayClose(editButton, editButtonPanelState, function()
-				if editButtonTransitionToken ~= token and editButtonOpen then
-					editButton.Visible = true
-				end
-			end, silentUiEffects)
+			pendingDesiredEditModeExpiresAt = os.clock() + EDIT_MODE_ICON_PENDING_SECONDS
 		end
 	end
 
@@ -934,8 +968,38 @@ function FeedEditController.start()
 		end
 	end
 
+	local function desiredEditModeIconSelected()
+		if not buttonVisible then
+			return false
+		end
+		if pendingDesiredEditMode ~= nil then
+			if pendingDesiredEditMode == editEnabled or os.clock() >= pendingDesiredEditModeExpiresAt then
+				setPendingDesiredEditMode(nil)
+			else
+				return pendingDesiredEditMode
+			end
+		end
+		return editEnabled
+	end
+
+	local function setEditModeIconSelected(selected)
+		if editModeIcon.isSelected == selected then
+			return
+		end
+		syncingEditModeIcon = true
+		if selected then
+			editModeIcon:select("Controller", editModeIcon)
+		else
+			editModeIcon:deselect("Controller", editModeIcon)
+		end
+		syncingEditModeIcon = false
+	end
+
 	local function refreshEditButtonVisibility()
-		setEditButtonOpen(buttonVisible and not editEnabled)
+		if editModeIcon.enabled ~= buttonVisible then
+			editModeIcon:setEnabled(buttonVisible)
+		end
+		setEditModeIconSelected(desiredEditModeIconSelected())
 		setExitEditButtonOpen(buttonVisible and editEnabled)
 	end
 
@@ -944,6 +1008,10 @@ function FeedEditController.start()
 		local visible = floor ~= nil and isOnFloor(floor) and not isOfflineProgressPending()
 		buttonVisible = visible
 		refreshEditButtonVisibility()
+		if not visible then
+			setPendingDesiredEditMode(nil)
+			setEditModeIconSelected(false)
+		end
 		if not visible and editEnabled then
 			setGridEnabled(false)
 			clearSelection(true)
@@ -956,6 +1024,9 @@ function FeedEditController.start()
 
 	local function refreshEditState()
 		editEnabled = player:GetAttribute(EDIT_MODE_ATTR) == true
+		if pendingDesiredEditMode == editEnabled then
+			setPendingDesiredEditMode(nil)
+		end
 		refreshEditButtonVisibility()
 		setGridEnabled(editEnabled)
 		if not editEnabled then
@@ -963,13 +1034,34 @@ function FeedEditController.start()
 		end
 	end
 
-	RuntimeGuard.Connect(editButton.Activated, "FeedEditController.EditButtonActivated", function()
-		if isOfflineProgressPending() then return end
-		if not buttonVisible or editEnabled then return end
-		FeedEditModeRequest:FireServer(true)
+	RuntimeGuard.Connect(editModeIcon.toggled, "FeedEditController.EditModeIconToggled", function(selected, fromSource)
+		if syncingEditModeIcon or fromSource ~= "User" then return end
+		if isOfflineProgressPending() or not buttonVisible then
+			setPendingDesiredEditMode(nil)
+			refreshEditButtonVisibility()
+			return
+		end
+
+		if selected then
+			if editEnabled or pendingDesiredEditMode == true then return end
+			setPendingDesiredEditMode(true)
+			refreshEditButtonVisibility()
+			FeedEditModeRequest:FireServer(true)
+		else
+			if not editEnabled and pendingDesiredEditMode ~= true then
+				setPendingDesiredEditMode(nil)
+				refreshEditButtonVisibility()
+				return
+			end
+			setPendingDesiredEditMode(false)
+			refreshEditButtonVisibility()
+			FeedEditModeRequest:FireServer(false)
+		end
 	end)
 	RuntimeGuard.Connect(exitEditButton.Activated, "FeedEditController.ExitEditButtonActivated", function()
 		if not buttonVisible or not editEnabled then return end
+		setPendingDesiredEditMode(false)
+		refreshEditButtonVisibility()
 		FeedEditModeRequest:FireServer(false)
 	end)
 
@@ -1104,7 +1196,7 @@ function FeedEditController.start()
 	end)
 
 	RuntimeGuard.Spawn("FeedEditController.RefreshLoop", function()
-		while editButton.Parent do
+		while exitEditButton.Parent do
 			RuntimeGuard.Run("FeedEditController.RefreshButtonVisibility", refreshButtonVisibility)
 			task.wait(0.1)
 		end

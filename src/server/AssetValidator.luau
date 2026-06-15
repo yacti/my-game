@@ -1469,7 +1469,7 @@ end
 
 local function validateFeedEditUi(ui, hud, billboardFolder, errors)
 	if hud then
-		descendant(hud, "EditModeButton", "GuiButton", errors)
+		descendant(hud, "ExitEditMode", "GuiButton", errors)
 	end
 
 	if not billboardFolder then return end
