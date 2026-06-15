@@ -6,6 +6,7 @@
 local Players           = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
 local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -52,6 +53,7 @@ local GRID_UNLOCK_PROMPT_DISTANCE = 5
 local GRID_UNLOCK_PROMPT_HOLD_DURATION = 5
 local CRATE_ROLL_PROMPT_DISTANCE = RollConfig.Button.InteractionDistance
 local CRATE_ROLL_PROMPT_Y_OFFSET = -3
+local CRATE_ROLL_PROMPT_MOBILE_Y_OFFSET = -0.5
 local FAR_PROMPT_REFRESH_BUFFER = 12
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
@@ -157,6 +159,14 @@ local function instanceWorldCenter(instance)
 	end
 	local part = firstBasePartDescendant(instance)
 	return part and part.Position or nil
+end
+
+local function rollButtonPromptPosition(button)
+	if not UserInputService.TouchEnabled then
+		return button.Position + Vector3.new(0, CRATE_ROLL_PROMPT_Y_OFFSET, 0)
+	end
+
+	return button.Position + Vector3.new(0, CRATE_ROLL_PROMPT_MOBILE_Y_OFFSET, 0)
 end
 
 local function isVisiblePromptTarget(instance)
@@ -277,7 +287,7 @@ end
 
 local function promptAnchorWorldPosition(instance, kind)
 	if kind == "CrateRoll" and instance:IsA("BasePart") then
-		return instance.Position + Vector3.new(0, CRATE_ROLL_PROMPT_Y_OFFSET, 0)
+		return rollButtonPromptPosition(instance)
 	end
 	local anchor = promptAnchorInstance(instance, kind)
 	return anchor and instanceWorldCenter(anchor) or nil
