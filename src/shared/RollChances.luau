@@ -25,7 +25,7 @@ RollChances.LowLuckDelayedTrueStartMultiplier = 3
 RollChances.Crates = {
 	Crate = {
 		DisplayName = "Crate",
-		DropWeight = 50,
+		DropWeight = 90,
 		LuckMultiplier = 1,
 		TemplateName = "CommonCrate",
 	},

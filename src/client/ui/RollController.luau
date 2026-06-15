@@ -17,6 +17,7 @@ local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -66,6 +67,8 @@ local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 local ROLL_BILLBOARD_CARD_NAME = "Card"
 local PREVIEW_RARITY_SPEED_MULTIPLIER = 3
+local PRICE_AFFORDABLE_COLOR = Color3.fromRGB(120, 255, 120)
+local PRICE_UNAFFORDABLE_COLOR = Color3.fromRGB(236, 95, 95)
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 
@@ -663,6 +666,44 @@ local function applyLabelColor(label, color)
 	end
 end
 
+local function seedPriceColor(price)
+	local numericPrice = tonumber(price)
+	if not numericPrice then
+		return PRICE_AFFORDABLE_COLOR
+	end
+
+	local currency = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Currency)) or 0
+	return currency >= numericPrice and PRICE_AFFORDABLE_COLOR or PRICE_UNAFFORDABLE_COLOR
+end
+
+local function bindSeedPriceColor(billboard, card, price)
+	local label = textLabel(card, "PriceLabel")
+	if not label then
+		return
+	end
+
+	local function refresh()
+		applyLabelColor(label, seedPriceColor(price))
+	end
+
+	refresh()
+	local currencyConnection = PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
+		RuntimeGuard.Run("RollController.SeedPriceCurrencyChanged", refresh)
+	end)
+	local destroyConnection = nil
+	local function disconnect()
+		if currencyConnection then
+			currencyConnection:Disconnect()
+			currencyConnection = nil
+		end
+		if destroyConnection then
+			destroyConnection:Disconnect()
+			destroyConnection = nil
+		end
+	end
+	destroyConnection = RuntimeGuard.Connect(billboard.Destroying, "RollController.SeedPriceBillboardDestroying", disconnect)
+end
+
 local function bindPreviewRarityAnimation(billboard, card, payload)
 	if payload.previewBeat ~= true or payload.rarity ~= Rarities.Mythical then
 		return
@@ -727,7 +768,7 @@ local function addRevealBillboard(model, payload)
 	local name = tostring(payload.displayName or payload.rewardId or payload.feedType or "Reward")
 	if isMisc then
 		setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
-		setLabel(card, "PriceLabel", formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+		setLabel(card, "PriceLabel", formatPrice(payload.price), PRICE_AFFORDABLE_COLOR)
 		billboard.Parent = anchor
 		UiEffects.BindBillboardDistancePop(billboard)
 		return
@@ -735,11 +776,12 @@ local function addRevealBillboard(model, payload)
 
 	local rarityColor = Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
 	setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
-	setLabel(card, "PriceLabel", "Price: " .. formatPrice(payload.price), Color3.fromRGB(120, 255, 120))
+	setLabel(card, "PriceLabel", "Price: " .. formatPrice(payload.price), seedPriceColor(payload.price))
 	setLabel(card, "ChanceLabel", formatChance(payload), Color3.fromRGB(210, 230, 255))
 	setLabel(card, "RarityLabel", tostring(payload.rarity or "Unknown"), rarityColor)
 
 	billboard.Parent = anchor
+	bindSeedPriceColor(billboard, card, payload.price)
 	bindPreviewRarityAnimation(billboard, card, payload)
 	UiEffects.BindBillboardDistancePop(billboard)
 end
