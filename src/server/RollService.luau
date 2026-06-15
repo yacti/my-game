@@ -29,6 +29,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local RollService = {}
 
 local ROLL_DISTANCE = RollConfig.Button.InteractionDistance
+local ROLL_CLICK_DISTANCE = RollConfig.Button.ClickDistance or RollConfig.Button.InteractionDistance
 local LUCK_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
 local DROP_AREA_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
 local PURCHASE_DISTANCE = 18
@@ -163,7 +164,7 @@ end
 local function rollForButton(player, buttonPart, PlotService, PlayerDataService)
 	local plot = PlotService.GetPlayerPlot(player)
 	local profile = PlayerDataService.GetProfile(player)
-	local ok, code = RollService.Roll(player, buttonPart, plot, profile)
+	local ok, code = RollService.Roll(player, buttonPart, plot, profile, ROLL_CLICK_DISTANCE)
 	if not ok and code ~= "cooldown" and code ~= "busy" and code ~= "tutorial-buy-pending" then
 		NotificationService.Error(player, "Could not roll that crate.")
 	end
@@ -676,7 +677,7 @@ function RollService.ApplyDropAreaVisibility(plot, profileOrLevel)
 	return true, "ok"
 end
 
-function RollService.Roll(player, target, plot, profile)
+function RollService.Roll(player, target, plot, profile, maxDistance)
 	local key = userKey(player)
 	if key == nil then
 		return false, "invalid-player"
@@ -695,7 +696,7 @@ function RollService.Roll(player, target, plot, profile)
 	if not profile then
 		return false, "no-profile"
 	end
-	if not isPlayerNearPart(player, buttonPart, ROLL_DISTANCE) then
+	if not isPlayerNearPart(player, buttonPart, maxDistance or ROLL_DISTANCE) then
 		return false, "too-far"
 	end
 
@@ -1311,7 +1312,7 @@ local function bindRollButton(buttonPart, PlotService, PlayerDataService)
 	elseif not clickDetector:IsA("ClickDetector") then
 		return
 	end
-	clickDetector.MaxActivationDistance = ROLL_DISTANCE
+	clickDetector.MaxActivationDistance = ROLL_CLICK_DISTANCE
 
 	local connections = {}
 	connections[#connections + 1] = RuntimeGuard.Connect(clickDetector.MouseClick, "RollService.RollButtonClick", function(player)

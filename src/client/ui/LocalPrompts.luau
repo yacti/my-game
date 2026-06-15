@@ -22,6 +22,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local State   = require(Shared:WaitForChild("State"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local PetFeedLullabyController = require(script.Parent:WaitForChild("PetFeedLullabyController"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
@@ -317,7 +318,7 @@ end
 
 local function playPromptSound(kind)
 	if kind == "PetFeed" then
-		SoundEffects.Play(SoundEffects.Names.PetFed, { pitchMin = 1, pitchMax = 1.3 })
+		PetFeedLullabyController.PlayNextFeedNote()
 	elseif kind == "PatchHarvest" or kind == "TreeGroundPickup" then
 		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	elseif kind == "GridPartUnlock" then

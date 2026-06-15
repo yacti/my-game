@@ -46,6 +46,7 @@ RollConfig.Reveal = {
 
 RollConfig.Button = {
 	InteractionDistance = 8,
+	ClickDistance = 16,
 	PressDuration = 0.08,
 	ReleaseDuration = 0.16,
 	UnavailableColor = Color3.fromRGB(220, 45, 45),
