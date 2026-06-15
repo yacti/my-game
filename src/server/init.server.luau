@@ -82,7 +82,7 @@ CurrencyService.RegisterChangedCallback(function(player, profile, amount)
 	OnboardingService.OnCurrencyChanged(player, profile, amount)
 end)
 
-local PROMPT_RATE_SECONDS = 0.12
+local PROMPT_RATE_SECONDS = 1 / 10
 local AUTO_PROMPT_RATE_SECONDS = 1 / 4
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
@@ -701,16 +701,6 @@ local function feedPet(plot, player, profile, pet)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return false end
 
 	local foodXPMultiplier = GamePassService.FoodXPMultiplier(player)
-	if foodXPMultiplier ~= 1 then
-		print(string.format(
-			"[GamePassMultipliers] pet-feed-xp user=%s petIndex=%s baseXP=%.2f multiplier=%.2fx finalXP=%.2f",
-			userLabel(player),
-			tostring(idx),
-			foodXP,
-			foodXPMultiplier,
-			foodXP * foodXPMultiplier
-		))
-	end
 	foodXP *= foodXPMultiplier
 	petData.xp = (petData.xp or 0) + foodXP
 	local activePet = pet
@@ -738,14 +728,6 @@ local function applyOfflineEarnings(player, plot, profile, lastSeen, joinTime)
 	if elapsed <= 0 then return true end
 
 	local earnRate = GamePassService.PetCashMultiplier(player)
-	if earnRate ~= 1 then
-		print(string.format(
-			"[GamePassMultipliers] offline-pet-cash user=%s elapsed=%s multiplier=%.2fx",
-			userLabel(player),
-			tostring(elapsed),
-			earnRate
-		))
-	end
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]

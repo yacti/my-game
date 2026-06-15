@@ -26,6 +26,7 @@ local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PetFeedLullabyController = require(script.Parent:WaitForChild("PetFeedLullabyController"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
+local TreeVisuals = require(script.Parent:WaitForChild("AppleTreeSlotVisuals"))
 
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
 
@@ -53,6 +54,7 @@ local tutorialStage = Onboarding.Stages.Complete
 local PROMPT_ATTACHMENT_PREFIX = "__LocalPromptAttachment_"
 local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
 local DEFAULT_PROMPT_TEMPLATE_NAME = "LocalPrompt"
+local HIGHLIGHT_TEMPLATE_NAME = "FoodPetHighlight"
 local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
 local PET_FEED_PROMPT_MAX_HEIGHT = 8
@@ -70,6 +72,9 @@ local COLLECT_TARGET_SUPPRESS_SECONDS = 1
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
+local warnedMissingHighlightTemplate = false
+local activePromptHighlight = nil
+local activePromptHighlightTarget = nil
 local AUTO_PROMPT_ACTIONS = {
 	PetFeed = Interactions.Actions.PetFeed,
 	PatchHarvest = Interactions.Actions.PatchHarvest,
@@ -557,13 +562,38 @@ local function acceptedFoodType(machine)
 	return foodType
 end
 
-local function hasSlotFood(anchor)
+local function slotFoodTarget(anchor)
 	for _, child in ipairs(anchor:GetChildren()) do
 		if (child:IsA("BasePart") or child:IsA("Model")) and child:GetAttribute(State.Food.Id) ~= nil then
-			return true
+			return child
 		end
 	end
-	return false
+	return nil
+end
+
+local function hasSlotFood(anchor)
+	return slotFoodTarget(anchor) ~= nil
+end
+
+local function promptHighlightTarget(target, kind)
+	if kind == "PatchHarvest" then
+		return slotFoodTarget(target)
+	end
+	if kind == "TreeGroundPickup" then
+		return TreeVisuals.GroundVisualForMarker(target) or target
+	end
+	return nil
+end
+
+local function externalPromptHighlightTarget(record)
+	local source = record and record.highlightTarget
+	if type(source) == "function" then
+		return source()
+	end
+	if typeof(source) == "Instance" then
+		return source
+	end
+	return nil
 end
 
 local function hasFeedablePetFood()
@@ -658,6 +688,53 @@ local function clonePrompt(kind)
 	return template and template:Clone() or nil
 end
 
+local function highlightTemplate()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local misc = assets and assets:FindFirstChild("Misc")
+	local template = misc and misc:FindFirstChild(HIGHLIGHT_TEMPLATE_NAME)
+	if template and template:IsA("Highlight") then
+		return template
+	end
+	if not warnedMissingHighlightTemplate then
+		warn("[LocalPrompts] Missing ReplicatedStorage.Assets.Misc.FoodPetHighlight Highlight")
+		warnedMissingHighlightTemplate = true
+	end
+	return nil
+end
+
+local function clearPromptHighlight()
+	if activePromptHighlight then
+		activePromptHighlight:Destroy()
+		activePromptHighlight = nil
+	end
+	activePromptHighlightTarget = nil
+end
+
+local function setPromptHighlightTarget(target)
+	if target ~= nil and (typeof(target) ~= "Instance" or target.Parent == nil) then
+		target = nil
+	end
+	if target == activePromptHighlightTarget and activePromptHighlight ~= nil and activePromptHighlight.Parent ~= nil then
+		return
+	end
+	clearPromptHighlight()
+	if target == nil then
+		return
+	end
+
+	local template = highlightTemplate()
+	if not template then
+		return
+	end
+
+	local highlight = template:Clone()
+	highlight.Enabled = true
+	highlight.Adornee = target
+	highlight.Parent = Workspace.CurrentCamera or target
+	activePromptHighlight = highlight
+	activePromptHighlightTarget = target
+end
+
 local scanPlot
 local refreshPrompt
 local refreshAll
@@ -678,6 +755,7 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 			return true
 		end,
 		allowWhileShovelEquipped = options.allowWhileShovelEquipped == true,
+		highlightTarget = options.highlightTarget,
 	}
 	local destroyingConnection
 	destroyingConnection = RuntimeGuard.Connect(prompt.Destroying, "LocalPrompts.ExternalPromptDestroying", function()
@@ -770,7 +848,7 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 	end
 	suppressCollectAutoTarget(target, kind, candidate.prompt)
 	playPromptSound(kind)
-	PromptInteract:FireServer(action, target)
+	PromptInteract:FireServer(action, target, true)
 	return true
 end
 
@@ -1133,6 +1211,7 @@ refreshAll = function(shouldScan)
 	local closestPrompt = nil
 	local closestDistance = math.huge
 	local closestAutoCandidate = nil
+	local closestHighlightTarget = nil
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
@@ -1154,6 +1233,7 @@ refreshAll = function(shouldScan)
 						closestPrompt = prompt
 						closestDistance = distance
 						closestAutoCandidate = autoCandidateFor(target, kind, prompt, distance)
+						closestHighlightTarget = promptHighlightTarget(target, kind)
 					end
 				else
 					prompt.Enabled = false
@@ -1181,6 +1261,7 @@ refreshAll = function(shouldScan)
 					closestPrompt = prompt
 					closestDistance = distance
 					closestAutoCandidate = nil
+					closestHighlightTarget = externalPromptHighlightTarget(record)
 				end
 			else
 				prompt.Enabled = false
@@ -1202,6 +1283,7 @@ refreshAll = function(shouldScan)
 		end
 	end
 	activeAutoCandidate = closestAutoCandidate
+	setPromptHighlightTarget(closestHighlightTarget)
 end
 
 local toolRefreshScheduled = false

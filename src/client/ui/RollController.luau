@@ -1085,7 +1085,9 @@ local function addPurchasePrompt(model, payload)
 	prompt.Parent = anchor
 	LocalPrompts.RegisterExternalPrompt(prompt, function()
 		return activeReveals[payload.offerId] ~= nil and prompt:GetAttribute(ROLL_OFFER_PENDING_ATTR) ~= true
-	end)
+	end, {
+		highlightTarget = payload.category == RollRewards.Categories.Seed and model or nil,
+	})
 	RuntimeGuard.Connect(prompt.Triggered, "RollController.PurchasePromptTriggered", function()
 		if activeReveals[payload.offerId] == nil then
 			return

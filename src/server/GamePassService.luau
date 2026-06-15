@@ -44,15 +44,6 @@ local function copyOwnership(map)
 	return copy
 end
 
-local function ownershipSummary(map)
-	local parts = {}
-	local ownership = copyOwnership(map)
-	for _, pass in ipairs(ShopBalance.AllGamePasses()) do
-		parts[#parts + 1] = string.format("%s=%s", pass.Key, tostring(ownership[pass.Key] == true))
-	end
-	return table.concat(parts, ", ")
-end
-
 local function ownershipForUserId(key)
 	if not key then
 		return emptyOwnership()
@@ -91,24 +82,6 @@ local function passForGamePassId(gamePassId)
 	return ShopBalance.GamePassForId(gamePassId)
 end
 
-local function logEffectiveBonuses(player, reason)
-	local key = userKey(player)
-	if not key then
-		return
-	end
-	local ownership = ownershipForUserId(key)
-	print(string.format(
-		"%s %s user=%s ownership={%s} cash=%.2fx luck=+%d%% foodXP=%.2fx",
-		LOG_PREFIX,
-		tostring(reason or "ownership"),
-		tostring(key),
-		ownershipSummary(ownership),
-		GamePassService.PetCashMultiplier(player),
-		math.floor(GamePassService.LuckBonusPercent(player) + 0.5),
-		GamePassService.FoodXPMultiplier(player)
-	))
-end
-
 local function queryOwnership(player, pass)
 	local key = userKey(player)
 	local passId = tonumber(pass and pass.GamePassId) or 0
@@ -138,7 +111,6 @@ local function applyLookupResult(player, pass, ok, owns, code)
 	local previous = ownership[pass.Key] == true
 	if ok then
 		ownership[pass.Key] = owns == true
-		print(string.format("%s verified user=%s pass=%s owns=%s", LOG_PREFIX, tostring(key), tostring(pass.Key), tostring(owns == true)))
 	elseif ownership[pass.Key] ~= true then
 		ownership[pass.Key] = false
 	end
@@ -172,7 +144,6 @@ function GamePassService.RefreshOwnership(player, options)
 	end
 	if #passes == 0 then
 		publishOwnership(player)
-		logEffectiveBonuses(player, "refresh-empty")
 		return copyOwnership(ownershipForUserId(key)), "ok"
 	end
 
@@ -197,12 +168,10 @@ function GamePassService.RefreshOwnership(player, options)
 	if pending > 0 then
 		warn(string.format("%s Ownership refresh timed out for user %s with %d pending lookups", LOG_PREFIX, tostring(key), pending))
 		publishOwnership(player)
-		logEffectiveBonuses(player, "refresh-timeout")
 		return copyOwnership(ownershipForUserId(key)), "timeout"
 	end
 
 	publishOwnership(player)
-	logEffectiveBonuses(player, "refresh-complete")
 	return copyOwnership(ownershipForUserId(key)), "ok"
 end
 
@@ -268,7 +237,6 @@ function GamePassService.Start()
 		if not passForGamePassId(purchasedGamePassId) then
 			return
 		end
-		print(string.format("%s purchase-finished user=%s gamePassId=%s", LOG_PREFIX, tostring(userKey(player)), tostring(purchasedGamePassId)))
 		RuntimeGuard.Spawn("GamePassService.RefreshPurchaseOwnership", GamePassService.RefreshGamePassId, player, purchasedGamePassId)
 	end)
 end

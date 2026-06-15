@@ -11,6 +11,7 @@ local State = require(Shared:WaitForChild("State"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local TreeVisuals = require(script.Parent:WaitForChild("AppleTreeSlotVisuals"))
 
 local FoodStealController = {}
 
@@ -67,13 +68,17 @@ local function firstBasePart(instance)
 	return nil
 end
 
-local function hasPatchSlotFood(anchor)
+local function patchSlotFoodTarget(anchor)
 	for _, child in ipairs(anchor:GetChildren()) do
 		if (child:IsA("BasePart") or child:IsA("Model")) and child:GetAttribute(State.Food.Id) ~= nil then
-			return true
+			return child
 		end
 	end
-	return false
+	return nil
+end
+
+local function hasPatchSlotFood(anchor)
+	return patchSlotFoodTarget(anchor) ~= nil
 end
 
 local function isPatchStealTarget(instance)
@@ -82,6 +87,13 @@ local function isPatchStealTarget(instance)
 	end
 	local machine = instance.Parent
 	return machine ~= nil and machine:GetAttribute(State.Feed.Class) == "Patch"
+end
+
+local function promptHighlightTarget(target)
+	if isPatchStealTarget(target) then
+		return patchSlotFoodTarget(target)
+	end
+	return TreeVisuals.GroundVisualForMarker(target) or target
 end
 
 local function isTreeGroundCandidate(instance)
@@ -225,7 +237,11 @@ local function bindTarget(target)
 	tracked[target] = record
 	record.unregister = LocalPrompts.RegisterExternalPrompt(prompt, function()
 		return isAvailable(target)
-	end)
+	end, {
+		highlightTarget = function()
+			return promptHighlightTarget(target)
+		end,
+	})
 	record.connections[#record.connections + 1] = RuntimeGuard.Connect(prompt.Triggered, "FoodStealController.Triggered", function()
 		requestSteal(target)
 	end)

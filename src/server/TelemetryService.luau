@@ -2,6 +2,8 @@ local HttpService = game:GetService("HttpService")
 
 local TelemetryService = {}
 
+local INFO_LOGGING_ENABLED = false
+
 local function sanitize(value, depth)
 	depth = depth or 0
 	if depth > 3 then
@@ -52,7 +54,9 @@ local function emit(level, eventName, fields)
 end
 
 function TelemetryService.Record(eventName, fields)
-	emit("info", eventName, fields)
+	if INFO_LOGGING_ENABLED then
+		emit("info", eventName, fields)
+	end
 end
 
 function TelemetryService.Warn(eventName, fields)

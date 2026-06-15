@@ -405,6 +405,14 @@ local function trackGroundMarker(marker)
 	return true
 end
 
+function TreeVisuals.GroundVisualForMarker(marker)
+	local record = groundMarkers[marker]
+	if record and record.visual and record.visual.Parent then
+		return record.visual
+	end
+	return nil
+end
+
 local function trackGroundFoodCandidate(obj)
 	if not isTreeGroundCandidate(obj) then return end
 	if pendingGroundFood[obj] then return end

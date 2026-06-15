@@ -69,7 +69,7 @@ function PromptInteractionService.Start(config)
 		locks[key] = nil
 	end)
 
-	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PromptInteract).OnServerEvent, "PromptInteractionService.PromptInteract", function(player, action, target)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PromptInteract).OnServerEvent, "PromptInteractionService.PromptInteract", function(player, action, target, isAutoHold)
 		if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
 		if not consumeRateLimit(lastFire, player, rateSeconds) then return end
 		if not Interactions.IsAction(action) then
@@ -79,7 +79,12 @@ function PromptInteractionService.Start(config)
 			}))
 			return
 		end
-		if autoActionRateSeconds and autoActions[action] == true and not consumeRateLimit(lastAutoFire, player, autoActionRateSeconds) then return end
+		if isAutoHold == true
+			and autoActionRateSeconds
+			and autoActions[action] == true
+			and not consumeRateLimit(lastAutoFire, player, autoActionRateSeconds) then
+			return
+		end
 		if type(getContext) ~= "function" then return end
 
 		local ok, plot, profile = RuntimeGuard.Run("PromptInteractionService.GetContext", getContext, player)

@@ -441,19 +441,7 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 		return nil, "empty-roll-pool"
 	end
 
-	local baseLuckPercent, gamePassLuck, luckPercent = rollLuckBreakdown(player, profile)
-	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
-	if gamePassLuck > 0 then
-		print(string.format(
-			"[GamePassMultipliers] roll-luck user=%s crate=%s baseRollLuck=%.2f%% gamePassLuck=+%d%% effectivePlayerLuck=%.2f%% serverLuck=%.2fx",
-			tostring(userKey(player)),
-			tostring(crateId),
-			baseLuckPercent,
-			math.floor(gamePassLuck + 0.5),
-			luckPercent,
-			serverLuckMultiplier
-		))
-	end
+	local _, _, luckPercent = rollLuckBreakdown(player, profile)
 
 	local categoryWeights, categoryCode = RollChances.ComputeCategoryWeights(entries)
 	if not categoryWeights then

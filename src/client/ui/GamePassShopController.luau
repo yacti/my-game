@@ -132,12 +132,6 @@ local function bindShopCard(record, renderAll)
 		return nil
 	end
 
-	print(string.format(
-		"[GamePassShopController] bound pass=%s source=%s gamePassId=%s",
-		tostring(pass.Key),
-		tostring(record.source),
-		tostring(pass.GamePassId)
-	))
 	UiEffects.BindButton(buyButton)
 
 	local function render()
@@ -158,7 +152,6 @@ local function bindShopCard(record, renderAll)
 		promptToken += 1
 		local token = promptToken
 		pendingPromptKey = pass.Key
-		print(string.format("[GamePassShopController] prompt-purchase pass=%s gamePassId=%s", tostring(pass.Key), tostring(id)))
 		renderAll()
 		RuntimeGuard.Run("GamePassShopController.PromptGamePassPurchase", function()
 			MarketplaceService:PromptGamePassPurchase(player, id)
@@ -196,7 +189,6 @@ function GamePassShopController.start()
 		end
 		promptToken += 1
 		pendingPromptKey = nil
-		print(string.format("[GamePassShopController] purchase-finished gamePassId=%s", tostring(purchasedGamePassId)))
 		renderAll()
 	end)
 
