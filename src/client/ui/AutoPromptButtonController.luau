@@ -25,7 +25,6 @@ local FEED_ICON_IMAGE = "rbxassetid://119576309332002"
 local COLLECT_ICON_IMAGE = "rbxasset://textures/ui/Controls/TouchTapIcon.png"
 local CONTROL_BACKGROUND_COLOR = Color3.fromRGB(58, 61, 68)
 local CONTROL_BACKGROUND_TRANSPARENCY = 0.28
-local REPEAT_SECONDS = 0.5
 local REFRESH_SECONDS = 0.1
 local GAP_SCALE = 0.12
 local BUTTON_JUMP_SIZE_SCALE = 0.5 * 1.3 * 1.15
@@ -39,9 +38,7 @@ local button = nil
 local icon = nil
 local pressed = false
 local lockedMode = nil
-local lockedTarget = nil
 local currentCandidate = nil
-local nextActionAt = 0
 local refreshAccumulator = 0
 local warnedMissingTouchGui = false
 
@@ -261,7 +258,7 @@ local function refreshIdleState()
 		return
 	end
 
-	currentCandidate = LocalPrompts.FindAutoPromptCandidate()
+	currentCandidate = LocalPrompts.GetActiveAutoPromptCandidate()
 	if currentCandidate then
 		setButtonMode(currentCandidate.mode, true)
 	else
@@ -274,7 +271,7 @@ local function beginPress()
 		return
 	end
 
-	currentCandidate = LocalPrompts.FindAutoPromptCandidate()
+	currentCandidate = LocalPrompts.BeginAutoHold(nil, { immediate = true })
 	if not currentCandidate then
 		setButtonMode(nil, false)
 		return
@@ -282,8 +279,6 @@ local function beginPress()
 
 	pressed = true
 	lockedMode = currentCandidate.mode
-	lockedTarget = lockedMode == LocalPrompts.AutoModes.Feed and currentCandidate.target or nil
-	nextActionAt = 0
 	setButtonMode(lockedMode, true)
 end
 
@@ -294,23 +289,8 @@ local function endPress()
 
 	pressed = false
 	lockedMode = nil
-	lockedTarget = nil
-	nextActionAt = 0
+	LocalPrompts.EndAutoHold()
 	refreshIdleState()
-end
-
-local function triggerHeldAction()
-	if not pressed or not lockedMode then
-		return
-	end
-
-	local candidate = LocalPrompts.FindAutoPromptCandidate(lockedMode, lockedTarget)
-	if candidate then
-		LocalPrompts.TriggerAutoPrompt(candidate)
-		nextActionAt = os.clock() + REPEAT_SECONDS
-	else
-		nextActionAt = os.clock() + REFRESH_SECONDS
-	end
 end
 
 function AutoPromptButtonController.start()
@@ -372,10 +352,6 @@ function AutoPromptButtonController.start()
 			else
 				refreshIdleState()
 			end
-		end
-
-		if pressed and os.clock() >= nextActionAt then
-			triggerHeldAction()
 		end
 	end)
 end

@@ -42,6 +42,11 @@ local targetAncestryConns = {} -- [Instance] = { [kind] = RBXScriptConnection }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
+local activeAutoCandidate = nil
+local autoHoldMode = nil
+local autoHoldNextActionAt = 0
+local autoHoldInputKeyCode = nil
+local autoSuppressedTargets = setmetatable({}, { __mode = "k" })
 local tutorialActive = false
 local tutorialStage = Onboarding.Stages.Complete
 
@@ -58,6 +63,10 @@ local CRATE_ROLL_PROMPT_DISTANCE = RollConfig.Button.InteractionDistance
 local CRATE_ROLL_PROMPT_Y_OFFSET = -3
 local CRATE_ROLL_PROMPT_MOBILE_Y_OFFSET = -0.5
 local FAR_PROMPT_REFRESH_BUFFER = 12
+local AUTO_ACTION_INTERVAL = 0.27
+local AUTO_RETRY_INTERVAL = 0.1
+local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
+local COLLECT_TARGET_SUPPRESS_SECONDS = 1
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
@@ -335,6 +344,101 @@ local function autoModeForKind(kind)
 		return LocalPrompts.AutoModes.Collect
 	end
 	return nil
+end
+
+local function isCollectAutoKind(kind)
+	return kind == "PatchHarvest" or kind == "TreeGroundPickup"
+end
+
+local function autoSuppressionActive(target)
+	local untilTime = autoSuppressedTargets[target]
+	if type(untilTime) ~= "number" then
+		return false
+	end
+	if os.clock() < untilTime then
+		return true
+	end
+	autoSuppressedTargets[target] = nil
+	return false
+end
+
+local function suppressCollectAutoTarget(target, kind, prompt)
+	if not isCollectAutoKind(kind) then
+		return
+	end
+	autoSuppressedTargets[target] = os.clock() + COLLECT_TARGET_SUPPRESS_SECONDS
+	if prompt then
+		prompt.Enabled = false
+	end
+end
+
+local function activeAutoCandidateForMode(mode)
+	local candidate = activeAutoCandidate
+	if type(candidate) ~= "table" then
+		return nil
+	end
+	if mode ~= nil and candidate.mode ~= mode then
+		return nil
+	end
+	local target = candidate.target
+	local prompt = candidate.prompt
+	if typeof(target) ~= "Instance" or target.Parent == nil then
+		return nil
+	end
+	if not (prompt and prompt.Parent ~= nil and prompt.Enabled) then
+		return nil
+	end
+	if autoSuppressionActive(target) then
+		return nil
+	end
+
+	local rootPosition = playerRootPosition()
+	local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+	if not distance or distance > prompt.MaxActivationDistance then
+		return nil
+	end
+	candidate.distance = distance
+	return candidate
+end
+
+local function autoCandidateFor(target, kind, prompt, distance)
+	local action = AUTO_PROMPT_ACTIONS[kind]
+	local mode = autoModeForKind(kind)
+	if not action or not mode then
+		return nil
+	end
+	return {
+		mode = mode,
+		kind = kind,
+		action = action,
+		target = target,
+		prompt = prompt,
+		distance = distance,
+	}
+end
+
+local function isGamepadInputType(inputType)
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
+local function inputMatchesPrompt(input, prompt)
+	if not (input and prompt) then
+		return false
+	end
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		return input.KeyCode == prompt.KeyboardKeyCode
+	end
+	if isGamepadInputType(input.UserInputType) then
+		return input.KeyCode == prompt.GamepadKeyCode
+	end
+	return false
 end
 
 local function playPromptSound(kind)
@@ -617,6 +721,9 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 		if lockedTarget ~= nil and target ~= lockedTarget then
 			continue
 		end
+		if autoSuppressionActive(target) then
+			continue
+		end
 		for kind, prompt in pairs(bucket) do
 			local action = AUTO_PROMPT_ACTIONS[kind]
 			local candidateMode = autoModeForKind(kind)
@@ -631,13 +738,7 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 
 			local distance = promptDistance(prompt, rootPosition)
 			if distance and distance <= prompt.MaxActivationDistance and distance < closestDistance then
-				closest = {
-					mode = candidateMode,
-					kind = kind,
-					action = action,
-					target = target,
-					distance = distance,
-				}
+				closest = autoCandidateFor(target, kind, prompt, distance)
 				closestDistance = distance
 			end
 		end
@@ -645,6 +746,10 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 
 	refreshAll(false)
 	return closest
+end
+
+function LocalPrompts.GetActiveAutoPromptCandidate(mode)
+	return activeAutoCandidateForMode(mode)
 end
 
 function LocalPrompts.TriggerAutoPrompt(candidate)
@@ -663,9 +768,52 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 	if isOfflineProgressPending() then
 		return false
 	end
+	suppressCollectAutoTarget(target, kind, candidate.prompt)
 	playPromptSound(kind)
 	PromptInteract:FireServer(action, target)
 	return true
+end
+
+function LocalPrompts.BeginAutoHold(mode, options)
+	options = type(options) == "table" and options or {}
+	local candidate = activeAutoCandidateForMode(mode) or LocalPrompts.FindAutoPromptCandidate(mode)
+	if not candidate then
+		return nil
+	end
+
+	local firstDelay = AUTO_ACTION_INTERVAL
+	if options.immediate == true then
+		firstDelay = 0
+	elseif type(options.firstDelay) == "number" then
+		firstDelay = math.max(options.firstDelay, 0)
+	end
+	autoHoldMode = candidate.mode
+	autoHoldNextActionAt = os.clock() + firstDelay
+	return candidate
+end
+
+function LocalPrompts.EndAutoHold()
+	autoHoldMode = nil
+	autoHoldNextActionAt = 0
+	autoHoldInputKeyCode = nil
+end
+
+local function stepAutoHold()
+	if not autoHoldMode then
+		return
+	end
+
+	local now = os.clock()
+	if now < autoHoldNextActionAt then
+		return
+	end
+
+	local candidate = activeAutoCandidateForMode(autoHoldMode)
+	if candidate and LocalPrompts.TriggerAutoPrompt(candidate) then
+		autoHoldNextActionAt = now + AUTO_ACTION_INTERVAL
+	else
+		autoHoldNextActionAt = now + AUTO_RETRY_INTERVAL
+	end
 end
 
 local function removePrompt(target, kind)
@@ -801,9 +949,7 @@ addPrompt = function(target, kind, action)
 		if kind == "PetFeed" and target:GetAttribute(State.Pet.EvolutionPaused) == true then
 			return
 		end
-		if kind == "TreeGroundPickup" then
-			prompt.Enabled = false
-		end
+		suppressCollectAutoTarget(target, kind, prompt)
 		playPromptSound(kind)
 		PromptInteract:FireServer(action, target)
 	end)
@@ -986,6 +1132,7 @@ refreshAll = function(shouldScan)
 	local offlinePending = isOfflineProgressPending()
 	local closestPrompt = nil
 	local closestDistance = math.huge
+	local closestAutoCandidate = nil
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
@@ -1006,6 +1153,7 @@ refreshAll = function(shouldScan)
 					if distance < closestDistance then
 						closestPrompt = prompt
 						closestDistance = distance
+						closestAutoCandidate = autoCandidateFor(target, kind, prompt, distance)
 					end
 				else
 					prompt.Enabled = false
@@ -1032,6 +1180,7 @@ refreshAll = function(shouldScan)
 				if distance < closestDistance then
 					closestPrompt = prompt
 					closestDistance = distance
+					closestAutoCandidate = nil
 				end
 			else
 				prompt.Enabled = false
@@ -1052,6 +1201,7 @@ refreshAll = function(shouldScan)
 			prompt.Enabled = false
 		end
 	end
+	activeAutoCandidate = closestAutoCandidate
 end
 
 local toolRefreshScheduled = false
@@ -1069,6 +1219,32 @@ local function scheduleToolRefresh(shouldScan)
 		scheduledToolRefreshShouldScan = false
 		RuntimeGuard.Run("LocalPrompts.ScheduledToolRefresh", refreshAll, runScan)
 	end)
+end
+
+local function beginPromptAutoHold(input)
+	if autoHoldMode ~= nil or not activeAutoCandidate then
+		return
+	end
+
+	local prompt = activeAutoCandidate.prompt
+	if not inputMatchesPrompt(input, prompt) then
+		return
+	end
+
+	local candidate = LocalPrompts.BeginAutoHold(activeAutoCandidate.mode, {
+		firstDelay = PROMPT_AUTO_FIRST_REPEAT_DELAY,
+	})
+	if not candidate then
+		return
+	end
+	autoHoldInputKeyCode = input.KeyCode
+end
+
+local function endPromptAutoHold(input)
+	if autoHoldInputKeyCode == nil or input.KeyCode ~= autoHoldInputKeyCode then
+		return
+	end
+	LocalPrompts.EndAutoHold()
 end
 
 function LocalPrompts.start()
@@ -1117,6 +1293,15 @@ function LocalPrompts.start()
 	RuntimeGuard.Connect(backpack.ChildRemoved, "LocalPrompts.BackpackChildRemoved", function()
 		scheduleToolRefresh(false)
 	end)
+	RuntimeGuard.Connect(UserInputService.InputBegan, "LocalPrompts.AutoHoldInputBegan", function(input, gameProcessed)
+		if gameProcessed and UserInputService:GetFocusedTextBox() ~= nil then
+			return
+		end
+		RuntimeGuard.Run("LocalPrompts.BeginPromptAutoHold", beginPromptAutoHold, input)
+	end)
+	RuntimeGuard.Connect(UserInputService.InputEnded, "LocalPrompts.AutoHoldInputEnded", function(input)
+		RuntimeGuard.Run("LocalPrompts.EndPromptAutoHold", endPromptAutoHold, input)
+	end)
 
 	task.defer(function()
 		RuntimeGuard.Run("LocalPrompts.InitialRefresh", refreshAll, true)
@@ -1124,6 +1309,7 @@ function LocalPrompts.start()
 
 	local accumulator = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "LocalPrompts.Heartbeat", function(dt)
+		RuntimeGuard.Run("LocalPrompts.AutoHoldHeartbeat", stepAutoHold)
 		accumulator += dt
 		if accumulator >= 0.1 then
 			accumulator = 0

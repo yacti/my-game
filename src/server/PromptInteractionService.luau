@@ -25,6 +25,21 @@ local function consumeRateLimit(map, player, interval)
 	return true
 end
 
+local function actionSetFromList(actions)
+	local set = {}
+	if type(actions) ~= "table" then
+		return set
+	end
+	for key, value in pairs(actions) do
+		if type(key) == "string" and value == true then
+			set[key] = true
+		elseif type(value) == "string" then
+			set[value] = true
+		end
+	end
+	return set
+end
+
 local function withPlayerLock(map, player, callback)
 	local key = userKey(player)
 	if key == nil or map[key] then return end
@@ -40,13 +55,17 @@ function PromptInteractionService.Start(config)
 	local afterInteraction = config.afterInteraction
 	local requireTargetInPlot = config.requireTargetInPlot ~= false
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
+	local autoActionRateSeconds = tonumber(config.autoActionRateSeconds)
+	local autoActions = actionSetFromList(config.autoActions)
 	local lastFire = {}
+	local lastAutoFire = {}
 	local locks = {}
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "PromptInteractionService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key == nil then return end
 		lastFire[key] = nil
+		lastAutoFire[key] = nil
 		locks[key] = nil
 	end)
 
@@ -60,6 +79,7 @@ function PromptInteractionService.Start(config)
 			}))
 			return
 		end
+		if autoActionRateSeconds and autoActions[action] == true and not consumeRateLimit(lastAutoFire, player, autoActionRateSeconds) then return end
 		if type(getContext) ~= "function" then return end
 
 		local ok, plot, profile = RuntimeGuard.Run("PromptInteractionService.GetContext", getContext, player)

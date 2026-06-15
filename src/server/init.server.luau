@@ -83,6 +83,7 @@ CurrencyService.RegisterChangedCallback(function(player, profile, amount)
 end)
 
 local PROMPT_RATE_SECONDS = 0.12
+local AUTO_PROMPT_RATE_SECONDS = 1 / 4
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
@@ -93,8 +94,11 @@ local OFFLINE_PET_EARN_FRACTION = 0.01
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
 local FOOD_COLLECTION_SNAPSHOT = "FoodCollection"
+local PET_FEED_SNAPSHOT = "PetFeed"
+local PET_FEED_SNAPSHOT_DEBOUNCE_SECONDS = 1
 
 local minimumPetSnapshotCounts = {}
+local pendingPetFeedSnapshotTokens = {}
 
 local function userLabel(player)
 	return tostring(player and player.UserId or "unknown")
@@ -423,6 +427,58 @@ local function snapshotFoodCollection(player, plot, profile, feed)
 		warn("[init] Food collection snapshot saved but food inventory replica was not updated for user " .. userLabel(player))
 	end
 	return true
+end
+
+local function snapshotFoodInventory(player, profile, context)
+	if not profile then return false end
+	profile.Data.FoodInventoryItems = FoodInventoryService.SerializeTools(player)
+	profile.Data.FoodInventory = FoodInventoryService.CountRecords(profile.Data.FoodInventoryItems)
+	profile.Data.LastSeen = os.time()
+	local label = type(context) == "string" and context or "snapshotFoodInventory"
+	local publishRunOk, published = RuntimeGuard.Run(
+		label .. ".publishFoodInventory",
+		PlayerReplicaService.PublishFoodInventory,
+		player,
+		profile
+	)
+	if publishRunOk and published ~= true then
+		warn("[init] Food inventory snapshot saved but food inventory replica was not updated for user " .. userLabel(player))
+	end
+	return true
+end
+
+local function clearPendingPetFeedSnapshot(player)
+	local key = userKey(player)
+	if key then
+		pendingPetFeedSnapshotTokens[key] = nil
+	end
+end
+
+local function schedulePetFeedSnapshot(player)
+	local key = userKey(player)
+	if not key then return end
+	if pendingPetFeedSnapshotTokens[key] ~= nil then
+		return
+	end
+
+	local token = os.clock()
+	pendingPetFeedSnapshotTokens[key] = token
+	task.delay(PET_FEED_SNAPSHOT_DEBOUNCE_SECONDS, function()
+		RuntimeGuard.Run("PetFeedSnapshotDebounce." .. userLabel(player), function()
+			if pendingPetFeedSnapshotTokens[key] ~= token then
+				return
+			end
+			pendingPetFeedSnapshotTokens[key] = nil
+			if not player:IsDescendantOf(Players) then
+				return
+			end
+			local plot = PlotService.GetPlayerPlot(player)
+			local profile = PlayerDataService.GetProfile(player)
+			if plot and profile then
+				snapshotProfileState(player, plot, profile)
+			end
+		end)
+	end)
 end
 
 local function notifyGrown(player, feed)
@@ -856,6 +912,7 @@ local function teardownPlayerState(player, plot, profile, options)
 		RuntimeGuard.Run("PlayerTeardown.ApplyPendingOffline." .. label, OfflineProgressService.ApplyPendingBeforeSnapshot, player)
 		RuntimeGuard.Run("PlayerTeardown.Snapshot." .. label, snapshotProfileState, player, plot, profile)
 	end
+	clearPendingPetFeedSnapshot(player)
 	RuntimeGuard.Run("PlayerTeardown.ClearOfflineProgress." .. label, OfflineProgressService.Clear, player)
 	if plot then
 		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
@@ -1098,6 +1155,12 @@ end)
 RuntimeGuard.Run("PromptInteractionService.Start", function()
 	PromptInteractionService.Start({
 		rateSeconds = PROMPT_RATE_SECONDS,
+		autoActionRateSeconds = AUTO_PROMPT_RATE_SECONDS,
+		autoActions = {
+			Interactions.Actions.PetFeed,
+			Interactions.Actions.PatchHarvest,
+			Interactions.Actions.TreeGroundPickup,
+		},
 		getContext = function(player)
 			if OfflineProgressService.IsPending(player) then
 				return nil, nil
@@ -1108,7 +1171,9 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
 				if feedPet(plot, player, profile, target) then
 					OnboardingService.OnPetFed(player, profile)
+					return PET_FEED_SNAPSHOT
 				end
+				return false
 			end,
 			[Interactions.Actions.FeedMachine] = function(player, target, plot)
 				if target:IsDescendantOf(plot) and isPlayerNearInstance(player, target, 14) then
@@ -1153,6 +1218,13 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			if OfflineProgressService.IsPending(player) then
 				return
 			end
+			if action == Interactions.Actions.PetFeed then
+				if handlerResult == PET_FEED_SNAPSHOT then
+					snapshotFoodInventory(player, profile, "snapshotPetFeedFoodInventory")
+					schedulePetFeedSnapshot(player)
+				end
+				return
+			end
 			if action == Interactions.Actions.PatchHarvest or action == Interactions.Actions.TreeGroundPickup then
 				if type(handlerResult) ~= "table" or handlerResult.snapshot ~= FOOD_COLLECTION_SNAPSHOT then
 					return
@@ -1162,6 +1234,7 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 				end
 				warn("[init] Falling back to full snapshot after food collection for user " .. userLabel(player))
 			end
+			clearPendingPetFeedSnapshot(player)
 			snapshotProfileState(player, plot, profile)
 		end,
 	})
