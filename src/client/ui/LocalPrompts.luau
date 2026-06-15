@@ -15,6 +15,7 @@ local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetGeometry = require(Shared:WaitForChild("PetGeometry"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local RollConfig = require(Shared:WaitForChild("RollConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -49,6 +50,7 @@ local PROMPT_TEMPLATE_FOLDER_NAME = "PromptTemplates"
 local DEFAULT_PROMPT_TEMPLATE_NAME = "LocalPrompt"
 local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
+local PET_FEED_PROMPT_MAX_HEIGHT = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local GRID_UNLOCK_PROMPT_DISTANCE = 5
 local GRID_UNLOCK_PROMPT_HOLD_DURATION = 5
@@ -290,6 +292,9 @@ local function promptAnchorWorldPosition(instance, kind)
 	if kind == "CrateRoll" and instance:IsA("BasePart") then
 		return rollButtonPromptPosition(instance)
 	end
+	if kind == "PetFeed" and instance:IsA("Model") then
+		return PetGeometry.PrimaryPartPromptPosition(instance, PET_FEED_PROMPT_MAX_HEIGHT)
+	end
 	local anchor = promptAnchorInstance(instance, kind)
 	return anchor and instanceWorldCenter(anchor) or nil
 end
@@ -304,6 +309,22 @@ end
 local function promptDistance(prompt, rootPosition)
 	local position = promptWorldPosition(prompt)
 	return position and (position - rootPosition).Magnitude or nil
+end
+
+local function refreshPromptAttachment(target, kind, prompt)
+	if kind ~= "PetFeed" then
+		return
+	end
+
+	local parent = prompt and prompt.Parent
+	if not (parent and parent:IsA("Attachment")) then
+		return
+	end
+
+	local worldPosition = promptAnchorWorldPosition(target, kind)
+	if worldPosition then
+		parent.WorldPosition = worldPosition
+	end
 end
 
 local function autoModeForKind(kind)
@@ -882,6 +903,7 @@ refreshPrompt = function(target, kind, prompt)
 		removePrompt(target, kind)
 		return
 	end
+	refreshPromptAttachment(target, kind, prompt)
 	local inOwnPlot = isInOwnPlot(target)
 	if inOwnPlot == nil then
 		prompt.Enabled = false
@@ -971,6 +993,7 @@ refreshAll = function(shouldScan)
 				prompt.Enabled = false
 				continue
 			end
+			refreshPromptAttachment(target, kind, prompt)
 			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 			if distance and distance > prompt.MaxActivationDistance + FAR_PROMPT_REFRESH_BUFFER then
 				prompt.Enabled = false

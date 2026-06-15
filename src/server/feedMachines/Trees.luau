@@ -51,7 +51,7 @@ local MAX_CLICKS_PER_SECOND = 5
 local DEFAULT_BALANCE = {
 	SlotRespawn = 1,
 	DropEffectDuration = 0.45,
-	EffectRadius = 75,
+	EffectRadius = 15,
 }
 
 -- Collision groups: tree-clicker fruits and ground markers physically collide

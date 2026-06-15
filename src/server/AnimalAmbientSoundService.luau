@@ -11,7 +11,7 @@ local AnimalAmbientSoundService = {}
 
 local AMBIENT_MIN_SECONDS = 10
 local AMBIENT_MAX_SECONDS = 50
-local ELIGIBLE_DISTANCE = 80
+local ELIGIBLE_DISTANCE = 50
 local SOUND_RANGE = 50
 local PITCH_VARIANCE = 0.3
 local EVOLUTION_BURST_START_DELAY = 3

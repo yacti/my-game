@@ -5,6 +5,7 @@ local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
+local PetGeometry  = require(ReplicatedStorage.Shared:WaitForChild("PetGeometry"))
 local PetNicknames = require(ReplicatedStorage.Shared:WaitForChild("PetNicknames"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
@@ -487,27 +488,7 @@ local function applyPetIdAttributes(pet, definition)
 end
 
 local function modelPivotFloorOffset(model)
-	local pivot = model:GetPivot()
-	local boundsCF, boundsSize = model:GetBoundingBox()
-	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
-	local lowestLocalY = math.huge
-
-	for _, sx in ipairs(BOX_CORNER_SIGNS) do
-		for _, sy in ipairs(BOX_CORNER_SIGNS) do
-			for _, sz in ipairs(BOX_CORNER_SIGNS) do
-				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
-					sx * halfBounds.X,
-					sy * halfBounds.Y,
-					sz * halfBounds.Z
-				))
-				local pivotCorner = pivot:PointToObjectSpace(worldCorner)
-				lowestLocalY = math.min(lowestLocalY, pivotCorner.Y)
-			end
-		end
-	end
-
-	if lowestLocalY == math.huge then return 0 end
-	return math.max(-lowestLocalY, 0)
+	return PetGeometry.PivotFloorOffset(model) or 0
 end
 
 local function seatPetOnFloor(pet, floor, lx, lz, lry)

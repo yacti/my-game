@@ -30,7 +30,7 @@ local templates
 local TEMPLATE_WAIT_SECONDS = 8
 local BILLBOARD_ATTACHMENT_NAME = "PetBillboardAnchor"
 local BILLBOARD_ATTACHMENT_REFRESH_PASSES = 4
-local BILLBOARD_ATTACHMENT_Y_OFFSET = -0.5
+local BILLBOARD_ATTACHMENT_Y_OFFSET = -1
 
 local function loadTemplates()
 	if templates then return templates end
@@ -104,9 +104,9 @@ local function refreshBillboardAttachment(pet, primary, attachment)
 		return false
 	end
 
-	local boundsCF = pet:GetBoundingBox()
+	local boundsCF, boundsSize = pet:GetBoundingBox()
 	attachment.Position = primary.CFrame:PointToObjectSpace(
-		boundsCF.Position + Vector3.new(0, BILLBOARD_ATTACHMENT_Y_OFFSET, 0)
+		boundsCF.Position + Vector3.new(0, boundsSize.Y / 2 + BILLBOARD_ATTACHMENT_Y_OFFSET, 0)
 	)
 	return true
 end

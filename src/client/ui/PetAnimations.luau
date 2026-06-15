@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetGeometry = require(Shared:WaitForChild("PetGeometry"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
@@ -23,7 +24,6 @@ local COLLECT_JUMP_SECONDS = 0.58
 local COLLECT_JUMP_ROLL_RADIANS = math.rad(7)
 local TURN_TWEEN_SECONDS = 0.2
 local CORNER_ROTATION_BLEND = 0.75
-local BOX_CORNER_SIGNS = { -1, 1 }
 
 local player = Players.LocalPlayer
 
@@ -39,34 +39,10 @@ local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll
 	return floor.CFrame * localCF
 end
 
-local function modelPivotFloorOffset(model)
-	local pivot = model:GetPivot()
-	local boundsCF, boundsSize = model:GetBoundingBox()
-	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
-	local lowestLocalY = math.huge
-
-	for _, sx in ipairs(BOX_CORNER_SIGNS) do
-		for _, sy in ipairs(BOX_CORNER_SIGNS) do
-			for _, sz in ipairs(BOX_CORNER_SIGNS) do
-				local worldCorner = boundsCF:PointToWorldSpace(Vector3.new(
-					sx * halfBounds.X,
-					sy * halfBounds.Y,
-					sz * halfBounds.Z
-				))
-				local pivotCorner = pivot:PointToObjectSpace(worldCorner)
-				lowestLocalY = math.min(lowestLocalY, pivotCorner.Y)
-			end
-		end
-	end
-
-	if lowestLocalY == math.huge then return 0 end
-	return math.max(-lowestLocalY, 0)
-end
-
 local function cachedPivotFloorOffset(record)
 	local scale = record.pet:GetScale()
 	if record.pivotFloorOffset == nil or record.pivotFloorOffsetScale ~= scale then
-		record.pivotFloorOffset = modelPivotFloorOffset(record.pet)
+		record.pivotFloorOffset = PetGeometry.PivotFloorOffset(record.pet) or 0
 		record.pivotFloorOffsetScale = scale
 	end
 	return record.pivotFloorOffset

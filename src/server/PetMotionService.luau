@@ -69,12 +69,6 @@ local function floorForState(state)
 	return plot and PlotService.GetFloor(plot) or nil
 end
 
-local function currentFloorLocal(state, floor)
-	local pivot = PetMotionService.GetLogicalPivot(state.pet)
-	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pivot)
-	return lx, lz, lry
-end
-
 local function nearestPetFit(state, floor, lx, lz)
 	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
 	local fitLX, fitLZ
@@ -148,6 +142,8 @@ local function navigation()
 	return petNavigation
 end
 
+local currentFloorLocal
+
 local function chooseFallbackTargetInsideFloor(state, floor)
 	local minX, maxX, minZ, maxZ = PlotService.PetFloorLocalBounds(floor, state.pet, state.plot)
 	if minX >= maxX or minZ >= maxZ then
@@ -174,6 +170,50 @@ local function chooseFallbackTargetInsideFloor(state, floor)
 	end
 
 	return targetLX, targetLZ, duration, walkSpeed
+end
+
+local function logicalFloorLocalForPet(pet)
+	local state = registry[pet]
+	if not state then
+		return nil
+	end
+
+	local floor = floorForState(state)
+	if not floor then
+		return nil
+	end
+
+	local startLX = state.startLX
+	local startLZ = state.startLZ
+	local startLRY = state.startLRY
+	local targetLX = state.targetLX
+	local targetLZ = state.targetLZ
+	local targetLRY = state.targetLRY
+	if startLX == nil or startLZ == nil or startLRY == nil
+		or targetLX == nil or targetLZ == nil or targetLRY == nil then
+		return nil
+	end
+
+	local duration = state.duration or 0
+	local alpha = 1
+	if duration > 0 and state.startTime then
+		alpha = math.clamp((workspace:GetServerTimeNow() - state.startTime) / duration, 0, 1)
+	end
+
+	local lx = startLX + (targetLX - startLX) * alpha
+	local lz = startLZ + (targetLZ - startLZ) * alpha
+	local turnAlpha = 1
+	if state.startTime then
+		turnAlpha = math.clamp((workspace:GetServerTimeNow() - state.startTime) / TURN_TWEEN_SECONDS, 0, 1)
+	end
+	local lry = startLRY + shortestAngleDelta(startLRY, targetLRY) * turnAlpha
+	return floor, lx, lz, lry
+end
+
+currentFloorLocal = function(state, floor)
+	local pivot = PetMotionService.GetLogicalPivot(state.pet)
+	local lx, lz, lry = PlotService.WorldPivotToFloorLocal(floor, pivot)
+	return lx, lz, lry
 end
 
 local function clearRoute(state)
@@ -483,45 +523,26 @@ function PetMotionService.HoldAfterFeed(pet, faceLX, faceLZ, holdSeconds)
 end
 
 function PetMotionService.GetLogicalPivot(pet)
-	local state = registry[pet]
-	if not state then
-		return pet:GetPivot()
-	end
-
-	local floor = floorForState(state)
+	local floor, lx, lz, lry = logicalFloorLocalForPet(pet)
 	if not floor then
 		return pet:GetPivot()
 	end
-
-	local startLX = state.startLX
-	local startLZ = state.startLZ
-	local startLRY = state.startLRY
-	local targetLX = state.targetLX
-	local targetLZ = state.targetLZ
-	local targetLRY = state.targetLRY
-	if startLX == nil or startLZ == nil or startLRY == nil
-		or targetLX == nil or targetLZ == nil or targetLRY == nil then
-		return pet:GetPivot()
-	end
-
-	local duration = state.duration or 0
-	local alpha = 1
-	if duration > 0 and state.startTime then
-		alpha = math.clamp((workspace:GetServerTimeNow() - state.startTime) / duration, 0, 1)
-	end
-
-	local lx = startLX + (targetLX - startLX) * alpha
-	local lz = startLZ + (targetLZ - startLZ) * alpha
-	local turnAlpha = 1
-	if state.startTime then
-		turnAlpha = math.clamp((workspace:GetServerTimeNow() - state.startTime) / TURN_TWEEN_SECONDS, 0, 1)
-	end
-	local lry = startLRY + shortestAngleDelta(startLRY, targetLRY) * turnAlpha
 	return PlotService.LocalToWorldOnFloorTop(floor, lx, lz, PlotService.PetPivotFloorOffset(pet), lry)
 end
 
 function PetMotionService.GetLogicalPosition(pet)
 	return PetMotionService.GetLogicalPivot(pet).Position
+end
+
+function PetMotionService.GetLogicalPlanarPosition(pet)
+	local floor, lx, lz, lry = logicalFloorLocalForPet(pet)
+	if not floor then
+		local position = pet:GetPivot().Position
+		return position.X, position.Z
+	end
+
+	local position = PlotService.LocalToWorldOnFloorTop(floor, lx, lz, 0, lry).Position
+	return position.X, position.Z
 end
 
 function PetMotionService.RefreshPlotRoutes(plot)

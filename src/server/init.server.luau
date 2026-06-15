@@ -561,10 +561,6 @@ local function primaryPartOf(instance)
 end
 
 local function positionOfInstance(instance)
-	if instance and instance:IsA("Model") and instance:GetAttribute(State.Pet.Index) ~= nil then
-		return PetMotionService.GetLogicalPosition(instance)
-	end
-
 	local primary = primaryPartOf(instance)
 	return primary and primary.Position or nil
 end
@@ -577,6 +573,28 @@ local function isPlayerNearInstance(player, instance, maxDistance)
 		and root:IsA("BasePart")
 		and position ~= nil
 		and (root.Position - position).Magnitude <= maxDistance
+end
+
+local function withinHorizontalDistance(rootPosition, targetX, targetZ, maxDistance)
+	local distance = tonumber(maxDistance)
+	if type(targetX) ~= "number" or type(targetZ) ~= "number" or not distance then
+		return false
+	end
+
+	local dx = rootPosition.X - targetX
+	local dz = rootPosition.Z - targetZ
+	return dx * dx + dz * dz <= distance * distance
+end
+
+local function isPlayerNearPet(player, pet, maxDistance)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) then
+		return false
+	end
+
+	local petX, petZ = PetMotionService.GetLogicalPlanarPosition(pet)
+	return withinHorizontalDistance(root.Position, petX, petZ, maxDistance)
 end
 
 local function playerFloorLocal(plot, player)
@@ -608,7 +626,7 @@ local function feedPet(plot, player, profile, pet)
 	local primary = pet.PrimaryPart
 	if not primary then return false end
 	if player:GetAttribute("EditMode") == true then return false end
-	if not isPlayerNearInstance(player, pet, PET_FEED_PROMPT_DISTANCE) then return false end
+	if not isPlayerNearPet(player, pet, PET_FEED_PROMPT_DISTANCE) then return false end
 
 	local idx = pet:GetAttribute(State.Pet.Index)
 	local petData = profile.Data.Pets[idx]
@@ -758,8 +776,8 @@ local function startPetCollectionLoop(player, plot, profile)
 						continue
 					end
 
-					local petPosition = PetMotionService.GetLogicalPosition(pet)
-					if (root.Position - petPosition).Magnitude <= PET_COLLECTION_DISTANCE then
+					local petX, petZ = PetMotionService.GetLogicalPlanarPosition(pet)
+					if withinHorizontalDistance(root.Position, petX, petZ, PET_COLLECTION_DISTANCE) then
 						CurrencyService.Add(player, profile, money)
 						petData.money = 0
 						pet:SetAttribute(State.Pet.Money, 0)
