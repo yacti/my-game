@@ -28,6 +28,9 @@ local attached = {}
 local templates
 
 local TEMPLATE_WAIT_SECONDS = 8
+local BILLBOARD_ATTACHMENT_NAME = "PetBillboardAnchor"
+local BILLBOARD_ATTACHMENT_REFRESH_PASSES = 4
+local BILLBOARD_ATTACHMENT_Y_OFFSET = -0.5
 
 local function loadTemplates()
 	if templates then return templates end
@@ -84,6 +87,30 @@ local function isOwnPet(pet)
 	return plot ~= nil and pet:IsDescendantOf(plot)
 end
 
+local function ensureBillboardAttachment(primary)
+	local attachment = primary:FindFirstChild(BILLBOARD_ATTACHMENT_NAME)
+	if attachment and attachment:IsA("Attachment") then
+		return attachment
+	end
+
+	attachment = Instance.new("Attachment")
+	attachment.Name = BILLBOARD_ATTACHMENT_NAME
+	attachment.Parent = primary
+	return attachment
+end
+
+local function refreshBillboardAttachment(pet, primary, attachment)
+	if not (pet.Parent and primary.Parent and attachment.Parent == primary) then
+		return false
+	end
+
+	local boundsCF = pet:GetBoundingBox()
+	attachment.Position = primary.CFrame:PointToObjectSpace(
+		boundsCF.Position + Vector3.new(0, BILLBOARD_ATTACHMENT_Y_OFFSET, 0)
+	)
+	return true
+end
+
 local function attach(pet)
 	if attached[pet] then return end
 	local activeTemplates = loadTemplates()
@@ -98,10 +125,15 @@ local function attach(pet)
 		return
 	end
 
-	local record = {}
+	local record = {
+		attachmentRefreshToken = 0,
+	}
 	attached[pet] = record
 
 	local billboard = activeTemplates.Stats:Clone()
+	local attachment = ensureBillboardAttachment(primary)
+	refreshBillboardAttachment(pet, primary, attachment)
+	billboard.Adornee = attachment
 	UiEffects.BindBillboardPop(billboard)
 	billboard.Parent = primary
 	UiEffects.BindBillboardDistancePop(billboard)
@@ -146,25 +178,64 @@ local function attach(pet)
 		end
 	end
 
-	local function render()
+	local function refreshAttachmentForSizeChange()
+		refreshBillboardAttachment(pet, primary, attachment)
+		record.attachmentRefreshToken += 1
+		local token = record.attachmentRefreshToken
+		task.spawn(function()
+			for _ = 1, BILLBOARD_ATTACHMENT_REFRESH_PASSES do
+				RunService.Heartbeat:Wait()
+				if record.attachmentRefreshToken ~= token then
+					return
+				end
+				if not refreshBillboardAttachment(pet, primary, attachment) then
+					return
+				end
+			end
+		end)
+	end
+
+	local function renderXPFill()
 		local xp    = pet:GetAttribute(State.Pet.XP)    or 0
-		local money = pet:GetAttribute(State.Pet.Money) or 0
 		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+		if fill then fill.Size = UDim2.new(Balance.XPProgress(xp, maxXP), 0, 1, 0) end
+	end
+
+	local function renderXPBar()
+		renderXPFill()
+		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
+		if xpBar and xpBar:IsA("GuiObject") then
+			xpBar.Visible = type(maxXP) == "number" and maxXP > 0
+		end
+	end
+
+	local function renderMoney()
+		local money = pet:GetAttribute(State.Pet.Money) or 0
+		if moneyLabel then moneyLabel.Text = NumberFormatter.Currency(money) end
+	end
+
+	local function renderMoneyRate()
 		local moneyRate = (pet:GetAttribute(State.Pet.MoneyRate) or 0) * petCashMultiplier()
+		if moneyRateLabel then moneyRateLabel.Text = NumberFormatter.CurrencyRate(moneyRate) end
+	end
+
+	local function renderIdentity()
 		local nickname = pet:GetAttribute(State.Pet.Nickname)
 		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
 
-		if moneyLabel then moneyLabel.Text = NumberFormatter.Currency(money) end
-		if moneyRateLabel then moneyRateLabel.Text = NumberFormatter.CurrencyRate(moneyRate) end
 		if nameLabel then nameLabel.Text = pet.Name end
 		if nicknameLabel then
 			nicknameLabel.Text = type(nickname) == "string" and ('"' .. nickname .. '"') or ""
 			nicknameLabel.TextColor3 = typeof(nicknameColor) == "Color3" and nicknameColor or baseNicknameColor
 		end
-		if fill then fill.Size = UDim2.new(Balance.XPProgress(xp, maxXP), 0, 1, 0) end
-		if xpBar and xpBar:IsA("GuiObject") then
-			xpBar.Visible = type(maxXP) == "number" and maxXP > 0
-		end
+	end
+
+	local function render()
+		refreshAttachmentForSizeChange()
+		renderMoney()
+		renderMoneyRate()
+		renderIdentity()
+		renderXPBar()
 	end
 	record.render = render
 	record.lastMoney = pet:GetAttribute(State.Pet.Money) or 0
@@ -176,19 +247,29 @@ local function attach(pet)
 		if previousMoney >= 1 and currentMoney <= 0 and isOwnPet(pet) then
 			SoundEffects.PlayVaried(SoundEffects.Names.MoneyCollected)
 		end
-		render()
+		renderMoney()
 	end
 
 	render()
 	refreshNameColor()
-	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.XP), "PetBillboards.XPChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.XP), "PetBillboards.XPChanged", function()
+		refreshAttachmentForSizeChange()
+		renderXPFill()
+	end)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MaxXP), "PetBillboards.MaxXPChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", handleMoneyChanged)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MoneyRate), "PetBillboards.MoneyRateChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetBillboards.IdChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Nickname), "PetBillboards.NicknameChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.NicknameColor), "PetBillboards.NicknameColorChanged", render)
-	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Rarity), "PetBillboards.RarityChanged", refreshNameColor)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Rarity), "PetBillboards.RarityChanged", function()
+		render()
+		refreshNameColor()
+	end)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.EvolutionSeq), "PetBillboards.EvolutionSeqChanged", function()
+		render()
+		refreshNameColor()
+	end)
 
 	RuntimeGuard.Connect(pet.Destroying, "PetBillboards.PetDestroying", function()
 		disconnectRarity()
