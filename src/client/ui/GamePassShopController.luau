@@ -80,7 +80,7 @@ local function robuxText(id, onLoaded)
 	RuntimeGuard.Spawn("GamePassShopController.GamePassInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, Enum.InfoType.GamePass)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
-			gamePassPriceById[id] = NumberFormatter.Format(info.PriceInRobux)
+			gamePassPriceById[id] = NumberFormatter.Robux(info.PriceInRobux)
 			if onLoaded then
 				onLoaded()
 			end

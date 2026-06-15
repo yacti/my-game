@@ -253,24 +253,6 @@ local function collectCategoryEntries(entries, category)
 	return categoryEntries
 end
 
-local function fallbackSeedEntry(seedEntries)
-	local weights = {}
-	local entriesBySeedId = {}
-	for _, entry in ipairs(seedEntries or {}) do
-		if type(entry.seedId) == "string" then
-			entriesBySeedId[entry.seedId] = entry
-		end
-	end
-	for _, fallback in ipairs(RollChances.SeedFallback) do
-		local seedId = fallback.seedId
-		if entriesBySeedId[seedId] then
-			weights[seedId] = fallback.weight
-		end
-	end
-	local seedId = RollChances.WeightedChoice(weights, rng)
-	return seedId and entriesBySeedId[seedId] or nil
-end
-
 local function randomSeedEntry(seedEntries, usedSeedIds, rarity, allowUsed)
 	local candidates = {}
 	for _, entry in ipairs(seedEntries) do
@@ -497,17 +479,10 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local entry = nil
-	if rewardKey == RollChances.SeedFallbackId then
-		if category ~= RollRewards.Categories.Seed then
-			return nil, "invalid-fallback-category"
-		end
-		entry = fallbackSeedEntry(categoryEntries)
-	else
-		for _, candidate in ipairs(categoryEntries) do
-			if candidate.id == rewardKey then
-				entry = candidate
-				break
-			end
+	for _, candidate in ipairs(categoryEntries) do
+		if candidate.id == rewardKey then
+			entry = candidate
+			break
 		end
 	end
 	if not entry then

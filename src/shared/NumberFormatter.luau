@@ -124,6 +124,10 @@ function NumberFormatter.CurrencyExact(amount)
 	return "$" .. NumberFormatter.IntegerWithSeparators(math.max(math.floor(finiteNumber(amount)), 0))
 end
 
+function NumberFormatter.Robux(amount)
+	return tostring(math.max(math.floor(finiteNumber(amount)), 0))
+end
+
 function NumberFormatter.CurrencyRate(amount)
 	return "$" .. NumberFormatter.Format(math.floor(math.max(finiteNumber(amount), 0) + 0.5)) .. "/s"
 end

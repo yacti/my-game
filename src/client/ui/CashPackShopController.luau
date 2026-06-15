@@ -56,7 +56,7 @@ local function robuxText(productId, onLoaded)
 	RuntimeGuard.Spawn("CashPackShopController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
-			productPriceById[productId] = NumberFormatter.Format(info.PriceInRobux)
+			productPriceById[productId] = NumberFormatter.Robux(info.PriceInRobux)
 			if onLoaded then
 				onLoaded()
 			end
