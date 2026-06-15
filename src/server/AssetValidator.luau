@@ -122,6 +122,18 @@ local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
 	"PurchasePrice",
 }
 
+local EXPECTED_COMMON_SEED_ROLL_CHANCES = {
+	AppleTreeSeed = 2,
+	PumpkinSeed = 3,
+	CabbageSeed = 16,
+	PotatoSeed = 28,
+	OrangeTreeSeed = 45,
+	WatermelonSeed = 75,
+}
+local EXPECTED_SEED_EXPLICIT_PROBABILITY = 0.979932
+local SEED_PROBABILITY_TOLERANCE = 0.0005
+local PROBABILITY_EPSILON = 1e-9
+
 local SEED_OWNED_FEED_ATTRIBUTES = {
 	Seeds.Attributes.RollChanceN,
 	Seeds.Attributes.Price,
@@ -260,6 +272,10 @@ end
 
 local function nearlyEqual(a, b, tolerance)
 	return math.abs(a - b) <= tolerance
+end
+
+local function isFiniteNumber(value)
+	return type(value) == "number" and value == value and math.abs(value) < math.huge
 end
 
 local function validateTool(tool, errors)
@@ -584,6 +600,7 @@ local function validateSeeds(errors)
 
 	local seenBySeedId = {}
 	local count = 0
+	local explicitRollProbability = 0
 	for _, template in ipairs(root:GetDescendants()) do
 		if not (template:IsA("BasePart") or template:IsA("Model")) or hasSeedTemplateAncestor(template) then
 			continue
@@ -627,8 +644,21 @@ local function validateSeeds(errors)
 		end
 
 		local rollChanceN = template:GetAttribute(Seeds.Attributes.RollChanceN)
-		if not RollChances.BaseWeightForChance(rollChanceN) then
+		local rollProbability = RollChances.BaseWeightForChance(rollChanceN)
+		if not rollProbability then
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.RollChanceN, tostring(rollChanceN)))
+		else
+			explicitRollProbability += rollProbability
+			local expectedChanceN = type(seedId) == "string" and EXPECTED_COMMON_SEED_ROLL_CHANCES[seedId] or nil
+			if expectedChanceN ~= nil and rollChanceN ~= expectedChanceN then
+				add(errors, string.format(
+					"%s has %s=%s, expected %d for planned roll odds",
+					template:GetFullName(),
+					Seeds.Attributes.RollChanceN,
+					tostring(rollChanceN),
+					expectedChanceN
+				))
+			end
 		end
 
 		local price = template:GetAttribute(Seeds.Attributes.Price)
@@ -648,6 +678,33 @@ local function validateSeeds(errors)
 
 	if count == 0 then
 		add(errors, "ReplicatedStorage.Assets.Seeds must contain at least one seed template")
+	end
+	if explicitRollProbability > 1 + PROBABILITY_EPSILON then
+		add(errors, string.format("Seed roll explicit probability is %.4f%%, expected at most 100%%", explicitRollProbability * 100))
+	end
+	if math.abs(explicitRollProbability - EXPECTED_SEED_EXPLICIT_PROBABILITY) > SEED_PROBABILITY_TOLERANCE then
+		add(errors, string.format(
+			"Seed roll explicit probability is %.4f%%, expected about %.4f%% before fallback",
+			explicitRollProbability * 100,
+			EXPECTED_SEED_EXPLICIT_PROBABILITY * 100
+		))
+	end
+	local fallbackProbability = math.max(1 - explicitRollProbability, 0)
+	local expectedFallbackProbability = 1 - EXPECTED_SEED_EXPLICIT_PROBABILITY
+	if math.abs(fallbackProbability - expectedFallbackProbability) > SEED_PROBABILITY_TOLERANCE then
+		add(errors, string.format(
+			"Seed roll fallback probability is %.4f%%, expected about %.4f%%",
+			fallbackProbability * 100,
+			expectedFallbackProbability * 100
+		))
+	end
+	for _, fallback in ipairs(RollChances.SeedFallback) do
+		if type(fallback.seedId) == "string" and fallback.seedId ~= "" and not seenBySeedId[fallback.seedId] then
+			add(errors, string.format("RollChances SeedFallback seed %q does not resolve to an active seed template", fallback.seedId))
+		end
+		if not isFiniteNumber(fallback.weight) or fallback.weight <= 0 then
+			add(errors, string.format("RollChances SeedFallback seed %q has invalid weight %q", tostring(fallback.seedId), tostring(fallback.weight)))
+		end
 	end
 end
 
@@ -726,6 +783,7 @@ end
 local function validateMisc(errors)
 	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
 	if not misc then return end
+	local explicitRollProbability = 0
 
 	local function hasBasePart(template)
 		if template:IsA("BasePart") then
@@ -756,8 +814,11 @@ local function validateMisc(errors)
 		end
 
 		local rollChanceN = template:GetAttribute(RollRewards.Attributes.RollChanceN)
-		if not RollChances.BaseWeightForChance(rollChanceN) then
+		local rollProbability = RollChances.BaseWeightForChance(rollChanceN)
+		if not rollProbability then
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), RollRewards.Attributes.RollChanceN, tostring(rollChanceN)))
+		else
+			explicitRollProbability += rollProbability
 		end
 
 		local price = template:GetAttribute(RollRewards.Attributes.Price)
@@ -848,6 +909,9 @@ local function validateMisc(errors)
 				seenByMiscId[miscId] = template
 			end
 		end
+	end
+	if explicitRollProbability > 1 + PROBABILITY_EPSILON then
+		add(errors, string.format("Misc roll explicit probability is %.4f%%, expected at most 100%%", explicitRollProbability * 100))
 	end
 end
 

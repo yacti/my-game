@@ -71,15 +71,6 @@ local function rollLuckBreakdown(player, profile)
 	return baseLuckPercent, gamePassLuckPercent, baseLuckPercent + gamePassLuckPercent
 end
 
-local function chanceTextForWeight(weights, rewardKey, fallbackChanceN)
-	local percentages = RollChances.ToPercentages(weights)
-	local percent = percentages and percentages[rewardKey] or nil
-	if type(percent) == "number" and percent > 0 then
-		return NumberFormatter.ChanceN(math.max(math.floor((100 / percent) + 0.5), 1))
-	end
-	return NumberFormatter.ChanceN(fallbackChanceN)
-end
-
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
 local CrateRollPurchaseRequest = Remotes.get(Remotes.Names.CrateRollPurchaseRequest)
 local CrateRollPurchaseResult = Remotes.get(Remotes.Names.CrateRollPurchaseResult)
@@ -252,6 +243,34 @@ local function collectSeedEntries(entries)
 	return seedEntries
 end
 
+local function collectCategoryEntries(entries, category)
+	local categoryEntries = {}
+	for _, entry in ipairs(entries or {}) do
+		if entry.category == category then
+			categoryEntries[#categoryEntries + 1] = entry
+		end
+	end
+	return categoryEntries
+end
+
+local function fallbackSeedEntry(seedEntries)
+	local weights = {}
+	local entriesBySeedId = {}
+	for _, entry in ipairs(seedEntries or {}) do
+		if type(entry.seedId) == "string" then
+			entriesBySeedId[entry.seedId] = entry
+		end
+	end
+	for _, fallback in ipairs(RollChances.SeedFallback) do
+		local seedId = fallback.seedId
+		if entriesBySeedId[seedId] then
+			weights[seedId] = fallback.weight
+		end
+	end
+	local seedId = RollChances.WeightedChoice(weights, rng)
+	return seedId and entriesBySeedId[seedId] or nil
+end
+
 local function randomSeedEntry(seedEntries, usedSeedIds, rarity, allowUsed)
 	local candidates = {}
 	for _, entry in ipairs(seedEntries) do
@@ -281,7 +300,9 @@ local function weightedSeedEntry(crateId, player, profile, seedEntries, usedSeed
 
 	local _, _, luckPercent = rollLuckBreakdown(player, profile)
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
-	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent, serverLuckMultiplier)
+	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent, serverLuckMultiplier, {
+		includeFallback = false,
+	})
 	if not rewardWeights then
 		return nil
 	end
@@ -450,7 +471,22 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 			serverLuckMultiplier
 		))
 	end
-	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, entries, luckPercent, serverLuckMultiplier)
+
+	local categoryWeights, categoryCode = RollChances.ComputeCategoryWeights(entries)
+	if not categoryWeights then
+		return nil, categoryCode or "empty-category-pool"
+	end
+	local category = RollChances.WeightedChoice(categoryWeights, rng)
+	if not category then
+		return nil, "category-roll-failed"
+	end
+
+	local categoryEntries = collectCategoryEntries(entries, category)
+	if #categoryEntries == 0 then
+		return nil, "empty-category-pool"
+	end
+
+	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, categoryEntries, luckPercent, serverLuckMultiplier)
 	if not rewardWeights then
 		return nil, weightCode or "invalid-reward-weights"
 	end
@@ -461,10 +497,17 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local entry = nil
-	for _, candidate in ipairs(entries) do
-		if candidate.id == rewardKey then
-			entry = candidate
-			break
+	if rewardKey == RollChances.SeedFallbackId then
+		if category ~= RollRewards.Categories.Seed then
+			return nil, "invalid-fallback-category"
+		end
+		entry = fallbackSeedEntry(categoryEntries)
+	else
+		for _, candidate in ipairs(categoryEntries) do
+			if candidate.id == rewardKey then
+				entry = candidate
+				break
+			end
 		end
 	end
 	if not entry then
@@ -472,7 +515,7 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local rolled = table.clone(entry)
-	rolled.rngChanceText = chanceTextForWeight(rewardWeights, rewardKey, entry.chanceN)
+	rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
 	return rolled
 end
 

@@ -20,10 +20,6 @@ local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
 local STARTER_PET_ID = "Pet1"
 local STARTER_FEED_INVENTORY = {}
-local STARTER_SEED_INVENTORY = {
-	CherryTreeSeed = 3,
-	FigTreeSeed = 1,
-}
 local STARTER_COSMETIC_INVENTORY = {}
 
 local DEPRECATED_FEED_TYPES = {
@@ -41,7 +37,7 @@ local DATA_TEMPLATE = {
 	CosmeticPlacements = {},
 	CosmeticInventory = STARTER_COSMETIC_INVENTORY, -- { [CosmeticID] = count }
 	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
-	SeedInventory = STARTER_SEED_INVENTORY, -- { [SeedID] = count }
+	SeedInventory = {}, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
 	FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number? } }
 	ProcessedReceipts = {},

@@ -1,6 +1,22 @@
 local RollChances = {}
 
 local DEFAULT_LUCK_DONOR_COUNT = 2
+local CATEGORY_SEED = "Seed"
+local CATEGORY_MISC = "Misc"
+local PROBABILITY_EPSILON = 1e-9
+
+RollChances.CategoryWeights = {
+	[CATEGORY_SEED] = 100,
+	[CATEGORY_MISC] = 0,
+}
+
+RollChances.SeedFallbackId = "__SeedCommonFallback"
+RollChances.MaxBoostedOutcomeProbability = 0.25
+RollChances.SeedFallback = {
+	{ seedId = "AppleTreeSeed", weight = 50 },
+	{ seedId = "PumpkinSeed", weight = 35 },
+	{ seedId = "CabbageSeed", weight = 15 },
+}
 
 -- DropWeights sum to 100, so each weight reads directly as a percentage.
 RollChances.Crates = {
@@ -81,30 +97,19 @@ local function removeSurplusFromDonors(weights, donorIds, surplus)
 	end
 
 	local remainingSurplus = surplus
-	while remainingSurplus > 0 do
-		local donorTotal = totalWeight(weights, donorIds)
-		if donorTotal <= 0 then
-			return remainingSurplus
+	for _, id in ipairs(donorIds or {}) do
+		if remainingSurplus <= PROBABILITY_EPSILON then
+			return 0
 		end
-
-		local removedThisPass = 0
-		for _, id in ipairs(donorIds) do
-			local current = math.max(tonumber(weights[id]) or 0, 0)
-			if current > 0 then
-				local reduction = remainingSurplus * (current / donorTotal)
-				reduction = math.min(reduction, current)
-				weights[id] = current - reduction
-				removedThisPass += reduction
-			end
+		local current = math.max(tonumber(weights[id]) or 0, 0)
+		if current > 0 then
+			local reduction = math.min(remainingSurplus, current)
+			weights[id] = current - reduction
+			remainingSurplus -= reduction
 		end
-
-		if removedThisPass <= 0 then
-			return remainingSurplus
-		end
-		remainingSurplus -= removedThisPass
 	end
 
-	return 0
+	return math.max(remainingSurplus, 0)
 end
 
 local function sortEntriesByChance(entries)
@@ -116,6 +121,77 @@ local function sortEntriesByChance(entries)
 		return tostring(a.id) < tostring(b.id)
 	end)
 	return sorted
+end
+
+local function isFiniteNumber(value)
+	return type(value) == "number" and value == value and math.abs(value) < math.huge
+end
+
+local function categoryOf(entry)
+	return type(entry) == "table" and entry.category or nil
+end
+
+local function categoryHasEntries(entries, category)
+	for _, entry in ipairs(entries or {}) do
+		if categoryOf(entry) == category then
+			return true
+		end
+	end
+	return false
+end
+
+local function categoryWeight(category)
+	local weight = tonumber(RollChances.CategoryWeights[category]) or 0
+	if not isFiniteNumber(weight) then
+		return 0
+	end
+	return math.max(weight, 0)
+end
+
+local function sortedCategoryIds()
+	local ids = {}
+	for category in pairs(RollChances.CategoryWeights) do
+		ids[#ids + 1] = category
+	end
+	table.sort(ids)
+	return ids
+end
+
+local function validateSingleCategory(entries)
+	local category
+	for _, entry in ipairs(entries or {}) do
+		local entryCategory = categoryOf(entry)
+		if type(entryCategory) ~= "string" or entryCategory == "" then
+			return nil, "invalid-roll-entry-category"
+		end
+		category = category or entryCategory
+		if entryCategory ~= category then
+			return nil, "mixed-roll-entry-categories"
+		end
+	end
+	return category, nil
+end
+
+local function seedFallbackProbability(totalBaseProbability)
+	local remaining = 1 - totalBaseProbability
+	if remaining <= PROBABILITY_EPSILON then
+		return 0
+	end
+	return remaining
+end
+
+local function addDonorIds(donorIds, sortedEntries, donorCount)
+	for index = 1, math.min(donorCount, #sortedEntries) do
+		donorIds[#donorIds + 1] = sortedEntries[index].id
+	end
+end
+
+local function boostedTotal(baseWeights, sortedEntries, donorCount)
+	local total = 0
+	for index = donorCount + 1, #sortedEntries do
+		total += baseWeights[sortedEntries[index].id]
+	end
+	return total
 end
 
 function RollChances.GetCrate(crateId)
@@ -133,7 +209,7 @@ end
 
 function RollChances.BaseWeightForChance(chanceN)
 	chanceN = tonumber(chanceN)
-	if type(chanceN) ~= "number" or chanceN ~= chanceN or math.abs(chanceN) == math.huge or chanceN <= 0 then
+	if not isFiniteNumber(chanceN) or chanceN <= 0 then
 		return nil
 	end
 	return 1 / chanceN
@@ -156,14 +232,32 @@ function RollChances.EffectiveLuckMultiplier(crateLuckMultiplier, playerLuckPerc
 	if type(serverLuckMultiplier) ~= "number" or serverLuckMultiplier ~= serverLuckMultiplier or math.abs(serverLuckMultiplier) == math.huge then
 		serverLuckMultiplier = 1
 	end
-	local serverLuckTerm = serverLuckMultiplier > 1 and serverLuckMultiplier or 0
+	local serverLuckTerm = serverLuckMultiplier > 1 and (serverLuckMultiplier - 1) or 0
 	local playerLuckTerm = playerLuckPercent / 100
 
 	-- Luck sources add together so crate, player, and server luck do not scale explosively.
 	return math.max(crateLuckMultiplier + playerLuckTerm + serverLuckTerm, 1)
 end
 
-function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, serverLuckMultiplier)
+function RollChances.ComputeCategoryWeights(entries)
+	if type(entries) ~= "table" or #entries == 0 then
+		return nil, "empty-roll-pool"
+	end
+
+	local weights = {}
+	for _, category in ipairs(sortedCategoryIds()) do
+		local weight = categoryWeight(category)
+		if weight > 0 and categoryHasEntries(entries, category) then
+			weights[category] = weight
+		end
+	end
+	if totalWeight(weights) <= 0 then
+		return nil, "empty-category-pool"
+	end
+	return weights
+end
+
+function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, serverLuckMultiplier, options)
 	local crate = RollChances.GetCrate(crateId)
 	if not crate then
 		return nil, "unknown-crate"
@@ -171,18 +265,45 @@ function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, s
 	if type(entries) ~= "table" or #entries == 0 then
 		return nil, "empty-roll-pool"
 	end
+	local category, categoryCode = validateSingleCategory(entries)
+	if not category then
+		return nil, categoryCode
+	end
 
 	local weights = {}
 	local baseWeights = {}
 	local sortedEntries = sortEntriesByChance(entries)
+	local totalBaseProbability = 0
 	for _, entry in ipairs(sortedEntries) do
 		local id = entry.id
 		local baseWeight = RollChances.BaseWeightForChance(entry.chanceN)
 		if type(id) ~= "string" or id == "" or not baseWeight then
 			return nil, "invalid-roll-entry"
 		end
+		if weights[id] ~= nil then
+			return nil, "duplicate-roll-entry"
+		end
 		weights[id] = baseWeight
 		baseWeights[id] = baseWeight
+		totalBaseProbability += baseWeight
+	end
+
+	if totalBaseProbability > 1 + PROBABILITY_EPSILON then
+		return nil, "roll-probability-overflow"
+	end
+
+	local includeFallback = not (type(options) == "table" and options.includeFallback == false)
+	local fallbackWeight = 0
+	if category == CATEGORY_SEED and includeFallback then
+		fallbackWeight = seedFallbackProbability(totalBaseProbability)
+		if fallbackWeight > 0 then
+			weights[RollChances.SeedFallbackId] = fallbackWeight
+			baseWeights[RollChances.SeedFallbackId] = fallbackWeight
+		end
+	end
+
+	if category ~= CATEGORY_SEED then
+		return weights
 	end
 
 	local crateMultiplier = math.max(tonumber(crate.LuckMultiplier) or 1, 1)
@@ -197,28 +318,45 @@ function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, s
 		donorCount = DEFAULT_LUCK_DONOR_COUNT
 	end
 	donorCount = math.max(math.floor(donorCount), 0)
-	for index = 1, math.min(donorCount, #sortedEntries) do
-		donorIds[#donorIds + 1] = sortedEntries[index].id
-	end
 
-	local desiredSurplus = 0
-	for index, entry in ipairs(sortedEntries) do
-		if index > donorCount then
-			desiredSurplus += baseWeights[entry.id] * (multiplier - 1)
+	while donorCount < #sortedEntries do
+		local firstBoosted = sortedEntries[donorCount + 1]
+		if baseWeights[firstBoosted.id] * multiplier <= RollChances.MaxBoostedOutcomeProbability + PROBABILITY_EPSILON then
+			break
 		end
+		donorCount += 1
 	end
 
-	local donorTotal = totalWeight(baseWeights, donorIds)
-	local appliedSurplus = math.min(desiredSurplus, donorTotal)
-	local boostScale = desiredSurplus > 0 and appliedSurplus / desiredSurplus or 0
+	while donorCount < #sortedEntries do
+		table.clear(donorIds)
+		if fallbackWeight > 0 then
+			donorIds[#donorIds + 1] = RollChances.SeedFallbackId
+		end
+		addDonorIds(donorIds, sortedEntries, donorCount)
+		local desiredSurplus = boostedTotal(baseWeights, sortedEntries, donorCount) * (multiplier - 1)
+		if totalWeight(baseWeights, donorIds) + PROBABILITY_EPSILON >= desiredSurplus then
+			break
+		end
+		donorCount += 1
+	end
 
+	table.clear(donorIds)
+	if fallbackWeight > 0 then
+		donorIds[#donorIds + 1] = RollChances.SeedFallbackId
+	end
+	addDonorIds(donorIds, sortedEntries, donorCount)
+
+	local desiredSurplus = boostedTotal(baseWeights, sortedEntries, donorCount) * (multiplier - 1)
 	for index, entry in ipairs(sortedEntries) do
 		if index > donorCount then
 			local baseWeight = baseWeights[entry.id]
-			weights[entry.id] = baseWeight + baseWeight * (multiplier - 1) * boostScale
+			weights[entry.id] = baseWeight * multiplier
 		end
 	end
-	removeSurplusFromDonors(weights, donorIds, appliedSurplus)
+	local remainingSurplus = removeSurplusFromDonors(weights, donorIds, desiredSurplus)
+	if remainingSurplus > PROBABILITY_EPSILON then
+		return nil, "insufficient-donor-weight"
+	end
 
 	return weights
 end
@@ -285,6 +423,43 @@ function RollChances.Validate(errors)
 		if crate.FallDurationMultiplier ~= nil and (type(crate.FallDurationMultiplier) ~= "number" or crate.FallDurationMultiplier <= 0) then
 			errors[#errors + 1] = string.format("RollChances crate %s has invalid FallDurationMultiplier", tostring(crateId))
 		end
+	end
+
+	local positiveCategoryWeight = false
+	for category, weight in pairs(RollChances.CategoryWeights) do
+		if type(category) ~= "string" or category == "" then
+			errors[#errors + 1] = "RollChances has invalid reward category key"
+		end
+		if not isFiniteNumber(weight) or weight < 0 then
+			errors[#errors + 1] = string.format("RollChances category %s has invalid weight %q", tostring(category), tostring(weight))
+		elseif weight > 0 then
+			positiveCategoryWeight = true
+		end
+	end
+	if not positiveCategoryWeight then
+		errors[#errors + 1] = "RollChances must have at least one positive category weight"
+	end
+	if not isFiniteNumber(RollChances.MaxBoostedOutcomeProbability)
+		or RollChances.MaxBoostedOutcomeProbability <= 0
+		or RollChances.MaxBoostedOutcomeProbability > 1 then
+		errors[#errors + 1] = "RollChances MaxBoostedOutcomeProbability must be between 0 and 1"
+	end
+	if type(RollChances.SeedFallbackId) ~= "string" or RollChances.SeedFallbackId == "" then
+		errors[#errors + 1] = "RollChances missing SeedFallbackId"
+	end
+	local fallbackTotal = 0
+	for _, fallback in ipairs(RollChances.SeedFallback) do
+		if type(fallback.seedId) ~= "string" or fallback.seedId == "" then
+			errors[#errors + 1] = "RollChances SeedFallback entry missing seedId"
+		end
+		if not isFiniteNumber(fallback.weight) or fallback.weight <= 0 then
+			errors[#errors + 1] = string.format("RollChances SeedFallback %s has invalid weight %q", tostring(fallback.seedId), tostring(fallback.weight))
+		else
+			fallbackTotal += fallback.weight
+		end
+	end
+	if fallbackTotal <= 0 then
+		errors[#errors + 1] = "RollChances SeedFallback must have positive total weight"
 	end
 
 	return #errors == 0
