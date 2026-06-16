@@ -1,8 +1,9 @@
+local Workspace = game:GetService("Workspace")
+
 local PlotService = require(script.Parent:WaitForChild("PlotService"))
 local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 
 local CELL_SIZE = 2.5
-local CLEARANCE_PADDING = 0.25
 -- Pet footprint padding is rounded up to this quantum so pets of similar
 -- size share one cached walkability grid per plot. Rounding up only blocks
 -- slightly more area, never less, so cached grids stay clearance-safe.
@@ -46,7 +47,7 @@ local function clamp(value, minValue, maxValue)
 	return math.clamp(value, minValue, maxValue)
 end
 
-local function buildGrid(plot, paddingX, paddingZ)
+local function buildGrid(plot, paddingX, paddingZ, obstacles)
 	local minX, maxX, minZ, maxZ = PlotGridService.GetUnlockedLocalBounds(plot, paddingX, paddingZ)
 	if not minX or minX >= maxX or minZ >= maxZ then
 		return nil
@@ -70,7 +71,6 @@ local function buildGrid(plot, paddingX, paddingZ)
 		free = {},
 	}
 
-	local obstacles = PlotService.GetNavigationObstacleBounds(plot)
 	for ix = 1, columns do
 		grid.blocked[ix] = {}
 		for iz = 1, rows do
@@ -97,10 +97,10 @@ local function buildGrid(plot, paddingX, paddingZ)
 	return grid
 end
 
--- Grids depend only on the plot's unlocked cells, its obstacle layout, and
--- the (quantized) pet padding, so they are cached per plot and reused across
--- pets and route plans. Unlock/obstacle changes are detected lazily through
--- the version counters exposed by PlotGridService and PlotService.
+-- Grids depend only on the plot's unlocked cells, its effective obstacle
+-- layout, and the (quantized) pet padding, so they are cached per plot and
+-- reused across pets and route plans. Patch growth contributes a coarse
+-- threshold token only; exact time/scale never enters the cache key.
 -- [plot] = { unlockVersion, navVersion, grids = { [padKey] = grid | false } }
 local gridCache = setmetatable({}, { __mode = "k" })
 
@@ -109,24 +109,25 @@ local function quantizePadding(value)
 end
 
 local function getGrid(plot, floor, pet)
-	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, pet)
-	paddingX = quantizePadding(paddingX + CLEARANCE_PADDING)
-	paddingZ = quantizePadding(paddingZ + CLEARANCE_PADDING)
+	local paddingX, paddingZ = PlotService.PetPathFootprintPadding(floor, pet)
+	paddingX = quantizePadding(paddingX)
+	paddingZ = quantizePadding(paddingZ)
 
 	local unlockVersion = PlotGridService.GetUnlockVersion(plot)
 	local navVersion = PlotService.GetNavigationObstacleVersion(plot)
+	local obstacles, obstacleKey = PlotService.GetNavigationObstacleSnapshot(plot, Workspace:GetServerTimeNow())
 	local entry = gridCache[plot]
 	if not entry or entry.unlockVersion ~= unlockVersion or entry.navVersion ~= navVersion then
 		entry = { unlockVersion = unlockVersion, navVersion = navVersion, grids = {} }
 		gridCache[plot] = entry
 	end
 
-	local padKey = paddingX .. ":" .. paddingZ
+	local padKey = paddingX .. ":" .. paddingZ .. ":" .. tostring(obstacleKey)
 	local grid = entry.grids[padKey]
 	if grid == nil then
 		-- Cache failed builds as false so unbuildable layouts (e.g. unlocked
 		-- area smaller than the pet footprint) don't rebuild every plan.
-		grid = buildGrid(plot, paddingX, paddingZ) or false
+		grid = buildGrid(plot, paddingX, paddingZ, obstacles) or false
 		entry.grids[padKey] = grid
 	end
 	return grid or nil

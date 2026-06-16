@@ -18,6 +18,8 @@ local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
+local PET_PATH_PADDING_SCALE = 0.75
+local NAV_OBSTACLE_STATIC_KEY = "static"
 local ROLL_AREA_NAME = "RollArea"
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local STARTER_AREA_NAME = "StarterArea"
@@ -223,7 +225,7 @@ local function placementRecord(plot)
 		cosmetics = {},
 		cosmeticSet = {},
 		cosmeticConns = {},
-		navObstacleBounds = nil,
+		navStaticObstacleEntries = nil,
 		navObstacleDirty = true,
 	}
 	plotPlacementRecords[plot] = record
@@ -235,7 +237,7 @@ local function markPlacementBoundsDirty(plot)
 	navObstacleVersions[plot] = (navObstacleVersions[plot] or 0) + 1
 	local record = plotPlacementRecords[plot]
 	if record then
-		record.navObstacleBounds = nil
+		record.navStaticObstacleEntries = nil
 		record.navObstacleDirty = true
 	end
 end
@@ -604,8 +606,13 @@ local function petFootprintPadding(floor, pet)
 	return rotationSafePadding, rotationSafePadding
 end
 
-local function petFloorLocalBounds(floor, pet, plot)
+local function petPathFootprintPadding(floor, pet)
 	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	return paddingX * PET_PATH_PADDING_SCALE, paddingZ * PET_PATH_PADDING_SCALE
+end
+
+local function petFloorLocalBounds(floor, pet, plot)
+	local paddingX, paddingZ = petPathFootprintPadding(floor, pet)
 	if plot then
 		local minX, maxX, minZ, maxZ = PlotGridService.GetUnlockedLocalBounds(plot, paddingX, paddingZ)
 		if minX and minX < maxX and minZ < maxZ then
@@ -620,7 +627,7 @@ local function petFloorLocalBounds(floor, pet, plot)
 end
 
 local function fitPetOnUnlockedGrid(plot, pet, floor, lx, lz, lry, preferRandom)
-	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	local paddingX, paddingZ = petPathFootprintPadding(floor, pet)
 	local fitLX, fitLZ
 	if preferRandom then
 		fitLX, fitLZ = PlotGridService.RandomUnlockedPoint(plot, Random.new(), paddingX, paddingZ)
@@ -1167,6 +1174,10 @@ function PlotService.PetFootprintPadding(floor, pet)
 	return petFootprintPadding(floor, pet)
 end
 
+function PlotService.PetPathFootprintPadding(floor, pet)
+	return petPathFootprintPadding(floor, pet)
+end
+
 function PlotService.FitPetOnUnlockedGrid(plot, pet, lx, lz, lry, preferRandom)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return false end
@@ -1177,16 +1188,14 @@ function PlotService.GetNavigationObstacleVersion(plot)
 	return plot and navObstacleVersions[plot] or 0
 end
 
-function PlotService.GetNavigationObstacleBounds(plot)
-	local floor = PlotService.GetFloor(plot)
-	if not floor then return {} end
+local function navigationObstacleEntries(plot, floor)
 	local record = placementRecord(plot)
-	if record.navObstacleDirty == false and record.navObstacleBounds then
-		return record.navObstacleBounds
+	if record.navObstacleDirty == false and record.navStaticObstacleEntries then
+		return record.navStaticObstacleEntries
 	end
 
-	local obstacles = {}
-	local function addObstacle(instance)
+	local entries = {}
+	local function addObstacle(instance, isFeed, tokenId)
 		local boundsCF, boundsSize
 		if instance:IsA("BasePart") then
 			boundsCF, boundsSize = instance.CFrame, instance.Size
@@ -1200,8 +1209,10 @@ function PlotService.GetNavigationObstacleBounds(plot)
 		if boundsCF and boundsSize then
 			local minX, maxX, minZ, maxZ = floorLocalBoundsFromBox(floor, boundsCF, boundsSize)
 			if minX then
-				obstacles[#obstacles + 1] = {
+				entries[#entries + 1] = {
 					instance = instance,
+					isFeed = isFeed == true,
+					tokenId = tokenId,
 					minX = minX,
 					maxX = maxX,
 					minZ = minZ,
@@ -1211,15 +1222,55 @@ function PlotService.GetNavigationObstacleBounds(plot)
 		end
 	end
 
+	local feedOrder = 0
 	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
-		addObstacle(feed)
+		feedOrder += 1
+		local feedIndex = feed:GetAttribute(State.Feed.Index)
+		addObstacle(feed, true, tostring(feedIndex or feedOrder))
 	end
 	for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
-		addObstacle(cosmetic)
+		addObstacle(cosmetic, false)
 	end
 
-	record.navObstacleBounds = obstacles
+	record.navStaticObstacleEntries = entries
 	record.navObstacleDirty = false
+	return entries
+end
+
+function PlotService.GetNavigationObstacleSnapshot(plot, now)
+	local floor = PlotService.GetFloor(plot)
+	if not floor then return {}, NAV_OBSTACLE_STATIC_KEY end
+	if type(now) ~= "number" then
+		now = Workspace:GetServerTimeNow()
+	end
+
+	local entries = navigationObstacleEntries(plot, floor)
+	local obstacles = {}
+	local tokens = {}
+	for _, entry in ipairs(entries) do
+		local blocks = true
+		local token = "block"
+		if entry.isFeed then
+			blocks, token = FeedMachines.BlocksPetNavigation(entry.instance, now)
+			if type(token) ~= "string" or token == "" then
+				token = blocks and "block" or "walkable"
+			end
+			if token ~= "block" then
+				tokens[#tokens + 1] = tostring(entry.tokenId) .. ":" .. token
+			end
+		end
+
+		if blocks ~= false then
+			obstacles[#obstacles + 1] = entry
+		end
+	end
+
+	local key = #tokens > 0 and table.concat(tokens, "|") or NAV_OBSTACLE_STATIC_KEY
+	return obstacles, key
+end
+
+function PlotService.GetNavigationObstacleBounds(plot)
+	local obstacles = PlotService.GetNavigationObstacleSnapshot(plot)
 	return obstacles
 end
 

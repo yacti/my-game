@@ -204,6 +204,20 @@ function FeedMachines.ResyncVisualScales(machine)
 	end
 end
 
+function FeedMachines.BlocksPetNavigation(machine, now)
+	local mod = impl(machine)
+	if mod and mod.BlocksPetNavigation then
+		local ok, blocks, token = RuntimeGuard.Run("FeedMachines.BlocksPetNavigation", mod.BlocksPetNavigation, machine, now)
+		if ok and type(blocks) == "boolean" then
+			if type(token) ~= "string" or token == "" then
+				token = blocks and "block" or "walkable"
+			end
+			return blocks, token
+		end
+	end
+	return true, "block"
+end
+
 function FeedMachines.Interact(machine, player)
 	local mod = impl(machine)
 	if mod and mod.Interact then

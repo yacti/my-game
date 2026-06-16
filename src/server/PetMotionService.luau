@@ -70,7 +70,7 @@ local function floorForState(state)
 end
 
 local function nearestPetFit(state, floor, lx, lz)
-	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
+	local paddingX, paddingZ = PlotService.PetPathFootprintPadding(floor, state.pet)
 	local fitLX, fitLZ
 	if type(lx) == "number" and type(lz) == "number" then
 		fitLX, fitLZ = PlotGridService.NearestUnlockedPoint(state.plot, lx, lz, paddingX, paddingZ)
@@ -153,7 +153,7 @@ local function chooseFallbackTargetInsideFloor(state, floor)
 	local duration = durationFor(state, "MinWalkSeconds", "MaxWalkSeconds")
 	local walkSpeed = walkSpeedFor(state)
 	local distance = walkSpeed * duration
-	local paddingX, paddingZ = PlotService.PetFootprintPadding(floor, state.pet)
+	local paddingX, paddingZ = PlotService.PetPathFootprintPadding(floor, state.pet)
 
 	local angle = state.rng:NextNumber(0, math.pi * 2)
 	local targetLX = lx + math.cos(angle) * distance

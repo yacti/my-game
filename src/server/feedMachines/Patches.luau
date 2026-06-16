@@ -35,8 +35,10 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local Patches = {}
 
 local HARVEST_RESPAWN_DELAY = 3
+local NAV_BLOCK_SCALE_THRESHOLD = 1.5
 local OFFLINE_GROW_FRACTION = 0.02
 local EDIT_MODE_ATTR = "EditMode"
+local GROWING_SEED_PHASE = "GrowingSeed"
 
 -- Offline progress runs at this fraction of the online rate. Tunable in one
 -- place; not on the machine attribute since it's an economy-wide knob for
@@ -588,6 +590,38 @@ function Patches.CommitSteal(machine, reservation, reservationId)
 	emptySlot(slot, os.time() + HARVEST_RESPAWN_DELAY)
 	scheduleSlotRespawn(machine, s, slot, HARVEST_RESPAWN_DELAY)
 	return true, machine
+end
+
+function Patches.BlocksPetNavigation(machine, now)
+	if machine and machine:GetAttribute(State.Seed.Phase) == GROWING_SEED_PHASE then
+		return false, "walkable"
+	end
+
+	local s = machine and state[machine]
+	if not s or type(s.slots) ~= "table" or #s.slots == 0 then
+		return true, "block"
+	end
+
+	if type(now) ~= "number" then
+		now = serverNow()
+	end
+
+	for _, slot in ipairs(s.slots) do
+		if type(slot) ~= "table" then
+			return true, "block"
+		end
+
+		if not slot.respawnAt then
+			if slot.foodPart and slot.foodPart.Parent then
+				local scale = PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP)
+				if scale >= NAV_BLOCK_SCALE_THRESHOLD then
+					return true, "block"
+				end
+			end
+		end
+	end
+
+	return false, "walkable"
 end
 
 -- Re-syncs each slot food model's server-side geometry to its current derived
