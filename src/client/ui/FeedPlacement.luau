@@ -30,6 +30,9 @@ local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
 -- World-space gap above the placeable primary-part bottom.
 local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
+local DRAG_CELL_DEADZONE = 0.2
+local DRAG_AXIS_MIN_PIXELS = 0.5
+local DRAG_AXIS_CONDITION_MIN = 0.18
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
@@ -356,6 +359,7 @@ function FeedPlacement.start()
 	local unequippedWhilePending = false
 	local placementGrid = nil
 	local moving = false
+	local dragState = nil
 	local worldTap = PlacementInput.NewTapRecognizer()
 	local ignoreWorldInputUntil = 0
 	local boundTools = setmetatable({}, { __mode = "k" })
@@ -494,6 +498,7 @@ function FeedPlacement.start()
 		pendingSuppressOverlapError = false
 		unequippedWhilePending = false
 		moving = false
+		dragState = nil
 		worldTap:Cancel()
 		setGridEffectEnabled(false)
 		setPlacementEditVisible(false)
@@ -679,7 +684,7 @@ function FeedPlacement.start()
 		local boundsCF, boundsSize = getPreviewBounds()
 		if not camera or not boundsCF or not boundsSize then return false end
 
-		local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+		local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 		local origin = boundsCF:PointToObjectSpace(ray.Origin)
 		local direction = boundsCF:VectorToObjectSpace(ray.Direction)
 		local half = boundsSize / 2
@@ -745,7 +750,7 @@ function FeedPlacement.start()
 		local camera = workspace.CurrentCamera
 		if not floor or not floor:IsA("BasePart") or not camera then return nil end
 
-		local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+		local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 		local planePoint = floor.CFrame:PointToWorldSpace(Vector3.new(0, floor.Size.Y / 2, 0))
 		local planeNormal = floor.CFrame.UpVector
 		local denominator = ray.Direction:Dot(planeNormal)
@@ -754,6 +759,78 @@ function FeedPlacement.start()
 		local distance = (planePoint - ray.Origin):Dot(planeNormal) / denominator
 		if distance < 0 then return nil end
 		return floor.CFrame:PointToObjectSpace(ray.Origin + ray.Direction * distance)
+	end
+
+	local function snappedDragDelta(value)
+		if math.abs(value) < DRAG_CELL_DEADZONE then
+			return 0
+		end
+		return math.round(value)
+	end
+
+	local function screenPointForFloorLocal(camera, floor, lx, localY, lz)
+		local worldPoint = floor.CFrame:PointToWorldSpace(Vector3.new(lx, localY, lz))
+		local screenPoint = camera:WorldToScreenPoint(worldPoint)
+		if screenPoint.Z <= 0 then
+			return nil
+		end
+		return Vector2.new(screenPoint.X, screenPoint.Y)
+	end
+
+	local function beginScreenDrag(screenPosition, floor, startLX, startLZ)
+		local camera = workspace.CurrentCamera
+		if not camera or not floor or not screenPosition or startLX == nil or startLZ == nil then
+			return nil
+		end
+		local halfH = preview and (previewPlacementHeight or previewSizeY(preview)) / 2 or 0
+		local localY = floor.Size.Y / 2 + halfH
+		local origin = screenPointForFloorLocal(camera, floor, startLX, localY, startLZ)
+		local xPoint = screenPointForFloorLocal(camera, floor, startLX + 1, localY, startLZ)
+		local zPoint = screenPointForFloorLocal(camera, floor, startLX, localY, startLZ + 1)
+		if not origin or not xPoint or not zPoint then
+			return nil
+		end
+		local xAxis = xPoint - origin
+		local zAxis = zPoint - origin
+		if xAxis.Magnitude < DRAG_AXIS_MIN_PIXELS or zAxis.Magnitude < DRAG_AXIS_MIN_PIXELS then
+			return nil
+		end
+		local determinant = xAxis.X * zAxis.Y - xAxis.Y * zAxis.X
+		local condition = math.abs(determinant) / (xAxis.Magnitude * zAxis.Magnitude)
+		return {
+			startScreen = screenPosition,
+			startLX = startLX,
+			startLZ = startLZ,
+			xAxis = xAxis,
+			zAxis = zAxis,
+			determinant = determinant,
+			useAxisProjection = condition < DRAG_AXIS_CONDITION_MIN,
+			pendingFirstMove = true,
+		}
+	end
+
+	local function dragTargetFromScreen(state, screenPosition)
+		if not state or not screenPosition then
+			return nil
+		end
+		if state.pendingFirstMove then
+			state.pendingFirstMove = false
+			state.startScreen = screenPosition
+			return state.startLX, state.startLZ, state.startLX, state.startLZ
+		end
+		local delta = screenPosition - state.startScreen
+		local xCells
+		local zCells
+		if state.useAxisProjection then
+			xCells = delta:Dot(state.xAxis) / state.xAxis:Dot(state.xAxis)
+			zCells = delta:Dot(state.zAxis) / state.zAxis:Dot(state.zAxis)
+		else
+			xCells = (delta.X * state.zAxis.Y - delta.Y * state.zAxis.X) / state.determinant
+			zCells = (state.xAxis.X * delta.Y - state.xAxis.Y * delta.X) / state.determinant
+		end
+		local rawLX = state.startLX + xCells
+		local rawLZ = state.startLZ + zCells
+		return state.startLX + snappedDragDelta(xCells), state.startLZ + snappedDragDelta(zCells), rawLX, rawLZ
 	end
 
 	local function nearestUnlockedLocalPoint(localTarget, floor, plot, gridParts)
@@ -868,6 +945,43 @@ function FeedPlacement.start()
 		return true
 	end
 
+	local function selectFloorCellFromDrag(screenPosition)
+		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
+		if not floor or not floor:IsA("BasePart") or not plot then return false end
+		if not ensurePreview() then return false end
+		if not dragState then
+			return selectFloorCellFromScreen(screenPosition)
+		end
+		local directLX, directLZ, rawLX, rawLZ = dragTargetFromScreen(dragState, screenPosition)
+		if directLX == nil or directLZ == nil then return false end
+
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return false end
+		local directWorld = floor.CFrame:PointToWorldSpace(Vector3.new(directLX, floor.Size.Y / 2, directLZ))
+		local directInsideUnlockedGrid = pointInsideUnlockedGrid(plot, directWorld, gridParts)
+
+		local snappedLX, snappedLZ
+		if directInsideUnlockedGrid and previewFitsOnGridAt(directLX, directLZ, floor, plot, gridParts) then
+			snappedLX, snappedLZ = directLX, directLZ
+		else
+			snappedLX, snappedLZ = nearestUnlockedLocalPoint(Vector3.new(rawLX, floor.Size.Y / 2, rawLZ), floor, plot, gridParts)
+		end
+		if snappedLX == nil or snappedLZ == nil then return false end
+		if hasActiveSelection and selectedLX == snappedLX and selectedLZ == snappedLZ then
+			return true
+		end
+
+		setGridEffectEnabled(true)
+		selectedLX = snappedLX
+		selectedLZ = snappedLZ
+		hasActiveSelection = true
+		applyPreviewCFrame()
+		setPlacementEditVisible(true)
+		setPreviewBlocked(previewPlacementBlocked())
+		return true
+	end
+
 	local function confirmPlacement(showBlockedError)
 		if pendingPlacementRequestId ~= nil then return end
 		if isOfflineProgressPending() then return end
@@ -892,6 +1006,7 @@ function FeedPlacement.start()
 		unequippedWhilePending = false
 		placing = false
 		moving = false
+		dragState = nil
 		setGridEffectEnabled(false)
 		setPlacementEditVisible(false)
 		setConfirmEnabled(false)
@@ -903,9 +1018,10 @@ function FeedPlacement.start()
 		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	end
 
-	local function beginMoving()
+	local function beginMoving(screenPosition)
 		if not placing or not preview or pendingPlacementRequestId ~= nil then return end
 		moving = true
+		dragState = beginScreenDrag(screenPosition, getPlayerFloor(), selectedLX, selectedLZ)
 		worldTap:Cancel()
 		setPlacementEditVisible(true)
 	end
@@ -913,6 +1029,7 @@ function FeedPlacement.start()
 	local function stopMoving()
 		if not moving then return end
 		moving = false
+		dragState = nil
 		setPlacementEditVisible(preview ~= nil)
 	end
 
@@ -922,6 +1039,7 @@ function FeedPlacement.start()
 		end
 		if pendingPlacementRequestId ~= nil then
 			moving = false
+			dragState = nil
 			setPlacementEditVisible(false)
 			return
 		end
@@ -930,7 +1048,7 @@ function FeedPlacement.start()
 			return
 		end
 		if screenPosition then
-			selectFloorCellFromScreen(screenPosition)
+			selectFloorCellFromDrag(screenPosition)
 		end
 	end
 
@@ -977,9 +1095,9 @@ function FeedPlacement.start()
 				and preview ~= nil
 				and pendingPlacementRequestId == nil
 		end,
-		onStart = function()
+		onStart = function(screenPosition)
 			ignoreWorldInputUntil = os.clock() + 0.2
-			beginMoving()
+			beginMoving(screenPosition)
 		end,
 		onContinue = function(screenPosition)
 			updateDragPreview(screenPosition)

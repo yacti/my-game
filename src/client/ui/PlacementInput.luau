@@ -160,7 +160,13 @@ function PlacementInput.BindMoveDrag(button, label, callbacks)
 		beginDrag(input)
 	end)
 
-	RuntimeGuard.Connect(UserInputService.InputChanged, label .. ".InputChanged", updateDrag)
+	RuntimeGuard.Connect(UserInputService.InputChanged, label .. ".InputChanged", function(input)
+		if activeInputType == Enum.UserInputType.Touch then
+			return
+		end
+		updateDrag(input)
+	end)
+	RuntimeGuard.Connect(UserInputService.TouchMoved, label .. ".TouchMoved", updateDrag)
 	RuntimeGuard.Connect(UserInputService.InputEnded, label .. ".InputEnded", endDrag)
 
 	RuntimeGuard.Connect(button.Destroying, label .. ".ButtonDestroying", function()

@@ -39,6 +39,9 @@ local SELECTION_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
 -- World-space gap above the placeable primary-part bottom.
 local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
+local DRAG_CELL_DEADZONE = 0.2
+local DRAG_AXIS_MIN_PIXELS = 0.5
+local DRAG_AXIS_CONDITION_MIN = 0.18
 local OVERLAP_QUERY_INSET = 0.05
 local SELECTION_RAY_DISTANCE = 1000
 local BOX_CORNER_SIGNS = { -1, 1 }
@@ -346,7 +349,7 @@ local function placeableRootFromScreen(plot, screenPosition)
 	local roots = placeableRoots(plot)
 	if #roots == 0 then return nil end
 
-	local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+	local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = roots
@@ -559,6 +562,7 @@ function FeedEditController.start()
 	local committedCFrame = nil
 	local currentBlocked = false
 	local moving = false
+	local dragState = nil
 	local selectionTap = PlacementInput.NewTapRecognizer()
 	local nextRequestId = 0
 	local pendingRequestId = nil
@@ -650,12 +654,16 @@ function FeedEditController.start()
 		end
 	end
 
-	local function selectedTargetCFrame(floor)
+	local function selectedTargetCFrameAt(lx, lz, floor)
 		floor = floor or getPlayerFloor()
 		if not floor then return nil end
 		return floor.CFrame
-			* CFrame.new(selectedLX, floor.Size.Y / 2 + selectedPivotOffset, selectedLZ)
+			* CFrame.new(lx, floor.Size.Y / 2 + selectedPivotOffset, lz)
 			* CFrame.Angles(0, selectedLRY, 0)
+	end
+
+	local function selectedTargetCFrame(floor)
+		return selectedTargetCFrameAt(selectedLX, selectedLZ, floor)
 	end
 
 	local function selectedBoundsAt(cframe)
@@ -776,6 +784,7 @@ function FeedEditController.start()
 		if pendingRequestId ~= nil then return end
 		cancelRotationTween()
 		moving = false
+		dragState = nil
 		if restore and selectedFeed and committedCFrame then
 			setObjectCFrame(selectedFeed, committedCFrame)
 		end
@@ -840,12 +849,12 @@ function FeedEditController.start()
 		applySelectionPreview()
 	end
 
-	local function floorPointFromScreen(screenPosition, floor)
+	local function floorLocalPointFromScreen(screenPosition, floor)
 		floor = floor or getPlayerFloor()
 		local camera = Workspace.CurrentCamera
 		if not floor or not camera then return nil end
 
-		local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+		local ray = camera:ScreenPointToRay(screenPosition.X, screenPosition.Y)
 		local planePoint = floor.CFrame:PointToWorldSpace(Vector3.new(0, floor.Size.Y / 2, 0))
 		local planeNormal = floor.CFrame.UpVector
 		local denominator = ray.Direction:Dot(planeNormal)
@@ -853,12 +862,165 @@ function FeedEditController.start()
 
 		local distance = (planePoint - ray.Origin):Dot(planeNormal) / denominator
 		if distance < 0 then return nil end
-		local localTarget = floor.CFrame:PointToObjectSpace(ray.Origin + ray.Direction * distance)
+		return floor.CFrame:PointToObjectSpace(ray.Origin + ray.Direction * distance)
+	end
+
+	local function floorPointFromScreen(screenPosition, floor)
+		floor = floor or getPlayerFloor()
+		if not floor then return nil end
+		local localTarget = floorLocalPointFromScreen(screenPosition, floor)
+		if not localTarget then return nil end
 		local halfX = floor.Size.X / 2
 		local halfZ = floor.Size.Z / 2
 		local lx = math.clamp(math.round(localTarget.X), -halfX, halfX)
 		local lz = math.clamp(math.round(localTarget.Z), -halfZ, halfZ)
 		return lx, lz
+	end
+
+	local function snappedDragDelta(value)
+		if math.abs(value) < DRAG_CELL_DEADZONE then
+			return 0
+		end
+		return math.round(value)
+	end
+
+	local function screenPointForFloorLocal(camera, floor, lx, localY, lz)
+		local worldPoint = floor.CFrame:PointToWorldSpace(Vector3.new(lx, localY, lz))
+		local screenPoint = camera:WorldToScreenPoint(worldPoint)
+		if screenPoint.Z <= 0 then
+			return nil
+		end
+		return Vector2.new(screenPoint.X, screenPoint.Y)
+	end
+
+	local function beginScreenDrag(screenPosition, floor, startLX, startLZ)
+		local camera = Workspace.CurrentCamera
+		if not camera or not floor or not screenPosition then
+			return nil
+		end
+		local localY = floor.Size.Y / 2 + selectedPivotOffset
+		local origin = screenPointForFloorLocal(camera, floor, startLX, localY, startLZ)
+		local xPoint = screenPointForFloorLocal(camera, floor, startLX + 1, localY, startLZ)
+		local zPoint = screenPointForFloorLocal(camera, floor, startLX, localY, startLZ + 1)
+		if not origin or not xPoint or not zPoint then
+			return nil
+		end
+		local xAxis = xPoint - origin
+		local zAxis = zPoint - origin
+		if xAxis.Magnitude < DRAG_AXIS_MIN_PIXELS or zAxis.Magnitude < DRAG_AXIS_MIN_PIXELS then
+			return nil
+		end
+		local determinant = xAxis.X * zAxis.Y - xAxis.Y * zAxis.X
+		local condition = math.abs(determinant) / (xAxis.Magnitude * zAxis.Magnitude)
+		return {
+			startScreen = screenPosition,
+			startLX = startLX,
+			startLZ = startLZ,
+			xAxis = xAxis,
+			zAxis = zAxis,
+			determinant = determinant,
+			useAxisProjection = condition < DRAG_AXIS_CONDITION_MIN,
+			pendingFirstMove = true,
+		}
+	end
+
+	local function dragTargetFromScreen(state, screenPosition)
+		if not state or not screenPosition then
+			return nil
+		end
+		if state.pendingFirstMove then
+			state.pendingFirstMove = false
+			state.startScreen = screenPosition
+			return state.startLX, state.startLZ, state.startLX, state.startLZ
+		end
+		local delta = screenPosition - state.startScreen
+		local xCells
+		local zCells
+		if state.useAxisProjection then
+			xCells = delta:Dot(state.xAxis) / state.xAxis:Dot(state.xAxis)
+			zCells = delta:Dot(state.zAxis) / state.zAxis:Dot(state.zAxis)
+		else
+			xCells = (delta.X * state.zAxis.Y - delta.Y * state.zAxis.X) / state.determinant
+			zCells = (state.xAxis.X * delta.Y - state.xAxis.Y * delta.X) / state.determinant
+		end
+		local rawLX = state.startLX + xCells
+		local rawLZ = state.startLZ + zCells
+		return state.startLX + snappedDragDelta(xCells), state.startLZ + snappedDragDelta(zCells), rawLX, rawLZ
+	end
+
+	local function selectedFitsOnGridAt(lx, lz, floor, plot, gridParts)
+		floor = floor or getPlayerFloor()
+		plot = plot or getPlayerPlot()
+		if not floor or not plot then return false end
+		local cframe = selectedTargetCFrameAt(lx, lz, floor)
+		local boundsCF, boundsSize = selectedBoundsAt(cframe)
+		if not boundsCF or not boundsSize then return false end
+		return boundsFitOnFloor(floor, boundsCF, boundsSize)
+			and boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts)
+	end
+
+	local function nearestSelectedLocalPoint(localTarget, floor, plot, gridParts)
+		floor = floor or getPlayerFloor()
+		plot = plot or getPlayerPlot()
+		if not floor or not plot then return nil, nil end
+		local parts = gridParts or unlockedGridParts(plot)
+		if #parts == 0 then return nil, nil end
+
+		local halfFloorX = floor.Size.X / 2
+		local halfFloorZ = floor.Size.Z / 2
+		local targetWorld = floor.CFrame:PointToWorldSpace(Vector3.new(localTarget.X, floor.Size.Y / 2, localTarget.Z))
+		local bestFitLX, bestFitLZ, bestFitDistanceSq = nil, nil, math.huge
+		local bestAnyLX, bestAnyLZ, bestAnyDistanceSq = nil, nil, math.huge
+		local searchRadius = 1
+		if selectedPrimary then
+			searchRadius = math.max(searchRadius, math.ceil(math.max(selectedPrimary.Size.X, selectedPrimary.Size.Z) / 2) + 1)
+		end
+
+		local checkedCells = {}
+		local function consider(lx, lz)
+			local checkedColumn = checkedCells[lx]
+			if checkedColumn and checkedColumn[lz] then return end
+			if not checkedColumn then
+				checkedColumn = {}
+				checkedCells[lx] = checkedColumn
+			end
+			checkedColumn[lz] = true
+
+			local candidateWorld = floor.CFrame:PointToWorldSpace(Vector3.new(lx, floor.Size.Y / 2, lz))
+			if not pointInsideUnlockedGrid(plot, candidateWorld, parts) then return end
+
+			local dx = lx - localTarget.X
+			local dz = lz - localTarget.Z
+			local distanceSq = dx * dx + dz * dz
+			if distanceSq < bestAnyDistanceSq then
+				bestAnyLX, bestAnyLZ, bestAnyDistanceSq = lx, lz, distanceSq
+			end
+			if selectedFitsOnGridAt(lx, lz, floor, plot, parts) and distanceSq < bestFitDistanceSq then
+				bestFitLX, bestFitLZ, bestFitDistanceSq = lx, lz, distanceSq
+			end
+		end
+
+		for _, gridPart in ipairs(parts) do
+			local gridLocal = gridPart.CFrame:PointToObjectSpace(targetWorld)
+			local clampedWorld = gridPart.CFrame:PointToWorldSpace(Vector3.new(
+				math.clamp(gridLocal.X, -gridPart.Size.X / 2, gridPart.Size.X / 2),
+				gridLocal.Y,
+				math.clamp(gridLocal.Z, -gridPart.Size.Z / 2, gridPart.Size.Z / 2)
+			))
+			local floorLocal = floor.CFrame:PointToObjectSpace(clampedWorld)
+			local baseLX = math.clamp(math.round(floorLocal.X), -halfFloorX, halfFloorX)
+			local baseLZ = math.clamp(math.round(floorLocal.Z), -halfFloorZ, halfFloorZ)
+			for dx = -searchRadius, searchRadius do
+				for dz = -searchRadius, searchRadius do
+					consider(
+						math.clamp(baseLX + dx, -halfFloorX, halfFloorX),
+						math.clamp(baseLZ + dz, -halfFloorZ, halfFloorZ)
+					)
+				end
+			end
+		end
+
+		return bestFitLX or bestAnyLX, bestFitLZ or bestAnyLZ
 	end
 
 	local function updateDragPreview(screenPosition)
@@ -875,11 +1037,24 @@ function FeedEditController.start()
 		local floor = getPlayerFloor()
 		local plot = getPlayerPlot()
 		if not floor or not plot then return end
-		local lx, lz = floorPointFromScreen(screenPosition, floor)
-		if not lx or not lz then return end
-		if selectedLX == lx and selectedLZ == lz then return end
+		local lx, lz
 		local gridParts = unlockedGridParts(plot)
 		if #gridParts == 0 then return end
+		if dragState then
+			local directLX, directLZ, rawLX, rawLZ = dragTargetFromScreen(dragState, screenPosition)
+			if directLX == nil or directLZ == nil then return end
+			local directWorld = floor.CFrame:PointToWorldSpace(Vector3.new(directLX, floor.Size.Y / 2, directLZ))
+			local directInsideUnlockedGrid = pointInsideUnlockedGrid(plot, directWorld, gridParts)
+			if directInsideUnlockedGrid and selectedFitsOnGridAt(directLX, directLZ, floor, plot, gridParts) then
+				lx, lz = directLX, directLZ
+			else
+				lx, lz = nearestSelectedLocalPoint(Vector3.new(rawLX, floor.Size.Y / 2, rawLZ), floor, plot, gridParts)
+			end
+		else
+			lx, lz = floorPointFromScreen(screenPosition, floor)
+		end
+		if not lx or not lz then return end
+		if selectedLX == lx and selectedLZ == lz then return end
 		local worldPoint = floor.CFrame:PointToWorldSpace(Vector3.new(lx, floor.Size.Y / 2, lz))
 		if not pointInsideUnlockedGrid(plot, worldPoint, gridParts) then return end
 		selectedLX = lx
@@ -888,9 +1063,10 @@ function FeedEditController.start()
 		applySelectionPreview(cframe, floor, plot, gridParts)
 	end
 
-	local function beginMoving()
+	local function beginMoving(screenPosition)
 		if not selectedFeed or pendingRequestId ~= nil then return end
 		moving = true
+		dragState = beginScreenDrag(screenPosition, getPlayerFloor(), selectedLX, selectedLZ)
 		selectionTap:Cancel()
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = "Release to move"
@@ -901,6 +1077,7 @@ function FeedEditController.start()
 	local function stopMoving()
 		if not moving then return end
 		moving = false
+		dragState = nil
 		if tipLabel and tipLabel:IsA("TextLabel") then
 			tipLabel.Text = currentBlocked and "Blocked" or "Hold to move"
 		end
@@ -1078,9 +1255,9 @@ function FeedEditController.start()
 				and selectedFeed.Parent ~= nil
 				and pendingRequestId == nil
 		end,
-		onStart = function()
+		onStart = function(screenPosition)
 			ignoreWorldInputUntil = os.clock() + 0.2
-			beginMoving()
+			beginMoving(screenPosition)
 		end,
 		onContinue = function(screenPosition)
 			updateDragPreview(screenPosition)
