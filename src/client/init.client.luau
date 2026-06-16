@@ -28,6 +28,7 @@ local CONTROLLERS = {
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
+	"UpdateTimerController",
 	"HoverOver",
 	"RobuxShopController",
 	"CashPackShopController",

@@ -54,6 +54,7 @@ local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
+local UpdateEventConfigService = require(Server:WaitForChild("UpdateEventConfigService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
@@ -174,6 +175,7 @@ RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
+RuntimeGuard.Run("UpdateEventConfigService.Start", UpdateEventConfigService.Start)
 RuntimeGuard.Run("PetIncomeService.Start", function()
 	PetIncomeService.Start({
 		PetCashMultiplier = GamePassService.PetCashMultiplier,

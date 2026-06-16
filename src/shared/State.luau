@@ -42,6 +42,10 @@ State.ServerLuck = {
 	EndsAt = "ServerLuckEndsAt",
 }
 
+State.UpdateEvent = {
+	EventId = "UpdateEventId",
+}
+
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",

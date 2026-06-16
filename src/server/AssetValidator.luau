@@ -1389,6 +1389,18 @@ local function validateServerLuckHud(hud, warnings)
 	child(serverLuck, "Multiplier", "TextLabel", warnings)
 end
 
+local function validateUpdateTimerHud(hud, warnings)
+	local updateTimer = child(hud, "UpdateTimer", "GuiObject", warnings)
+	if not updateTimer then return end
+
+	child(updateTimer, "Tap", "GuiButton", warnings)
+	local holder = child(updateTimer, "Holder", "GuiObject", warnings)
+	if not holder then return end
+
+	child(holder, "NotifyButton", "GuiButton", warnings)
+	child(holder, "UpdateTimer", "TextLabel", warnings)
+end
+
 local function validateVipHud(hud, warnings)
 	local buffs = child(hud, "Buffs", "GuiObject", warnings)
 	local vip = buffs and child(buffs, "VIP", "GuiObject", warnings)
@@ -1813,6 +1825,7 @@ local function validateUi(errors, warnings)
 		validateHoverOverHud(hud, warnings)
 		validateJoinBackShowcaseUi(hud, warnings)
 		validateServerLuckHud(hud, warnings)
+		validateUpdateTimerHud(hud, warnings)
 		validateVipHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
