@@ -25,6 +25,7 @@ local FeedPlacementService = {}
 
 local DEFAULT_RATE_SECONDS = 0.25
 local DEFAULT_PLACE_DISTANCE = 24
+local DEFERRED_SNAPSHOT_RETRY_SECONDS = 1
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -101,16 +102,45 @@ function FeedPlacementService.Start(config)
 		TelemetryService.Warn("feed_placement_rejected", fields)
 	end
 
+	local function scheduleSnapshotRetry(player, plot, profile, reason)
+		if type(snapshotProfileState) ~= "function" then
+			return
+		end
+		task.delay(DEFERRED_SNAPSHOT_RETRY_SECONDS, function()
+			RuntimeGuard.Run("FeedPlacementService.DeferredSnapshotRetry", function()
+				if not (player and player.Parent) then
+					return
+				end
+				if PlotService.GetPlayerPlot(player) ~= plot or PlayerDataService.GetProfile(player) ~= profile then
+					return
+				end
+				local snapshotOk = snapshotProfileState(player, plot, profile)
+				if not snapshotOk then
+					local fields = TelemetryService.ForPlayer(player, {
+						plot = plot,
+						reason = reason,
+					})
+					TelemetryService.Warn("feed_placement_snapshot_retry_failed", fields)
+				end
+			end)
+		end)
+	end
+
 	local function restoreConsumedTool(player, placingSeed, seedId, feedType)
 		local backpack = player and player:FindFirstChildOfClass("Backpack")
 		if not backpack then
-			return false
+			return false, "no-backpack"
 		end
 		local replacement = placingSeed and SeedTools.MakeSeedTool(seedId) or FeedMachineTools.MakeFeedTool(feedType)
 		if not replacement then
-			return false
+			return false, "no-replacement"
 		end
-		return ToolGrantService.GrantTool(player, replacement)
+		local granted, code = ToolGrantService.GrantTool(player, replacement)
+		if not granted then
+			replacement:Destroy()
+			return false, code
+		end
+		return true
 	end
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "FeedPlacementService.PlayerRemoving", function(player)
@@ -260,11 +290,21 @@ function FeedPlacementService.Start(config)
 			if profile and type(snapshotProfileState) == "function" then
 				local snapshotOk = snapshotProfileState(player, plot, profile)
 				if not snapshotOk then
-					feedPart:Destroy()
-					PetMotionService.RefreshPlotRoutes(plot)
-					restoreConsumedTool(player, placingSeed, seedId, feedType)
-					sendPlaceResult(player, requestId, false, "save-failed")
-					return
+					local restored, restoreCode = restoreConsumedTool(player, placingSeed, seedId, feedType)
+					if restored then
+						feedPart:Destroy()
+						PetMotionService.RefreshPlotRoutes(plot)
+						sendPlaceResult(player, requestId, false, "save-failed")
+						return
+					end
+
+					TelemetryService.Warn("feed_placement_restore_failed", TelemetryService.ForPlayer(player, {
+						feedType = feedType,
+						plot = plot,
+						seedId = seedId,
+						reason = restoreCode or "unknown",
+					}))
+					scheduleSnapshotRetry(player, plot, profile, restoreCode or "restore-failed")
 				end
 			end
 			if placingSeed then

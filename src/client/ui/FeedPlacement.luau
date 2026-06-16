@@ -38,6 +38,7 @@ local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local PENDING_PLACEMENT_TIMEOUT_SECONDS = 12
 
 local function isHiddenPreviewPart(part)
 	return part.Name:match("^BaseFood") ~= nil or part.Name == EDIT_SELECTION_HITBOX_NAME
@@ -85,9 +86,14 @@ local FeedPlacement = {}
 -- True while a placement preview has a selected grid cell (confirm panel up).
 -- Read by OnboardingController to hide the tutorial clicker during previews.
 local hasActiveSelection = false
+local hasPendingPlacementRequest = false
 
 function FeedPlacement.HasActiveSelection()
 	return hasActiveSelection
+end
+
+function FeedPlacement.IsPromptBlockingActive()
+	return hasActiveSelection or hasPendingPlacementRequest
 end
 
 local PLACEMENT_FAILURE_MESSAGES = {
@@ -100,6 +106,7 @@ local PLACEMENT_FAILURE_MESSAGES = {
 	["rate-limited"] = "Please wait before placing again.",
 	["save-failed"] = "Could not save that placement. Please try again.",
 	["setup-failed"] = "Could not set up that feed machine.",
+	["timeout"] = "Placement took too long. Please try again.",
 	["too-far"] = "Move closer to place that item.",
 }
 
@@ -356,6 +363,7 @@ function FeedPlacement.start()
 	local pendingPlacementRequestId = nil
 	local pendingPlacementCFrame = nil
 	local pendingSuppressOverlapError = false
+	local pendingPlacementToken = 0
 	local unequippedWhilePending = false
 	local placementGrid = nil
 	local moving = false
@@ -477,6 +485,15 @@ function FeedPlacement.start()
 
 	local cancelRotationTween
 
+	local function clearPendingPlacement()
+		pendingPlacementToken += 1
+		pendingPlacementRequestId = nil
+		pendingPlacementCFrame = nil
+		pendingSuppressOverlapError = false
+		hasPendingPlacementRequest = false
+		unequippedWhilePending = false
+	end
+
 	local function destroyPreview()
 		if cancelRotationTween then
 			cancelRotationTween()
@@ -493,10 +510,9 @@ function FeedPlacement.start()
 		previewPartColors = {}
 		currentPlacementBlocked = true
 		previewBlockedApplied = nil
-		pendingPlacementRequestId = nil
-		pendingPlacementCFrame = nil
-		pendingSuppressOverlapError = false
-		unequippedWhilePending = false
+		if pendingPlacementRequestId == nil then
+			unequippedWhilePending = false
+		end
 		moving = false
 		dragState = nil
 		worldTap:Cancel()
@@ -639,6 +655,23 @@ function FeedPlacement.start()
 		if not boundsCF or not boundsSize then return false end
 		return boundsFitOnFloor(floor, boundsCF, boundsSize)
 			and boundsFitOnUnlockedGrid(plot, boundsCF, boundsSize, gridParts)
+	end
+
+	local function handlePendingTimeout(requestId, token)
+		if pendingPlacementRequestId ~= requestId or pendingPlacementToken ~= token then
+			return
+		end
+		clearPendingPlacement()
+		activeFeedType = nil
+		activeSeedId = nil
+		activeCosmeticId = nil
+		activeTool = nil
+		activeToolGuid = nil
+		destroyPreview()
+		NotificationUi.show({
+			kind = NotificationConfig.Kinds.Error,
+			text = placementFailureMessage("timeout"),
+		})
 	end
 
 	local function previewFitsOnGrid()
@@ -1001,8 +1034,12 @@ function FeedPlacement.start()
 
 		nextPlacementRequestId += 1
 		pendingPlacementRequestId = nextPlacementRequestId
+		local pendingRequestId = pendingPlacementRequestId
 		pendingPlacementCFrame = cf
 		pendingSuppressOverlapError = showBlockedError == false
+		pendingPlacementToken += 1
+		local pendingToken = pendingPlacementToken
+		hasPendingPlacementRequest = true
 		unequippedWhilePending = false
 		placing = false
 		moving = false
@@ -1011,10 +1048,13 @@ function FeedPlacement.start()
 		setPlacementEditVisible(false)
 		setConfirmEnabled(false)
 		if activeCosmeticId then
-			PlaceCosmetic:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
+			PlaceCosmetic:FireServer(pendingRequestId, cf, activeToolGuid)
 		else
-			PlaceFeedMachine:FireServer(pendingPlacementRequestId, cf, activeToolGuid)
+			PlaceFeedMachine:FireServer(pendingRequestId, cf, activeToolGuid)
 		end
+		task.delay(PENDING_PLACEMENT_TIMEOUT_SECONDS, function()
+			RuntimeGuard.Run("FeedPlacement.PendingTimeout", handlePendingTimeout, pendingRequestId, pendingToken)
+		end)
 		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	end
 
@@ -1144,19 +1184,34 @@ function FeedPlacement.start()
 
 	local function handlePlaceResult(requestId, success, reason)
 		if requestId ~= pendingPlacementRequestId then return end
-		pendingPlacementRequestId = nil
 		local placedCFrame = pendingPlacementCFrame
 		local suppressOverlapError = pendingSuppressOverlapError
-		pendingPlacementCFrame = nil
-		pendingSuppressOverlapError = false
+		local wasUnequippedWhilePending = unequippedWhilePending
+		clearPendingPlacement()
 
 		if not success then
-			if unequippedWhilePending then
+			if wasUnequippedWhilePending then
 				activeFeedType = nil
 				activeSeedId = nil
 				activeCosmeticId = nil
+				activeTool = nil
 				activeToolGuid = nil
 				destroyPreview()
+				return
+			end
+			if not preview or isOfflineProgressPending() then
+				activeFeedType = nil
+				activeSeedId = nil
+				activeCosmeticId = nil
+				activeTool = nil
+				activeToolGuid = nil
+				destroyPreview()
+				if not isOfflineProgressPending() and not (suppressOverlapError and reason == "overlap") then
+					NotificationUi.show({
+						kind = NotificationConfig.Kinds.Error,
+						text = placementFailureMessage(reason),
+					})
+				end
 				return
 			end
 			placing = true
@@ -1181,6 +1236,7 @@ function FeedPlacement.start()
 			activeFeedType = nil
 			activeSeedId = nil
 			activeCosmeticId = nil
+			activeTool = nil
 			activeToolGuid = nil
 			destroyPreview()
 			return
@@ -1190,6 +1246,7 @@ function FeedPlacement.start()
 			activeFeedType = nil
 			activeSeedId = nil
 			activeCosmeticId = nil
+			activeTool = nil
 			activeToolGuid = nil
 			destroyPreview()
 			return
@@ -1221,6 +1278,9 @@ function FeedPlacement.start()
 			boundTools[tool] = true
 
 			local function activateCosmeticTool()
+				if pendingPlacementRequestId ~= nil then
+					return
+				end
 				activeTool = tool
 				activeToolGuid = toolGuid
 				activeFeedType = nil
@@ -1270,6 +1330,9 @@ function FeedPlacement.start()
 		boundTools[tool] = true
 
 		local function activateTool()
+			if pendingPlacementRequestId ~= nil then
+				return
+			end
 			activeTool = tool
 			activeToolGuid = toolGuid
 			activeFeedType  = toolFeedType

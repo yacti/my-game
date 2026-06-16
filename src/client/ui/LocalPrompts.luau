@@ -24,6 +24,7 @@ local Shovel = require(Shared:WaitForChild("Shovel"))
 local State   = require(Shared:WaitForChild("State"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PetFeedLullabyController = require(script.Parent:WaitForChild("PetFeedLullabyController"))
+local FeedPlacement = require(script.Parent:WaitForChild("FeedPlacement"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local TreeVisuals = require(script.Parent:WaitForChild("AppleTreeSlotVisuals"))
@@ -114,6 +115,10 @@ end
 
 local function isOfflineProgressPending()
 	return player:GetAttribute(State.Player.OfflineProgressPending) == true
+end
+
+local function isPlacementPromptBlocked()
+	return FeedPlacement.IsPromptBlockingActive()
 end
 
 local function applyTutorialState(state)
@@ -391,6 +396,9 @@ local function activeAutoCandidateForMode(mode)
 		return nil
 	end
 	if not (prompt and prompt.Parent ~= nil and prompt.Enabled) then
+		return nil
+	end
+	if isPlacementPromptBlocked() then
 		return nil
 	end
 	if autoSuppressionActive(target) then
@@ -787,6 +795,9 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 	if isOfflineProgressPending() then
 		return nil
 	end
+	if isPlacementPromptBlocked() then
+		return nil
+	end
 
 	local rootPosition = playerRootPosition()
 	if not rootPosition then
@@ -846,6 +857,9 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 	if isOfflineProgressPending() then
 		return false
 	end
+	if isPlacementPromptBlocked() then
+		return false
+	end
 	suppressCollectAutoTarget(target, kind, candidate.prompt)
 	playPromptSound(kind)
 	PromptInteract:FireServer(action, target, true)
@@ -878,6 +892,10 @@ end
 
 local function stepAutoHold()
 	if not autoHoldMode then
+		return
+	end
+	if isPlacementPromptBlocked() then
+		LocalPrompts.EndAutoHold()
 		return
 	end
 
@@ -1142,6 +1160,10 @@ refreshPrompt = function(target, kind, prompt)
 		return
 	end
 	if isOfflineProgressPending() then
+		prompt.Enabled = false
+		return
+	end
+	if isPlacementPromptBlocked() then
 		prompt.Enabled = false
 		return
 	end
