@@ -137,6 +137,24 @@ local function normalizePetRotations(pets)
 	end
 end
 
+local function appendPetRewards(targetPets, tier)
+	for _, reward in ipairs(tier.PetRewards or {}) do
+		local petId = reward.petId
+		local amount = integer(reward.amount, 0)
+		if type(petId) ~= "string" or not PetCatalog.GetDefinition(petId) or amount <= 0 then
+			return false, "invalid-pet-reward"
+		end
+		for _ = 1, amount do
+			targetPets[#targetPets + 1] = {
+				petId = petId,
+				xp = 0,
+				money = 0,
+			}
+		end
+	end
+	return true
+end
+
 local function buildTargetPets(plot, profile, tier)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then
@@ -162,23 +180,23 @@ local function buildTargetPets(plot, profile, tier)
 		}
 	end
 
-	for _, reward in ipairs(tier.PetRewards or {}) do
-		local petId = reward.petId
-		local amount = integer(reward.amount, 0)
-		if type(petId) ~= "string" or not PetCatalog.GetDefinition(petId) or amount <= 0 then
-			return nil, "invalid-pet-reward"
-		end
-		for _ = 1, amount do
-			targetPets[#targetPets + 1] = {
-				petId = petId,
-				xp = 0,
-				money = 0,
-			}
-		end
+	local rewardsOk, rewardCode = appendPetRewards(targetPets, tier)
+	if not rewardsOk then
+		return nil, rewardCode
 	end
 
 	normalizePetRotations(targetPets)
 	return targetPets
+end
+
+local function buildSkipPetRewards(tier)
+	local rewardPets = {}
+	local rewardsOk, rewardCode = appendPetRewards(rewardPets, tier)
+	if not rewardsOk then
+		return nil, rewardCode
+	end
+	normalizePetRotations(rewardPets)
+	return rewardPets
 end
 
 local function destroyPreparedPets(preparedPets)
@@ -189,15 +207,21 @@ local function destroyPreparedPets(preparedPets)
 	end
 end
 
-local function preparePetModels(plot, pets)
+local function preparePetModels(plot, pets, startIndex)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then
 		return nil, "no-floor"
 	end
 
+	startIndex = integer(startIndex, 1)
+	if startIndex < 1 then
+		startIndex = 1
+	end
+
 	local prepared = {}
-	for index, petData in ipairs(pets or {}) do
-		local clone = PlotService.CreatePet(petData.petId, index, petData.xp or 0, floor, petData.lx or 0, petData.lz or 0, petData.lry or 0)
+	for offset, petData in ipairs(pets or {}) do
+		local petIndex = startIndex + offset - 1
+		local clone = PlotService.CreatePet(petData.petId, petIndex, petData.xp or 0, floor, petData.lx or 0, petData.lz or 0, petData.lry or 0)
 		if not clone then
 			destroyPreparedPets(prepared)
 			return nil, "pet-build-failed"
@@ -298,8 +322,10 @@ local function snapshotProfile(profile)
 	}
 end
 
-local function restoreProfile(player, profile, snapshot)
-	CurrencyService.SetBalanceForServer(player, profile, snapshot.Currency or 0, true)
+local function restoreProfile(player, profile, snapshot, restoreCurrency)
+	if restoreCurrency ~= false then
+		CurrencyService.SetBalanceForServer(player, profile, snapshot.Currency or 0, true)
+	end
 	profile.Data.Rebirths = snapshot.Rebirths or 0
 	profile.Data.Pets = deepCopyArray(snapshot.Pets)
 	profile.Data.FeedInventory = copyMap(snapshot.FeedInventory)
@@ -324,6 +350,28 @@ local function swapPreparedPets(plot, profilePets, preparedPets)
 	return spawned == #profilePets
 end
 
+local function appendPreparedPets(plot, profilePets, preparedPets, firstIndex)
+	firstIndex = integer(firstIndex, 1)
+	if firstIndex < 1 then
+		return false, "invalid-pet-index"
+	end
+
+	for _, pet in ipairs(preparedPets or {}) do
+		if not (pet and pet:IsA("Model")) then
+			return false, "pet-build-failed"
+		end
+	end
+
+	for offset, pet in ipairs(preparedPets or {}) do
+		local index = firstIndex + offset - 1
+		local petData = profilePets[index] or {}
+		pet.Parent = plot
+		publishPetState(pet, petData.money or 0, petData.xp or 0)
+		PetMotionService.Register(plot, pet)
+	end
+	return true
+end
+
 local function restoreLivePets(plot, pets)
 	local prepared, code = preparePetModels(plot, pets)
 	if not prepared then
@@ -346,7 +394,7 @@ local function sendResult(player, requestId, success, code)
 	RebirthResult:FireClient(player, payload)
 end
 
-local function runTransaction(player, options)
+local function getTransactionContext(player, options)
 	local profile = PlayerDataService.GetProfile(player)
 	if not profile then
 		return false, "no-profile"
@@ -366,6 +414,27 @@ local function runTransaction(player, options)
 		return false, "tier-mismatch"
 	end
 
+	return true, nil, profile, plot, tierNumber, tier
+end
+
+local function finishTransaction(player, profile, tierNumber, options)
+	PlayerReplicaService.PublishProfile(player, profile)
+	CurrencyService.Publish(player, profile)
+	NotificationService.Success(player, "Rebirth " .. NumberFormatter.Integer(tierNumber) .. " complete!")
+	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
+		tier = tierNumber,
+		skip = options.skip == true,
+		purchaseId = options.purchaseId,
+	}))
+	return true, "ok"
+end
+
+local function runResetTransaction(player, options)
+	local contextOk, contextCode, profile, plot, tierNumber, tier = getTransactionContext(player, options)
+	if not contextOk then
+		return false, contextCode
+	end
+
 	local targetPets, petCode = buildTargetPets(plot, profile, tier)
 	if not targetPets then
 		return false, petCode
@@ -381,8 +450,7 @@ local function runTransaction(player, options)
 	end
 
 	local snapshot = snapshotProfile(profile)
-	local minimumCash = options.skip == true and 0 or integer(tier.Price, 0)
-	local resetOk, resetCode = CurrencyService.ResetToZeroForRebirth(player, profile, minimumCash, true)
+	local resetOk, resetCode = CurrencyService.ResetToZeroForRebirth(player, profile, integer(tier.Price, 0), true)
 	if not resetOk then
 		destroyPreparedPets(preparedPets)
 		destroyPreparedRewards(preparedRewards)
@@ -427,15 +495,80 @@ local function runTransaction(player, options)
 		return false, "save-failed"
 	end
 
-	PlayerReplicaService.PublishProfile(player, profile)
-	CurrencyService.Publish(player, profile)
-	NotificationService.Success(player, "Rebirth " .. NumberFormatter.Integer(tierNumber) .. " complete!")
-	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
-		tier = tierNumber,
-		skip = options.skip == true,
-		purchaseId = options.purchaseId,
-	}))
-	return true, "ok"
+	return finishTransaction(player, profile, tierNumber, options)
+end
+
+local function runSkipTransaction(player, options)
+	if OfflineProgressService.IsPending(player) then
+		return false, "busy"
+	end
+
+	local contextOk, contextCode, profile, plot, tierNumber, tier = getTransactionContext(player, options)
+	if not contextOk then
+		return false, contextCode
+	end
+
+	local profilePets = type(profile.Data.Pets) == "table" and profile.Data.Pets or {}
+	local existingPetCount = #profilePets
+	local rewardPets, petCode = buildSkipPetRewards(tier)
+	if not rewardPets then
+		return false, petCode
+	end
+
+	local preparedPets, preparePetCode = preparePetModels(plot, rewardPets, existingPetCount + 1)
+	if not preparedPets then
+		return false, preparePetCode
+	end
+	local preparedRewards, prepareRewardCode = prepareRewards(tier)
+	if not preparedRewards then
+		destroyPreparedPets(preparedPets)
+		return false, prepareRewardCode
+	end
+
+	local snapshot = snapshotProfile(profile)
+	profile.Data.Rebirths = tierNumber
+	profile.Data.Pets = profilePets
+	for _, petData in ipairs(rewardPets) do
+		profile.Data.Pets[#profile.Data.Pets + 1] = petData
+	end
+
+	local rewardsOk, rewardsCode = applyPreparedRewards(player, profile, preparedRewards)
+	if not rewardsOk then
+		restoreProfile(player, profile, snapshot, false)
+		destroyPreparedPets(preparedPets)
+		destroyPreparedRewards(preparedRewards)
+		return false, rewardsCode or "grant-failed"
+	end
+
+	local appendOk, appendCode = appendPreparedPets(plot, profile.Data.Pets, preparedPets, existingPetCount + 1)
+	if not appendOk then
+		restoreProfile(player, profile, snapshot, false)
+		destroyPreparedPets(preparedPets)
+		destroyPreparedRewards(preparedRewards)
+		return false, appendCode or "pet-append-failed"
+	end
+
+	if options.purchaseId then
+		ReceiptService.MarkProcessed(profile, options.purchaseId)
+	end
+
+	if not saveProfile(profile) then
+		restoreProfile(player, profile, snapshot, false)
+		destroyPreparedPets(preparedPets)
+		destroyPreparedRewards(preparedRewards)
+		PlayerReplicaService.PublishProfile(player, profile)
+		CurrencyService.Publish(player, profile)
+		return false, "save-failed"
+	end
+
+	return finishTransaction(player, profile, tierNumber, options)
+end
+
+local function runTransaction(player, options)
+	if options.skip == true then
+		return runSkipTransaction(player, options)
+	end
+	return runResetTransaction(player, options)
 end
 
 local function performRebirth(player, options)
