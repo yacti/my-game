@@ -64,6 +64,7 @@ local CONTROLLERS = {
 	"ProcessorVisuals",
 	"CloudController",
 	"FeedPlacement",
+	"TreeClickController",
 	"RebirthController",
 	"GridUnlockEffects",
 	"RollController",

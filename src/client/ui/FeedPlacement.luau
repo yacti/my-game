@@ -87,6 +87,7 @@ local FeedPlacement = {}
 -- Read by OnboardingController to hide the tutorial clicker during previews.
 local hasActiveSelection = false
 local hasPendingPlacementRequest = false
+local hasActivePlacement = false
 
 function FeedPlacement.HasActiveSelection()
 	return hasActiveSelection
@@ -94,6 +95,10 @@ end
 
 function FeedPlacement.IsPromptBlockingActive()
 	return hasActiveSelection or hasPendingPlacementRequest
+end
+
+function FeedPlacement.IsPlacementActive()
+	return hasActivePlacement or hasActiveSelection or hasPendingPlacementRequest
 end
 
 local PLACEMENT_FAILURE_MESSAGES = {
@@ -376,6 +381,11 @@ function FeedPlacement.start()
 	local rotationTweenConnection = nil
 	local rotationTweenToken = 0
 
+	local function setPlacing(value)
+		placing = value == true
+		hasActivePlacement = placing
+	end
+
 	local function snapToGrid(v) return math.round(v) end
 
 	local function isOfflineProgressPending()
@@ -499,7 +509,7 @@ function FeedPlacement.start()
 			cancelRotationTween()
 		end
 		if preview then preview:Destroy() preview = nil end
-		placing         = false
+		setPlacing(false)
 		currentRotation = 0
 		selectedLX      = nil
 		selectedLZ      = nil
@@ -1041,7 +1051,7 @@ function FeedPlacement.start()
 		local pendingToken = pendingPlacementToken
 		hasPendingPlacementRequest = true
 		unequippedWhilePending = false
-		placing = false
+		setPlacing(false)
 		moving = false
 		dragState = nil
 		setGridEffectEnabled(false)
@@ -1214,7 +1224,7 @@ function FeedPlacement.start()
 				end
 				return
 			end
-			placing = true
+			setPlacing(true)
 			setPlacementEditVisible(preview ~= nil)
 			setGridEffectEnabled(true)
 			if preview and selectedLX ~= nil and selectedLZ ~= nil then
@@ -1252,7 +1262,7 @@ function FeedPlacement.start()
 			return
 		end
 
-		placing = false
+		setPlacing(false)
 		setPlacementEditVisible(false)
 		setGridEffectEnabled(false)
 		setConfirmEnabled(false)
@@ -1286,7 +1296,7 @@ function FeedPlacement.start()
 				activeFeedType = nil
 				activeSeedId = nil
 				activeCosmeticId = cosmeticId
-				placing = true
+				setPlacing(true)
 				currentRotation = 0
 				selectedLX = nil
 				selectedLZ = nil
@@ -1338,7 +1348,7 @@ function FeedPlacement.start()
 			activeFeedType  = toolFeedType
 			activeSeedId = type(seedId) == "string" and seedId ~= "" and seedId or nil
 			activeCosmeticId = nil
-			placing         = true
+			setPlacing(true)
 			currentRotation = 0
 			selectedLX      = nil
 			selectedLZ      = nil

@@ -20,9 +20,7 @@ local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 100
 local STARTER_PET_ID = "Pet1"
 local STARTER_FEED_INVENTORY = {}
-local STARTER_SEED_INVENTORY = {
-	[Onboarding.Seeds.Pumpkin] = 10,
-}
+local STARTER_SEED_INVENTORY = {}
 local STARTER_COSMETIC_INVENTORY = {}
 
 local DEPRECATED_FEED_TYPES = {

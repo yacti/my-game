@@ -11,6 +11,7 @@ local folder
 Remotes.Names = {
 	ProcessorDepositEffect = "ProcessorDepositEffect",
 	TreeClickerEffect = "TreeClickerEffect",
+	TreeClickerRequest = "TreeClickerRequest",
 	GridUnlockEffect = "GridUnlockEffect",
 	AnimalAmbientSound = "AnimalAmbientSound",
 	CrateRollEffect = "CrateRollEffect",
@@ -56,6 +57,7 @@ Remotes.Names = {
 local Definitions = {
 	[Remotes.Names.ProcessorDepositEffect] = "RemoteEvent",
 	[Remotes.Names.TreeClickerEffect] = "RemoteEvent",
+	[Remotes.Names.TreeClickerRequest] = "RemoteEvent",
 	[Remotes.Names.GridUnlockEffect] = "RemoteEvent",
 	[Remotes.Names.AnimalAmbientSound] = "RemoteEvent",
 	[Remotes.Names.CrateRollEffect] = "RemoteEvent",

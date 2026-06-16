@@ -6,6 +6,14 @@ local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity
 
 local ShovelTools = {}
 
+local function configureHeldToolQuery(tool)
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanQuery = false
+		end
+	end
+end
+
 local function findShovel(container)
 	if not container then
 		return nil
@@ -27,6 +35,7 @@ function ShovelTools.MakeTool()
 
 	local tool = template:Clone()
 	tool.Name = Shovel.ToolName
+	configureHeldToolQuery(tool)
 	tool:SetAttribute(Shovel.ToolKindAttribute, Shovel.ToolKind)
 	ToolIdentity.AssignGuid(tool)
 	return tool

@@ -12,6 +12,9 @@
         "TreeClickerEffect": {
           "$className": "RemoteEvent"
         },
+        "TreeClickerRequest": {
+          "$className": "RemoteEvent"
+        },
         "GridUnlockEffect": {
           "$className": "RemoteEvent"
         },

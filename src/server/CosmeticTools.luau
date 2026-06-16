@@ -35,6 +35,14 @@ local function destroyPrepared(prepared)
 	end
 end
 
+local function configureHeldToolQuery(tool)
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanQuery = false
+		end
+	end
+end
+
 function CosmeticTools.MakeCosmeticTool(cosmeticId)
 	local template = Cosmetics.GetTemplate(cosmeticId)
 	if not template then
@@ -50,6 +58,7 @@ function CosmeticTools.MakeCosmeticTool(cosmeticId)
 
 	local tool = wrapper:Clone()
 	tool.Name = template.Name
+	configureHeldToolQuery(tool)
 	tool:SetAttribute(State.Cosmetic.Id, cosmeticId)
 	applyToolRarity(tool, template:GetAttribute(State.Cosmetic.Rarity))
 	ToolIdentity.AssignGuid(tool)

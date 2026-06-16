@@ -45,8 +45,10 @@ local AppleTreeBalance = require(TreeBalance:WaitForChild("AppleTreeBalance"))
 local CherryTreeBalance = require(TreeBalance:WaitForChild("CherryTreeBalance"))
 
 local TreeClickerEffect = Remotes.get(Remotes.Names.TreeClickerEffect)
+local TreeClickerRequest = Remotes.get(Remotes.Names.TreeClickerRequest)
 
 local MAX_CLICKS_PER_SECOND = 5
+local CLICK_DISTANCE = 24
 
 local DEFAULT_BALANCE = {
 	SlotRespawn = 1,
@@ -358,7 +360,12 @@ local function isPlayerNear(player, origin, radius)
 	return root ~= nil and root:IsA("BasePart") and (root.Position - origin).Magnitude <= radius
 end
 
-local function fireEffectNearby(machine, balance, anchor, marker, foodId)
+local function isPlayerNearTree(player, machine)
+	local primary = machine and machine.PrimaryPart
+	return primary ~= nil and isPlayerNear(player, primary.Position, CLICK_DISTANCE)
+end
+
+local function fireEffectNearby(machine, balance, anchor, marker, foodId, triggeringPlayer)
 	local origin = anchor.Position
 	local payload = {
 		machine = machine,
@@ -368,7 +375,7 @@ local function fireEffectNearby(machine, balance, anchor, marker, foodId)
 		duration = balance.DropEffectDuration,
 	}
 	for _, player in ipairs(Players:GetPlayers()) do
-		if isPlayerNear(player, origin, balance.EffectRadius) then
+		if player == triggeringPlayer or isPlayerNear(player, origin, balance.EffectRadius) then
 			RuntimeGuard.Run("TreeClicker.EffectFireClient", function()
 				TreeClickerEffect:FireClient(player, payload)
 			end)
@@ -408,7 +415,7 @@ local function onTreeClicked(machine, s, player)
 	s.lastClick = now
 
 	local foodId = s.foodDrop
-	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId)
+	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId, player)
 	task.delay(s.balance.DropEffectDuration, function()
 		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId, player)
 	end)
@@ -477,7 +484,7 @@ local function setupClickDetector(machine, s)
 	local primary = machine.PrimaryPart
 	if not primary then return end
 	local detector = Instance.new("ClickDetector")
-	detector.MaxActivationDistance = 24
+	detector.MaxActivationDistance = CLICK_DISTANCE
 	detector.Parent = primary
 	table.insert(s.conns, RuntimeGuard.Connect(detector.MouseClick, "TreeClicker.MouseClick", function(player)
 		onTreeClicked(machine, s, player)
@@ -531,6 +538,22 @@ function TreeClicker.Teardown(machine)
 	end
 	state[machine] = nil
 end
+
+local function onTreeClickRequest(player, machine)
+	if typeof(machine) ~= "Instance" or not machine:IsA("Model") then
+		return
+	end
+	local s = state[machine]
+	if not s or not machine:IsDescendantOf(s.plot) then
+		return
+	end
+	if not isPlayerNearTree(player, machine) then
+		return
+	end
+	onTreeClicked(machine, s, player)
+end
+
+RuntimeGuard.Connect(TreeClickerRequest.OnServerEvent, "TreeClicker.Request", onTreeClickRequest)
 
 -- Persist piles per slot. Position is regenerated from each slot's
 -- BaseFoodGround marker on Apply, so we only save foodId + xp.

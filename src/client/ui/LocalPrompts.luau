@@ -44,12 +44,14 @@ local targetAncestryConns = {} -- [Instance] = { [kind] = RBXScriptConnection }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
+local passiveTreePickupTargets = setmetatable({}, { __mode = "k" })
 local activeAutoCandidate = nil
 local activeMobileAutoCandidate = nil
 local autoHoldMode = nil
 local autoHoldNextActionAt = 0
 local autoHoldInputKeyCode = nil
 local autoHoldLockedTarget = nil
+local passiveTreePickupNextActionAt = 0
 local autoSuppressedTargets = setmetatable({}, { __mode = "k" })
 local tutorialActive = false
 local tutorialStage = Onboarding.Stages.Complete
@@ -70,6 +72,7 @@ local CRATE_ROLL_PROMPT_MOBILE_Y_OFFSET = -0.5
 local FAR_PROMPT_REFRESH_BUFFER = 12
 local AUTO_ACTION_INTERVAL = 0.27
 local AUTO_RETRY_INTERVAL = 0.1
+local PASSIVE_TREE_PICKUP_INTERVAL = AUTO_ACTION_INTERVAL
 local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
 local COLLECT_TARGET_SUPPRESS_SECONDS = 1
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
@@ -620,6 +623,59 @@ local function promptHighlightTarget(target, kind)
 	return nil
 end
 
+local function loadedTreeGroundPosition(marker)
+	local visual = TreeVisuals.GroundVisualForMarker(marker)
+	if not (visual and visual.Parent) then
+		return nil
+	end
+	return instanceWorldCenter(marker)
+end
+
+local function findPassiveTreeGroundPickupCandidate()
+	if isShovelEquipped() or isOfflineProgressPending() or isPlacementPromptBlocked() then
+		return nil
+	end
+	if isEditMode() then
+		return nil
+	end
+
+	local rootPosition = playerRootPosition()
+	if not rootPosition then
+		return nil
+	end
+
+	local closest = nil
+	local closestDistanceSq = math.huge
+	local pickupDistanceSq = FOOD_PICKUP_PROMPT_DISTANCE * FOOD_PICKUP_PROMPT_DISTANCE
+	for target in pairs(passiveTreePickupTargets) do
+		local bucket = byTarget[target]
+		local prompt = bucket and bucket.TreeGroundPickup
+		if not (prompt and prompt.Parent ~= nil and target.Parent ~= nil) then
+			passiveTreePickupTargets[target] = nil
+			continue
+		end
+		if isAutoSuppressedPrompt(target, "TreeGroundPickup") then
+			continue
+		end
+		if isInOwnPlot(target) ~= true or isHiddenByTutorial("TreeGroundPickup", target) then
+			continue
+		end
+		if not isTreeGroundPickupTarget(target) then
+			continue
+		end
+
+		local markerPosition = loadedTreeGroundPosition(target)
+		local delta = markerPosition and markerPosition - rootPosition or nil
+		local distanceSq = delta and delta:Dot(delta) or nil
+		if distanceSq and distanceSq <= pickupDistanceSq and distanceSq < closestDistanceSq then
+			closest = autoCandidateFor(target, "TreeGroundPickup", prompt, math.sqrt(distanceSq))
+			closestDistanceSq = distanceSq
+		end
+	end
+
+	return closest
+end
+
 local function externalPromptHighlightTarget(record)
 	local source = record and record.highlightTarget
 	if type(source) == "function" then
@@ -989,6 +1045,23 @@ local function stepAutoHold()
 	end
 end
 
+local function stepPassiveTreeGroundPickup()
+	if autoHoldMode ~= nil then
+		return
+	end
+
+	local now = os.clock()
+	if now < passiveTreePickupNextActionAt then
+		return
+	end
+
+	local candidate = findPassiveTreeGroundPickupCandidate()
+	if candidate then
+		LocalPrompts.TriggerAutoPrompt(candidate)
+	end
+	passiveTreePickupNextActionAt = now + PASSIVE_TREE_PICKUP_INTERVAL
+end
+
 local function removePrompt(target, kind)
 	local pendingBucket = pendingPromptParents[target]
 	local pendingConnections = pendingBucket and pendingBucket[kind]
@@ -1023,6 +1096,9 @@ local function removePrompt(target, kind)
 	if bucket then
 		bucket[kind] = nil
 		if next(bucket) == nil then byTarget[target] = nil end
+	end
+	if kind == "TreeGroundPickup" then
+		passiveTreePickupTargets[target] = nil
 	end
 end
 
@@ -1137,6 +1213,9 @@ addPrompt = function(target, kind, action)
 	end)
 
 	byTarget[target][kind] = prompt
+	if kind == "TreeGroundPickup" then
+		passiveTreePickupTargets[target] = true
+	end
 end
 
 local function tryBind(instance)
@@ -1513,6 +1592,7 @@ function LocalPrompts.start()
 		if accumulator >= 0.1 then
 			accumulator = 0
 			RuntimeGuard.Run("LocalPrompts.RefreshHeartbeat", refreshAll, false)
+			RuntimeGuard.Run("LocalPrompts.PassiveTreeGroundPickupHeartbeat", stepPassiveTreeGroundPickup)
 		end
 	end)
 end

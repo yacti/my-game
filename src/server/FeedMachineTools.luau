@@ -16,6 +16,14 @@ local function applyToolRarity(tool, rarity)
 	end
 end
 
+local function configureHeldToolQuery(tool)
+	for _, descendant in ipairs(tool:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanQuery = false
+		end
+	end
+end
+
 function FeedMachineTools.MakeFeedTool(feedType)
 	local template = FeedMachines.GetTemplate(feedType)
 	if not template then
@@ -25,6 +33,7 @@ function FeedMachineTools.MakeFeedTool(feedType)
 
 	local tool = Assets.WaitFor(Assets.Names.FeedMachineTool):Clone()
 	tool.Name = template.Name
+	configureHeldToolQuery(tool)
 	tool:SetAttribute(State.Feed.Type, feedType)
 	applyToolRarity(tool, template:GetAttribute(State.Feed.Rarity))
 	ToolIdentity.AssignGuid(tool)
