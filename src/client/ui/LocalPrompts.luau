@@ -45,9 +45,11 @@ local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = 
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
 local activeAutoCandidate = nil
+local activeMobileAutoCandidate = nil
 local autoHoldMode = nil
 local autoHoldNextActionAt = 0
 local autoHoldInputKeyCode = nil
+local autoHoldLockedTarget = nil
 local autoSuppressedTargets = setmetatable({}, { __mode = "k" })
 local tutorialActive = false
 local tutorialStage = Onboarding.Stages.Complete
@@ -382,11 +384,15 @@ local function suppressCollectAutoTarget(target, kind, prompt)
 	end
 end
 
-local function activeAutoCandidateForMode(mode)
-	local candidate = activeAutoCandidate
+local function isAutoSuppressedPrompt(target, kind)
+	return isCollectAutoKind(kind) and autoSuppressionActive(target)
+end
+
+local function activeAutoCandidateForMode(candidate, mode, options)
 	if type(candidate) ~= "table" then
 		return nil
 	end
+	options = type(options) == "table" and options or {}
 	if mode ~= nil and candidate.mode ~= mode then
 		return nil
 	end
@@ -395,13 +401,19 @@ local function activeAutoCandidateForMode(mode)
 	if typeof(target) ~= "Instance" or target.Parent == nil then
 		return nil
 	end
-	if not (prompt and prompt.Parent ~= nil and prompt.Enabled) then
+	if options.lockedTarget ~= nil and target ~= options.lockedTarget then
+		return nil
+	end
+	if not (prompt and prompt.Parent ~= nil) then
+		return nil
+	end
+	if options.requireEnabled == true and not prompt.Enabled then
 		return nil
 	end
 	if isPlacementPromptBlocked() then
 		return nil
 	end
-	if autoSuppressionActive(target) then
+	if isAutoSuppressedPrompt(target, candidate.kind) then
 		return nil
 	end
 
@@ -412,6 +424,21 @@ local function activeAutoCandidateForMode(mode)
 	end
 	candidate.distance = distance
 	return candidate
+end
+
+local function activeVisibleAutoCandidateForMode(mode, options)
+	options = type(options) == "table" and options or {}
+	return activeAutoCandidateForMode(activeAutoCandidate, mode, {
+		lockedTarget = options.lockedTarget,
+		requireEnabled = true,
+	})
+end
+
+local function activeMobileAutoCandidateForMode(mode, options)
+	options = type(options) == "table" and options or {}
+	return activeAutoCandidateForMode(activeMobileAutoCandidate, mode, {
+		lockedTarget = options.lockedTarget,
+	})
 end
 
 local function autoCandidateFor(target, kind, prompt, distance)
@@ -782,7 +809,7 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 	end
 end
 
-function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
+function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 	if mode ~= nil and mode ~= LocalPrompts.AutoModes.Feed and mode ~= LocalPrompts.AutoModes.Collect then
 		return nil
 	end
@@ -810,13 +837,14 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 		if lockedTarget ~= nil and target ~= lockedTarget then
 			continue
 		end
-		if autoSuppressionActive(target) then
-			continue
-		end
 		for kind, prompt in pairs(bucket) do
 			local action = AUTO_PROMPT_ACTIONS[kind]
 			local candidateMode = autoModeForKind(kind)
 			if not action or not candidateMode or (mode ~= nil and candidateMode ~= mode) then
+				continue
+			end
+			if isAutoSuppressedPrompt(target, kind) then
+				prompt.Enabled = false
 				continue
 			end
 
@@ -833,12 +861,40 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget)
 		end
 	end
 
-	refreshAll(false)
+	options = type(options) == "table" and options or {}
+	if options.skipRefresh ~= true then
+		refreshAll(false)
+	end
 	return closest
 end
 
 function LocalPrompts.GetActiveAutoPromptCandidate(mode)
-	return activeAutoCandidateForMode(mode)
+	return LocalPrompts.ResolveAutoPromptCandidate(mode)
+end
+
+function LocalPrompts.ResolveAutoPromptCandidate(mode, options)
+	options = type(options) == "table" and options or {}
+	local candidate
+	if options.source == "visible" then
+		candidate = activeVisibleAutoCandidateForMode(mode, {
+			lockedTarget = options.lockedTarget,
+		})
+	else
+		candidate = activeMobileAutoCandidateForMode(mode, {
+			lockedTarget = options.lockedTarget,
+		})
+	end
+	if candidate then
+		return candidate
+	end
+
+	if options.liveLookup == true then
+		return LocalPrompts.FindAutoPromptCandidate(mode, options.lockedTarget, {
+			skipRefresh = options.skipRefresh,
+		})
+	end
+
+	return nil
 end
 
 function LocalPrompts.TriggerAutoPrompt(candidate)
@@ -860,6 +916,9 @@ function LocalPrompts.TriggerAutoPrompt(candidate)
 	if isPlacementPromptBlocked() then
 		return false
 	end
+	if isAutoSuppressedPrompt(target, kind) then
+		return false
+	end
 	suppressCollectAutoTarget(target, kind, candidate.prompt)
 	playPromptSound(kind)
 	PromptInteract:FireServer(action, target, true)
@@ -868,19 +927,26 @@ end
 
 function LocalPrompts.BeginAutoHold(mode, options)
 	options = type(options) == "table" and options or {}
-	local candidate = activeAutoCandidateForMode(mode) or LocalPrompts.FindAutoPromptCandidate(mode)
+	local lockedTarget = options.lockedTarget
+	local candidate = LocalPrompts.ResolveAutoPromptCandidate(mode, {
+		liveLookup = true,
+		lockedTarget = lockedTarget,
+		skipRefresh = true,
+		source = lockedTarget ~= nil and "visible" or nil,
+	})
 	if not candidate then
 		return nil
 	end
 
 	local firstDelay = AUTO_ACTION_INTERVAL
 	if options.immediate == true then
-		firstDelay = 0
+		firstDelay = LocalPrompts.TriggerAutoPrompt(candidate) and AUTO_ACTION_INTERVAL or AUTO_RETRY_INTERVAL
 	elseif type(options.firstDelay) == "number" then
 		firstDelay = math.max(options.firstDelay, 0)
 	end
 	autoHoldMode = candidate.mode
 	autoHoldNextActionAt = os.clock() + firstDelay
+	autoHoldLockedTarget = lockedTarget
 	return candidate
 end
 
@@ -888,6 +954,7 @@ function LocalPrompts.EndAutoHold()
 	autoHoldMode = nil
 	autoHoldNextActionAt = 0
 	autoHoldInputKeyCode = nil
+	autoHoldLockedTarget = nil
 end
 
 local function stepAutoHold()
@@ -904,7 +971,17 @@ local function stepAutoHold()
 		return
 	end
 
-	local candidate = activeAutoCandidateForMode(autoHoldMode)
+	local candidate
+	if autoHoldLockedTarget ~= nil then
+		candidate = LocalPrompts.FindAutoPromptCandidate(autoHoldMode, autoHoldLockedTarget, {
+			skipRefresh = true,
+		})
+	else
+		candidate = LocalPrompts.ResolveAutoPromptCandidate(autoHoldMode, {
+			liveLookup = true,
+			skipRefresh = true,
+		})
+	end
 	if candidate and LocalPrompts.TriggerAutoPrompt(candidate) then
 		autoHoldNextActionAt = now + AUTO_ACTION_INTERVAL
 	else
@@ -1233,6 +1310,8 @@ refreshAll = function(shouldScan)
 	local closestPrompt = nil
 	local closestDistance = math.huge
 	local closestAutoCandidate = nil
+	local closestMobileAutoCandidate = nil
+	local closestMobileAutoDistance = math.huge
 	local closestHighlightTarget = nil
 
 	for target, bucket in pairs(byTarget) do
@@ -1247,14 +1326,23 @@ refreshAll = function(shouldScan)
 				prompt.Enabled = false
 				continue
 			end
+			if isAutoSuppressedPrompt(target, kind) then
+				prompt.Enabled = false
+				continue
+			end
 			refreshPrompt(target, kind, prompt)
 			if prompt.Parent ~= nil and prompt.Enabled then
 				distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 				if distance and distance <= prompt.MaxActivationDistance then
+					local autoCandidate = autoCandidateFor(target, kind, prompt, distance)
+					if autoCandidate and distance < closestMobileAutoDistance then
+						closestMobileAutoCandidate = autoCandidate
+						closestMobileAutoDistance = distance
+					end
 					if distance < closestDistance then
 						closestPrompt = prompt
 						closestDistance = distance
-						closestAutoCandidate = autoCandidateFor(target, kind, prompt, distance)
+						closestAutoCandidate = autoCandidate
 						closestHighlightTarget = promptHighlightTarget(target, kind)
 					end
 				else
@@ -1305,6 +1393,7 @@ refreshAll = function(shouldScan)
 		end
 	end
 	activeAutoCandidate = closestAutoCandidate
+	activeMobileAutoCandidate = closestMobileAutoCandidate
 	setPromptHighlightTarget(closestHighlightTarget)
 end
 
@@ -1326,17 +1415,23 @@ local function scheduleToolRefresh(shouldScan)
 end
 
 local function beginPromptAutoHold(input)
-	if autoHoldMode ~= nil or not activeAutoCandidate then
+	if autoHoldMode ~= nil then
 		return
 	end
 
-	local prompt = activeAutoCandidate.prompt
+	local visibleCandidate = activeVisibleAutoCandidateForMode(nil)
+	if not visibleCandidate then
+		return
+	end
+
+	local prompt = visibleCandidate.prompt
 	if not inputMatchesPrompt(input, prompt) then
 		return
 	end
 
-	local candidate = LocalPrompts.BeginAutoHold(activeAutoCandidate.mode, {
+	local candidate = LocalPrompts.BeginAutoHold(visibleCandidate.mode, {
 		firstDelay = PROMPT_AUTO_FIRST_REPEAT_DELAY,
+		lockedTarget = visibleCandidate.target,
 	})
 	if not candidate then
 		return

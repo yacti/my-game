@@ -2,6 +2,10 @@ local NumberFormatter = require(script.Parent:WaitForChild("NumberFormatter"))
 
 local Onboarding = {}
 
+local TUTORIAL_SKIP_PLACE_IDS = {
+	[83847197909679] = true,
+}
+
 Onboarding.Stages = {
 	RollAppleTreeSeed = "RollAppleTreeSeed",
 	BuyAppleTreeSeed = "BuyAppleTreeSeed",
@@ -186,7 +190,14 @@ function Onboarding.IsExpandFarmGridCoordinate(x, z)
 		and math.floor(z) == Onboarding.ExpandFarmGrid.Z
 end
 
+function Onboarding.ShouldSkipTutorialForPlace(placeId)
+	return TUTORIAL_SKIP_PLACE_IDS[tonumber(placeId) or 0] == true
+end
+
 function Onboarding.DefaultState()
+	if Onboarding.ShouldSkipTutorialForPlace(game.PlaceId) then
+		return Onboarding.CompleteState()
+	end
 	return {
 		Stage = Onboarding.FirstStage(),
 		Progress = {},

@@ -38,6 +38,7 @@ local button = nil
 local icon = nil
 local pressed = false
 local activePressInput = nil
+local activePressInputType = nil
 local lockedMode = nil
 local currentCandidate = nil
 local refreshAccumulator = 0
@@ -250,7 +251,7 @@ local function refreshLayout()
 	return positionBesideJumpButton(jumpButton)
 end
 
-local function refreshIdleState()
+local function refreshIdleState(options)
 	if pressed then
 		return
 	end
@@ -259,7 +260,12 @@ local function refreshIdleState()
 		return
 	end
 
-	currentCandidate = LocalPrompts.GetActiveAutoPromptCandidate()
+	options = type(options) == "table" and options or {}
+	local useLiveLookup = options.liveLookup == true and currentCandidate ~= nil
+	currentCandidate = LocalPrompts.ResolveAutoPromptCandidate(nil, {
+		liveLookup = useLiveLookup,
+		skipRefresh = true,
+	})
 	if currentCandidate then
 		setButtonMode(currentCandidate.mode, true)
 	else
@@ -280,6 +286,7 @@ local function beginPress(input)
 
 	pressed = true
 	activePressInput = input
+	activePressInputType = input.UserInputType
 	lockedMode = currentCandidate.mode
 	setButtonMode(lockedMode, true)
 end
@@ -289,14 +296,17 @@ local function endPress(input)
 		return
 	end
 	if input ~= nil and activePressInput ~= nil and input ~= activePressInput then
-		return
+		if activePressInputType ~= Enum.UserInputType.Touch or input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
 	end
 
 	pressed = false
 	activePressInput = nil
+	activePressInputType = nil
 	lockedMode = nil
 	LocalPrompts.EndAutoHold()
-	refreshIdleState()
+	refreshIdleState({ liveLookup = true })
 end
 
 function AutoPromptButtonController.start()
@@ -356,7 +366,7 @@ function AutoPromptButtonController.start()
 				refreshLayout()
 				setButtonMode(lockedMode, true)
 			else
-				refreshIdleState()
+				refreshIdleState({ liveLookup = true })
 			end
 		end
 	end)
