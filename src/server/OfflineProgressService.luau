@@ -13,6 +13,9 @@ local OfflineProgressService = {}
 
 local FLASH_ACK_TIMEOUT_SECONDS = 10
 local DEFAULT_STARTER_PET_ID = "Pet1"
+local SHOWCASE_DISABLED_PLACE_IDS = {
+	[112731898930414] = true,
+}
 
 local sessions = {}
 local systems = {}
@@ -98,6 +101,10 @@ local function sessionFor(player)
 	return key and sessions[key] or nil
 end
 
+local function isShowcaseDisabledForPlace()
+	return SHOWCASE_DISABLED_PLACE_IDS[game.PlaceId] == true
+end
+
 function OfflineProgressService.RegisterSystem(name, applyCallback)
 	if type(name) ~= "string" or name == "" or type(applyCallback) ~= "function" then
 		return false
@@ -113,6 +120,11 @@ function OfflineProgressService.Begin(player, plot, profile)
 	end
 
 	OfflineProgressService.Clear(player)
+
+	if isShowcaseDisabledForPlace() then
+		setPendingAttribute(player, false)
+		return nil, "showcase-disabled"
+	end
 
 	local lastSeen = tonumber(profile and profile.Data and profile.Data.LastSeen) or 0
 	local joinTime = now()
