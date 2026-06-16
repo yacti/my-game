@@ -20,6 +20,7 @@ local NOTIFY_BUTTON_NAME = "NotifyButton"
 local TIMER_LABEL_NAME = "UpdateTimer"
 local HUD_WAIT_SECONDS = 10
 local TIMER_UPDATE_SECONDS = 0.5
+local EVENT_DETAILS_REFRESH_SECONDS = 180
 
 local player = Players.LocalPlayer
 local warned = {}
@@ -241,12 +242,16 @@ local function fetchRsvpStatus(eventId, generation, allowRetry)
 	applyRsvpStatus(eventId, ok, status, allowRetry)
 end
 
-local function loadEvent(eventId)
+local function loadEvent(eventId, preserveExisting)
 	requestGeneration += 1
 	currentEventId = eventId
-	clearLoadedEvent()
+
+	if not preserveExisting then
+		clearLoadedEvent()
+	end
 
 	if not eventId then
+		clearLoadedEvent()
 		return
 	end
 
@@ -264,7 +269,9 @@ local function loadEvent(eventId)
 				"event-fetch-" .. tostring(eventId),
 				"[UpdateTimerController] Failed to fetch update event " .. tostring(eventId) .. ": " .. tostring(event)
 			)
-			clearLoadedEvent()
+			if not preserveExisting then
+				clearLoadedEvent()
+			end
 			return
 		end
 
@@ -274,7 +281,9 @@ local function loadEvent(eventId)
 				"event-start-" .. tostring(eventId),
 				"[UpdateTimerController] Update event " .. tostring(eventId) .. " has invalid StartTime"
 			)
-			clearLoadedEvent()
+			if not preserveExisting then
+				clearLoadedEvent()
+			end
 			return
 		end
 
@@ -401,13 +410,24 @@ function UpdateTimerController.start()
 	)
 
 	local elapsed = 0
+	local eventRefreshElapsed = 0
 	heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "UpdateTimerController.Heartbeat", function(deltaTime)
 		elapsed += deltaTime
 		if elapsed < TIMER_UPDATE_SECONDS then
+			eventRefreshElapsed += deltaTime
+			if eventRefreshElapsed >= EVENT_DETAILS_REFRESH_SECONDS and currentEventId and not promptBusy then
+				eventRefreshElapsed = 0
+				loadEvent(currentEventId, true)
+			end
 			return
 		end
 		elapsed = 0
+		eventRefreshElapsed += deltaTime
 		render()
+		if eventRefreshElapsed >= EVENT_DETAILS_REFRESH_SECONDS and currentEventId and not promptBusy then
+			eventRefreshElapsed = 0
+			loadEvent(currentEventId, true)
+		end
 	end)
 
 	RuntimeGuard.Connect(hud.Destroying, "UpdateTimerController.HudDestroying", function()

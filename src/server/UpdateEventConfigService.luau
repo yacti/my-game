@@ -9,11 +9,14 @@ local UpdateEventConfigService = {}
 
 local CONFIG_KEY = "TimerUpdate"
 local MAX_INITIAL_ATTEMPTS = 6
+local CONFIG_POLL_SECONDS = 180
 local RETRY_DELAYS_SECONDS = { 2, 5, 10, 20, 30 }
 
 local started = false
 local snapshot = nil
 local updateConnection = nil
+local loadingSnapshot = false
+local refreshingSnapshot = false
 
 local function trim(value)
 	return string.match(value, "^%s*(.-)%s*$")
@@ -75,10 +78,15 @@ local function refreshSnapshot()
 	if not snapshot then
 		return
 	end
+	if refreshingSnapshot then
+		return
+	end
+	refreshingSnapshot = true
 
 	local ok, err = pcall(function()
 		snapshot:Refresh()
 	end)
+	refreshingSnapshot = false
 	if not ok then
 		warn("[UpdateEventConfigService] Failed to refresh config snapshot: " .. tostring(err))
 		return
@@ -98,24 +106,48 @@ local function connectSnapshotUpdates()
 	updateConnection = RuntimeGuard.Connect(snapshot.UpdateAvailable, "UpdateEventConfigService.UpdateAvailable", refreshSnapshot)
 end
 
+local function loadSnapshotOnce(context)
+	if loadingSnapshot then
+		return false
+	end
+	loadingSnapshot = true
+
+	local ok, result = pcall(function()
+		return ConfigService:GetConfigAsync()
+	end)
+	loadingSnapshot = false
+
+	if ok and result then
+		snapshot = result
+		publishSnapshotValue()
+		connectSnapshotUpdates()
+		return true
+	end
+
+	warn(string.format(
+		"[UpdateEventConfigService] Failed to load config snapshot%s: %s",
+		context and (" (" .. context .. ")") or "",
+		tostring(result)
+	))
+	return false
+end
+
+local function pollConfig()
+	while started do
+		task.wait(CONFIG_POLL_SECONDS)
+		if snapshot then
+			refreshSnapshot()
+		else
+			loadSnapshotOnce("periodic poll")
+		end
+	end
+end
+
 local function loadInitialSnapshot()
 	for attempt = 1, MAX_INITIAL_ATTEMPTS do
-		local ok, result = pcall(function()
-			return ConfigService:GetConfigAsync()
-		end)
-		if ok and result then
-			snapshot = result
-			publishSnapshotValue()
-			connectSnapshotUpdates()
+		if loadSnapshotOnce(string.format("attempt %d/%d", attempt, MAX_INITIAL_ATTEMPTS)) then
 			return
 		end
-
-		warn(string.format(
-			"[UpdateEventConfigService] Failed to load config snapshot (attempt %d/%d): %s",
-			attempt,
-			MAX_INITIAL_ATTEMPTS,
-			tostring(result)
-		))
 
 		if attempt < MAX_INITIAL_ATTEMPTS then
 			task.wait(RETRY_DELAYS_SECONDS[attempt] or RETRY_DELAYS_SECONDS[#RETRY_DELAYS_SECONDS])
@@ -134,6 +166,7 @@ function UpdateEventConfigService.Start()
 
 	publish(nil)
 	RuntimeGuard.Spawn("UpdateEventConfigService.LoadInitialSnapshot", loadInitialSnapshot)
+	RuntimeGuard.Spawn("UpdateEventConfigService.PollConfig", pollConfig)
 end
 
 return UpdateEventConfigService
