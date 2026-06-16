@@ -294,6 +294,8 @@ Rebirth is a specific economy transaction, not a generic wipe. Current behavior 
 
 `PlayerDataService` uses ProfileStore with `STORE_NAME = "PlayerData"` and mock mode in Studio by default.
 
+The project uses separate Roblox experiences for dev/staging and live, so each experience has its own DataStore namespace even when the store name is the same. Before pushing a dev build over the live place, deliberately review every `PlayerData` read, migration, sanitization, receipt path, and profile write for compatibility with existing live profiles. Do not rely on dev's fresh data shape as proof that live saves will survive cleanly.
+
 During a session, live plot Instances are the runtime source of truth for pets, feed placements, growing seed placements, food inventory, seed inventory, feed inventory, and runtime extras. Profile tables are the persistence boundary after snapshot.
 
 `init.server.luau` snapshots plot state back into `profile.Data` every 60 seconds, after prompt interactions, after successful placement, on leave, and during shutdown.

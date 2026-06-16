@@ -30,6 +30,11 @@ Run this checklist before publishing a live build.
 
 - `src/server/PlayerDataService.luau` store policy is intentional:
   `STORE_NAME = "PlayerData"` and Studio uses ProfileStore mock mode by default.
+- Dev and live are separate Roblox experiences. Dev data can be fresh or disposable,
+  but publishing over live must preserve existing live `PlayerData` profiles.
+- Any change that reads, migrates, sanitizes, snapshots, saves, or fulfills receipts
+  against `PlayerData` has been reviewed against the current live profile shape, not
+  only against fresh dev profiles.
 - Fresh ProfileStore profile receives expected default pet, starter cosmetic tool, no persisted feed/seed/food inventory tools, utility shovel, and starting currency.
 - Server output shows ProfileStore has DataStore access in production test
   environments.
