@@ -5,6 +5,7 @@ local Server = script.Parent
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
+local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
@@ -81,6 +82,11 @@ local function isCosmeticTarget(instance)
 		and type(cosmeticId) == "string"
 		and cosmeticId ~= ""
 		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function isTreeFeedTarget(instance)
+	local feedType = instance and instance:GetAttribute(State.Feed.Type)
+	return type(feedType) == "string" and FeedMachines.GetClass(feedType) == "Tree"
 end
 
 local function resolveDeleteTarget(plot, target)
@@ -259,6 +265,10 @@ function ShovelService.Start(config)
 					plot = plot,
 				})
 				sendResult(player, requestId, false, "too-far")
+				return
+			end
+			if targetKind == TARGET_KIND_FEED and isTreeFeedTarget(placeable) and OnboardingService.IsActive(profile) then
+				sendResult(player, requestId, false, "tutorial-locked")
 				return
 			end
 

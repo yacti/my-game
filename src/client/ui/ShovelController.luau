@@ -31,6 +31,7 @@ local DELETE_FAILURE_MESSAGES = {
 	["rate-limited"] = "Please wait before deleting again.",
 	["save-failed"] = "Could not save that deletion. Please try again.",
 	["too-far"] = "Move closer to delete that item.",
+	["tutorial-locked"] = "You can't delete this during the tutorial!",
 }
 
 local function deleteFailureMessage(reason)

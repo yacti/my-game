@@ -269,6 +269,10 @@ function OnboardingService.IsComplete(profile)
 	return Onboarding.IsComplete(stageFor(profile))
 end
 
+function OnboardingService.IsActive(profile)
+	return Onboarding.IsActive(stageFor(profile))
+end
+
 function OnboardingService.SetStage(player, profile, nextStage)
 	return setStage(player, profile, nextStage)
 end
