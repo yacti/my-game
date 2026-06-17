@@ -34,15 +34,13 @@ local PATCH_SPOT_STEP = 2
 local PLANT_FRONT_INSET = 4
 local FINAL_NOTE_FADE_TWEEN = TweenInfo.new(Onboarding.FinalNoteFadeSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
--- Stages with no floating arrow: progress-bar stages plus every stage the
--- ClickerOnboarding billboard covers instead.
+-- Stages with no floating arrow: progress-bar stages plus clicker billboard
+-- stages where the target is already clear.
 local NO_MAIN_ARROW_STAGES = {
 	[Onboarding.Stages.CollectApple] = true,
 	[Onboarding.Stages.ShakeAppleTree] = true,
 	[Onboarding.Stages.MakeCurrency] = true,
 	[Onboarding.Stages.GatherPumpkinXP] = true,
-	[Onboarding.Stages.RollAppleTreeSeed] = true,
-	[Onboarding.Stages.RollPumpkinSeed] = true,
 	[Onboarding.Stages.PlantAppleTreeSeed] = true,
 	[Onboarding.Stages.PlantPumpkinSeed] = true,
 }
@@ -615,6 +613,11 @@ local function rollButton()
 	return button and button:IsA("BasePart") and button or nil
 end
 
+local function isRollButtonStage(stage)
+	return stage == Onboarding.Stages.RollAppleTreeSeed
+		or stage == Onboarding.Stages.RollPumpkinSeed
+end
+
 local function starterAreaCenter()
 	local currentPlot = plot()
 	local starterArea = currentPlot and currentPlot:FindFirstChild("StarterArea")
@@ -736,6 +739,9 @@ local function appleGroundFruits()
 end
 
 local function singleArrowTarget()
+	if isRollButtonStage(currentStage) then
+		return rollButton()
+	end
 	if currentStage == Onboarding.Stages.BuyPumpkinSeed then
 		local reveal = RollController.GetActiveTutorialReveal(Onboarding.Seeds.Pumpkin)
 		return reveal and { instance = reveal, arrowHeight = SEED_PREVIEW_ARROW_HEIGHT } or nil
