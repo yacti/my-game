@@ -49,6 +49,7 @@ local TreeClickerRequest = Remotes.get(Remotes.Names.TreeClickerRequest)
 
 local MAX_CLICKS_PER_SECOND = 5
 local CLICK_DISTANCE = 24
+local TREE_CLICK_TARGET_NAME = "LeafShake"
 
 local DEFAULT_BALANCE = {
 	SlotRespawn = 1,
@@ -85,7 +86,7 @@ local BALANCES = {
 }
 
 -- state[machine] = {
---   owner, plot, balance, foodDrop, lastClick, conns,
+--   owner, plot, balance, foodDrop, lastClick, conns, detectors,
 --   slots = { [i] = {
 --     n,             -- numeric suffix shared by BaseFoodN and BaseFoodGroundN
 --     anchor,        -- invisible spawn point, replaces BaseFoodN
@@ -365,6 +366,35 @@ local function isPlayerNearTree(player, machine)
 	return primary ~= nil and isPlayerNear(player, primary.Position, CLICK_DISTANCE)
 end
 
+local function leafShakePart(machine)
+	local part = machine and machine:FindFirstChild(TREE_CLICK_TARGET_NAME, true)
+	if part and part:IsA("BasePart") then
+		return part
+	end
+	return nil
+end
+
+local function configureLeafShakePart(part)
+	part.CanQuery = true
+	part.CanCollide = false
+	part.CanTouch = false
+end
+
+local function treeClickTargets(machine)
+	local targets = {}
+	local leafShake = leafShakePart(machine)
+	if leafShake then
+		configureLeafShakePart(leafShake)
+		targets[#targets + 1] = leafShake
+	end
+
+	local primary = machine and machine.PrimaryPart
+	if primary and primary:IsA("BasePart") and primary ~= leafShake then
+		targets[#targets + 1] = primary
+	end
+	return targets
+end
+
 local function fireEffectNearby(machine, balance, anchor, marker, foodId, triggeringPlayer)
 	local origin = anchor.Position
 	local payload = {
@@ -481,14 +511,16 @@ local function setupSlots(machine, s)
 end
 
 local function setupClickDetector(machine, s)
-	local primary = machine.PrimaryPart
-	if not primary then return end
-	local detector = Instance.new("ClickDetector")
-	detector.MaxActivationDistance = CLICK_DISTANCE
-	detector.Parent = primary
-	table.insert(s.conns, RuntimeGuard.Connect(detector.MouseClick, "TreeClicker.MouseClick", function(player)
-		onTreeClicked(machine, s, player)
-	end))
+	for _, target in ipairs(treeClickTargets(machine)) do
+		local detector = Instance.new("ClickDetector")
+		detector.Name = "TreeClickDetector"
+		detector.MaxActivationDistance = CLICK_DISTANCE
+		detector.Parent = target
+		table.insert(s.detectors, detector)
+		table.insert(s.conns, RuntimeGuard.Connect(detector.MouseClick, "TreeClicker.MouseClick", function(player)
+			onTreeClicked(machine, s, player)
+		end))
+	end
 end
 
 function TreeClicker.Setup(machine, plot, owner)
@@ -520,6 +552,7 @@ function TreeClicker.Setup(machine, plot, owner)
 		lastClick = 0,
 		slots     = {},
 		conns     = {},
+		detectors = {},
 	}
 	state[machine] = s
 
@@ -532,6 +565,11 @@ function TreeClicker.Teardown(machine)
 	local s = state[machine]
 	if not s then return end
 	for _, c in ipairs(s.conns) do c:Disconnect() end
+	for _, detector in ipairs(s.detectors) do
+		if detector.Parent then
+			detector:Destroy()
+		end
+	end
 	for _, slot in ipairs(s.slots) do
 		slot.respawnToken = (slot.respawnToken or 0) + 1
 		destroySlotGround(slot)

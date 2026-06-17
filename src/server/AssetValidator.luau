@@ -143,6 +143,7 @@ local SEED_OWNED_FEED_ATTRIBUTES = {
 }
 
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
+local TREE_CLICK_TARGET_NAME = "LeafShake"
 local PLOT_NAME_PATTERN = "^Plot(%d+)$"
 local TEMPLATE_SIZE_TOLERANCE = 0.01
 
@@ -456,7 +457,31 @@ local function validatePatchEditSelectionHitbox(template, errors)
 	end
 end
 
-local function validateFeedTemplateIdentity(root, errors)
+local function validateTreeClickTarget(template, errors, warnings)
+	if not template:IsA("Model") then
+		add(errors, template:GetFullName() .. " uses FeedClass=Tree but is not a Model")
+		return
+	end
+
+	local target = template:FindFirstChild(TREE_CLICK_TARGET_NAME, true)
+	if not target then
+		add(warnings or errors, template:GetFullName() .. " missing " .. TREE_CLICK_TARGET_NAME .. " BasePart; tree clicks will fall back to PrimaryPart")
+		return
+	end
+	if not target:IsA("BasePart") then
+		add(errors, string.format("%s is %s, expected BasePart", target:GetFullName(), target.ClassName))
+		return
+	end
+
+	if target.CanQuery ~= true then
+		add(errors, target:GetFullName() .. " must have CanQuery=true for tree click raycasts")
+	end
+	if target.CanCollide ~= false then
+		add(errors, target:GetFullName() .. " must have CanCollide=false")
+	end
+end
+
+local function validateFeedTemplateIdentity(root, errors, warnings)
 	local seenByFeedType = {}
 	for _, classFolder in ipairs(root:GetChildren()) do
 		if not classFolder:IsA("Folder") then
@@ -530,6 +555,8 @@ local function validateFeedTemplateIdentity(root, errors)
 			end
 			if feedClass == "Patch" then
 				validatePatchEditSelectionHitbox(template, errors)
+			elseif feedClass == "Tree" then
+				validateTreeClickTarget(template, errors, warnings)
 			end
 
 			local growRate = template:GetAttribute(State.Feed.GrowRate)
@@ -540,11 +567,11 @@ local function validateFeedTemplateIdentity(root, errors)
 	end
 end
 
-local function validateFeedTemplates(errors)
+local function validateFeedTemplates(errors, warnings)
 	local root = assetChild(Assets.Names.FeedMachines, "Folder", errors)
 	if not root then return end
 
-	validateFeedTemplateIdentity(root, errors)
+	validateFeedTemplateIdentity(root, errors, warnings)
 
 	for _, feedType in ipairs(REQUIRED_FEEDS) do
 		local template = FeedMachines.GetTemplate(feedType)
@@ -2206,7 +2233,7 @@ function AssetValidator.validate()
 
 	validateRemotes(errors)
 	validatePetCatalog(errors)
-	validateFeedTemplates(errors)
+	validateFeedTemplates(errors, warnings)
 	validateSeeds(errors)
 	validateCosmetics(errors, warnings)
 	validateMisc(errors)
@@ -2228,7 +2255,7 @@ function AssetValidator.validate()
 	validatePlots(errors)
 
 	if #warnings > 0 then
-		warn("[AssetValidator] Studio UI asset warnings:\n- " .. table.concat(warnings, "\n- "))
+		warn("[AssetValidator] Studio asset warnings:\n- " .. table.concat(warnings, "\n- "))
 	end
 	if #errors > 0 then
 		error("[AssetValidator] Startup asset validation failed:\n- " .. table.concat(errors, "\n- "))

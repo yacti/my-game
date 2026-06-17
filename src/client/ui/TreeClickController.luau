@@ -20,6 +20,7 @@ local TreeClickController = {}
 
 local TREE_SHAKE_CLICK_DISTANCE = 24
 local TREE_SHAKE_RAY_DISTANCE = 500
+local TREE_CLICK_TARGET_NAME = "LeafShake"
 
 local player = Players.LocalPlayer
 local TreeClickerRequest = Remotes.get(Remotes.Names.TreeClickerRequest)
@@ -55,11 +56,32 @@ local function feedMachineClass(machine)
 	return nil
 end
 
+local function leafShakePart(tree)
+	local part = tree and tree:FindFirstChild(TREE_CLICK_TARGET_NAME, true)
+	if part and part:IsA("BasePart") then
+		return part
+	end
+	return nil
+end
+
+local function isTreeClickTargetHit(tree, hit)
+	local leafShake = leafShakePart(tree)
+	if leafShake and (hit == leafShake or hit:IsDescendantOf(leafShake)) then
+		return true
+	end
+
+	local primary = tree.PrimaryPart
+	return primary ~= nil and (hit == primary or hit:IsDescendantOf(primary))
+end
+
 local function treeFromHit(instance, plot)
 	local current = instance
 	while current and current ~= plot do
 		if current:IsA("Model") and feedMachineClass(current) == "Tree" then
-			return current
+			if isTreeClickTargetHit(current, instance) then
+				return current
+			end
+			return nil
 		end
 		current = current.Parent
 	end

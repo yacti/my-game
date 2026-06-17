@@ -75,12 +75,14 @@ local AUTO_RETRY_INTERVAL = 0.1
 local PASSIVE_TREE_PICKUP_INTERVAL = AUTO_ACTION_INTERVAL
 local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
 local COLLECT_TARGET_SUPPRESS_SECONDS = 1
+local FEED_INTENT_GRACE_SECONDS = 2
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
 local warnedMissingHighlightTemplate = false
 local activePromptHighlight = nil
 local activePromptHighlightTarget = nil
+local feedIntentUntil = 0
 local AUTO_PROMPT_ACTIONS = {
 	PetFeed = Interactions.Actions.PetFeed,
 	PatchHarvest = Interactions.Actions.PatchHarvest,
@@ -363,6 +365,30 @@ end
 
 local function isCollectAutoKind(kind)
 	return kind == "PatchHarvest" or kind == "TreeGroundPickup"
+end
+
+local function isFeedIntentActive()
+	local now = os.clock()
+	if Food.GetEquipped(player, nil) ~= nil then
+		feedIntentUntil = now + FEED_INTENT_GRACE_SECONDS
+		return true
+	end
+	return now < feedIntentUntil
+end
+
+local function shouldSelectPrompt(currentKind, currentDistance, nextKind, nextDistance, feedIntentActive)
+	if currentDistance == math.huge then
+		return true
+	end
+	if feedIntentActive then
+		if nextKind == "PetFeed" and isCollectAutoKind(currentKind) then
+			return true
+		end
+		if currentKind == "PetFeed" and isCollectAutoKind(nextKind) then
+			return false
+		end
+	end
+	return nextDistance < currentDistance
 end
 
 local function autoSuppressionActive(target)
@@ -889,8 +915,10 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 		return nil
 	end
 
+	local feedIntentActive = isFeedIntentActive()
 	local closest = nil
 	local closestDistance = math.huge
+	local closestKind = nil
 	for target, bucket in pairs(byTarget) do
 		if lockedTarget ~= nil and target ~= lockedTarget then
 			continue
@@ -912,9 +940,12 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 			end
 
 			local distance = promptDistance(prompt, rootPosition)
-			if distance and distance <= prompt.MaxActivationDistance and distance < closestDistance then
+			if distance
+				and distance <= prompt.MaxActivationDistance
+				and shouldSelectPrompt(closestKind, closestDistance, kind, distance, feedIntentActive) then
 				closest = autoCandidateFor(target, kind, prompt, distance)
 				closestDistance = distance
+				closestKind = kind
 			end
 		end
 	end
@@ -1390,10 +1421,13 @@ refreshAll = function(shouldScan)
 	local offlinePending = isOfflineProgressPending()
 	local closestPrompt = nil
 	local closestDistance = math.huge
+	local closestKind = nil
 	local closestAutoCandidate = nil
 	local closestMobileAutoCandidate = nil
 	local closestMobileAutoDistance = math.huge
+	local closestMobileAutoKind = nil
 	local closestHighlightTarget = nil
+	local feedIntentActive = isFeedIntentActive()
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
@@ -1416,13 +1450,16 @@ refreshAll = function(shouldScan)
 				distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 				if distance and distance <= prompt.MaxActivationDistance then
 					local autoCandidate = autoCandidateFor(target, kind, prompt, distance)
-					if autoCandidate and distance < closestMobileAutoDistance then
+					if autoCandidate
+						and shouldSelectPrompt(closestMobileAutoKind, closestMobileAutoDistance, kind, distance, feedIntentActive) then
 						closestMobileAutoCandidate = autoCandidate
 						closestMobileAutoDistance = distance
+						closestMobileAutoKind = kind
 					end
-					if distance < closestDistance then
+					if shouldSelectPrompt(closestKind, closestDistance, kind, distance, feedIntentActive) then
 						closestPrompt = prompt
 						closestDistance = distance
+						closestKind = kind
 						closestAutoCandidate = autoCandidate
 						closestHighlightTarget = promptHighlightTarget(target, kind)
 					end
@@ -1448,9 +1485,10 @@ refreshAll = function(shouldScan)
 		if prompt.Enabled then
 			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 			if distance and distance <= prompt.MaxActivationDistance then
-				if distance < closestDistance then
+				if shouldSelectPrompt(closestKind, closestDistance, nil, distance, feedIntentActive) then
 					closestPrompt = prompt
 					closestDistance = distance
+					closestKind = nil
 					closestAutoCandidate = nil
 					closestHighlightTarget = externalPromptHighlightTarget(record)
 				end
