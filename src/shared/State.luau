@@ -28,6 +28,7 @@ State.Pet = {
 	EvolutionOldPetId = "PetEvolutionOldPetId",
 	EvolutionOldScale = "PetEvolutionOldScale",
 	EvolutionPivot = "PetEvolutionPivot",
+	EvolutionPathPetIds = "PetEvolutionPathPetIds",
 	EvolutionPaused = "PetEvolutionPaused", -- client-local presentation pause
 }
 

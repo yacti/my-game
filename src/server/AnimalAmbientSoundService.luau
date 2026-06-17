@@ -15,6 +15,7 @@ local ELIGIBLE_DISTANCE = 50
 local SOUND_RANGE = 50
 local PITCH_VARIANCE = 0.3
 local EVOLUTION_BURST_START_DELAY = 3
+local EVOLUTION_PREVIEW_STEP_SECONDS = 0.715
 local EVOLUTION_BURST_GAP = 1
 local EVOLUTION_BURST_FINAL_PITCH = 1.5
 local EVOLUTION_AMBIENT_SUPPRESSION_SECONDS = 20
@@ -133,7 +134,13 @@ local function scanRoot(root)
 	end
 end
 
-function AnimalAmbientSoundService.PlayEvolutionBurst(pet)
+local function evolutionBurstStartDelay(pathPetIds)
+	local pathLength = type(pathPetIds) == "table" and #pathPetIds or 0
+	local intermediatePreviewCount = math.max(pathLength - 2, 0)
+	return EVOLUTION_BURST_START_DELAY + intermediatePreviewCount * EVOLUTION_PREVIEW_STEP_SECONDS
+end
+
+function AnimalAmbientSoundService.PlayEvolutionBurst(pet, pathPetIds)
 	if not isPet(pet) then
 		return
 	end
@@ -153,7 +160,7 @@ function AnimalAmbientSoundService.PlayEvolutionBurst(pet)
 		record.suppressAmbientUntil = os.clock() + EVOLUTION_AMBIENT_SUPPRESSION_SECONDS
 	end
 
-	task.delay(EVOLUTION_BURST_START_DELAY, function()
+	task.delay(evolutionBurstStartDelay(pathPetIds), function()
 		RuntimeGuard.Run("AnimalAmbientSoundService.EvolutionBurstSequence", function()
 			fireToNearbyPlayers(pet, nil, {
 				evolutionBurst = true,

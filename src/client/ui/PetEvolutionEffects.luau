@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
@@ -27,6 +28,7 @@ local REVEAL_SECONDS = 0.18
 local UI_HIDE_SECONDS = 0.14
 local CAMERA_ZOOM_FOV = 8
 local CAMERA_OUT_SECONDS = 0.14
+local PREVIEW_DURATION_SCALE = 0.5
 
 local FLASH_START_HZ = 1
 local FLASH_END_HZ = 5
@@ -66,6 +68,21 @@ end
 local function isOwnPet(pet)
 	local plot = assignedPlot()
 	return plot ~= nil and pet:IsDescendantOf(plot)
+end
+
+local function firstBasePart(instance)
+	if not instance then
+		return nil
+	end
+	if instance:IsA("BasePart") then
+		return instance
+	end
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			return descendant
+		end
+	end
+	return nil
 end
 
 local function tweenScale(model, fromScale, toScale, tweenInfo, pivot)
@@ -182,24 +199,29 @@ local function cloneOldVisual(petId)
 	return clone
 end
 
-local function flashAmount(elapsed)
-	local alpha = math.clamp(elapsed / CHARGE_SECONDS, 0, 1)
-	local cycles = FLASH_START_HZ * elapsed + 0.5 * (FLASH_END_HZ - FLASH_START_HZ) * alpha * elapsed
+local function flashAmount(elapsed, chargeSeconds)
+	local alpha = math.clamp(elapsed / chargeSeconds, 0, 1)
+	local normalizedElapsed = alpha * CHARGE_SECONDS
+	local cycles = FLASH_START_HZ * normalizedElapsed + 0.5 * (FLASH_END_HZ - FLASH_START_HZ) * alpha * normalizedElapsed
 	return (math.sin(cycles * math.pi * 2 - math.pi / 2) + 1) * 0.5
 end
 
-local function playCharge(effect, pivot, baseScale, pet)
+local function playCharge(effect, pivot, baseScale, pet, options)
+	options = type(options) == "table" and options or {}
+	local durationScale = math.max(tonumber(options.durationScale) or 1, 0.01)
+	local chargeSeconds = CHARGE_SECONDS * durationScale
+	local whiteoutSeconds = WHITEOUT_SECONDS * durationScale
 	local highlight = addWhiteout(effect)
 	local random = Random.new()
 	local startedAt = os.clock()
 
 	while effect.Parent and (not pet or pet.Parent) do
 		local elapsed = os.clock() - startedAt
-		local alpha = math.clamp(elapsed / CHARGE_SECONDS, 0, 1)
+		local alpha = math.clamp(elapsed / chargeSeconds, 0, 1)
 		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		local shake = SHAKE_START + (SHAKE_END - SHAKE_START) * eased
 		local rotation = SHAKE_ROTATION * eased
-		local flash = flashAmount(elapsed)
+		local flash = flashAmount(elapsed, chargeSeconds)
 
 		effect:ScaleTo(baseScale * (1 + (CHARGE_SCALE - 1) * eased))
 		effect:PivotTo(pivot
@@ -222,11 +244,11 @@ local function playCharge(effect, pivot, baseScale, pet)
 	end
 
 	if effect.Parent and (not pet or pet.Parent) then
-		TweenService:Create(highlight, TweenInfo.new(WHITEOUT_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TweenService:Create(highlight, TweenInfo.new(whiteoutSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			FillTransparency = 0,
 			OutlineTransparency = 0,
 		}):Play()
-		task.wait(WHITEOUT_SECONDS)
+		task.wait(whiteoutSeconds)
 	end
 	return highlight
 end
@@ -397,6 +419,52 @@ local function showEvolutionNotification(oldPetId, pet)
 	})
 end
 
+local function appendPathPetId(path, petId)
+	if type(petId) ~= "string" or petId == "" then
+		return
+	end
+	if path[#path] ~= petId then
+		path[#path + 1] = petId
+	end
+end
+
+local function fallbackEvolutionPath(oldPetId, finalPetId)
+	local path = {}
+	appendPathPetId(path, oldPetId)
+	appendPathPetId(path, finalPetId)
+	return path
+end
+
+local function decodeEvolutionPath(pet, oldPetId)
+	local finalPetId = pet:GetAttribute(State.Pet.Id)
+	local encoded = pet:GetAttribute(State.Pet.EvolutionPathPetIds)
+	if type(encoded) ~= "string" or encoded == "" then
+		return fallbackEvolutionPath(oldPetId, finalPetId)
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(encoded)
+	end)
+	if not ok or type(decoded) ~= "table" then
+		warn("[PetEvolutionEffects] Invalid pet evolution path payload")
+		return fallbackEvolutionPath(oldPetId, finalPetId)
+	end
+
+	local path = {}
+	for index = 1, #decoded do
+		appendPathPetId(path, decoded[index])
+	end
+	if #path == 0 then
+		return fallbackEvolutionPath(oldPetId, finalPetId)
+	end
+
+	if path[1] ~= oldPetId then
+		table.insert(path, 1, oldPetId)
+	end
+	appendPathPetId(path, finalPetId)
+	return path
+end
+
 local function readCue(pet)
 	local seq = pet:GetAttribute(State.Pet.EvolutionSeq)
 	if type(seq) ~= "number" or playedSeqByPet[pet] == seq then return nil end
@@ -408,24 +476,52 @@ local function readCue(pet)
 		return nil
 	end
 
-	return seq, oldPetId, oldScale, pivot
+	return seq, oldPetId, oldScale, pivot, decodeEvolutionPath(pet, oldPetId)
+end
+
+local function playPreviewSound(petId, pet)
+	local soundParent = pet.PrimaryPart or firstBasePart(pet)
+	if not soundParent then
+		return
+	end
+	SoundEffects.PlayAnimal(petId, {
+		parent = soundParent,
+	})
+end
+
+local function createEffectForPetId(petId, scale, pivot, parent)
+	local effect = cloneOldVisual(petId)
+	if not effect then
+		warn("[PetEvolutionEffects] Missing pet visual for evolution preview: " .. tostring(petId))
+		return nil
+	end
+
+	effect:ScaleTo(scale)
+	effect.Parent = parent or Workspace
+	effect:PivotTo(pivot)
+	return effect
+end
+
+local function playIntermediatePreview(effect, petId, scale, pivot, pet)
+	playPreviewSound(petId, pet)
+	local highlight = playCharge(effect, pivot, scale, pet, {
+		durationScale = PREVIEW_DURATION_SCALE,
+	})
+	return highlight
 end
 
 local function playForPet(pet)
 	if not isOwnPet(pet) then return end
 
-	local seq, oldPetId, oldScale, pivot = readCue(pet)
+	local seq, oldPetId, oldScale, pivot, pathPetIds = readCue(pet)
 	if not seq then return end
 
-	local effect = cloneOldVisual(oldPetId)
+	local effect = createEffectForPetId(oldPetId, oldScale, pivot, pet.Parent or Workspace)
 	if not effect then return end
 
 	playedSeqByPet[pet] = seq
 	local restoreCamera = playCameraZoom()
 	local hiddenPet = hidePet(pet, pivot)
-	effect:ScaleTo(oldScale)
-	effect.Parent = pet.Parent or Workspace
-	effect:PivotTo(pivot)
 
 	task.spawn(function()
 		local drumroll = nil
@@ -436,6 +532,19 @@ local function playForPet(pet)
 				drumroll.Looped = true
 			end
 			local highlight = playCharge(effect, pivot, oldScale, pet)
+			for index = 2, math.max(#pathPetIds - 1, 1) do
+				local previewPetId = pathPetIds[index]
+				if not pet.Parent then
+					break
+				end
+
+				local previewEffect = createEffectForPetId(previewPetId, oldScale, pivot, pet.Parent or Workspace)
+				if previewEffect then
+					if effect.Parent then effect:Destroy() end
+					effect = previewEffect
+					highlight = playIntermediatePreview(effect, previewPetId, oldScale, pivot, pet)
+				end
+			end
 			if pet.Parent then
 				morphEffectToNewPet(effect, pet, pivot, highlight)
 				-- Celebration lands with the morph reveal, right as

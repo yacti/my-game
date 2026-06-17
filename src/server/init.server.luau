@@ -2,6 +2,7 @@ local Players             = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage   = game:GetService("ReplicatedStorage")
 local RunService          = game:GetService("RunService")
+local HttpService         = game:GetService("HttpService")
 
 local Server            = ServerScriptService:WaitForChild("Server")
 local Shared            = ReplicatedStorage:WaitForChild("Shared")
@@ -517,10 +518,37 @@ local function publishPetState(pet, money, xp)
 	pet:SetAttribute(State.Pet.XP,    xp or 0)
 end
 
-local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq)
+local function encodePetEvolutionPath(pathPetIds)
+	if type(pathPetIds) ~= "table" or #pathPetIds == 0 then
+		return nil
+	end
+
+	local sanitized = {}
+	for _, petId in ipairs(pathPetIds) do
+		if type(petId) == "string" and petId ~= "" then
+			sanitized[#sanitized + 1] = petId
+		end
+	end
+	if #sanitized == 0 then
+		return nil
+	end
+
+	local ok, encoded = pcall(function()
+		return HttpService:JSONEncode(sanitized)
+	end)
+	if ok and type(encoded) == "string" then
+		return encoded
+	end
+
+	warn("[init] Failed to encode pet evolution path")
+	return nil
+end
+
+local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq, pathPetIds)
 	pet:SetAttribute(State.Pet.EvolutionOldPetId, oldPetId)
 	pet:SetAttribute(State.Pet.EvolutionOldScale, oldScale)
 	pet:SetAttribute(State.Pet.EvolutionPivot, pivot)
+	pet:SetAttribute(State.Pet.EvolutionPathPetIds, encodePetEvolutionPath(pathPetIds))
 	pet:SetAttribute(State.Pet.EvolutionSeq, seq)
 
 	task.delay(8, function()
@@ -531,6 +559,7 @@ local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq)
 				pet:SetAttribute(State.Pet.EvolutionOldPetId, nil)
 				pet:SetAttribute(State.Pet.EvolutionOldScale, nil)
 				pet:SetAttribute(State.Pet.EvolutionPivot, nil)
+				pet:SetAttribute(State.Pet.EvolutionPathPetIds, nil)
 			end
 		end)
 	end)
@@ -549,6 +578,7 @@ local function tryEvolvePet(plot, pet, profile)
 	local firstScale = nil
 	local firstPivot = nil
 	local evolutionSeq = nil
+	local evolutionPath = nil
 
 	while activePet and activePet.Parent do
 		local petId = activePet:GetAttribute(State.Pet.Id)
@@ -574,6 +604,7 @@ local function tryEvolvePet(plot, pet, profile)
 			firstScale = activePet:GetScale()
 			firstPivot = PetMotionService.GetLogicalPivot(activePet)
 			evolutionSeq = (activePet:GetAttribute(State.Pet.EvolutionSeq) or 0) + 1
+			evolutionPath = { petId }
 		end
 
 		local evolutionPivot = PetMotionService.GetLogicalPivot(activePet)
@@ -596,6 +627,9 @@ local function tryEvolvePet(plot, pet, profile)
 
 		petData.petId = nextPetId
 		petData.xp = nextXP
+		if evolutionPath and evolutionPath[#evolutionPath] ~= nextPetId then
+			evolutionPath[#evolutionPath + 1] = nextPetId
+		end
 		evolved = true
 	end
 
@@ -606,8 +640,8 @@ local function tryEvolvePet(plot, pet, profile)
 	publishPetState(activePet, petData.money, petData.xp)
 
 	if evolved then
-		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq)
-		AnimalAmbientSoundService.PlayEvolutionBurst(activePet)
+		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq, evolutionPath)
+		AnimalAmbientSoundService.PlayEvolutionBurst(activePet, evolutionPath)
 	end
 
 	return activePet, evolved
