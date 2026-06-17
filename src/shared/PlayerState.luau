@@ -19,6 +19,7 @@ PlayerState.Fields = {
 	VipOwned = "VipOwned",
 	HourlyPetIncome = "HourlyPetIncome",
 	JoinBackShowcase = "JoinBackShowcase",
+	JoinGroupRewardCollected = "JoinGroupRewardCollected",
 }
 
 return PlayerState

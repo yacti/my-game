@@ -51,6 +51,7 @@ local DATA_TEMPLATE = {
 	Rebirths = 0,
 	UnlockedGridKeys = {},
 	Onboarding = Onboarding.DefaultState(),
+	JoinGroupRewardCollected = false,
 	LastSeen = 0,
 }
 
@@ -575,6 +576,7 @@ local function ensureValidData(profile)
 	if not Onboarding.IsEnabled() then
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
+	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
 
 	if type(profile.Data.LastSeen) ~= "number" then
 		profile.Data.LastSeen = 0

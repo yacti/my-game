@@ -37,6 +37,7 @@ local CONTROLLERS = {
 	"GamePassShopController",
 	"VipController",
 	"JoinBackShowcaseController",
+	"JoinGroupRewardController",
 	"MusicPlaylistController",
 	"BirdBackingTrackController",
 	"AutoPromptButtonController",

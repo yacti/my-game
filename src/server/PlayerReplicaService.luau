@@ -110,6 +110,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
+		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
 	}
 end
 
@@ -328,6 +329,11 @@ function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 		phase = type(payload.phase) == "string" and payload.phase or "pending",
 	}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, safePayload)
+end
+
+function PlayerReplicaService.PublishJoinGroupRewardCollected(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinGroupRewardCollected, data.JoinGroupRewardCollected == true)
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)

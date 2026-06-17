@@ -12,6 +12,7 @@ local CosmeticShopBalance = require(Shared:WaitForChild("CosmeticShopBalance"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
+local GroupReward = require(Shared:WaitForChild("GroupReward"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -1887,6 +1888,39 @@ local function validateRobuxShopPart(warnings)
 	child(shopParts, "RobuxShop", "BasePart", warnings)
 end
 
+local function validateGroupReward(errors)
+	if type(GroupReward.GroupId) ~= "number" or GroupReward.GroupId <= 0 or GroupReward.GroupId % 1 ~= 0 then
+		add(errors, "GroupReward.GroupId must be a positive integer group id")
+	end
+
+	local reward = GroupReward.Reward
+	if type(reward) ~= "table" then
+		add(errors, "GroupReward.Reward must be a table")
+	else
+		if reward.Type ~= GroupReward.RewardTypes.Seed then
+			add(errors, "GroupReward.Reward.Type must be " .. tostring(GroupReward.RewardTypes.Seed))
+		end
+		if type(reward.Id) ~= "string" or not Seeds.GetTemplate(reward.Id) then
+			add(errors, "GroupReward.Reward.Id has unknown seed id " .. tostring(reward.Id))
+		end
+		if type(reward.Quantity) ~= "number" or reward.Quantity < 1 or reward.Quantity % 1 ~= 0 then
+			add(errors, "GroupReward.Reward.Quantity must be a positive integer")
+		end
+	end
+
+	local model = child(Workspace, GroupReward.ModelName, "Model", errors)
+	local touchPart = model and child(model, GroupReward.TouchPartName, "BasePart", errors)
+	if touchPart and touchPart.Transparency < 1 then
+		add(errors, touchPart:GetFullName() .. " should remain invisible; it is only the prompt target")
+	end
+	local visual = model and model:FindFirstChild(GroupReward.VisualName, true)
+	if not visual then
+		add(errors, "Missing reward visual Workspace." .. tostring(GroupReward.ModelName) .. "." .. tostring(GroupReward.VisualName))
+	elseif not (visual:IsA("BasePart") or visual:IsA("Model")) then
+		add(errors, string.format("%s is %s, expected BasePart or Model", visual:GetFullName(), visual.ClassName))
+	end
+end
+
 local function validateRemotes(errors)
 	local ok, err = pcall(function()
 		Remotes.validateAll()
@@ -2158,6 +2192,7 @@ function AssetValidator.validate()
 	validateUi(warnings, warnings)
 	validateRobuxShopPart(warnings)
 	validateLoadingScreenSource(warnings)
+	validateGroupReward(errors)
 	validatePlots(errors)
 
 	if #warnings > 0 then
