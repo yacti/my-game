@@ -24,6 +24,8 @@ local COLLECT_JUMP_SECONDS = 0.58
 local COLLECT_JUMP_ROLL_RADIANS = math.rad(7)
 local TURN_TWEEN_SECONDS = 0.2
 local CORNER_ROTATION_BLEND = 0.75
+local PIVOT_FLOOR_OFFSET_REFRESH_SECONDS = 3
+local PIVOT_FLOOR_OFFSET_REFRESH_INTERVAL = 0.15
 
 local player = Players.LocalPlayer
 
@@ -40,12 +42,29 @@ local function localToWorldOnFloorTop(floor, lx, lz, pivotFloorOffset, lry, roll
 end
 
 local function cachedPivotFloorOffset(record)
+	local now = os.clock()
 	local scale = record.pet:GetScale()
-	if record.pivotFloorOffset == nil or record.pivotFloorOffsetScale ~= scale then
-		record.pivotFloorOffset = PetGeometry.PivotFloorOffset(record.pet) or 0
+	local shouldRefresh = record.pivotFloorOffset == nil or record.pivotFloorOffsetScale ~= scale
+	if not shouldRefresh
+		and type(record.pivotFloorOffsetRefreshUntil) == "number"
+		and now < record.pivotFloorOffsetRefreshUntil then
+		local lastRefresh = record.pivotFloorOffsetLastRefresh or 0
+		shouldRefresh = now - lastRefresh >= PIVOT_FLOOR_OFFSET_REFRESH_INTERVAL
+	end
+
+	if shouldRefresh then
+		record.pivotFloorOffset = PetGeometry.PivotFloorOffset(record.pet) or record.pivotFloorOffset or 0
 		record.pivotFloorOffsetScale = scale
+		record.pivotFloorOffsetLastRefresh = now
 	end
 	return record.pivotFloorOffset
+end
+
+local function invalidatePivotFloorOffset(record)
+	record.pivotFloorOffset = nil
+	record.pivotFloorOffsetScale = nil
+	record.pivotFloorOffsetLastRefresh = nil
+	record.pivotFloorOffsetRefreshUntil = os.clock() + PIVOT_FLOOR_OFFSET_REFRESH_SECONDS
 end
 
 local function floorForPet(pet)
@@ -408,6 +427,8 @@ local function bindPet(pet)
 		turnStartClock = nil,
 		pivotFloorOffset = nil,
 		pivotFloorOffsetScale = nil,
+		pivotFloorOffsetLastRefresh = nil,
+		pivotFloorOffsetRefreshUntil = os.clock() + PIVOT_FLOOR_OFFSET_REFRESH_SECONDS,
 	}
 	attached[pet] = record
 
@@ -416,6 +437,19 @@ local function bindPet(pet)
 	-- and render gating means renderPet's not-Parent path may never run).
 	record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.Destroying, "PetAnimations.PetDestroying", function()
 		cleanup(pet)
+	end)
+	record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.DescendantAdded, "PetAnimations.PetDescendantAdded", function(descendant)
+		if descendant:IsA("BasePart") then
+			invalidatePivotFloorOffset(record)
+		end
+	end)
+	record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet.DescendantRemoving, "PetAnimations.PetDescendantRemoving", function(descendant)
+		if descendant:IsA("BasePart") then
+			invalidatePivotFloorOffset(record)
+		end
+	end)
+	record.connections[#record.connections + 1] = RuntimeGuard.Connect(pet:GetPropertyChangedSignal("PrimaryPart"), "PetAnimations.PrimaryPartChanged", function()
+		invalidatePivotFloorOffset(record)
 	end)
 
 	task.spawn(function()

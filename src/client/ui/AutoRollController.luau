@@ -19,6 +19,7 @@ local AutoRollController = {}
 local HUD_WAIT_SECONDS = 10
 local PROXIMITY_DISTANCE = RollConfig.Button.InteractionDistance
 local PROXIMITY_CHECK_SECONDS = 0.1
+local SETTINGS_SAVE_DEBOUNCE_SECONDS = AutoRollConfig.RequestRateSeconds + 0.05
 local PANEL_NAME = "AutoRollSettings"
 local AUTO_PURCHASE_KEY = "__autoPurchase"
 local SETTINGS_ROW_NAME_PREFIX = "AutoRollSetting_"
@@ -41,6 +42,7 @@ local panelState = nil
 local settingsRows = {}
 local animatedRows = {}
 local renderConnection = nil
+local settingsSaveToken = 0
 
 local function findDescendant(root, name, className)
 	if not root then
@@ -74,6 +76,12 @@ local function applySelectedRarityArray(array)
 			selectedRarities[rarity] = true
 		end
 	end
+end
+
+local function applySettings(settings)
+	local clean = AutoRollConfig.CopySettings(settings)
+	autoPurchase = clean.autoPurchase == true
+	applySelectedRarityArray(clean.selectedRarities)
 end
 
 local function autoRollUnlocked()
@@ -110,6 +118,17 @@ local function request(action)
 		autoPurchase = autoPurchase == true,
 		selectedRarities = selectedRarityArray(),
 	})
+end
+
+local function requestSettings()
+	request(AutoRollConfig.Actions.Settings)
+	settingsSaveToken += 1
+	local token = settingsSaveToken
+	task.delay(SETTINGS_SAVE_DEBOUNCE_SECONDS, function()
+		if settingsSaveToken == token then
+			RuntimeGuard.Run("AutoRollController.SettingsDebounce", request, AutoRollConfig.Actions.Settings)
+		end
+	end)
 end
 
 local function disconnectRender()
@@ -290,9 +309,7 @@ local function createSettingRow(key, text, layoutOrder, rarity)
 				selectedRarities[key] = selectedRarities[key] ~= true
 			end
 			renderSettings()
-			if serverEnabled then
-				request(AutoRollConfig.Actions.Settings)
-			end
+			requestSettings()
 		end)
 	end
 
@@ -432,10 +449,11 @@ function AutoRollController.start()
 			return
 		end
 		serverEnabled = payload.enabled == true
-		if serverEnabled then
-			autoPurchase = payload.autoPurchase == true
-			applySelectedRarityArray(payload.selectedRarities)
-		elseif payload.code ~= nil
+		if type(payload.selectedRarities) == "table" then
+			applySettings(payload)
+		end
+		if not serverEnabled
+			and payload.code ~= nil
 			and payload.code ~= "ok"
 			and payload.code ~= "stopped"
 			and payload.code ~= "selected-rarity" then
@@ -446,6 +464,10 @@ function AutoRollController.start()
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Rebirths, renderHud)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, renderHud)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.AutoRollSettings, function(settings)
+		applySettings(settings)
+		renderHud()
+	end)
 	RuntimeGuard.Spawn("AutoRollController.ProximityLoop", function()
 		while hudFrame.Parent do
 			RuntimeGuard.Run("AutoRollController.ProximityTick", function()

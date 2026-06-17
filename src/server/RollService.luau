@@ -1078,51 +1078,6 @@ local function selectedRaritySet(list)
 	return set
 end
 
-local function orderedRarityList(set)
-	local list = {}
-	for _, rarity in ipairs(AutoRollConfig.Rarities) do
-		if set[rarity] == true then
-			list[#list + 1] = rarity
-		end
-	end
-	return list
-end
-
-local function sanitizeSelectedRarities(value)
-	if value == nil then
-		return {}
-	end
-	if type(value) ~= "table" then
-		return nil, "invalid-rarities"
-	end
-
-	local rawCount = 0
-	local set = {}
-	for key, item in pairs(value) do
-		rawCount += 1
-		if rawCount > AutoRollConfig.MaxSelectedRarities then
-			return nil, "too-many-rarities"
-		end
-
-		local rarity = nil
-		if type(item) == "string" then
-			rarity = item
-		elseif item == true and type(key) == "string" then
-			rarity = key
-		elseif item == false then
-			rarity = nil
-		else
-			return nil, "invalid-rarities"
-		end
-
-		if rarity and Rarities.IsValid(rarity) then
-			set[rarity] = true
-		end
-	end
-
-	return orderedRarityList(set)
-end
-
 local function sanitizeAutoRollPayload(payload)
 	if type(payload) ~= "table" then
 		return nil, "invalid-payload"
@@ -1135,25 +1090,26 @@ local function sanitizeAutoRollPayload(payload)
 		return nil, "invalid-action"
 	end
 
-	local selected, selectedCode = sanitizeSelectedRarities(payload.selectedRarities)
-	if not selected then
-		return nil, selectedCode
+	local settings, settingsCode = AutoRollConfig.SanitizeSettings(payload)
+	if not settings then
+		return nil, settingsCode
 	end
 
-	return {
-		action = action,
-		autoPurchase = payload.autoPurchase == true,
-		selectedRarities = selected,
-	}, nil
+	settings.action = action
+	return settings, nil
 end
 
 local function sendAutoRollState(player, enabled, code, sessionOrSettings)
 	local source = type(sessionOrSettings) == "table" and sessionOrSettings or {}
+	local selectedRarities = nil
+	if type(source.selectedRarities) == "table" then
+		selectedRarities = cloneArray(source.selectedRarities)
+	end
 	AutoRollState:FireClient(player, {
 		enabled = enabled == true,
 		code = code,
 		autoPurchase = source.autoPurchase == true,
-		selectedRarities = cloneArray(source.selectedRarities),
+		selectedRarities = selectedRarities,
 	})
 end
 
@@ -1164,6 +1120,15 @@ local function isProfileActive(profile)
 	if type(profile.IsActive) == "function" then
 		return profile:IsActive()
 	end
+	return true
+end
+
+local function saveAutoRollSettings(player, profile, settings)
+	if not isProfileActive(profile) then
+		return false
+	end
+	profile.Data.AutoRollSettings = AutoRollConfig.CopySettings(settings)
+	PlayerReplicaService.PublishAutoRollSettings(player, profile)
 	return true
 end
 
@@ -1343,16 +1308,21 @@ local function runAutoRollLoop(player, token)
 	end
 end
 
-local function applyAutoRollSettings(player, payload)
+local function applyAutoRollSettings(player, payload, profile)
 	local key = userKey(player)
 	local session = key and autoRollSessions[key] or nil
+	if not saveAutoRollSettings(player, profile, payload) then
+		sendAutoRollState(player, session ~= nil, "no-profile", session or payload)
+		return
+	end
+	local settings = profile.Data.AutoRollSettings
 	if not session then
-		sendAutoRollState(player, false, "ok", payload)
+		sendAutoRollState(player, false, "ok", settings)
 		return
 	end
 
-	session.autoPurchase = payload.autoPurchase == true
-	session.selectedRarities = cloneArray(payload.selectedRarities)
+	session.autoPurchase = settings.autoPurchase == true
+	session.selectedRarities = cloneArray(settings.selectedRarities)
 	sendAutoRollState(player, true, "ok", session)
 end
 
@@ -1364,10 +1334,14 @@ local function startAutoRoll(player, payload)
 	end
 
 	local profile = PlayerDataServiceRef.GetProfile(player)
+	if not saveAutoRollSettings(player, profile, payload) then
+		sendAutoRollState(player, false, "no-profile", payload)
+		return
+	end
 	local plot = PlotServiceRef.GetPlayerPlot(player)
 	local buttonPart, buttonCode = rollButtonForPlot(plot)
 	if not buttonPart then
-		sendAutoRollState(player, false, buttonCode or "missing-roll-button", payload)
+		sendAutoRollState(player, false, buttonCode or "missing-roll-button", profile.Data.AutoRollSettings)
 		return
 	end
 
@@ -1377,12 +1351,12 @@ local function startAutoRoll(player, payload)
 		playerUserId = key,
 		plot = plot,
 		buttonPart = buttonPart,
-		autoPurchase = payload.autoPurchase == true,
-		selectedRarities = cloneArray(payload.selectedRarities),
+		autoPurchase = profile.Data.AutoRollSettings.autoPurchase == true,
+		selectedRarities = cloneArray(profile.Data.AutoRollSettings.selectedRarities),
 	}
 	local valid, validCode = validateAutoRollState(player, session, profile, true)
 	if not valid then
-		sendAutoRollState(player, false, validCode, payload)
+		sendAutoRollState(player, false, validCode, profile.Data.AutoRollSettings)
 		return
 	end
 
@@ -1407,11 +1381,21 @@ local function handleAutoRollRequest(player, payload)
 	end
 
 	if sanitized.action == AutoRollConfig.Actions.Stop then
+		local profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+		if saveAutoRollSettings(player, profile, sanitized) then
+			local key = userKey(player)
+			local session = key and autoRollSessions[key] or nil
+			if session then
+				session.autoPurchase = profile.Data.AutoRollSettings.autoPurchase == true
+				session.selectedRarities = cloneArray(profile.Data.AutoRollSettings.selectedRarities)
+			end
+		end
 		if stopAutoRoll(player, "stopped") then
 			NotificationService.Info(player, "Auto Roll disabled")
 		end
 	elseif sanitized.action == AutoRollConfig.Actions.Settings then
-		applyAutoRollSettings(player, sanitized)
+		local profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+		applyAutoRollSettings(player, sanitized, profile)
 	elseif sanitized.action == AutoRollConfig.Actions.Start then
 		startAutoRoll(player, sanitized)
 	end

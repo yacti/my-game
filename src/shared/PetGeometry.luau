@@ -87,6 +87,30 @@ function PetGeometry.PrimaryPartPromptPosition(model, maxHeight)
 	return Vector3.new(primary.Position.X, lowestY + offset, primary.Position.Z)
 end
 
+function PetGeometry.WorldBottomCenterPosition(instance)
+	if not (instance and (instance:IsA("Model") or instance:IsA("BasePart"))) then
+		return nil
+	end
+
+	local center
+	if instance:IsA("Model") then
+		local cframe = instance:GetBoundingBox()
+		center = cframe.Position
+	else
+		center = instance.Position
+	end
+
+	local lowestY = math.huge
+	local scanned = scanInstanceParts(instance, function(corner)
+		lowestY = math.min(lowestY, corner.Y)
+	end)
+	if not scanned or lowestY == math.huge then
+		return nil
+	end
+
+	return Vector3.new(center.X, lowestY, center.Z)
+end
+
 function PetGeometry.PivotFloorOffset(model)
 	if not (model and (model:IsA("Model") or model:IsA("BasePart"))) then
 		return nil

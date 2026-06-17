@@ -29,6 +29,80 @@ AutoRollConfig.PurchasePriority = {
 }
 AutoRollConfig.MaxSelectedRarities = #AutoRollConfig.Rarities
 
+function AutoRollConfig.SanitizeSelectedRarities(value)
+	if value == nil then
+		return {}
+	end
+	if type(value) ~= "table" then
+		return nil, "invalid-rarities"
+	end
+
+	local rawCount = 0
+	local set = {}
+	for key, item in pairs(value) do
+		rawCount += 1
+		if rawCount > AutoRollConfig.MaxSelectedRarities then
+			return nil, "too-many-rarities"
+		end
+
+		local rarity = nil
+		if type(item) == "string" then
+			rarity = item
+		elseif item == true and type(key) == "string" then
+			rarity = key
+		elseif item == false then
+			rarity = nil
+		else
+			return nil, "invalid-rarities"
+		end
+
+		if rarity and Rarities.IsValid(rarity) then
+			set[rarity] = true
+		end
+	end
+
+	local selected = {}
+	for _, rarity in ipairs(AutoRollConfig.Rarities) do
+		if set[rarity] == true then
+			selected[#selected + 1] = rarity
+		end
+	end
+	return selected
+end
+
+function AutoRollConfig.SanitizeSettings(value)
+	if value == nil then
+		return {
+			autoPurchase = false,
+			selectedRarities = {},
+		}
+	end
+	if type(value) ~= "table" then
+		return nil, "invalid-settings"
+	end
+
+	local selected, code = AutoRollConfig.SanitizeSelectedRarities(value.selectedRarities)
+	if not selected then
+		return nil, code
+	end
+
+	return {
+		autoPurchase = value.autoPurchase == true,
+		selectedRarities = selected,
+	}
+end
+
+function AutoRollConfig.CopySettings(value)
+	local settings = AutoRollConfig.SanitizeSettings(value)
+	if settings then
+		return settings
+	end
+	return {
+		autoPurchase = false,
+		selectedRarities = {},
+	}
+end
+
 local priorityByRarity = {}
 for index, rarity in ipairs(AutoRollConfig.PurchasePriority) do
 	priorityByRarity[rarity] = index

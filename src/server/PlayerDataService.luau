@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local AutoRollConfig = require(ReplicatedStorage.Shared:WaitForChild("AutoRollConfig"))
 local ProfileStore = require(ReplicatedStorage.Shared:WaitForChild("ProfileStore"))
 local PlotGrid = require(ReplicatedStorage.Shared:WaitForChild("PlotGrid"))
 local RebirthBalance = require(ReplicatedStorage.Shared:WaitForChild("RebirthBalance"))
@@ -48,6 +49,10 @@ local DATA_TEMPLATE = {
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
+	AutoRollSettings = {
+		autoPurchase = false,
+		selectedRarities = {},
+	},
 	Rebirths = 0,
 	UnlockedGridKeys = {},
 	Onboarding = Onboarding.DefaultState(),
@@ -566,6 +571,7 @@ local function ensureValidData(profile)
 	end
 	profile.Data.RollLuckLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	profile.Data.RollDropAreaLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
+	profile.Data.AutoRollSettings = AutoRollConfig.CopySettings(profile.Data.AutoRollSettings)
 	local unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)
 	if #unlockedGridKeys == 0 then
 		unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridIds)

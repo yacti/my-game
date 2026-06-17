@@ -882,7 +882,7 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 			continue
 		end
 
-		local fitted = fitPetOnUnlockedGrid(plot, clone, floor, lx, lz, lry, not hadSavedPosition)
+		local fitted, fitLX, fitLZ = fitPetOnUnlockedGrid(plot, clone, floor, lx, lz, lry, not hadSavedPosition)
 		if not fitted then
 			warn(string.format(
 				"[PlotService] Could not fit pet %s inside unlocked grid for %s",
@@ -894,6 +894,9 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 			continue
 		end
 		clone.Parent = plot
+		if fitLX and fitLZ then
+			seatPetOnFloor(clone, floor, fitLX, fitLZ, lry)
+		end
 		spawned += 1
 		restoredPets[#restoredPets + 1] = petData
 	end

@@ -10,6 +10,7 @@ local HttpService = game:GetService("HttpService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
+local Balance = require(Shared:WaitForChild("Balance"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
@@ -83,6 +84,23 @@ local function firstBasePart(instance)
 		end
 	end
 	return nil
+end
+
+local function finitePositiveNumber(value)
+	return type(value) == "number" and value > 0 and value == value and value ~= math.huge
+end
+
+local function maturePreviewScaleForPetId(petId, fallbackScale)
+	local visual = PetCatalog.VisualForPetId(petId)
+	local models = petModels()
+	local template = visual and models and models:FindFirstChild(visual.ModelName)
+	if template and template:IsA("Model") then
+		local baseScale = template:GetScale()
+		if finitePositiveNumber(baseScale) then
+			return baseScale * Balance.MAX_SCALE
+		end
+	end
+	return fallbackScale
 end
 
 local function tweenScale(model, fromScale, toScale, tweenInfo, pivot)
@@ -538,11 +556,12 @@ local function playForPet(pet)
 					break
 				end
 
-				local previewEffect = createEffectForPetId(previewPetId, oldScale, pivot, pet.Parent or Workspace)
+				local previewScale = maturePreviewScaleForPetId(previewPetId, oldScale)
+				local previewEffect = createEffectForPetId(previewPetId, previewScale, pivot, pet.Parent or Workspace)
 				if previewEffect then
 					if effect.Parent then effect:Destroy() end
 					effect = previewEffect
-					highlight = playIntermediatePreview(effect, previewPetId, oldScale, pivot, pet)
+					highlight = playIntermediatePreview(effect, previewPetId, previewScale, pivot, pet)
 				end
 			end
 			if pet.Parent then

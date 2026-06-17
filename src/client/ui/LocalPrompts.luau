@@ -62,7 +62,6 @@ local DEFAULT_PROMPT_TEMPLATE_NAME = "LocalPrompt"
 local HIGHLIGHT_TEMPLATE_NAME = "FoodPetHighlight"
 local DEFAULT_PROMPT_DISTANCE = 10
 local PET_FEED_PROMPT_DISTANCE = 8
-local PET_FEED_PROMPT_MAX_HEIGHT = 8
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local GRID_UNLOCK_PROMPT_DISTANCE = 5
 local GRID_UNLOCK_PROMPT_HOLD_DURATION = 2.5
@@ -319,7 +318,7 @@ local function promptAnchorWorldPosition(instance, kind)
 		return rollButtonPromptPosition(instance)
 	end
 	if kind == "PetFeed" and instance:IsA("Model") then
-		return PetGeometry.PrimaryPartPromptPosition(instance, PET_FEED_PROMPT_MAX_HEIGHT)
+		return PetGeometry.WorldBottomCenterPosition(instance)
 	end
 	local anchor = promptAnchorInstance(instance, kind)
 	return anchor and instanceWorldCenter(anchor) or nil

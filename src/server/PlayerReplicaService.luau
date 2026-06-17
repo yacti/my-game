@@ -5,6 +5,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Replica = require(ServerScriptService:WaitForChild("ReplicaServer"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -100,6 +101,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.Rebirths] = integer(data.Rebirths, 0),
 		[PlayerState.Fields.RollLuckLevel] = integer(data.RollLuckLevel, 0),
 		[PlayerState.Fields.RollDropAreaLevel] = integer(data.RollDropAreaLevel, 0),
+		[PlayerState.Fields.AutoRollSettings] = AutoRollConfig.CopySettings(data.AutoRollSettings),
 		[PlayerState.Fields.CosmeticInventory] = copyCountMap(data.CosmeticInventory),
 		[PlayerState.Fields.FeedInventory] = copyCountMap(data.FeedInventory),
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
@@ -253,6 +255,11 @@ end
 
 function PlayerReplicaService.PublishRollDropAreaLevel(player, level)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.RollDropAreaLevel, integer(level, 0))
+end
+
+function PlayerReplicaService.PublishAutoRollSettings(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.AutoRollSettings, AutoRollConfig.CopySettings(data.AutoRollSettings))
 end
 
 function PlayerReplicaService.PublishInventories(player, profile)
