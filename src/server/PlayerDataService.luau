@@ -572,7 +572,7 @@ local function ensureValidData(profile)
 	profile.Data.UnlockedGridKeys = unlockedGridKeys
 	profile.Data.UnlockedGridIds = nil
 	profile.Data.Onboarding = Onboarding.SanitizeState(profile.Data.Onboarding, Onboarding.CompleteState())
-	if Onboarding.ShouldSkipTutorialForPlace(game.PlaceId) then
+	if not Onboarding.IsEnabled() then
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
 

@@ -607,6 +607,9 @@
     },
 
     "Workspace": {
+      "$attributes": {
+        "Onboarding": true
+      },
       "$properties": {
         "FilteringEnabled": true
       }

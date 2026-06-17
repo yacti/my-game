@@ -1,10 +1,10 @@
+local Workspace = game:GetService("Workspace")
+
 local NumberFormatter = require(script.Parent:WaitForChild("NumberFormatter"))
 
 local Onboarding = {}
 
-local TUTORIAL_SKIP_PLACE_IDS = {
-	[83847197909679] = true,
-}
+Onboarding.AttributeName = "Onboarding"
 
 Onboarding.Stages = {
 	RollAppleTreeSeed = "RollAppleTreeSeed",
@@ -190,12 +190,16 @@ function Onboarding.IsExpandFarmGridCoordinate(x, z)
 		and math.floor(z) == Onboarding.ExpandFarmGrid.Z
 end
 
-function Onboarding.ShouldSkipTutorialForPlace(placeId)
-	return TUTORIAL_SKIP_PLACE_IDS[tonumber(placeId) or 0] == true
+function Onboarding.IsEnabled()
+	local value = Workspace:GetAttribute(Onboarding.AttributeName)
+	if typeof(value) == "boolean" then
+		return value
+	end
+	return true
 end
 
 function Onboarding.DefaultState()
-	if Onboarding.ShouldSkipTutorialForPlace(game.PlaceId) then
+	if not Onboarding.IsEnabled() then
 		return Onboarding.CompleteState()
 	end
 	return {
