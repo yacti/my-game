@@ -452,6 +452,7 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local _, _, luckPercent = rollLuckBreakdown(player, profile)
+	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
 
 	local categoryWeights, categoryCode = RollChances.ComputeCategoryWeights(entries)
 	if not categoryWeights then
@@ -489,7 +490,13 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local rolled = table.clone(entry)
-	rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
+	local rewardPercentages = RollChances.ToPercentages(rewardWeights)
+	local finalProbability = (rewardPercentages[rewardKey] or 0) / 100
+	if finalProbability > 0 then
+		rolled.rngChanceText = NumberFormatter.ChanceFromProbability(finalProbability)
+	else
+		rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
+	end
 	return rolled
 end
 

@@ -16,10 +16,16 @@ RollChances.SeedFallback = {
 	{ seedId = "PumpkinSeed", weight = 35 },
 	{ seedId = "CabbageSeed", weight = 15 },
 }
-RollChances.MaxBoundaryJumpRatio = 3
-RollChances.TransitionBandSize = 2
-RollChances.TransitionMultiplierFractions = { 2 / 7, 9 / 14 }
-RollChances.LowLuckDelayedTrueStartMultiplier = 3
+RollChances.SeedDonorRetentionPoints = {
+	{ multiplier = 1, retention = 1 },
+	{ multiplier = 2, retention = 0.5 },
+	{ multiplier = 5, retention = 0.4 },
+	{ multiplier = 25, retention = 0.2 },
+	{ multiplier = 50, retention = 0 },
+}
+RollChances.SeedTransitionFullMultiplier = 11
+RollChances.SeedCapFullMultiplier = 7
+RollChances.SeedMaxFinalWeight = 0.25
 
 -- DropWeights sum to 100, so each weight reads directly as a percentage.
 RollChances.Crates = {
@@ -104,6 +110,24 @@ local function isFiniteNumber(value)
 	return type(value) == "number" and value == value and math.abs(value) < math.huge
 end
 
+local function clamp01(value)
+	value = tonumber(value) or 0
+	if not isFiniteNumber(value) then
+		return 0
+	end
+	if value <= 0 then
+		return 0
+	end
+	if value >= 1 then
+		return 1
+	end
+	return value
+end
+
+local function lerp(a, b, t)
+	return a + (b - a) * clamp01(t)
+end
+
 local function categoryOf(entry)
 	return type(entry) == "table" and entry.category or nil
 end
@@ -174,16 +198,6 @@ local function earliestTrueStart(baseWeights, sortedEntries, multiplier)
 	return #sortedEntries + 1
 end
 
-local function transitionFractionsForBand(bandSize)
-	local fractions = RollChances.TransitionMultiplierFractions
-	local offset = #fractions - bandSize
-	local selected = table.create(bandSize)
-	for index = 1, bandSize do
-		selected[index] = fractions[offset + index]
-	end
-	return selected
-end
-
 local function clampTinyWeight(weight)
 	if math.abs(weight) <= PROBABILITY_EPSILON then
 		return 0
@@ -217,124 +231,212 @@ local function normalizeFinalWeights(weights)
 	return weights
 end
 
-local function buildSeedWeightsCandidate(sortedEntries, baseWeights, fallbackWeight, multiplier, trueStart, transitionStart, transitionFractions)
-	transitionStart = transitionStart or trueStart
-	transitionFractions = transitionFractions or {}
-
-	local trueMass = 0
-	for index = trueStart, #sortedEntries do
-		trueMass += baseWeights[sortedEntries[index].id] * multiplier
-	end
-
-	local transitionMass = 0
-	for index = transitionStart, trueStart - 1 do
-		local fraction = transitionFractions[index - transitionStart + 1]
-		if not isFiniteNumber(fraction) then
-			return nil, "invalid-transition-fraction"
+local function normalizeWeights(weights)
+	local total = 0
+	local normalized = {}
+	for id, weight in pairs(weights) do
+		if not isFiniteNumber(weight) then
+			return nil, "invalid-roll-weight"
 		end
-		transitionMass += baseWeights[sortedEntries[index].id] * multiplier * fraction
+		weight = clampTinyWeight(weight)
+		if weight < 0 then
+			return nil, "negative-roll-weight"
+		end
+		if weight > 0 then
+			normalized[id] = weight
+			total += weight
+		end
 	end
 
-	if trueMass + transitionMass > 1 + PROBABILITY_EPSILON then
-		return nil, "transition-overflow"
+	if total <= PROBABILITY_EPSILON then
+		return nil, "empty-roll-pool"
+	end
+	for id, weight in pairs(normalized) do
+		normalized[id] = weight / total
+	end
+	return normalized
+end
+
+local function piecewiseDonorRetention(multiplier)
+	multiplier = math.max(tonumber(multiplier) or 1, 1)
+	local points = RollChances.SeedDonorRetentionPoints
+	if type(points) ~= "table" or #points == 0 then
+		return 1
 	end
 
-	local donorMass = 1 - trueMass - transitionMass
-	if donorMass < 0 and math.abs(donorMass) <= PROBABILITY_EPSILON then
-		donorMass = 0
-	end
-	if donorMass < 0 then
-		return nil, "negative-donor-mass"
-	end
-
-	local donorBase = fallbackWeight
-	for index = 1, transitionStart - 1 do
-		donorBase += baseWeights[sortedEntries[index].id]
-	end
-	if donorMass > PROBABILITY_EPSILON and donorBase <= PROBABILITY_EPSILON then
-		return nil, "missing-donor-weight"
+	local previous = points[1]
+	local previousMultiplier = tonumber(previous and previous.multiplier) or 1
+	local previousRetention = clamp01(previous and previous.retention)
+	if multiplier <= previousMultiplier then
+		return previousRetention
 	end
 
-	local donorScale = donorBase > PROBABILITY_EPSILON and donorMass / donorBase or 0
+	for index = 2, #points do
+		local current = points[index]
+		local currentMultiplier = tonumber(current and current.multiplier)
+		local currentRetention = clamp01(current and current.retention)
+		if isFiniteNumber(currentMultiplier) and currentMultiplier > previousMultiplier then
+			if multiplier <= currentMultiplier then
+				return lerp(previousRetention, currentRetention, (multiplier - previousMultiplier) / (currentMultiplier - previousMultiplier))
+			end
+			previousMultiplier = currentMultiplier
+			previousRetention = currentRetention
+		end
+	end
+
+	return previousRetention
+end
+
+local function transitionMultiplierForLuck(multiplier)
+	multiplier = math.max(tonumber(multiplier) or 1, 1)
+	local fullMultiplier = tonumber(RollChances.SeedTransitionFullMultiplier) or 1
+	if not isFiniteNumber(fullMultiplier) or fullMultiplier <= 1 then
+		return multiplier
+	end
+
+	local transitionFraction = clamp01((multiplier - 1) / (fullMultiplier - 1))
+	return 1 + ((multiplier - 1) * transitionFraction)
+end
+
+local function maxSeedWeightForLuck(multiplier)
+	multiplier = math.max(tonumber(multiplier) or 1, 1)
+	local fullMultiplier = tonumber(RollChances.SeedCapFullMultiplier) or 1
+	local maxFinalWeight = tonumber(RollChances.SeedMaxFinalWeight) or 1
+	if not isFiniteNumber(maxFinalWeight) then
+		maxFinalWeight = 1
+	end
+	maxFinalWeight = math.min(math.max(maxFinalWeight, PROBABILITY_EPSILON), 1)
+	if not isFiniteNumber(fullMultiplier) or fullMultiplier <= 1 then
+		return maxFinalWeight
+	end
+
+	return lerp(1, maxFinalWeight, (multiplier - 1) / (fullMultiplier - 1))
+end
+
+local function buildVisibleSeedBaseWeights(sortedEntries, baseWeights, fallbackWeight)
 	local weights = {}
-
-	for index = 1, transitionStart - 1 do
-		local entry = sortedEntries[index]
-		weights[entry.id] = baseWeights[entry.id] * donorScale
-	end
-
-	local fallbackMass = fallbackWeight * donorScale
-	if fallbackMass > PROBABILITY_EPSILON then
-		local fallbackEntries = {}
-		local fallbackTotal = 0
-		for _, fallback in ipairs(RollChances.SeedFallback) do
-			for index = 1, transitionStart - 1 do
-				local entry = sortedEntries[index]
-				if entry.seedId == fallback.seedId then
-					fallbackEntries[#fallbackEntries + 1] = {
-						id = entry.id,
-						weight = fallback.weight,
-					}
-					fallbackTotal += fallback.weight
-					break
-				end
-			end
-		end
-
-		if fallbackTotal > 0 then
-			for _, fallbackEntry in ipairs(fallbackEntries) do
-				weights[fallbackEntry.id] = (weights[fallbackEntry.id] or 0) + fallbackMass * (fallbackEntry.weight / fallbackTotal)
-			end
-		else
-			local donorVisibleTotal = 0
-			for index = 1, transitionStart - 1 do
-				donorVisibleTotal += baseWeights[sortedEntries[index].id]
-			end
-			if donorVisibleTotal <= PROBABILITY_EPSILON then
-				return nil, "missing-fallback-target"
-			end
-			for index = 1, transitionStart - 1 do
-				local entry = sortedEntries[index]
-				weights[entry.id] = (weights[entry.id] or 0) + fallbackMass * (baseWeights[entry.id] / donorVisibleTotal)
-			end
+	local seedIdToEntryId = {}
+	local baseTotal = 0
+	for _, entry in ipairs(sortedEntries) do
+		local baseWeight = baseWeights[entry.id] or 0
+		weights[entry.id] = baseWeight
+		baseTotal += baseWeight
+		if type(entry.seedId) == "string" and entry.seedId ~= "" then
+			seedIdToEntryId[entry.seedId] = entry.id
 		end
 	end
 
-	for index = transitionStart, trueStart - 1 do
-		local entry = sortedEntries[index]
-		local fraction = transitionFractions[index - transitionStart + 1]
-		weights[entry.id] = baseWeights[entry.id] * multiplier * fraction
+	if fallbackWeight <= PROBABILITY_EPSILON then
+		return weights
 	end
 
-	for index = trueStart, #sortedEntries do
-		local entry = sortedEntries[index]
-		weights[entry.id] = baseWeights[entry.id] * multiplier
-	end
-
-	local boundaryRatio = 0
-	if transitionStart > 1 and transitionStart <= #sortedEntries then
-		local previousEntry = sortedEntries[transitionStart - 1]
-		local firstBoostedEntry = sortedEntries[transitionStart]
-		local previousWeight = weights[previousEntry.id] or 0
-		local firstBoostedWeight = weights[firstBoostedEntry.id] or 0
-		if firstBoostedWeight > PROBABILITY_EPSILON then
-			boundaryRatio = previousWeight > PROBABILITY_EPSILON and firstBoostedWeight / previousWeight or math.huge
+	local fallbackTotal = 0
+	local fallbackEntries = {}
+	for _, fallback in ipairs(RollChances.SeedFallback) do
+		local entryId = seedIdToEntryId[fallback.seedId]
+		local weight = tonumber(fallback.weight) or 0
+		if entryId and weight > 0 then
+			fallbackEntries[#fallbackEntries + 1] = {
+				id = entryId,
+				weight = weight,
+			}
+			fallbackTotal += weight
 		end
-	elseif transitionStart == 1 and #sortedEntries > 0 then
-		boundaryRatio = math.huge
 	end
 
-	local normalized, code = normalizeFinalWeights(weights)
+	if fallbackTotal > 0 then
+		for _, fallbackEntry in ipairs(fallbackEntries) do
+			weights[fallbackEntry.id] = (weights[fallbackEntry.id] or 0) + fallbackWeight * (fallbackEntry.weight / fallbackTotal)
+		end
+	elseif baseTotal > PROBABILITY_EPSILON then
+		for _, entry in ipairs(sortedEntries) do
+			weights[entry.id] = (weights[entry.id] or 0) + fallbackWeight * ((baseWeights[entry.id] or 0) / baseTotal)
+		end
+	end
+
+	return weights
+end
+
+local function applyMaxWeightCap(weights, maxWeight)
+	local normalized, code = normalizeWeights(weights)
 	if not normalized then
 		return nil, code
 	end
 
-	return {
-		weights = normalized,
-		boundaryRatio = boundaryRatio,
-		trueStart = trueStart,
-		transitionStart = transitionStart,
-	}
+	maxWeight = tonumber(maxWeight) or 1
+	if not isFiniteNumber(maxWeight) or maxWeight >= 1 then
+		return normalized
+	end
+	maxWeight = math.max(maxWeight, PROBABILITY_EPSILON)
+
+	local activeIds = {}
+	for id, weight in pairs(normalized) do
+		if weight > PROBABILITY_EPSILON then
+			activeIds[#activeIds + 1] = id
+		end
+	end
+	table.sort(activeIds)
+
+	local cappedWeights = {}
+	local remainingMass = 1
+	while #activeIds > 0 do
+		local activeTotal = totalWeight(normalized, activeIds)
+		if activeTotal <= PROBABILITY_EPSILON then
+			break
+		end
+
+		local effectiveCap = math.max(maxWeight, remainingMass / #activeIds)
+		local nextActiveIds = {}
+		local cappedAny = false
+		for _, id in ipairs(activeIds) do
+			local weight = remainingMass * normalized[id] / activeTotal
+			if weight > effectiveCap + PROBABILITY_EPSILON then
+				cappedWeights[id] = effectiveCap
+				remainingMass -= effectiveCap
+				cappedAny = true
+			else
+				nextActiveIds[#nextActiveIds + 1] = id
+			end
+		end
+
+		if not cappedAny then
+			for _, id in ipairs(activeIds) do
+				cappedWeights[id] = remainingMass * normalized[id] / activeTotal
+			end
+			return normalizeFinalWeights(cappedWeights)
+		end
+
+		activeIds = nextActiveIds
+	end
+
+	return normalizeFinalWeights(cappedWeights)
+end
+
+local function buildFinalSeedWeights(sortedEntries, baseWeights, visibleBaseWeights, multiplier, cutoffIndex)
+	if #sortedEntries == 0 then
+		return nil, "empty-roll-pool"
+	end
+
+	if multiplier <= 1 then
+		return applyMaxWeightCap(visibleBaseWeights, maxSeedWeightForLuck(multiplier))
+	end
+
+	cutoffIndex = math.min(math.max(math.floor(tonumber(cutoffIndex) or #sortedEntries), 1), #sortedEntries)
+	local donorRetention = piecewiseDonorRetention(multiplier)
+	local transitionMultiplier = transitionMultiplierForLuck(multiplier)
+	local weights = {}
+
+	for index, entry in ipairs(sortedEntries) do
+		if index < cutoffIndex then
+			weights[entry.id] = (visibleBaseWeights[entry.id] or baseWeights[entry.id] or 0) * donorRetention
+		elseif index == cutoffIndex then
+			weights[entry.id] = (baseWeights[entry.id] or 0) * transitionMultiplier
+		else
+			weights[entry.id] = (baseWeights[entry.id] or 0) * multiplier
+		end
+	end
+
+	return applyMaxWeightCap(weights, maxSeedWeightForLuck(multiplier))
 end
 
 function RollChances.GetCrate(crateId)
@@ -447,122 +549,9 @@ function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, s
 
 	local crateMultiplier = math.max(tonumber(crate.LuckMultiplier) or 1, 1)
 	local multiplier = RollChances.EffectiveLuckMultiplier(crateMultiplier, playerLuckPercent, serverLuckMultiplier)
-
-	if multiplier <= 1 then
-		local candidate, candidateCode = buildSeedWeightsCandidate(
-			sortedEntries,
-			baseWeights,
-			fallbackWeight,
-			1,
-			#sortedEntries + 1,
-			#sortedEntries + 1,
-			{}
-		)
-		return candidate and candidate.weights or nil, candidateCode
-	end
-
-	local trueStart = earliestTrueStart(baseWeights, sortedEntries, multiplier)
-	local candidate = nil
-	local candidateCode = nil
-	if trueStart <= #sortedEntries then
-		candidate, candidateCode = buildSeedWeightsCandidate(sortedEntries, baseWeights, fallbackWeight, multiplier, trueStart, trueStart, {})
-	else
-		candidate, candidateCode = buildSeedWeightsCandidate(
-			sortedEntries,
-			baseWeights,
-			fallbackWeight,
-			multiplier,
-			#sortedEntries + 1,
-			#sortedEntries + 1,
-			{}
-		)
-	end
-
-	local maxBoundaryJumpRatio = RollChances.MaxBoundaryJumpRatio
-	if not isFiniteNumber(maxBoundaryJumpRatio) or maxBoundaryJumpRatio <= 1 then
-		return nil, "invalid-boundary-jump-ratio"
-	end
-
-	if candidate and candidate.boundaryRatio <= maxBoundaryJumpRatio then
-		return candidate.weights
-	end
-
-	local lowLuckThreshold = RollChances.LowLuckDelayedTrueStartMultiplier
-
-	if trueStart <= #sortedEntries then
-		local maxBandSize = math.min(
-			math.floor(tonumber(RollChances.TransitionBandSize) or 0),
-			#RollChances.TransitionMultiplierFractions,
-			trueStart - 1
-		)
-		for bandSize = maxBandSize, 1, -1 do
-			local transitionStart = trueStart - bandSize
-			local transitionCandidate = buildSeedWeightsCandidate(
-				sortedEntries,
-				baseWeights,
-				fallbackWeight,
-				multiplier,
-				trueStart,
-				transitionStart,
-				transitionFractionsForBand(bandSize)
-			)
-			if transitionCandidate and transitionCandidate.boundaryRatio <= maxBoundaryJumpRatio then
-				return transitionCandidate.weights
-			end
-		end
-	end
-
-	if isFiniteNumber(lowLuckThreshold) and multiplier > lowLuckThreshold and trueStart < #sortedEntries then
-		local delayedTrueStart = trueStart + 1
-		local maxBandSize = math.min(
-			math.floor(tonumber(RollChances.TransitionBandSize) or 0),
-			#RollChances.TransitionMultiplierFractions,
-			delayedTrueStart - 1
-		)
-		for bandSize = maxBandSize, 1, -1 do
-			local transitionStart = delayedTrueStart - bandSize
-			local transitionCandidate = buildSeedWeightsCandidate(
-				sortedEntries,
-				baseWeights,
-				fallbackWeight,
-				multiplier,
-				delayedTrueStart,
-				transitionStart,
-				transitionFractionsForBand(bandSize)
-			)
-			if transitionCandidate and transitionCandidate.boundaryRatio <= maxBoundaryJumpRatio then
-				return transitionCandidate.weights
-			end
-		end
-	end
-
-	if isFiniteNumber(lowLuckThreshold) and multiplier <= lowLuckThreshold and trueStart < #sortedEntries then
-		local delayedCandidate = nil
-		local delayedCode = nil
-		for delayedTrueStart = trueStart + 1, #sortedEntries do
-			delayedCandidate, delayedCode = buildSeedWeightsCandidate(
-				sortedEntries,
-				baseWeights,
-				fallbackWeight,
-				multiplier,
-				delayedTrueStart,
-				delayedTrueStart,
-				{}
-			)
-			if delayedCandidate and delayedCandidate.boundaryRatio <= maxBoundaryJumpRatio then
-				return delayedCandidate.weights
-			end
-		end
-		if delayedCandidate then
-			return delayedCandidate.weights
-		end
-		candidateCode = candidateCode or delayedCode
-	end
-
-	if candidate then
-		return candidate.weights
-	end
-	return nil, candidateCode or "invalid-reward-weights"
+	local visibleBaseWeights = buildVisibleSeedBaseWeights(sortedEntries, baseWeights, fallbackWeight)
+	local cutoffIndex = earliestTrueStart(baseWeights, sortedEntries, multiplier)
+	return buildFinalSeedWeights(sortedEntries, baseWeights, visibleBaseWeights, multiplier, cutoffIndex)
 end
 
 function RollChances.ToPercentages(weights)
@@ -657,35 +646,36 @@ function RollChances.Validate(errors)
 	if fallbackTotal <= 0 then
 		errors[#errors + 1] = "RollChances SeedFallback must have positive total weight"
 	end
-	if not isFiniteNumber(RollChances.MaxBoundaryJumpRatio) or RollChances.MaxBoundaryJumpRatio <= 1 then
-		errors[#errors + 1] = "RollChances MaxBoundaryJumpRatio must be greater than 1"
-	end
-	if not isFiniteNumber(RollChances.TransitionBandSize)
-		or RollChances.TransitionBandSize < 0
-		or RollChances.TransitionBandSize % 1 ~= 0 then
-		errors[#errors + 1] = "RollChances TransitionBandSize must be a nonnegative integer"
-	end
-	if type(RollChances.TransitionMultiplierFractions) ~= "table" then
-		errors[#errors + 1] = "RollChances TransitionMultiplierFractions must be a table"
+	if type(RollChances.SeedDonorRetentionPoints) ~= "table" or #RollChances.SeedDonorRetentionPoints == 0 then
+		errors[#errors + 1] = "RollChances SeedDonorRetentionPoints must be a non-empty table"
 	else
-		if #RollChances.TransitionMultiplierFractions ~= RollChances.TransitionBandSize then
-			errors[#errors + 1] = "RollChances TransitionMultiplierFractions must match TransitionBandSize"
-		end
-		local previousFraction = 0
-		for index, fraction in ipairs(RollChances.TransitionMultiplierFractions) do
-			if not isFiniteNumber(fraction) or fraction <= 0 or fraction >= 1 then
-				errors[#errors + 1] = string.format("RollChances TransitionMultiplierFractions[%d] must be between 0 and 1", index)
-			elseif fraction <= previousFraction then
-				errors[#errors + 1] = "RollChances TransitionMultiplierFractions must be strictly increasing"
+		local previousMultiplier = nil
+		for index, point in ipairs(RollChances.SeedDonorRetentionPoints) do
+			local multiplier = type(point) == "table" and point.multiplier or nil
+			local retention = type(point) == "table" and point.retention or nil
+			if not isFiniteNumber(multiplier) or multiplier < 1 then
+				errors[#errors + 1] = string.format("RollChances SeedDonorRetentionPoints[%d] has invalid multiplier", index)
+			elseif previousMultiplier and multiplier <= previousMultiplier then
+				errors[#errors + 1] = "RollChances SeedDonorRetentionPoints multipliers must be strictly increasing"
+			else
+				previousMultiplier = multiplier
 			end
-			previousFraction = fraction
+			if not isFiniteNumber(retention) or retention < 0 or retention > 1 then
+				errors[#errors + 1] = string.format("RollChances SeedDonorRetentionPoints[%d] has invalid retention", index)
+			end
 		end
 	end
-	if not isFiniteNumber(RollChances.LowLuckDelayedTrueStartMultiplier)
-		or RollChances.LowLuckDelayedTrueStartMultiplier < 1 then
-		errors[#errors + 1] = "RollChances LowLuckDelayedTrueStartMultiplier must be at least 1"
+	if not isFiniteNumber(RollChances.SeedTransitionFullMultiplier) or RollChances.SeedTransitionFullMultiplier <= 1 then
+		errors[#errors + 1] = "RollChances SeedTransitionFullMultiplier must be greater than 1"
 	end
-
+	if not isFiniteNumber(RollChances.SeedCapFullMultiplier) or RollChances.SeedCapFullMultiplier <= 1 then
+		errors[#errors + 1] = "RollChances SeedCapFullMultiplier must be greater than 1"
+	end
+	if not isFiniteNumber(RollChances.SeedMaxFinalWeight)
+		or RollChances.SeedMaxFinalWeight <= 0
+		or RollChances.SeedMaxFinalWeight > 1 then
+		errors[#errors + 1] = "RollChances SeedMaxFinalWeight must be between 0 and 1"
+	end
 	return #errors == 0
 end
 

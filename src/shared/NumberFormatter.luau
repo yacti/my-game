@@ -140,6 +140,14 @@ function NumberFormatter.ChanceN(value)
 	return "1 in " .. NumberFormatter.Format(math.max(math.floor(finiteNumber(value)), 0))
 end
 
+function NumberFormatter.ChanceFromProbability(probability)
+	local weight = finiteNumber(probability)
+	if weight <= 0 then
+		return "1 in ?"
+	end
+	return "1 in " .. NumberFormatter.Format(math.max(math.floor((1 / weight) + 0.5), 1))
+end
+
 function NumberFormatter.XP(value, unitText)
 	return NumberFormatter.Format(math.max(math.floor(finiteNumber(value)), 0)) .. (unitText or " XP")
 end
