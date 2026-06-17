@@ -863,11 +863,11 @@ local function unlockGridPart(target, plot, player, profile)
 			}))
 		end
 		if code == "already-unlocked" then
-			NotificationService.Info(player, "That plot area is already unlocked.")
+			NotificationService.Info(player, "That plot area is already unlocked")
 		elseif code == "insufficient-currency" then
-			NotificationService.Error(player, "Not enough currency for this plot area.")
+			NotificationService.Error(player, "Not enough currency for this plot area")
 		elseif code ~= "busy" then
-			NotificationService.Error(player, "Could not unlock that plot area.")
+			NotificationService.Error(player, "Could not unlock that plot area")
 		end
 		return
 	end
@@ -1196,7 +1196,7 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			[Interactions.Actions.CrateRoll] = function(player, target, plot, profile)
 				local ok, code = RollService.Roll(player, target, plot, profile)
 				if not ok and code ~= "cooldown" and code ~= "busy" and code ~= "tutorial-buy-pending" then
-					NotificationService.Error(player, "Could not roll that crate.")
+					NotificationService.Error(player, "Could not roll that crate")
 				end
 			end,
 		},

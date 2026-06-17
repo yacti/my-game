@@ -178,7 +178,7 @@ function InventoryDeleteService.Start(config)
 				end
 			end
 
-			NotificationService.Success(player, string.format("Deleted %d item%s.", deletedCount, deletedCount == 1 and "" or "s"))
+			NotificationService.Success(player, string.format("Deleted %d item%s", deletedCount, deletedCount == 1 and "" or "s"))
 			sendResult(player, requestId, true, "ok", deletedCount, skippedCount)
 		end)
 		locksByUserId[key] = nil

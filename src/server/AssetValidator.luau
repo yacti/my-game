@@ -1459,6 +1459,36 @@ local function validateRollDropAreaHud(rollButtons, errors)
 	descendant(frame, "ErrorLabel", "TextLabel", errors)
 end
 
+local function validateAutoRollHud(rollButtons, errors)
+	local frame = child(rollButtons, "AutoRoll", "GuiObject", errors)
+	if not frame then return end
+
+	child(frame, "Toggle", "ImageButton", errors)
+	child(frame, "Settings", "ImageButton", errors)
+	descendant(frame, "TitleLabel", "TextLabel", errors)
+end
+
+local function validateAutoRollSettingsUi(menu, errors)
+	local panel = child(menu, "AutoRollSettings", "GuiObject", errors)
+	if not panel then return end
+
+	descendant(panel, "CloseButton", "GuiButton", errors)
+	local list = child(panel, "List", "ScrollingFrame", errors)
+	if not list then return end
+	child(list, "UIListLayout", "UIListLayout", errors)
+	local template = child(list, "Template", "GuiObject", errors)
+	if not template then return end
+	child(template, "Icon", "ImageLabel", errors)
+	child(template, "SettingName", "TextLabel", errors)
+	child(template, "Background", "GuiObject", errors)
+	local toggle = child(template, "ToggleButton", "GuiButton", errors)
+	if toggle then
+		child(toggle, "On", "ImageLabel", errors)
+		child(toggle, "Off", "ImageLabel", errors)
+		descendant(toggle, "StatusTxt", "TextLabel", errors)
+	end
+end
+
 local function validateRollBillboards(billboardFolder, errors)
 	local function validateTemplate(templateName, labelNames)
 		local billboard = child(billboardFolder, templateName, "BillboardGui", errors)
@@ -1833,6 +1863,7 @@ local function validateUi(errors, warnings)
 		if rollButtons then
 			validateRollLuckHud(rollButtons, errors)
 			validateRollDropAreaHud(rollButtons, errors)
+			validateAutoRollHud(rollButtons, errors)
 		end
 		local leftButtons = child(hud, "LeftButtons", "GuiObject", errors)
 		if leftButtons then
@@ -1859,6 +1890,7 @@ local function validateUi(errors, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
+		validateAutoRollSettingsUi(menu, errors)
 	end
 
 	local billboardFolder = child(ui, "BillboardGUIs", "Folder", errors)

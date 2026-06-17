@@ -49,14 +49,14 @@ local ROTATION_TWEEN_INFO = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.Easi
 local placeableIndex = nil
 
 local MOVE_FAILURE_MESSAGES = {
-	["busy"] = "Please wait before moving another machine.",
-	["invalid-target"] = "That machine cannot be moved.",
-	["not-editing"] = "Enable edit mode before moving machines.",
-	["out-of-bounds"] = "Keep machines inside unlocked plot cells.",
-	["overlap"] = "That spot is already occupied.",
-	["rate-limited"] = "Please wait before moving again.",
-	["save-failed"] = "Could not save that move. Please try again.",
-	["too-far"] = "Move closer to place that machine there.",
+	["busy"] = "Please wait before moving another machine",
+	["invalid-target"] = "That machine cannot be moved",
+	["not-editing"] = "Enable edit mode before moving machines",
+	["out-of-bounds"] = "Keep machines inside unlocked plot cells",
+	["overlap"] = "That spot is already occupied",
+	["rate-limited"] = "Please wait before moving again",
+	["save-failed"] = "Could not save that move. Please try again",
+	["too-far"] = "Move closer to place that machine there",
 }
 
 local GROWING_PLANT_MESSAGE = "You can't move growing plants!"
@@ -81,7 +81,7 @@ local function requireTopbarIcon()
 end
 
 local function moveFailureMessage(reason)
-	return MOVE_FAILURE_MESSAGES[reason] or "Could not move that machine."
+	return MOVE_FAILURE_MESSAGES[reason] or "Could not move that machine"
 end
 
 local function firstBasePart(instance)

@@ -249,7 +249,7 @@ local function onPurchaseRequest(player, requestId)
 
 	local slots = requiredSlots(pack)
 	if Inventory.RemainingSlots(player) < slots then
-		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
 		sendPurchaseResult(player, requestId, false, "inventory-full", {
 			requiredSlots = slots,
 		})
@@ -359,9 +359,9 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 		-- ToolGrantService emits a rate-limited notification if the cap is hit
 		-- during grant; preflight also notifies before opening the purchase UI.
 	elseif resultCode == "no-backpack" then
-		NotificationService.Error(player, "Could not grant your starter pack yet. Please rejoin and try again.")
+		NotificationService.Error(player, "Could not grant your starter pack yet. Please rejoin and try again")
 	else
-		NotificationService.Error(player, "Could not grant your starter pack yet.")
+		NotificationService.Error(player, "Could not grant your starter pack yet")
 	end
 	warn("[StarterPackShopService] Receipt grant failed: " .. tostring(resultCode))
 	return Enum.ProductPurchaseDecision.NotProcessedYet

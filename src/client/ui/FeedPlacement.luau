@@ -101,21 +101,21 @@ function FeedPlacement.IsPlacementActive()
 end
 
 local PLACEMENT_FAILURE_MESSAGES = {
-	["busy"] = "Please wait before placing another feed machine.",
-	["no-cosmetic-tool"] = "Equip a cosmetic before placing.",
-	["no-feed-tool"] = "Equip a feed machine before placing.",
-	["no-profile"] = "Your save data is not ready yet.",
-	["out-of-bounds"] = "Place items inside unlocked plot cells.",
-	["overlap"] = "That spot is already occupied.",
-	["rate-limited"] = "Please wait before placing again.",
-	["save-failed"] = "Could not save that placement. Please try again.",
-	["setup-failed"] = "Could not set up that feed machine.",
-	["timeout"] = "Placement took too long. Please try again.",
-	["too-far"] = "Move closer to place that item.",
+	["busy"] = "Please wait before placing another feed machine",
+	["no-cosmetic-tool"] = "Equip a cosmetic before placing",
+	["no-feed-tool"] = "Equip a feed machine before placing",
+	["no-profile"] = "Your save data is not ready yet",
+	["out-of-bounds"] = "Place items inside unlocked plot cells",
+	["overlap"] = "That spot is already occupied",
+	["rate-limited"] = "Please wait before placing again",
+	["save-failed"] = "Could not save that placement. Please try again",
+	["setup-failed"] = "Could not set up that feed machine",
+	["timeout"] = "Placement took too long. Please try again",
+	["too-far"] = "Move closer to place that item",
 }
 
 local function placementFailureMessage(reason)
-	return PLACEMENT_FAILURE_MESSAGES[reason] or "Could not place feed machine."
+	return PLACEMENT_FAILURE_MESSAGES[reason] or "Could not place feed machine"
 end
 
 local function forEachPreviewPart(preview, callback)

@@ -15,6 +15,7 @@ local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
@@ -421,6 +422,9 @@ local function finishTransaction(player, profile, tierNumber, options)
 	PlayerReplicaService.PublishProfile(player, profile)
 	CurrencyService.Publish(player, profile)
 	NotificationService.Success(player, "Rebirth " .. NumberFormatter.Integer(tierNumber) .. " complete!")
+	if tierNumber == AutoRollConfig.UnlockRebirths then
+		NotificationService.Success(player, "You can now auto-roll!")
+	end
 	TelemetryService.Record("rebirth_succeeded", TelemetryService.ForPlayer(player, {
 		tier = tierNumber,
 		skip = options.skip == true,

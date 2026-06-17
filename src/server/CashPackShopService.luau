@@ -108,7 +108,7 @@ function CashPackShopService.ProcessReceipt(receiptInfo)
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
-	NotificationService.Error(player, "Could not grant your cash pack yet.")
+	NotificationService.Error(player, "Could not grant your cash pack yet")
 	warn("[CashPackShopService] Receipt grant failed: " .. tostring(resultCode))
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end

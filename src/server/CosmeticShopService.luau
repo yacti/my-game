@@ -166,7 +166,7 @@ function CosmeticShopService.PurchaseWithCurrency(player, requestId, itemId)
 	end
 	if not nearShop(player) then
 		sendResult(player, requestId, itemId, false, "too-far")
-		NotificationService.Error(player, "Move closer to the Cosmetic Shop.")
+		NotificationService.Error(player, "Move closer to the Cosmetic Shop")
 		return false, "too-far"
 	end
 
@@ -210,9 +210,9 @@ function CosmeticShopService.PurchaseWithCurrency(player, requestId, itemId)
 	end
 
 	if resultCode == "insufficient-currency" then
-		NotificationService.Error(player, "Not enough currency.")
+		NotificationService.Error(player, "Not enough currency")
 	else
-		NotificationService.Error(player, "Could not buy this cosmetic.")
+		NotificationService.Error(player, "Could not buy this cosmetic")
 	end
 	sendResult(player, requestId, itemId, false, resultCode)
 	return false, resultCode

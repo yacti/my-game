@@ -15,6 +15,7 @@ local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -34,6 +35,8 @@ local LUCK_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
 local DROP_AREA_UPGRADE_DISTANCE = RollConfig.Button.InteractionDistance
 local PURCHASE_DISTANCE = 18
 local PURCHASE_REQUEST_RATE_SECONDS = 0.35
+local AUTO_ROLL_REQUEST_RATE_SECONDS = AutoRollConfig.RequestRateSeconds
+local AUTO_ROLL_RETRY_SECONDS = AutoRollConfig.RetrySeconds
 local LUCK_REQUEST_RATE_SECONDS = 0.35
 local DROP_AREA_REQUEST_RATE_SECONDS = 0.35
 local ACTION_ROLL = "roll"
@@ -54,13 +57,18 @@ local DROP_AREA_VISIBILITY_OPTIONS = {
 local locks = {}
 local rollCooldownUntil = {}
 local lastPurchaseRequest = {}
+local lastAutoRollRequest = {}
 local lastLuckRequest = {}
 local lastDropAreaRequest = {}
 local pendingOffers = {}
+local autoRollSessions = {}
 local nextOfferId = 0
 local nextRollBatchId = 0
+local nextAutoRollToken = 0
 local boundRollButtons = setmetatable({}, { __mode = "k" })
 local rng = Random.new()
+local PlayerDataServiceRef = nil
+local PlotServiceRef = nil
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -75,6 +83,8 @@ end
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
 local CrateRollPurchaseRequest = Remotes.get(Remotes.Names.CrateRollPurchaseRequest)
 local CrateRollPurchaseResult = Remotes.get(Remotes.Names.CrateRollPurchaseResult)
+local AutoRollRequest = Remotes.get(Remotes.Names.AutoRollRequest)
+local AutoRollState = Remotes.get(Remotes.Names.AutoRollState)
 local RollLuckUpgradeRequest = Remotes.get(Remotes.Names.RollLuckUpgradeRequest)
 local RollLuckUpgradeResult = Remotes.get(Remotes.Names.RollLuckUpgradeResult)
 local RollDropAreaUpgradeRequest = Remotes.get(Remotes.Names.RollDropAreaUpgradeRequest)
@@ -166,7 +176,7 @@ local function rollForButton(player, buttonPart, PlotService, PlayerDataService)
 	local profile = PlayerDataService.GetProfile(player)
 	local ok, code = RollService.Roll(player, buttonPart, plot, profile, ROLL_CLICK_DISTANCE)
 	if not ok and code ~= "cooldown" and code ~= "busy" and code ~= "tutorial-buy-pending" then
-		NotificationService.Error(player, "Could not roll that crate.")
+		NotificationService.Error(player, "Could not roll that crate")
 	end
 end
 
@@ -665,7 +675,8 @@ function RollService.ApplyDropAreaVisibility(plot, profileOrLevel)
 	return true, "ok"
 end
 
-function RollService.Roll(player, target, plot, profile, maxDistance)
+function RollService.Roll(player, target, plot, profile, maxDistance, options)
+	options = type(options) == "table" and options or {}
 	local key = userKey(player)
 	if key == nil then
 		return false, "invalid-player"
@@ -684,13 +695,13 @@ function RollService.Roll(player, target, plot, profile, maxDistance)
 	if not profile then
 		return false, "no-profile"
 	end
-	if not isPlayerNearPart(player, buttonPart, maxDistance or ROLL_DISTANCE) then
+	if options.skipDistance ~= true and not isPlayerNearPart(player, buttonPart, maxDistance or ROLL_DISTANCE) then
 		return false, "too-far"
 	end
 
 	local canRoll, rollGateCode = OnboardingService.ResolveRollAttempt(player, profile, hasRequiredTutorialOffer(player, profile))
 	if not canRoll then
-		NotificationService.Info(player, "Buy the tutorial seed before rolling again.")
+		NotificationService.Info(player, "Buy the tutorial seed before rolling again")
 		return false, rollGateCode or "tutorial-buy-pending"
 	end
 
@@ -795,6 +806,9 @@ function RollService.Roll(player, target, plot, profile, maxDistance)
 
 		nextRollBatchId += 1
 		local rollBatchId = nextRollBatchId
+		for _, offer in pairs(offerMap) do
+			offer.rollBatchId = rollBatchId
+		end
 		for _, offer in ipairs(effectOffers) do
 			offer.rollBatchId = rollBatchId
 		end
@@ -839,10 +853,17 @@ function RollService.Roll(player, target, plot, profile, maxDistance)
 		offerCount = #effectOffers,
 		unlockedPadCount = #dropAreas,
 	}))
-	return true, "ok"
+	return true, "ok", {
+		offers = effectOffers,
+		rollBatchId = batchIdOrNil,
+		publicOffers = publicOffersOrNil,
+		visualDuration = visualDuration,
+		button = buttonPart,
+	}
 end
 
-function RollService.Purchase(player, offerId, profile)
+local function purchaseOffer(player, offerId, profile, options)
+	options = type(options) == "table" and options or {}
 	local key = userKey(player)
 	if key == nil then
 		return false, "invalid-player"
@@ -852,7 +873,7 @@ function RollService.Purchase(player, offerId, profile)
 		return false, "busy"
 	end
 
-	if not consumePurchaseRate(player) then
+	if options.consumeRate ~= false and not consumePurchaseRate(player) then
 		sendPurchaseResult(player, type(offerId) == "number" and offerId or nil, false, "rate-limited")
 		return false, "rate-limited"
 	end
@@ -871,7 +892,7 @@ function RollService.Purchase(player, offerId, profile)
 
 	local offer, offerCode = activeOffer(player, offerId)
 	if not offer then
-		NotificationService.Error(player, "This roll offer is no longer available.")
+		NotificationService.Error(player, "This roll offer is no longer available")
 		sendPurchaseResult(player, offerId, false, offerCode)
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = offerCode,
@@ -879,8 +900,21 @@ function RollService.Purchase(player, offerId, profile)
 		}))
 		return false, offerCode
 	end
+	if options.requiredRollBatchId ~= nil and offer.rollBatchId ~= options.requiredRollBatchId then
+		sendPurchaseResult(player, offerId, false, "offer-batch-mismatch")
+		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
+			reason = "offer-batch-mismatch",
+			offerId = offerId,
+			category = offer.category,
+			rewardId = offer.rewardId,
+			seedId = offer.seedId,
+			feedType = offer.feedType,
+			price = offer.price,
+		}))
+		return false, "offer-batch-mismatch"
+	end
 	if not profile then
-		NotificationService.Error(player, "Could not buy this roll yet.")
+		NotificationService.Error(player, "Could not buy this roll yet")
 		sendPurchaseResult(player, offerId, false, "no-profile")
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-profile",
@@ -893,8 +927,8 @@ function RollService.Purchase(player, offerId, profile)
 		}))
 		return false, "no-profile"
 	end
-	if not isPlayerNearPart(player, offer.crateFloor, PURCHASE_DISTANCE) then
-		NotificationService.Error(player, "Move closer to the rolled item to buy it.")
+	if options.skipDistance ~= true and not isPlayerNearPart(player, offer.crateFloor, PURCHASE_DISTANCE) then
+		NotificationService.Error(player, "Move closer to the rolled item to buy it")
 		sendPurchaseResult(player, offerId, false, "too-far")
 		TelemetryService.Warn("crate_roll_purchase_failed", TelemetryService.ForPlayer(player, {
 			reason = "too-far",
@@ -984,11 +1018,11 @@ function RollService.Purchase(player, offerId, profile)
 	end
 
 	if code == "insufficient-currency" then
-		NotificationService.Error(player, "Not enough currency for this roll.")
+		NotificationService.Error(player, "Not enough currency for this roll")
 	elseif code == "too-far" then
-		NotificationService.Error(player, "Move closer to the rolled item to buy it.")
+		NotificationService.Error(player, "Move closer to the rolled item to buy it")
 	else
-		NotificationService.Error(player, "Could not buy this roll.")
+		NotificationService.Error(player, "Could not buy this roll")
 	end
 	PlayerReplicaService.PublishProfile(player, profile)
 	sendPurchaseResult(player, offerId, false, code)
@@ -1003,6 +1037,376 @@ function RollService.Purchase(player, offerId, profile)
 		currency = currencyOrNil,
 	}))
 	return false, code
+end
+
+local function autoPurchaseOffer(player, offerId, profile, rollBatchId)
+	return purchaseOffer(player, offerId, profile, {
+		consumeRate = false,
+		skipDistance = true,
+		requiredRollBatchId = rollBatchId,
+	})
+end
+
+function RollService.Purchase(player, offerId, profile)
+	return purchaseOffer(player, offerId, profile, {
+		consumeRate = true,
+		skipDistance = false,
+	})
+end
+
+local function cloneArray(array)
+	local copy = {}
+	for index, value in ipairs(array or {}) do
+		copy[index] = value
+	end
+	return copy
+end
+
+local function selectedRaritySet(list)
+	local set = {}
+	for _, rarity in ipairs(list or {}) do
+		set[rarity] = true
+	end
+	return set
+end
+
+local function orderedRarityList(set)
+	local list = {}
+	for _, rarity in ipairs(AutoRollConfig.Rarities) do
+		if set[rarity] == true then
+			list[#list + 1] = rarity
+		end
+	end
+	return list
+end
+
+local function sanitizeSelectedRarities(value)
+	if value == nil then
+		return {}
+	end
+	if type(value) ~= "table" then
+		return nil, "invalid-rarities"
+	end
+
+	local rawCount = 0
+	local set = {}
+	for key, item in pairs(value) do
+		rawCount += 1
+		if rawCount > AutoRollConfig.MaxSelectedRarities then
+			return nil, "too-many-rarities"
+		end
+
+		local rarity = nil
+		if type(item) == "string" then
+			rarity = item
+		elseif item == true and type(key) == "string" then
+			rarity = key
+		elseif item == false then
+			rarity = nil
+		else
+			return nil, "invalid-rarities"
+		end
+
+		if rarity and Rarities.IsValid(rarity) then
+			set[rarity] = true
+		end
+	end
+
+	return orderedRarityList(set)
+end
+
+local function sanitizeAutoRollPayload(payload)
+	if type(payload) ~= "table" then
+		return nil, "invalid-payload"
+	end
+
+	local action = payload.action
+	if action ~= AutoRollConfig.Actions.Start
+		and action ~= AutoRollConfig.Actions.Stop
+		and action ~= AutoRollConfig.Actions.Settings then
+		return nil, "invalid-action"
+	end
+
+	local selected, selectedCode = sanitizeSelectedRarities(payload.selectedRarities)
+	if not selected then
+		return nil, selectedCode
+	end
+
+	return {
+		action = action,
+		autoPurchase = payload.autoPurchase == true,
+		selectedRarities = selected,
+	}, nil
+end
+
+local function sendAutoRollState(player, enabled, code, sessionOrSettings)
+	local source = type(sessionOrSettings) == "table" and sessionOrSettings or {}
+	AutoRollState:FireClient(player, {
+		enabled = enabled == true,
+		code = code,
+		autoPurchase = source.autoPurchase == true,
+		selectedRarities = cloneArray(source.selectedRarities),
+	})
+end
+
+local function isProfileActive(profile)
+	if not profile then
+		return false
+	end
+	if type(profile.IsActive) == "function" then
+		return profile:IsActive()
+	end
+	return true
+end
+
+local function autoRollSession(player, token)
+	local key = userKey(player)
+	local session = key and autoRollSessions[key] or nil
+	if not session or session.enabled ~= true then
+		return nil
+	end
+	if token ~= nil and session.token ~= token then
+		return nil
+	end
+	if not player:IsDescendantOf(Players) then
+		return nil
+	end
+	return session
+end
+
+local function stopAutoRoll(player, code)
+	local key = userKey(player)
+	local session = key and autoRollSessions[key] or nil
+	local stopped = session ~= nil
+	if session then
+		session.enabled = false
+		session.token += 1
+		autoRollSessions[key] = nil
+	end
+	sendAutoRollState(player, false, code, session)
+	return stopped
+end
+
+local function waitForAutoRollSession(player, token, seconds)
+	local deadline = os.clock() + math.max(tonumber(seconds) or 0, 0)
+	while os.clock() < deadline do
+		if not autoRollSession(player, token) then
+			return false
+		end
+		local remaining = deadline - os.clock()
+		if remaining <= 0 then
+			break
+		end
+		task.wait(math.min(0.2, remaining))
+	end
+	return autoRollSession(player, token) ~= nil
+end
+
+local function autoRollSettingsSnapshot(session)
+	return {
+		autoPurchase = session.autoPurchase == true,
+		selectedRarities = cloneArray(session.selectedRarities),
+		selectedSet = selectedRaritySet(session.selectedRarities),
+	}
+end
+
+local function validateAutoRollState(player, session, profile, requireNearButton)
+	if not player:IsDescendantOf(Players) then
+		return false, "invalid-player"
+	end
+	if not session then
+		return false, "stopped"
+	end
+	if not isProfileActive(profile) then
+		return false, "no-profile"
+	end
+	if OfflineProgressService.IsPending(player) then
+		return false, "busy"
+	end
+	if math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0) < AutoRollConfig.UnlockRebirths then
+		return false, "locked"
+	end
+	if not (session.plot and session.plot:IsDescendantOf(workspace)) then
+		return false, "no-plot"
+	end
+	if not (session.buttonPart and session.buttonPart:IsDescendantOf(session.plot)) then
+		return false, "missing-roll-button"
+	end
+	if requireNearButton and not isPlayerNearPart(player, session.buttonPart, ROLL_DISTANCE) then
+		return false, "too-far"
+	end
+	return true, "ok"
+end
+
+local function selectedRollOffers(offers, settings)
+	if next(settings.selectedSet) == nil then
+		return {}
+	end
+
+	local matches = {}
+	for _, offer in ipairs(offers or {}) do
+		if type(offer) == "table" and settings.selectedSet[offer.rarity] == true then
+			matches[#matches + 1] = offer
+		end
+	end
+	table.sort(matches, function(a, b)
+		local aPriority = AutoRollConfig.PriorityForRarity(a.rarity)
+		local bPriority = AutoRollConfig.PriorityForRarity(b.rarity)
+		if aPriority ~= bPriority then
+			return aPriority < bPriority
+		end
+		local aDropArea = tonumber(a.dropAreaIndex) or math.huge
+		local bDropArea = tonumber(b.dropAreaIndex) or math.huge
+		if aDropArea ~= bDropArea then
+			return aDropArea < bDropArea
+		end
+		return (tonumber(a.offerId) or math.huge) < (tonumber(b.offerId) or math.huge)
+	end)
+	return matches
+end
+
+local function runAutoRollLoop(player, token)
+	while autoRollSession(player, token) do
+		local session = autoRollSession(player, token)
+		local profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+		local valid, validCode = validateAutoRollState(player, session, profile, false)
+		if not valid then
+			stopAutoRoll(player, validCode)
+			return
+		end
+
+		local settings = autoRollSettingsSnapshot(session)
+		local rolled, rollCode, rollResult = RollService.Roll(player, session.buttonPart, session.plot, profile, nil, {
+			skipDistance = true,
+		})
+		if not rolled then
+			if rollCode == "cooldown" or rollCode == "busy" then
+				if not waitForAutoRollSession(player, token, AUTO_ROLL_RETRY_SECONDS) then
+					return
+				end
+				continue
+			end
+			stopAutoRoll(player, rollCode)
+			return
+		end
+
+		local visualDuration = type(rollResult) == "table" and rollResult.visualDuration or RollConfig.RollVisualDuration()
+		if not waitForAutoRollSession(player, token, visualDuration) then
+			return
+		end
+
+		session = autoRollSession(player, token)
+		profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+		valid, validCode = validateAutoRollState(player, session, profile, false)
+		if not valid then
+			stopAutoRoll(player, validCode)
+			return
+		end
+
+		local matches = selectedRollOffers(type(rollResult) == "table" and rollResult.offers or nil, settings)
+		if #matches > 0 then
+			if settings.autoPurchase ~= true then
+				stopAutoRoll(player, "selected-rarity")
+				return
+			end
+
+			for _, offer in ipairs(matches) do
+				if not autoRollSession(player, token) then
+					return
+				end
+				profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+				valid, validCode = validateAutoRollState(player, session, profile, false)
+				if not valid then
+					stopAutoRoll(player, validCode)
+					return
+				end
+
+				local purchased, purchaseCode = autoPurchaseOffer(player, offer.offerId, profile, rollResult.rollBatchId)
+				if not purchased then
+					stopAutoRoll(player, purchaseCode)
+					return
+				end
+			end
+		end
+
+		if not waitForAutoRollSession(player, token, AutoRollConfig.NextRollDelaySeconds) then
+			return
+		end
+	end
+end
+
+local function applyAutoRollSettings(player, payload)
+	local key = userKey(player)
+	local session = key and autoRollSessions[key] or nil
+	if not session then
+		sendAutoRollState(player, false, "ok", payload)
+		return
+	end
+
+	session.autoPurchase = payload.autoPurchase == true
+	session.selectedRarities = cloneArray(payload.selectedRarities)
+	sendAutoRollState(player, true, "ok", session)
+end
+
+local function startAutoRoll(player, payload)
+	local key = userKey(player)
+	if key == nil or not PlayerDataServiceRef or not PlotServiceRef then
+		sendAutoRollState(player, false, "server-not-ready", payload)
+		return
+	end
+
+	local profile = PlayerDataServiceRef.GetProfile(player)
+	local plot = PlotServiceRef.GetPlayerPlot(player)
+	local buttonPart, buttonCode = rollButtonForPlot(plot)
+	if not buttonPart then
+		sendAutoRollState(player, false, buttonCode or "missing-roll-button", payload)
+		return
+	end
+
+	local session = {
+		enabled = true,
+		token = 0,
+		playerUserId = key,
+		plot = plot,
+		buttonPart = buttonPart,
+		autoPurchase = payload.autoPurchase == true,
+		selectedRarities = cloneArray(payload.selectedRarities),
+	}
+	local valid, validCode = validateAutoRollState(player, session, profile, true)
+	if not valid then
+		sendAutoRollState(player, false, validCode, payload)
+		return
+	end
+
+	stopAutoRoll(player, nil)
+	nextAutoRollToken += 1
+	session.token = nextAutoRollToken
+	autoRollSessions[key] = session
+	sendAutoRollState(player, true, "ok", session)
+	NotificationService.Success(player, "Auto Roll enabled")
+	RuntimeGuard.Spawn("RollService.AutoRollLoop", runAutoRollLoop, player, session.token)
+end
+
+local function handleAutoRollRequest(player, payload)
+	if not consumeRateLimit(lastAutoRollRequest, player, AUTO_ROLL_REQUEST_RATE_SECONDS) then
+		return
+	end
+
+	local sanitized, sanitizeCode = sanitizeAutoRollPayload(payload)
+	if not sanitized then
+		sendAutoRollState(player, false, sanitizeCode)
+		return
+	end
+
+	if sanitized.action == AutoRollConfig.Actions.Stop then
+		if stopAutoRoll(player, "stopped") then
+			NotificationService.Info(player, "Auto Roll disabled")
+		end
+	elseif sanitized.action == AutoRollConfig.Actions.Settings then
+		applyAutoRollSettings(player, sanitized)
+	elseif sanitized.action == AutoRollConfig.Actions.Start then
+		startAutoRoll(player, sanitized)
+	end
 end
 
 function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
@@ -1027,7 +1431,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 		return false, "busy"
 	end
 	if not profile then
-		NotificationService.Error(player, "Could not upgrade luck yet.")
+		NotificationService.Error(player, "Could not upgrade luck yet")
 		sendLuckResult(player, requestId, false, "no-profile")
 		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-profile",
@@ -1035,7 +1439,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 		return false, "no-profile"
 	end
 	if not plot then
-		NotificationService.Error(player, "Could not find your plot.")
+		NotificationService.Error(player, "Could not find your plot")
 		sendLuckResult(player, requestId, false, "no-plot")
 		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-plot",
@@ -1052,7 +1456,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 		return false, buttonCode or "missing-roll-button"
 	end
 	if not isPlayerNearPart(player, buttonPart, LUCK_UPGRADE_DISTANCE) then
-		NotificationService.Error(player, "Move closer to the roll button to upgrade luck.")
+		NotificationService.Error(player, "Move closer to the roll button to upgrade luck")
 		sendLuckResult(player, requestId, false, "too-far")
 		TelemetryService.Warn("roll_luck_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "too-far",
@@ -1063,7 +1467,7 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	local currentLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	local nextUpgrade, nextLevel = RollLuckBalance.NextUpgrade(currentLevel)
 	if not nextUpgrade then
-		NotificationService.Error(player, "Luck is already maxed.")
+		NotificationService.Error(player, "Luck is already maxed")
 		sendLuckResult(player, requestId, false, "max-level")
 		return false, "max-level"
 	end
@@ -1122,11 +1526,11 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 	end
 
 	if code == "insufficient-currency" then
-		NotificationService.Error(player, "Not enough currency for this luck upgrade.")
+		NotificationService.Error(player, "Not enough currency for this luck upgrade")
 	elseif code == "max-level" then
-		NotificationService.Error(player, "Luck is already maxed.")
+		NotificationService.Error(player, "Luck is already maxed")
 	else
-		NotificationService.Error(player, "Could not upgrade luck.")
+		NotificationService.Error(player, "Could not upgrade luck")
 	end
 	PlayerReplicaService.PublishProfile(player, profile)
 	sendLuckResult(player, requestId, false, code)
@@ -1161,7 +1565,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		return false, "busy"
 	end
 	if not profile then
-		NotificationService.Error(player, "Could not upgrade drop areas yet.")
+		NotificationService.Error(player, "Could not upgrade drop areas yet")
 		sendDropAreaResult(player, requestId, false, "no-profile")
 		TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-profile",
@@ -1169,7 +1573,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		return false, "no-profile"
 	end
 	if not plot then
-		NotificationService.Error(player, "Could not find your plot.")
+		NotificationService.Error(player, "Could not find your plot")
 		sendDropAreaResult(player, requestId, false, "no-plot")
 		TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "no-plot",
@@ -1186,7 +1590,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 		return false, buttonCode or "missing-roll-button"
 	end
 	if not isPlayerNearPart(player, buttonPart, DROP_AREA_UPGRADE_DISTANCE) then
-		NotificationService.Error(player, "Move closer to the roll button to upgrade drop areas.")
+		NotificationService.Error(player, "Move closer to the roll button to upgrade drop areas")
 		sendDropAreaResult(player, requestId, false, "too-far")
 		TelemetryService.Warn("roll_drop_area_upgrade_failed", TelemetryService.ForPlayer(player, {
 			reason = "too-far",
@@ -1197,7 +1601,7 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	local currentLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
 	local nextUpgrade = RollDropAreaBalance.NextUpgrade(currentLevel)
 	if not nextUpgrade then
-		NotificationService.Error(player, "Drop areas are already maxed.")
+		NotificationService.Error(player, "Drop areas are already maxed")
 		sendDropAreaResult(player, requestId, false, "max-level")
 		return false, "max-level"
 	end
@@ -1265,11 +1669,11 @@ function RollService.PurchaseDropAreaUpgrade(player, profile, plot, requestId)
 	end
 
 	if code == "insufficient-currency" then
-		NotificationService.Error(player, "Not enough currency for this drop area upgrade.")
+		NotificationService.Error(player, "Not enough currency for this drop area upgrade")
 	elseif code == "max-level" then
-		NotificationService.Error(player, "Drop areas are already maxed.")
+		NotificationService.Error(player, "Drop areas are already maxed")
 	else
-		NotificationService.Error(player, "Could not upgrade drop areas.")
+		NotificationService.Error(player, "Could not upgrade drop areas")
 	end
 	PlayerReplicaService.PublishProfile(player, profile)
 	sendDropAreaResult(player, requestId, false, code)
@@ -1331,6 +1735,8 @@ end
 function RollService.Start()
 	local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 	local PlotService = require(Server:WaitForChild("PlotService"))
+	PlayerDataServiceRef = PlayerDataService
+	PlotServiceRef = PlotService
 
 	scanRollButtons(PlotService, PlayerDataService)
 	local rollButtonRoot = workspace:FindFirstChild("Plots") or workspace
@@ -1343,6 +1749,10 @@ function RollService.Start()
 	RuntimeGuard.Connect(CrateRollPurchaseRequest.OnServerEvent, "RollService.CrateRollPurchaseRequest", function(player, offerId)
 		local profile = PlayerDataService.GetProfile(player)
 		RollService.Purchase(player, offerId, profile)
+	end)
+
+	RuntimeGuard.Connect(AutoRollRequest.OnServerEvent, "RollService.AutoRollRequest", function(player, payload)
+		handleAutoRollRequest(player, payload)
 	end)
 
 	RuntimeGuard.Connect(RollLuckUpgradeRequest.OnServerEvent, "RollService.RollLuckUpgradeRequest", function(player, requestId)
@@ -1364,9 +1774,14 @@ function RollService.Start()
 		locks[key] = nil
 		rollCooldownUntil[key] = nil
 		lastPurchaseRequest[key] = nil
+		lastAutoRollRequest[key] = nil
 		lastLuckRequest[key] = nil
 		lastDropAreaRequest[key] = nil
 		pendingOffers[key] = nil
+		if autoRollSessions[key] then
+			autoRollSessions[key].enabled = false
+			autoRollSessions[key] = nil
+		end
 	end)
 end
 

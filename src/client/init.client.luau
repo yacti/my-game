@@ -48,6 +48,7 @@ local CONTROLLERS = {
 	"ShovelController",
 	"RollLuckController",
 	"RollDropAreaController",
+	"AutoRollController",
 	"Notifications",
 	"ServerLuckController",
 	"PetBillboards",

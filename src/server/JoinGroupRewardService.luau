@@ -184,7 +184,7 @@ local function collect(player, part)
 
 	local profile = PlayerDataService.GetProfile(player)
 	if not profile then
-		NotificationService.Error(player, "Could not collect reward yet.")
+		NotificationService.Error(player, "Could not collect reward yet")
 		return
 	end
 	if profile.Data.JoinGroupRewardCollected == true then
@@ -244,9 +244,9 @@ local function collect(player, part)
 	elseif resultCode == "inventory-full" then
 		-- ToolGrantService already sends the inventory cap notification.
 	elseif resultCode == "no-backpack" then
-		NotificationService.Error(player, "Could not collect reward yet. Please rejoin and try again.")
+		NotificationService.Error(player, "Could not collect reward yet. Please rejoin and try again")
 	else
-		NotificationService.Error(player, "Could not collect reward yet.")
+		NotificationService.Error(player, "Could not collect reward yet")
 		warn("[JoinGroupRewardService] Reward grant failed: " .. tostring(resultCode))
 	end
 end

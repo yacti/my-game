@@ -341,7 +341,7 @@ local function onStealRequest(player, requestId, target)
 		return
 	end
 	if Inventory.RemainingSlots(player) <= 0 then
-		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
 		sendResult(player, requestId, false, "inventory-full")
 		return
 	end
@@ -452,7 +452,7 @@ local function releaseReservationsForSource(sourceUserId)
 			reservation.compensationCash = compensationAmount(buyer)
 			profile.Data.PendingFoodStealReservation = reservation
 			saveProfile(profile)
-			NotificationService.Info(buyer, "Food steal target left. If you complete the purchase, you will receive cash compensation.")
+			NotificationService.Info(buyer, "Food steal target left. If you complete the purchase, you will receive cash compensation")
 		end
 	end
 	sourceReservations[sourceUserId] = nil
@@ -617,7 +617,7 @@ function FoodStealService.ProcessReceipt(receiptInfo)
 				sound = "FoodStolen",
 			})
 		else
-			NotificationService.Error(player, "Could not find the food steal reservation.")
+			NotificationService.Error(player, "Could not find the food steal reservation")
 		end
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
@@ -633,9 +633,9 @@ function FoodStealService.ProcessReceipt(receiptInfo)
 	end
 
 	if resultCode == "inventory-full" then
-		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
 	else
-		NotificationService.Error(player, "Could not complete food steal yet.")
+		NotificationService.Error(player, "Could not complete food steal yet")
 		warn("[FoodStealService] Receipt grant failed: " .. tostring(resultCode))
 	end
 	return Enum.ProductPurchaseDecision.NotProcessedYet

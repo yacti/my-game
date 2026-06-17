@@ -30,6 +30,12 @@
         "CrateRollPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "AutoRollRequest": {
+          "$className": "RemoteEvent"
+        },
+        "AutoRollState": {
+          "$className": "RemoteEvent"
+        },
         "RollLuckUpgradeRequest": {
           "$className": "RemoteEvent"
         },

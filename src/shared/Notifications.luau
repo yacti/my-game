@@ -55,6 +55,7 @@ function Notifications.Normalize(payload)
 	end
 
 	normalized.text = string.gsub(normalized.text, "^%s*(.-)%s*$", "%1")
+	normalized.text = string.gsub(normalized.text, "%.+$", "")
 	if normalized.text == "" then
 		return nil
 	end

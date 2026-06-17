@@ -380,7 +380,7 @@ function GrowSkipService.ProcessReceipt(receiptInfo)
 	end
 
 	if noOp then
-		NotificationService.Error(player, "Could not find that growing tree to skip.")
+		NotificationService.Error(player, "Could not find that growing tree to skip")
 		return finishNoOp(profile, purchaseId)
 	end
 

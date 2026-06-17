@@ -107,6 +107,7 @@ function UiEffects.BindButton(button, options)
 
 	local colorProp, baseColor = buttonColorTarget(button)
 	local hoverColor = darken(baseColor, 0.72)
+	local useColorTween = options.colorTween ~= false
 	local uiScale = ensureScale(button)
 	local baseScale = uiScale.Scale
 	local hovering = false
@@ -119,9 +120,11 @@ function UiEffects.BindButton(button, options)
 			active = false
 		end
 		hovering = active
-		tween(button, HOVER_TWEEN, {
-			[colorProp] = active and hoverColor or baseColor,
-		})
+		if useColorTween then
+			tween(button, HOVER_TWEEN, {
+				[colorProp] = active and hoverColor or baseColor,
+			})
+		end
 	end
 
 	local function setPressed(active)

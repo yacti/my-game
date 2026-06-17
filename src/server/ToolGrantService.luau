@@ -118,7 +118,7 @@ local function notifyInventoryCapReached(player)
 		return
 	end
 	inventoryCapNotifiedAtByUserId[key] = now
-	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first.", Inventory.MAX_ITEMS))
+	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
 end
 
 local function countGrantTools(tools)

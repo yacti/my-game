@@ -295,7 +295,7 @@ function ShovelService.Start(config)
 			end
 
 			sendResult(player, requestId, true)
-			NotificationService.Success(player, deletedName .. " deleted.")
+			NotificationService.Success(player, deletedName .. " deleted")
 			TelemetryService.Record("shovel_delete_succeeded", TelemetryService.ForPlayer(player, {
 				feedType = feedType,
 				cosmeticId = cosmeticId,

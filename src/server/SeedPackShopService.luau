@@ -254,9 +254,9 @@ function SeedPackShopService.ProcessReceipt(receiptInfo)
 	if resultCode == "inventory-full" then
 		-- ToolGrantService emits the rate-limited inventory full notification.
 	elseif resultCode == "no-backpack" then
-		NotificationService.Error(player, "Could not grant your seed pack yet. Please rejoin and try again.")
+		NotificationService.Error(player, "Could not grant your seed pack yet. Please rejoin and try again")
 	else
-		NotificationService.Error(player, "Could not grant your seed pack yet.")
+		NotificationService.Error(player, "Could not grant your seed pack yet")
 	end
 	warn("[SeedPackShopService] Receipt grant failed: " .. tostring(resultCode))
 	return Enum.ProductPurchaseDecision.NotProcessedYet

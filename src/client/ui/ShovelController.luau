@@ -24,18 +24,18 @@ local DELETE_PROMPT_ATTACHMENT_NAME = "__ShovelDeletePromptAttachment"
 local DELETE_PROMPT_DISTANCE = 18
 
 local DELETE_FAILURE_MESSAGES = {
-	["busy"] = "Please wait before deleting another item.",
-	["invalid-target"] = "You can only delete feed machines and cosmetics with the shovel.",
-	["no-plot"] = "You need a claimed plot to delete items.",
-	["no-shovel"] = "Equip the shovel before deleting items.",
-	["rate-limited"] = "Please wait before deleting again.",
-	["save-failed"] = "Could not save that deletion. Please try again.",
-	["too-far"] = "Move closer to delete that item.",
+	["busy"] = "Please wait before deleting another item",
+	["invalid-target"] = "You can only delete feed machines and cosmetics with the shovel",
+	["no-plot"] = "You need a claimed plot to delete items",
+	["no-shovel"] = "Equip the shovel before deleting items",
+	["rate-limited"] = "Please wait before deleting again",
+	["save-failed"] = "Could not save that deletion. Please try again",
+	["too-far"] = "Move closer to delete that item",
 	["tutorial-locked"] = "You can't delete this during the tutorial!",
 }
 
 local function deleteFailureMessage(reason)
-	return DELETE_FAILURE_MESSAGES[reason] or "Could not delete that item."
+	return DELETE_FAILURE_MESSAGES[reason] or "Could not delete that item"
 end
 
 local function feedTemplate(feedType)

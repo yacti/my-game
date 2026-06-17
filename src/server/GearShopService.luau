@@ -167,7 +167,7 @@ function GearShopService.PurchaseWithCurrency(player, requestId, itemId)
 	end
 	if not nearShop(player) then
 		sendResult(player, requestId, itemId, false, "too-far")
-		NotificationService.Error(player, "Move closer to the Gear Shop.")
+		NotificationService.Error(player, "Move closer to the Gear Shop")
 		return false, "too-far"
 	end
 
@@ -211,9 +211,9 @@ function GearShopService.PurchaseWithCurrency(player, requestId, itemId)
 	end
 
 	if resultCode == "insufficient-currency" then
-		NotificationService.Error(player, "Not enough currency.")
+		NotificationService.Error(player, "Not enough currency")
 	else
-		NotificationService.Error(player, "Could not buy this item.")
+		NotificationService.Error(player, "Could not buy this item")
 	end
 	sendResult(player, requestId, itemId, false, resultCode)
 	return false, resultCode
