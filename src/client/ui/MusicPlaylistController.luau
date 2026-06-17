@@ -17,6 +17,7 @@ local FADE_IN_SECONDS = 20
 local MIN_SILENCE_SECONDS = 15
 local MAX_SILENCE_SECONDS = 120
 local DEFAULT_VOLUME = 0.1
+local MUSIC_VOLUME_MULTIPLIER = 0.65
 local LOAD_TIMEOUT_SECONDS = 15
 local TRACK_END_PADDING_SECONDS = 5
 
@@ -104,6 +105,7 @@ local function playTrack(template)
 	if targetVolume <= 0 then
 		targetVolume = DEFAULT_VOLUME
 	end
+	targetVolume *= MUSIC_VOLUME_MULTIPLIER
 
 	local sound = template:Clone()
 	sound.Name = "CurrentMusicTrack"

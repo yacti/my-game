@@ -56,7 +56,7 @@ local LOCAL_PARTICLE_LIFETIME = RollConfig.Reveal.LocalParticleLifetime
 local BUY_PROMPT_DISTANCE = RollConfig.Reveal.BuyPromptDistance
 local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
 local ROLL_SOUND_DISTANCE = 50
-local ROLL_SOUND_VOLUME_MULTIPLIER = 2
+local ROLL_SOUND_ROLLOFF_MIN_DISTANCE = 20
 local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
@@ -453,11 +453,8 @@ local function playRollSound(soundName, context, options)
 	options = type(options) == "table" and table.clone(options) or {}
 	options.parent = options.parent or source
 	options.range = options.range or ROLL_SOUND_DISTANCE
-	local sound = SoundEffects.Play(soundName, options)
-	if sound then
-		sound.Volume = math.min(sound.Volume * ROLL_SOUND_VOLUME_MULTIPLIER, 10)
-	end
-	return sound
+	options.rollOffMinDistance = options.rollOffMinDistance or ROLL_SOUND_ROLLOFF_MIN_DISTANCE
+	return SoundEffects.Play(soundName, options)
 end
 
 local function playVariedRollSound(soundName, context, options)

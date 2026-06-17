@@ -76,13 +76,14 @@ local function cleanupAfterPlayback(sound)
 	Debris:AddItem(sound, lifetime)
 end
 
-local function configureSpatial(sound, range)
+local function configureSpatial(sound, range, minRange)
 	range = tonumber(range)
 	if not range or range <= 0 then
 		return
 	end
+	minRange = tonumber(minRange)
 	sound.RollOffMaxDistance = range
-	sound.RollOffMinDistance = math.min(5, range)
+	sound.RollOffMinDistance = math.clamp(minRange or math.min(5, range), 0, range)
 end
 
 local function playTemplate(template, options)
@@ -100,7 +101,7 @@ local function playTemplate(template, options)
 	elseif type(options.pitchVariance) == "number" then
 		sound.PlaybackSpeed = randomPitch(sound.PlaybackSpeed, options.pitchVariance)
 	end
-	configureSpatial(sound, options.range)
+	configureSpatial(sound, options.range, options.rollOffMinDistance)
 	sound.Parent = options.parent or SoundService
 	sound:Play()
 	if options.cleanup ~= false then
