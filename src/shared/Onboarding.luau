@@ -48,8 +48,8 @@ Onboarding.FoodIds = {
 	Apple = "Apple",
 }
 
-Onboarding.CurrencyRequired = 250
-Onboarding.PumpkinXPRequired = 100
+Onboarding.CurrencyRequired = 100
+Onboarding.PumpkinXPRequired = 50
 Onboarding.TreeClicksRequired = 8
 Onboarding.ExpandFarmGrid = {
 	X = 2,
@@ -102,12 +102,12 @@ local STAGE_TEXT = {
 	[Onboarding.Stages.HarvestPumpkin] = "Harvest your Pumpkin!",
 	[Onboarding.Stages.FeedPetPumpkin] = "Feed your pet",
 	[Onboarding.Stages.ExpandFarm] = "Expand your farm",
-	[Onboarding.Stages.FinalNote] = "Roll for seeds, feed your pets, and Build a Pet Farm!",
+	[Onboarding.Stages.FinalNote] = "Roll for rare seeds, feed your pets and Build a Pet Farm",
 	[Onboarding.Stages.Complete] = "",
 }
 
 local STAGE_RICH_TEXT = {
-	[Onboarding.Stages.FinalNote] = 'Have fun! Roll for seeds, feed your pets, and <font color="#FFD84D">Build a Pet Farm!</font>',
+	[Onboarding.Stages.FinalNote] = 'Roll for rare seeds, feed your pets and <font color="#FFD84D">Build a Pet Farm</font>',
 }
 
 local NEXT_STAGE = {}
