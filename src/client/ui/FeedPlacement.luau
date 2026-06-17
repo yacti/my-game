@@ -19,6 +19,7 @@ local State   = require(Shared:WaitForChild("State"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local NotificationUi = require(script.Parent:WaitForChild("Notifications"))
 local PlacementEditAnchor = require(script.Parent:WaitForChild("PlacementEditAnchor"))
+local PlacementEditBillboard = require(script.Parent:WaitForChild("PlacementEditBillboard"))
 local PlacementGrid = require(script.Parent:WaitForChild("PlacementGrid"))
 local PlacementInput = require(script.Parent:WaitForChild("PlacementInput"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -27,8 +28,6 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local PREVIEW_PART_TRANSPARENCY = 0.2
 local PREVIEW_BLOCKED_COLOR = Color3.fromRGB(255, 65, 65)
--- World-space gap above the placeable primary-part bottom.
-local PLACEMENT_EDIT_OFFSET = Vector3.new(0, 5, 0)
 local PLACEMENT_EDIT_DRAG_TRANSPARENCY = 0.6
 local DRAG_CELL_DEADZONE = 0.2
 local DRAG_AXIS_MIN_PIXELS = 0.5
@@ -324,8 +323,7 @@ function FeedPlacement.start()
 
 	-- Wrapped so the whole panel fades as one layer while dragging.
 	local placementEditCanvas = UiEffects.WrapInCanvasGroup(placementEdit)
-	placementEdit.StudsOffset = Vector3.zero
-	placementEdit.StudsOffsetWorldSpace = PLACEMENT_EDIT_OFFSET
+	PlacementEditBillboard.Apply(placementEdit)
 	placementEdit.Parent = PlayerGui
 
 	local options = placementEditCanvas:FindFirstChild("options")

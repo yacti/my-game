@@ -1082,6 +1082,9 @@ local function addPurchasePrompt(model, payload)
 	prompt.MaxActivationDistance = BUY_PROMPT_DISTANCE
 	prompt.RequiresLineOfSight = false
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
+	if payload.category == RollRewards.Categories.Seed then
+		prompt:SetAttribute("PromptStudsOffset", Vector3.new(0, 0, -0.5))
+	end
 	prompt.Parent = anchor
 	LocalPrompts.RegisterExternalPrompt(prompt, function()
 		return activeReveals[payload.offerId] ~= nil and prompt:GetAttribute(ROLL_OFFER_PENDING_ATTR) ~= true

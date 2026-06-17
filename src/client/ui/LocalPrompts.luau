@@ -739,6 +739,8 @@ local function configurePrompt(prompt, kind)
 	if kind == "GridPartUnlock" then
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.HoldDuration = GRID_UNLOCK_PROMPT_HOLD_DURATION
+	elseif kind == "CrateRoll" then
+		prompt.KeyboardKeyCode = Enum.KeyCode.R
 	else
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 	end

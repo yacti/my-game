@@ -19,9 +19,9 @@ local UI_FOLDER_NAME = "UI"
 local CUSTOMIZER_FOLDER_NAME = "ProximityPromptCustomizer"
 local DEFAULT_THEME_NAME = "Default"
 
--- Any prompt may carry a numeric PromptPrice attribute; themes with a
--- PriceText label render it (green/red by affordability), others ignore it.
+-- Prompt-specific attributes may provide optional price text or billboard offset.
 local PRICE_ATTRIBUTE = "PromptPrice"
+local STUDS_OFFSET_ATTRIBUTE = "PromptStudsOffset"
 local PRICE_AFFORDABLE_COLOR = Color3.fromRGB(126, 229, 124)
 local PRICE_UNAFFORDABLE_COLOR = Color3.fromRGB(236, 95, 95)
 
@@ -519,6 +519,10 @@ local function createPrompt(prompt, inputType)
 		RuntimeGuard.Run("ProximityPromptCustomizer.InitialUpdatePrice", updatePriceText)
 	end
 
+	local promptOffset = prompt:GetAttribute(STUDS_OFFSET_ATTRIBUTE)
+	if typeof(promptOffset) == "Vector3" then
+		promptUI.StudsOffset += promptOffset
+	end
 	promptUI.Adornee = prompt.Parent
 	promptUI.Parent = playerGui
 
