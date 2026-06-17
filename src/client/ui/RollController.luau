@@ -55,6 +55,7 @@ local ACTIVE_VFX_DISTANCE = RollConfig.Reveal.ActiveVfxDistance
 local LOCAL_PARTICLE_LIFETIME = RollConfig.Reveal.LocalParticleLifetime
 local BUY_PROMPT_DISTANCE = RollConfig.Reveal.BuyPromptDistance
 local OFFER_ANCHOR_TOP_OFFSET = RollConfig.Reveal.OfferAnchorTopOffset
+local ROLL_SOUND_DISTANCE = 50
 local BUTTON_PRESS_DURATION = RollConfig.Button.PressDuration
 local BUTTON_RELEASE_DURATION = RollConfig.Button.ReleaseDuration
 local BUTTON_UNAVAILABLE_COLOR = RollConfig.Button.UnavailableColor
@@ -427,6 +428,39 @@ local function isRollButton(button)
 		and rollArea.Name == "RollArea"
 end
 
+local function rollSoundSource(context)
+	if isRollButton(context) then
+		return context
+	end
+	if type(context) == "table" then
+		return rollSoundSource(context.button) or rollSoundSource(context.crateFloor)
+	end
+	if not (context and context:IsA("BasePart")) then
+		return nil
+	end
+
+	local folder = context.Parent
+	local button = folder and folder:IsA("Folder") and folder:FindFirstChild("Button")
+	return isRollButton(button) and button or context
+end
+
+local function playRollSound(soundName, context, options)
+	local source = rollSoundSource(context)
+	if not source then
+		return nil
+	end
+	options = type(options) == "table" and table.clone(options) or {}
+	options.parent = options.parent or source
+	options.range = options.range or ROLL_SOUND_DISTANCE
+	return SoundEffects.Play(soundName, options)
+end
+
+local function playVariedRollSound(soundName, context, options)
+	options = type(options) == "table" and table.clone(options) or {}
+	options.pitchVariance = options.pitchVariance or true
+	return playRollSound(soundName, context, options)
+end
+
 local function setButtonPressed(button, pressed)
 	if not (button and button:IsA("BasePart") and button:IsDescendantOf(Workspace)) then
 		return
@@ -467,7 +501,7 @@ local function pressButton(button, autoRelease)
 	releasePressedButton()
 	pressedButton = button
 	setButtonPressed(button, true)
-	SoundEffects.Play(SoundEffects.Names.RollButtonClick)
+	playRollSound(SoundEffects.Names.RollButtonClick, button)
 	if autoRelease then
 		task.delay(BUTTON_PRESS_DURATION + BUTTON_RELEASE_DURATION, function()
 			if pressedButton == button then
@@ -873,7 +907,7 @@ local function playImpactChunks(crateFloor)
 end
 
 local function breakCrate(crate, crateFloor)
-	SoundEffects.PlayVaried(SoundEffects.Names.CrateBreak)
+	playVariedRollSound(SoundEffects.Names.CrateBreak, crateFloor)
 	playImpactChunks(crateFloor)
 	fadeOut(crate, CRATE_BREAK_FADE_DURATION)
 end
@@ -1180,7 +1214,7 @@ local function playSeedPreviewBeat(preview, crateFloor, token, index)
 	addRevealBillboard(clone, preview)
 
 	local completed = playSeedBeatTween(clone, floorCFrame, liftedCFrame, token, function()
-		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+		playVariedRollSound(SoundEffects.Names.FruitPop, crateFloor)
 	end)
 	if clone.Parent then
 		clone:Destroy()
@@ -1224,7 +1258,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	fadeIn(blackClone)
 	attachRarityParticle(blackClone, Color3.new(1, 1, 1))
 	addRevealBillboard(blackClone, payload)
-	SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+	playVariedRollSound(SoundEffects.Names.FruitPop, crateFloor)
 
 	if not playSeedBeatTween(blackClone, floorCFrame, liftedCFrame, token) then
 		if blackClone.Parent then
@@ -1247,7 +1281,7 @@ local function playSeedReveal(payload, crateFloor, token)
 	trackRollEffect(clone, payload.offerId)
 	pivotTo(clone, liftedCFrame)
 	fadeIn(clone, SEED_REVEAL_FADE_DURATION)
-	SoundEffects.Play(SoundEffects.Names.RollReveal)
+	playRollSound(SoundEffects.Names.RollReveal, crateFloor)
 
 	local emitter = attachRarityParticle(clone, Color3.new(1, 1, 1))
 	local particleExpiresAt = os.clock() + LOCAL_PARTICLE_LIFETIME
@@ -1296,7 +1330,7 @@ local function playMiscReveal(payload, crateFloor, token)
 	local liftedCFrame = floorCFrame + Vector3.new(0, MISC_LIFT_HEIGHT, 0)
 	setScaleAtCFrame(clone, MISC_START_SCALE, floorCFrame)
 	fadeIn(clone)
-	SoundEffects.Play(SoundEffects.Names.RollReveal)
+	playRollSound(SoundEffects.Names.RollReveal, crateFloor)
 
 	tweenScaleAtCFrame(clone, floorCFrame, MISC_START_SCALE, MISC_DEFAULT_SCALE, TweenInfo.new(MISC_FADE_IN_DURATION, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
 	local alphaValue = Instance.new("NumberValue")
@@ -1391,7 +1425,10 @@ local function playCrateFall(payload, token)
 	fadeIn(crate)
 
 	local crateConfig = RollChances.GetCrate(payload.crateId)
-	local fallMultiplier = crateConfig and crateConfig.FallDurationMultiplier or 1
+	local fallMultiplier = tonumber(payload.fallDurationMultiplier)
+		or tonumber(payload.crateFallDurationMultiplier)
+		or (crateConfig and crateConfig.FallDurationMultiplier)
+		or 1
 	if not playSwayFallTween(crate, startCFrame, endCFrame, token, fallMultiplier) then
 		-- Roll superseded mid-fall. clearOwnerReveals can't reach this offer
 		-- (trackActiveReveal only runs after landing), so reap the crate here

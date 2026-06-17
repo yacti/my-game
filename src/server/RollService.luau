@@ -770,6 +770,7 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 				dropAreaIndex = dropArea.index,
 				crateId = crateId,
 				crateTemplateName = crate and crate.TemplateName or crateId,
+				fallDurationMultiplier = crate and crate.FallDurationMultiplier or 1,
 				crateFloor = dropArea.crateFloor,
 				category = rolled.category,
 				rewardId = rolled.rewardId,

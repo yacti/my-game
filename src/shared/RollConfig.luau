@@ -72,32 +72,51 @@ function RollConfig.SeedPreviewTotalDuration(previewCount)
 	return previewCount * RollConfig.Reveal.SeedPreviewDuration
 end
 
-function RollConfig.SeedRollVisualDuration(previewCount)
+local function normalizedFallDurationMultiplier(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return 1
+	end
+	return math.max(value, 1)
+end
+
+local function crateFallDuration(fallDurationMultiplier)
+	return RollConfig.Crate.FallDuration * normalizedFallDurationMultiplier(fallDurationMultiplier)
+end
+
+function RollConfig.SeedRollVisualDuration(previewCount, fallDurationMultiplier)
 	local seedDuration = RollConfig.SeedPreviewTotalDuration(previewCount)
 		+ RollConfig.Reveal.SeedPreviewDuration
 		+ RollConfig.Reveal.SeedRevealFadeDuration
-	return RollConfig.Crate.FallDuration + seedDuration
+	return crateFallDuration(fallDurationMultiplier) + seedDuration
 end
 
-function RollConfig.MiscRollVisualDuration()
+function RollConfig.MiscRollVisualDuration(fallDurationMultiplier)
 	local miscDuration = RollConfig.Reveal.MiscFadeInDuration + RollConfig.Reveal.MiscLiftDuration
-	return RollConfig.Crate.FallDuration + miscDuration
+	return crateFallDuration(fallDurationMultiplier) + miscDuration
 end
 
 function RollConfig.RollVisualDurationForOffers(offers)
 	local seedPreviewCount = nil
+	local fallDurationMultiplier = 1
 	if type(offers) == "table" then
 		for _, offer in ipairs(offers) do
-			if type(offer) == "table" and offer.category == "Seed" then
-				local previewCount = type(offer.previewSeeds) == "table" and #offer.previewSeeds or RollConfig.MaxSeedPreviewCount()
-				seedPreviewCount = math.max(seedPreviewCount or 0, previewCount)
+			if type(offer) == "table" then
+				fallDurationMultiplier = math.max(
+					fallDurationMultiplier,
+					normalizedFallDurationMultiplier(offer.fallDurationMultiplier or offer.crateFallDurationMultiplier)
+				)
+				if offer.category == "Seed" then
+					local previewCount = type(offer.previewSeeds) == "table" and #offer.previewSeeds or RollConfig.MaxSeedPreviewCount()
+					seedPreviewCount = math.max(seedPreviewCount or 0, previewCount)
+				end
 			end
 		end
 	end
 	if seedPreviewCount ~= nil then
-		return RollConfig.SeedRollVisualDuration(seedPreviewCount)
+		return RollConfig.SeedRollVisualDuration(seedPreviewCount, fallDurationMultiplier)
 	end
-	return RollConfig.MiscRollVisualDuration()
+	return RollConfig.MiscRollVisualDuration(fallDurationMultiplier)
 end
 
 function RollConfig.RollVisualDuration()
