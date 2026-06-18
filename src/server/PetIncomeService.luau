@@ -12,6 +12,12 @@ local State = require(Shared:WaitForChild("State"))
 local PetIncomeService = {}
 
 local SECONDS_PER_HOUR = 60 * 60
+local LEADERSTATS_FOLDER_NAME = "leaderstats"
+local INCOME_STAT_NAME = "$/second"
+local LEGACY_CASH_STAT_NAMES = {
+	["Cash"] = true,
+	["$ Cash"] = true,
+}
 
 local started = false
 local petCashMultiplier = function()
@@ -41,6 +47,60 @@ local function safeMultiplier(player)
 		return 1
 	end
 	return value
+end
+
+local function roundedNonnegativeInteger(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return 0
+	end
+	return math.max(math.floor(value + 0.5), 0)
+end
+
+local function ensureIncomeLeaderstat(player)
+	if not (player and player:IsA("Player") and player:IsDescendantOf(Players)) then
+		return nil
+	end
+
+	local leaderstats = player:FindFirstChild(LEADERSTATS_FOLDER_NAME)
+	if leaderstats and not leaderstats:IsA("Folder") then
+		warn("[PetIncomeService] Player " .. tostring(player.UserId) .. " has non-folder leaderstats")
+		return nil
+	end
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = LEADERSTATS_FOLDER_NAME
+		leaderstats.Parent = player
+	end
+
+	for statName in pairs(LEGACY_CASH_STAT_NAMES) do
+		local oldStat = leaderstats:FindFirstChild(statName)
+		if oldStat then
+			oldStat:Destroy()
+		end
+	end
+
+	local income = leaderstats:FindFirstChild(INCOME_STAT_NAME)
+	if income and not income:IsA("IntValue") then
+		warn("[PetIncomeService] Player " .. tostring(player.UserId) .. " has non-IntValue income leaderstat")
+		return nil
+	end
+	if not income then
+		income = Instance.new("IntValue")
+		income.Name = INCOME_STAT_NAME
+		income.Parent = leaderstats
+	end
+
+	return income
+end
+
+local function syncIncomeLeaderstat(player, perSecond)
+	RuntimeGuard.Run("PetIncomeService.SyncIncomeLeaderstat", function()
+		local income = ensureIncomeLeaderstat(player)
+		if income then
+			income.Value = roundedNonnegativeInteger(perSecond)
+		end
+	end)
 end
 
 local function isPet(instance)
@@ -94,7 +154,8 @@ end
 function PetIncomeService.Refresh(player)
 	local record = recordFor(player)
 	local plot = record and record.plot or PlotService.GetPlayerPlot(player)
-	local _, hourly = computeForPlot(player, plot)
+	local perSecond, hourly = computeForPlot(player, plot)
+	syncIncomeLeaderstat(player, perSecond)
 	PlayerReplicaService.PublishHourlyPetIncome(player, hourly)
 	return hourly
 end
@@ -136,6 +197,7 @@ local function untrackKey(key)
 	for pet in pairs(record.petConnections) do
 		disconnectPet(record, pet)
 	end
+	syncIncomeLeaderstat(record.player, 0)
 	PlayerReplicaService.PublishHourlyPetIncome(record.player, 0)
 end
 

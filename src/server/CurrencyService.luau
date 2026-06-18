@@ -8,9 +8,6 @@ local PlayerReplicaService = require(script.Parent:WaitForChild("PlayerReplicaSe
 
 local CurrencyService = {}
 
-local LEADERSTATS_FOLDER_NAME = "leaderstats"
-local CASH_STAT_NAME = "Cash"
-
 local currencyLocks = {}
 local currencyChangedCallbacks = {}
 
@@ -30,49 +27,9 @@ local function spendAmount(amount)
 	return math.max(math.floor(amount), 0)
 end
 
-local function ensureCashLeaderstat(player)
-	if not (player and player:IsA("Player") and player:IsDescendantOf(Players)) then
-		return nil
-	end
-
-	local leaderstats = player:FindFirstChild(LEADERSTATS_FOLDER_NAME)
-	if leaderstats and not leaderstats:IsA("Folder") then
-		warn("[CurrencyService] Player " .. tostring(player.UserId) .. " has non-folder leaderstats")
-		return nil
-	end
-	if not leaderstats then
-		leaderstats = Instance.new("Folder")
-		leaderstats.Name = LEADERSTATS_FOLDER_NAME
-		leaderstats.Parent = player
-	end
-
-	local cash = leaderstats:FindFirstChild(CASH_STAT_NAME)
-	if cash and not cash:IsA("IntValue") then
-		warn("[CurrencyService] Player " .. tostring(player.UserId) .. " has non-IntValue Cash leaderstat")
-		return nil
-	end
-	if not cash then
-		cash = Instance.new("IntValue")
-		cash.Name = CASH_STAT_NAME
-		cash.Parent = leaderstats
-	end
-
-	return cash
-end
-
-local function syncCashLeaderstat(player, amount)
-	RuntimeGuard.Run("CurrencyService.SyncCashLeaderstat", function()
-		local cash = ensureCashLeaderstat(player)
-		if cash then
-			cash.Value = spendAmount(amount)
-		end
-	end)
-end
-
 local function publish(player, profile)
 	RuntimeGuard.Run("CurrencyService.Publish", function()
 		local amount = balance(profile)
-		syncCashLeaderstat(player, amount)
 		PlayerReplicaService.PublishCurrency(player, amount)
 	end)
 end
@@ -137,8 +94,6 @@ function CurrencyService.Add(player, profile, amount, deferPublish)
 	notifyChanged(player, profile, updated)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
-	else
-		syncCashLeaderstat(player, updated)
 	end
 	return updated
 end
@@ -167,8 +122,6 @@ function CurrencyService.TrySpend(player, profile, amount, deferPublish)
 	notifyChanged(player, profile, updated)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
-	else
-		syncCashLeaderstat(player, updated)
 	end
 	return true, nil, updated
 end
@@ -193,8 +146,6 @@ function CurrencyService.ResetToZeroForRebirth(player, profile, expectedMinimum,
 	notifyChanged(player, profile, 0)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
-	else
-		syncCashLeaderstat(player, 0)
 	end
 	return true, nil, 0, current
 end
@@ -213,8 +164,6 @@ function CurrencyService.SetBalanceForServer(player, profile, amount, deferPubli
 	notifyChanged(player, profile, amount)
 	if shouldPublish(deferPublish) then
 		publish(player, profile)
-	else
-		syncCashLeaderstat(player, amount)
 	end
 	return true, nil, amount
 end
