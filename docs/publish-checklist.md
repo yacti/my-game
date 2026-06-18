@@ -140,8 +140,8 @@ Run this checklist before publishing a live build.
   pickup targets the invisible marker, and far clients do not keep unnecessary
   ground fruit visuals.
 - During active onboarding, verify plot wind does not play. After onboarding is complete,
-  wait for plot wind on an assigned plot and verify sequence starts are roughly
-  90-180 seconds apart and `PlotTemplate.WindEffect` beams
+  wait for synchronized plot wind across eligible players and verify sequence starts are roughly
+  90-180 seconds apart, wave processing is capped at 50 events per heartbeat, and `PlotTemplate.WindEffect` beams
   and wind audio ramp up together for 4 seconds, `HUD.Buffs.Wind` shows the
   full-sequence remaining time as `(n)s`, every mature tree sways and
   runs 10-30 independent shake/drop waves during the 30-second active window,

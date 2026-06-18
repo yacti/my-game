@@ -1056,6 +1056,7 @@ local function handlePlayerAdded(player)
 		end
 
 		PlayerReplicaService.Create(player, profile)
+		CurrencyService.Publish(player, profile)
 		OfflineProgressService.Publish(player)
 		OnboardingService.ApplyCurrentStageEntry(player, profile)
 

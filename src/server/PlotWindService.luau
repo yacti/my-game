@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Server = script.Parent
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
@@ -25,6 +26,7 @@ local MIN_FRUIT_PER_WAVE = 2
 local MAX_FRUIT_PER_WAVE = 4
 local MIN_SHAKE_GAP = 0.5
 local TREE_EFFECT_RADIUS = 35
+local MAX_WAVE_EVENTS_PER_HEARTBEAT = 50
 local SHAKE_START_PADDING = 0.1
 local SHAKE_END_PADDING = 0.2
 local WAIT_STEP = 0.25
@@ -32,6 +34,7 @@ local WAIT_STEP = 0.25
 local PlotWindEffect = Remotes.get(Remotes.Names.PlotWindEffect)
 local rng = Random.new()
 local recordsByUserId = {}
+local globalLoopRunning = false
 
 local TOTAL_WIND_SECONDS = WIND_UP_SECONDS + WIND_ACTIVE_SECONDS + WIND_DOWN_SECONDS
 
@@ -39,9 +42,13 @@ local function userKey(player)
 	return player and player.UserId or nil
 end
 
-local function cancellableWait(record, seconds)
+local function hasRecords()
+	return next(recordsByUserId) ~= nil
+end
+
+local function waitWhileRegistered(seconds)
 	local deadline = os.clock() + math.max(0, seconds)
-	while not record.cancelled do
+	while hasRecords() do
 		local remaining = deadline - os.clock()
 		if remaining <= 0 then
 			return true
@@ -117,15 +124,52 @@ local function triggerTreeWave(player, plot, record, tree, amount)
 	end)
 end
 
-local function buildWaveQueue(plot)
-	local queue = {}
-	for _, tree in ipairs(collectTrees(plot)) do
-		for _, shakeTime in ipairs(sampleWaveTimes()) do
-			queue[#queue + 1] = {
-				time = shakeTime,
-				tree = tree,
-				amount = rng:NextInteger(MIN_FRUIT_PER_WAVE, MAX_FRUIT_PER_WAVE),
+local function eligibleEntries()
+	local entries = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local key = userKey(player)
+		local record = key and recordsByUserId[key] or nil
+		local plot = record and PlotService.GetPlayerPlot(player) or nil
+		if plot
+			and isActiveRecord(player, plot, record)
+			and not isOnboardingActive(player) then
+			entries[#entries + 1] = {
+				player = player,
+				plot = plot,
+				record = record,
 			}
+		end
+	end
+	return entries
+end
+
+local function fireWindEffects(entries)
+	for _, entry in ipairs(entries) do
+		RuntimeGuard.Run("PlotWindService.FireClient", function()
+			PlotWindEffect:FireClient(entry.player, {
+				plot = entry.plot,
+				windUp = WIND_UP_SECONDS,
+				active = WIND_ACTIVE_SECONDS,
+				windDown = WIND_DOWN_SECONDS,
+			})
+		end)
+	end
+end
+
+local function buildWaveQueue(entries)
+	local queue = {}
+	for _, entry in ipairs(entries) do
+		for _, tree in ipairs(collectTrees(entry.plot)) do
+			for _, shakeTime in ipairs(sampleWaveTimes()) do
+				queue[#queue + 1] = {
+					time = shakeTime,
+					player = entry.player,
+					plot = entry.plot,
+					record = entry.record,
+					tree = tree,
+					amount = rng:NextInteger(MIN_FRUIT_PER_WAVE, MAX_FRUIT_PER_WAVE),
+				}
+			end
 		end
 	end
 	table.sort(queue, function(a, b)
@@ -134,69 +178,80 @@ local function buildWaveQueue(plot)
 	return queue
 end
 
-local function processWaveQueue(player, plot, record, queue)
+local function processWaveQueue(queue)
 	local sequenceStartedAt = os.clock()
 	local index = 1
-	while not record.cancelled do
+	while hasRecords() do
 		local elapsed = os.clock() - sequenceStartedAt
-		while index <= #queue and queue[index].time <= elapsed do
-			triggerTreeWave(player, plot, record, queue[index].tree, queue[index].amount)
+		local processed = 0
+		while index <= #queue
+			and queue[index].time <= elapsed
+			and processed < MAX_WAVE_EVENTS_PER_HEARTBEAT do
+			local event = queue[index]
+			triggerTreeWave(event.player, event.plot, event.record, event.tree, event.amount)
 			index += 1
+			processed += 1
 		end
 
-		if elapsed >= TOTAL_WIND_SECONDS then
+		if elapsed >= TOTAL_WIND_SECONDS and index > #queue then
 			return
+		end
+
+		if index <= #queue and queue[index].time <= elapsed then
+			RunService.Heartbeat:Wait()
+			continue
 		end
 
 		local nextTime = TOTAL_WIND_SECONDS
 		if index <= #queue then
 			nextTime = math.min(nextTime, queue[index].time)
 		end
-		if not cancellableWait(record, math.max(0, nextTime - elapsed)) then
+		local waitSeconds = math.max(0, nextTime - elapsed)
+		if waitSeconds <= 0 then
+			RunService.Heartbeat:Wait()
+		elseif not waitWhileRegistered(waitSeconds) then
 			return
 		end
 	end
 end
 
-local function runSequence(player, plot, record)
-	if isOnboardingActive(player) then
-		return
+local function runSequence()
+	local entries = eligibleEntries()
+	if #entries == 0 then
+		return false
 	end
-	RuntimeGuard.Run("PlotWindService.FireClient", function()
-		PlotWindEffect:FireClient(player, {
-			plot = plot,
-			windUp = WIND_UP_SECONDS,
-			active = WIND_ACTIVE_SECONDS,
-			windDown = WIND_DOWN_SECONDS,
-		})
-	end)
 
-	processWaveQueue(player, plot, record, buildWaveQueue(plot))
+	fireWindEffects(entries)
+	processWaveQueue(buildWaveQueue(entries))
+	return true
 end
 
-local function runLoop(player, plot, record)
+local function runGlobalLoop()
 	local waitSeconds = rng:NextNumber(MIN_SEQUENCE_INTERVAL, MAX_SEQUENCE_INTERVAL)
-	while not record.cancelled and player.Parent == Players and PlotService.GetPlayerPlot(player) == plot do
-		if isOnboardingActive(player) then
-			if not cancellableWait(record, WAIT_STEP) then
-				break
-			end
-			waitSeconds = rng:NextNumber(MIN_SEQUENCE_INTERVAL, MAX_SEQUENCE_INTERVAL)
-			continue
-		end
-		if not cancellableWait(record, waitSeconds) then
+	while hasRecords() do
+		if not waitWhileRegistered(waitSeconds) then
 			break
 		end
-		if isOnboardingActive(player) then
-			waitSeconds = rng:NextNumber(MIN_SEQUENCE_INTERVAL, MAX_SEQUENCE_INTERVAL)
-			continue
-		end
 		local sequenceStartedAt = os.clock()
-		RuntimeGuard.Run("PlotWindService.Sequence", runSequence, player, plot, record)
-		local elapsed = os.clock() - sequenceStartedAt
+		local _, hadEligiblePlayers = RuntimeGuard.Run("PlotWindService.Sequence", runSequence)
+		local elapsed = hadEligiblePlayers and (os.clock() - sequenceStartedAt) or 0
 		local intervalSeconds = rng:NextNumber(MIN_SEQUENCE_INTERVAL, MAX_SEQUENCE_INTERVAL)
 		waitSeconds = math.max(0, intervalSeconds - elapsed)
 	end
+end
+
+local function ensureGlobalLoop()
+	if globalLoopRunning then
+		return
+	end
+	globalLoopRunning = true
+	RuntimeGuard.Spawn("PlotWindService.GlobalLoop", function()
+		runGlobalLoop()
+		globalLoopRunning = false
+		if hasRecords() then
+			ensureGlobalLoop()
+		end
+	end)
 end
 
 function PlotWindService.StartForPlayer(player, plot)
@@ -212,7 +267,7 @@ function PlotWindService.StartForPlayer(player, plot)
 	}
 	recordsByUserId[key] = record
 
-	RuntimeGuard.Spawn("PlotWindService.Loop." .. tostring(key), runLoop, player, plot, record)
+	ensureGlobalLoop()
 end
 
 function PlotWindService.StopForPlayer(player)
