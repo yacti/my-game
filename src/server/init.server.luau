@@ -23,6 +23,7 @@ requireReplicaServer()
 local CashPackShopService = require(Server:WaitForChild("CashPackShopService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
+local PlotWindService   = require(Server:WaitForChild("PlotWindService"))
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local PetIncomeService  = require(Server:WaitForChild("PetIncomeService"))
@@ -933,6 +934,7 @@ local function teardownPlayerState(player, plot, profile, options)
 		RuntimeGuard.Run("PlayerTeardown.Snapshot." .. label, snapshotProfileState, player, plot, profile)
 	end
 	clearPendingPetFeedSnapshot(player)
+	RuntimeGuard.Run("PlayerTeardown.StopPlotWind." .. label, PlotWindService.StopForPlayer, player)
 	RuntimeGuard.Run("PlayerTeardown.ClearOfflineProgress." .. label, OfflineProgressService.Clear, player)
 	if plot then
 		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
@@ -1069,6 +1071,7 @@ local function handlePlayerAdded(player)
 		startPetMoneyLoop(player, plot, profile)
 		startPetCollectionLoop(player, plot, profile)
 		startProfileSnapshotLoop(player, plot, profile)
+		RuntimeGuard.Run("PlotWindService.StartForPlayer." .. label, PlotWindService.StartForPlayer, player, plot)
 
 		local toolsRestored = false
 		local function onCharacterAdded(character)

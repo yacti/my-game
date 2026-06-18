@@ -63,6 +63,7 @@ local CONTROLLERS = {
 	"GrowSkipController",
 	"PatchSlotVisuals",
 	"AppleTreeSlotVisuals",
+	"PlotWindController",
 	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",

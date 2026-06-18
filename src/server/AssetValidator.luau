@@ -65,6 +65,7 @@ local REQUIRED_CLIENT_SOUNDS = {
 	"CrateBreak",
 	"RollReveal",
 	"BirdBackingTrack",
+	"Wind",
 }
 
 local MUSIC_TRACK_VOLUME = 0.1
@@ -1417,6 +1418,14 @@ local function validateServerLuckHud(hud, warnings)
 	child(serverLuck, "Multiplier", "TextLabel", warnings)
 end
 
+local function validateWindBuffHud(hud, warnings)
+	local buffs = child(hud, "Buffs", "GuiObject", warnings)
+	local wind = buffs and child(buffs, "Wind", "GuiObject", warnings)
+	if not wind then return end
+
+	child(wind, "Timer", "TextLabel", warnings)
+end
+
 local function validateUpdateTimerHud(hud, warnings)
 	local updateTimer = child(hud, "UpdateTimer", "GuiObject", warnings)
 	if not updateTimer then return end
@@ -1883,6 +1892,7 @@ local function validateUi(errors, warnings)
 		validateHoverOverHud(hud, warnings)
 		validateJoinBackShowcaseUi(hud, warnings)
 		validateServerLuckHud(hud, warnings)
+		validateWindBuffHud(hud, warnings)
 		validateUpdateTimerHud(hud, warnings)
 		validateVipHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)
@@ -1987,7 +1997,7 @@ local function validateRemotes(errors)
 	if not ok then add(errors, tostring(err)) end
 end
 
-local function validatePlots(errors)
+local function validatePlots(errors, warnings)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
 	local rootPlots = {}
@@ -2059,6 +2069,40 @@ local function validatePlots(errors)
 		end
 	end
 
+	local function validateWindEffect(plot)
+		local matches = {}
+		for _, childInstance in ipairs(plot:GetChildren()) do
+			if childInstance.Name == "WindEffect" and childInstance:IsA("Model") then
+				matches[#matches + 1] = childInstance
+			end
+		end
+		if #matches ~= 1 then
+			add(warnings, string.format("%s should contain exactly one direct WindEffect Model for plot wind visuals; found %d", plot:GetFullName(), #matches))
+			return
+		end
+
+		local windEffect = matches[1]
+		local beamCount = 0
+		for _, descendant in ipairs(windEffect:GetDescendants()) do
+			if descendant:IsA("Beam") then
+				beamCount += 1
+			elseif descendant:IsA("BasePart") then
+				if not descendant.Anchored then
+					add(warnings, descendant:GetFullName() .. " should be Anchored for plot wind visuals")
+				end
+				if descendant.CanCollide or descendant.CanTouch or descendant.CanQuery then
+					add(warnings, descendant:GetFullName() .. " should be non-colliding, non-touching, and non-querying for plot wind visuals")
+				end
+				if descendant.CastShadow then
+					add(warnings, descendant:GetFullName() .. " should not cast shadows for invisible plot wind carrier geometry")
+				end
+			end
+		end
+		if beamCount == 0 then
+			add(warnings, windEffect:GetFullName() .. " should contain at least one Beam descendant for plot wind visuals")
+		end
+	end
+
 	local function validatePlotShape(plot)
 		local floor = plot:FindFirstChild("Floor")
 		if floor and not floor:IsA("BasePart") then
@@ -2115,6 +2159,7 @@ local function validatePlots(errors)
 				end
 			end
 		end
+		validateWindEffect(plot)
 	end
 
 	local function validateLoadingPads(folder)
@@ -2252,7 +2297,7 @@ function AssetValidator.validate()
 	validateRobuxShopPart(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)
-	validatePlots(errors)
+	validatePlots(errors, warnings)
 
 	if #warnings > 0 then
 		warn("[AssetValidator] Studio asset warnings:\n- " .. table.concat(warnings, "\n- "))

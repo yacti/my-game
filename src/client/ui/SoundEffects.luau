@@ -26,6 +26,7 @@ SoundEffects.Names = {
 	RollButtonClick = "RollButtonClick",
 	CrateBreak = "CrateBreak",
 	RollReveal = "RollReveal",
+	Wind = "Wind",
 }
 
 local function getSoundsFolder()

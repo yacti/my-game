@@ -4,5 +4,5 @@ return {
 
 	SlotRespawn = 1,
 	DropEffectDuration = 0.45,
-	EffectRadius = 15,
+	EffectRadius = 35,
 }

@@ -17,34 +17,31 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
+local TreeMotionEffects = require(script.Parent:WaitForChild("TreeMotionEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local XPBillboardTemplate = require(script.Parent:WaitForChild("XPBillboardTemplate"))
 
 local TreeVisuals = {}
 
 local LOCAL_GROUND_VISUAL_FOLDER = "__ClientTreeGroundVisuals"
+local TREE_SHAKE_SOUND_ATTACHMENT = "__TreeShakeSoundSource"
 local RESPAWN_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local DROP_TWEEN_INFO    = TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local XP_COUNT_TWEEN_INFO = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local START_SCALE        = 0.35
-local SHAKE_DURATION     = 0.25
-local SHAKE_ANGLE        = math.rad(5)
-local SHAKE_OFFSET       = 0.12
 local BILLBOARD_RANGE    = 40
 local GROUND_VISUAL_RANGE = 90
 local SCOPE_RANGE        = 100
+local TREE_SHAKE_SOUND_RANGE = 35
+local TREE_SHAKE_SOUND_MIN_RANGE = 4
+local TREE_SHAKE_SOUND_HEIGHT = 3
 local GROUND_VISUAL_CHECK_INTERVAL = 0.2
 
 local player = Players.LocalPlayer
 local animated = {}
-local activeShakeTargets = {}
 local billboards = {}
 local pendingGroundFood = {}
--- Weak keys: shake tokens are plain numbers, so destroyed trees fall out on
--- GC instead of being pinned by their token entry forever.
-local shakeIds = setmetatable({}, { __mode = "k" })
 local groundMarkers = {}
-local shakeTargetCache = {}
 
 local function isTreeClicker(tree)
 	if not tree or not tree:IsA("Model") then return false end
@@ -549,179 +546,20 @@ local function renderDrop(anchor, marker, foodId, duration)
 	tween:Play()
 end
 
-local function targetCFrame(target)
-	if target:IsA("BasePart") then return target.CFrame end
-	if target:IsA("Model") then return target:GetPivot() end
-	return CFrame.identity
-end
-
-local function applyTargetCFrame(target, cframe)
-	if target:IsA("BasePart") then
-		target.CFrame = cframe
-	elseif target:IsA("Model") then
-		target:PivotTo(cframe)
-	end
-end
-
-local function applyShakeTarget(target, cframe)
-	applyTargetCFrame(target.instance, cframe)
-	if not target.children then return end
-
-	for _, child in ipairs(target.children) do
-		if child.instance.Parent then
-			child.instance.CFrame = cframe * child.localCFrame
-		end
-	end
-end
-
-local function restoreTargets(targets)
-	for _, target in ipairs(targets) do
-		if target.instance.Parent then
-			applyShakeTarget(target, target.baseCFrame)
-		end
-	end
-end
-
-local function hasLeafAncestor(part, tree)
-	local parent = part.Parent
-	while parent and parent ~= tree do
-		if parent:IsA("BasePart") and parent.Name == "Leaf" then
-			return true
-		end
-		parent = parent.Parent
-	end
-	return false
-end
-
-local function leafChildren(leaf)
-	local children = {}
-	for _, descendant in ipairs(leaf:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			table.insert(children, {
-				instance = descendant,
-				localCFrame = leaf.CFrame:ToObjectSpace(descendant.CFrame),
-			})
-		end
-	end
-	return children
-end
-
-local function collectShakeTargets(tree)
-	local targets = {}
-	for _, d in ipairs(tree:GetDescendants()) do
-		if d:IsA("BasePart") and d.Name == "Leaf" and not hasLeafAncestor(d, tree) then
-			table.insert(targets, {
-				instance = d,
-				baseCFrame = d.CFrame,
-				children = leafChildren(d),
-				phase = math.random() * math.pi * 2,
-			})
-		end
-	end
-	for _, anchor in ipairs(tree:GetChildren()) do
-		if anchor.Name == "SlotAnchor" then
-			for _, child in ipairs(anchor:GetChildren()) do
-				if child:IsA("BasePart") or child:IsA("Model") then
-					table.insert(targets, {
-						instance = child,
-						baseCFrame = targetCFrame(child),
-						phase = #targets * 0.7,
-					})
-				end
-			end
-		end
-	end
-	return targets
-end
-
-local function clearShakeTargetCache(tree)
-	local record = shakeTargetCache[tree]
-	if not record then return end
-	for _, conn in ipairs(record.conns) do
-		conn:Disconnect()
-	end
-	local activeTargets = activeShakeTargets[tree]
-	if activeTargets then
-		restoreTargets(activeTargets)
-		activeShakeTargets[tree] = nil
-	end
-	shakeIds[tree] = (shakeIds[tree] or 0) + 1
-	shakeTargetCache[tree] = nil
-end
-
-local function cachedShakeTargets(tree)
-	local record = shakeTargetCache[tree]
-	if record then
-		for _, target in ipairs(record.targets) do
-			if target.instance.Parent then
-				target.baseCFrame = targetCFrame(target.instance)
-			end
-		end
-		return record.targets
+local function treeShakeSoundParent(tree, fallback)
+	local primary = tree.PrimaryPart
+	if not (primary and primary:IsA("BasePart")) then
+		return fallback
 	end
 
-	local targets = collectShakeTargets(tree)
-	local conns = {}
-	local function invalidate()
-		clearShakeTargetCache(tree)
+	local attachment = primary:FindFirstChild(TREE_SHAKE_SOUND_ATTACHMENT)
+	if not (attachment and attachment:IsA("Attachment")) then
+		attachment = Instance.new("Attachment")
+		attachment.Name = TREE_SHAKE_SOUND_ATTACHMENT
+		attachment.Parent = primary
 	end
-	table.insert(conns, tree.DescendantAdded:Connect(invalidate))
-	table.insert(conns, tree.DescendantRemoving:Connect(invalidate))
-	table.insert(conns, tree.AncestryChanged:Connect(function()
-		if not tree:IsDescendantOf(Workspace) then
-			invalidate()
-		end
-	end))
-	shakeTargetCache[tree] = {
-		targets = targets,
-		conns = conns,
-	}
-	return targets
-end
-
-local function shakeTree(tree)
-	if not tree or not tree.Parent then return end
-
-	local previousTargets = activeShakeTargets[tree]
-	if previousTargets then
-		restoreTargets(previousTargets)
-	end
-
-	local targets = cachedShakeTargets(tree)
-	if #targets == 0 then return end
-
-	shakeIds[tree] = (shakeIds[tree] or 0) + 1
-	local shakeId = shakeIds[tree]
-	local startedAt = os.clock()
-	activeShakeTargets[tree] = targets
-
-	task.spawn(function()
-		while shakeIds[tree] == shakeId and tree.Parent do
-			local elapsed = os.clock() - startedAt
-			local alpha = elapsed / SHAKE_DURATION
-			if alpha >= 1 then break end
-
-			local fade = 1 - alpha
-			for _, target in ipairs(targets) do
-				if target.instance.Parent then
-					local wave = math.sin((elapsed * 42) + target.phase) * fade
-					applyShakeTarget(
-						target,
-						target.baseCFrame
-							* CFrame.new(wave * SHAKE_OFFSET, 0, 0)
-							* CFrame.Angles(0, 0, wave * SHAKE_ANGLE)
-					)
-				end
-			end
-			RunService.RenderStepped:Wait()
-		end
-
-		if shakeIds[tree] ~= shakeId or activeShakeTargets[tree] ~= targets then
-			return
-		end
-		restoreTargets(targets)
-		activeShakeTargets[tree] = nil
-	end)
+	attachment.Position = Vector3.new(0, (-primary.Size.Y / 2) + TREE_SHAKE_SOUND_HEIGHT, 0)
+	return attachment
 end
 
 function TreeVisuals.start()
@@ -747,9 +585,7 @@ function TreeVisuals.start()
 				for obj in pairs(pendingGroundFood) do
 					if obj:IsDescendantOf(plot) then clearPendingGroundFood(obj) end
 				end
-				for tree in pairs(shakeTargetCache) do
-					if tree:IsDescendantOf(plot) then clearShakeTargetCache(tree) end
-				end
+				TreeMotionEffects.ClearPlot(plot)
 			end
 		end,
 	})
@@ -773,8 +609,16 @@ function TreeVisuals.start()
 		if typeof(anchor) ~= "Instance" or not anchor:IsA("BasePart") then return end
 		if typeof(marker) ~= "Instance" or not marker:IsA("BasePart") then return end
 		if type(foodId) ~= "string" then return end
-		SoundEffects.PlayVaried(SoundEffects.Names.TreeShaken)
-		shakeTree(tree)
+		if payload.playSound ~= false then
+			SoundEffects.PlayVaried(SoundEffects.Names.TreeShaken, {
+				parent = treeShakeSoundParent(tree, anchor),
+				range = TREE_SHAKE_SOUND_RANGE,
+				rollOffMinDistance = TREE_SHAKE_SOUND_MIN_RANGE,
+			})
+		end
+		if payload.shakeTree ~= false then
+			TreeMotionEffects.ShakeTree(tree)
+		end
 		renderDrop(anchor, marker, foodId, duration)
 	end)
 end

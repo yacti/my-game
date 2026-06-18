@@ -48,13 +48,15 @@ local TreeClickerEffect = Remotes.get(Remotes.Names.TreeClickerEffect)
 local TreeClickerRequest = Remotes.get(Remotes.Names.TreeClickerRequest)
 
 local MAX_CLICKS_PER_SECOND = 5
+local REMOTE_CLICK_REFILL_RATE = 5
+local REMOTE_CLICK_BURST = 8
 local CLICK_DISTANCE = 24
 local TREE_CLICK_TARGET_NAME = "LeafShake"
 
 local DEFAULT_BALANCE = {
 	SlotRespawn = 1,
 	DropEffectDuration = 0.45,
-	EffectRadius = 15,
+	EffectRadius = 35,
 }
 
 -- Collision groups: tree-clicker fruits and ground markers physically collide
@@ -99,6 +101,7 @@ local BALANCES = {
 -- }
 local state = {}
 local groundToSlot = {}
+local remoteClickBuckets = {}
 
 local function feedTypeOf(machine)
 	local feedType = machine:GetAttribute(State.Feed.Type)
@@ -151,6 +154,37 @@ end
 
 local function clickIntervalFor()
 	return 1 / MAX_CLICKS_PER_SECOND
+end
+
+local function userKey(player)
+	return player and player.UserId or nil
+end
+
+local function allowRemoteTreeClick(player)
+	local key = userKey(player)
+	if key == nil then
+		return false
+	end
+
+	local now = os.clock()
+	local bucket = remoteClickBuckets[key]
+	if not bucket then
+		bucket = {
+			tokens = REMOTE_CLICK_BURST,
+			updatedAt = now,
+		}
+		remoteClickBuckets[key] = bucket
+	end
+
+	local elapsed = math.max(0, now - bucket.updatedAt)
+	bucket.updatedAt = now
+	bucket.tokens = math.min(REMOTE_CLICK_BURST, bucket.tokens + (elapsed * REMOTE_CLICK_REFILL_RATE))
+	if bucket.tokens < 1 then
+		return false
+	end
+
+	bucket.tokens -= 1
+	return true
 end
 
 -- ── Slot visuals (cosmetic on-tree fruits) ────────────────────────────────────
@@ -344,13 +378,18 @@ local function applyDrop(machine, s, slot, foodId, player)
 	end
 end
 
-local function findReadySlot(s)
+local function readySlots(s)
 	local ready = {}
 	for _, slot in ipairs(s.slots) do
 		if slot.foodPart and not slot.respawnAt then
 			table.insert(ready, slot)
 		end
 	end
+	return ready
+end
+
+local function findReadySlot(s)
+	local ready = readySlots(s)
 	if #ready == 0 then return nil end
 	return ready[math.random(1, #ready)]
 end
@@ -395,7 +434,10 @@ local function treeClickTargets(machine)
 	return targets
 end
 
-local function fireEffectNearby(machine, balance, anchor, marker, foodId, triggeringPlayer)
+local function fireEffectNearby(machine, balance, anchor, marker, foodId, triggeringPlayer, effectOptions)
+	effectOptions = type(effectOptions) == "table" and effectOptions or {}
+	local effectRadius = tonumber(effectOptions.effectRadius) or balance.EffectRadius
+	local includeTriggeringPlayer = effectOptions.includeTriggeringPlayer ~= false
 	local origin = anchor.Position
 	local payload = {
 		machine = machine,
@@ -403,9 +445,11 @@ local function fireEffectNearby(machine, balance, anchor, marker, foodId, trigge
 		marker = marker,
 		foodId = foodId,
 		duration = balance.DropEffectDuration,
+		playSound = effectOptions.playSound ~= false,
+		shakeTree = effectOptions.shakeTree ~= false,
 	}
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player == triggeringPlayer or isPlayerNear(player, origin, balance.EffectRadius) then
+		if (includeTriggeringPlayer and player == triggeringPlayer) or isPlayerNear(player, origin, effectRadius) then
 			RuntimeGuard.Run("TreeClicker.EffectFireClient", function()
 				TreeClickerEffect:FireClient(player, payload)
 			end)
@@ -429,7 +473,23 @@ local function scheduleSlotRespawn(machine, s, slot)
 	end)
 end
 
-local function onTreeClicked(machine, s, player)
+local function triggerReadySlotDrop(machine, s, slot, player, effectOptions)
+	if not (slot and slot.foodPart and not slot.respawnAt) then
+		return false
+	end
+
+	clearSlotVisual(slot)
+	scheduleSlotRespawn(machine, s, slot)
+
+	local foodId = s.foodDrop
+	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId, player, effectOptions)
+	task.delay(s.balance.DropEffectDuration, function()
+		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId, player)
+	end)
+	return true
+end
+
+local function onTreeClicked(machine, s, player, effectOptions)
 	if player ~= s.owner then return false end
 	if s.owner:GetAttribute("EditMode") == true then return false end
 
@@ -440,15 +500,10 @@ local function onTreeClicked(machine, s, player)
 	local slot = findReadySlot(s)
 	if not slot then return false end
 
-	clearSlotVisual(slot)
-	scheduleSlotRespawn(machine, s, slot)
+	if not triggerReadySlotDrop(machine, s, slot, player, effectOptions) then
+		return false
+	end
 	s.lastClick = now
-
-	local foodId = s.foodDrop
-	fireEffectNearby(machine, s.balance, slot.anchor, slot.marker, foodId, player)
-	task.delay(s.balance.DropEffectDuration, function()
-		RuntimeGuard.Run("TreeClicker.ApplyDrop", applyDrop, machine, s, slot, foodId, player)
-	end)
 	return true
 end
 
@@ -578,6 +633,9 @@ function TreeClicker.Teardown(machine)
 end
 
 local function onTreeClickRequest(player, machine)
+	if not allowRemoteTreeClick(player) then
+		return
+	end
 	if typeof(machine) ~= "Instance" or not machine:IsA("Model") then
 		return
 	end
@@ -592,6 +650,12 @@ local function onTreeClickRequest(player, machine)
 end
 
 RuntimeGuard.Connect(TreeClickerRequest.OnServerEvent, "TreeClicker.Request", onTreeClickRequest)
+RuntimeGuard.Connect(Players.PlayerRemoving, "TreeClicker.PlayerRemoving", function(player)
+	local key = userKey(player)
+	if key ~= nil then
+		remoteClickBuckets[key] = nil
+	end
+end)
 
 -- Persist piles per slot. Position is regenerated from each slot's
 -- BaseFoodGround marker on Apply, so we only save foodId + xp.
@@ -707,15 +771,68 @@ function TreeClicker.CommitSteal(machine, reservation, reservationId)
 	return true, machine
 end
 
-function TreeClicker.StressClick(machine, player)
-	if not RunService:IsStudio() then
-		return false, "not-studio"
-	end
+function TreeClicker.TriggerDrop(machine, player, effectOptions)
 	local s = machine and state[machine]
 	if not (s and machine.Parent) then
 		return false, "not-setup"
 	end
-	return onTreeClicked(machine, s, player)
+	if player ~= s.owner then
+		return false, "not-owner"
+	end
+	return onTreeClicked(machine, s, player, effectOptions)
+end
+
+function TreeClicker.TriggerWindWave(machine, player, amount, effectOptions)
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then
+		return false, "not-setup"
+	end
+	if player ~= s.owner then
+		return false, "not-owner"
+	end
+	if s.owner:GetAttribute("EditMode") == true then
+		return false, "edit-mode"
+	end
+
+	amount = math.max(math.floor(tonumber(amount) or 0), 0)
+	if amount <= 0 then
+		return false, "invalid-amount"
+	end
+
+	local ready = readySlots(s)
+	if #ready == 0 then
+		return false, "no-ready-slots"
+	end
+
+	local dropped = 0
+	for dropIndex = 1, math.min(amount, #ready) do
+		local slot = table.remove(ready, math.random(1, #ready))
+		local dropOptions = {}
+		if type(effectOptions) == "table" then
+			for key, value in pairs(effectOptions) do
+				dropOptions[key] = value
+			end
+		end
+		if dropIndex > 1 then
+			dropOptions.playSound = false
+			dropOptions.shakeTree = false
+		end
+		if triggerReadySlotDrop(machine, s, slot, player, dropOptions) then
+			dropped += 1
+		end
+	end
+
+	if dropped <= 0 then
+		return false, "no-drops"
+	end
+	return true, dropped
+end
+
+function TreeClicker.StressClick(machine, player)
+	if not RunService:IsStudio() then
+		return false, "not-studio"
+	end
+	return TreeClicker.TriggerDrop(machine, player)
 end
 
 return TreeClicker

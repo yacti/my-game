@@ -15,6 +15,9 @@
         "TreeClickerRequest": {
           "$className": "RemoteEvent"
         },
+        "PlotWindEffect": {
+          "$className": "RemoteEvent"
+        },
         "GridUnlockEffect": {
           "$className": "RemoteEvent"
         },
@@ -245,6 +248,14 @@
           "$properties": {
             "SoundId": "rbxassetid://4915214793",
             "Volume": 0.03,
+            "Looped": true
+          }
+        },
+        "Wind": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://93035214379043",
+            "Volume": 0.35,
             "Looped": true
           }
         },

@@ -45,11 +45,13 @@ local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = 
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
 local passiveTreePickupTargets = setmetatable({}, { __mode = "k" })
+local passiveTreePickupAttempted = setmetatable({}, { __mode = "k" })
 local activeAutoCandidate = nil
 local activeMobileAutoCandidate = nil
 local autoHoldMode = nil
 local autoHoldNextActionAt = 0
 local autoHoldInputKeyCode = nil
+local autoHoldInputUserInputType = nil
 local autoHoldLockedTarget = nil
 local passiveTreePickupNextActionAt = 0
 local autoSuppressedTargets = setmetatable({}, { __mode = "k" })
@@ -72,6 +74,7 @@ local FAR_PROMPT_REFRESH_BUFFER = 12
 local AUTO_ACTION_INTERVAL = 0.27
 local AUTO_RETRY_INTERVAL = 0.1
 local PASSIVE_TREE_PICKUP_INTERVAL = AUTO_ACTION_INTERVAL
+local PASSIVE_TREE_PICKUP_DISTANCE = 4.5
 local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
 local COLLECT_TARGET_SUPPRESS_SECONDS = 1
 local FEED_INTENT_GRACE_SECONDS = 2
@@ -509,6 +512,25 @@ local function inputMatchesPrompt(input, prompt)
 	return false
 end
 
+local function isAutoHoldInputStillDown()
+	if autoHoldInputKeyCode == nil then
+		return true
+	end
+	if autoHoldInputUserInputType == Enum.UserInputType.Keyboard then
+		local ok, isDown = pcall(function()
+			return UserInputService:IsKeyDown(autoHoldInputKeyCode)
+		end)
+		return ok and isDown == true
+	end
+	if isGamepadInputType(autoHoldInputUserInputType) then
+		local ok, isDown = pcall(function()
+			return UserInputService:IsGamepadButtonDown(autoHoldInputUserInputType, autoHoldInputKeyCode)
+		end)
+		return ok and isDown == true
+	end
+	return true
+end
+
 local function playPromptSound(kind)
 	if kind == "PetFeed" then
 		PetFeedLullabyController.PlayNextFeedNote()
@@ -654,51 +676,6 @@ local function loadedTreeGroundPosition(marker)
 		return nil
 	end
 	return instanceWorldCenter(marker)
-end
-
-local function findPassiveTreeGroundPickupCandidate()
-	if isShovelEquipped() or isOfflineProgressPending() or isPlacementPromptBlocked() then
-		return nil
-	end
-	if isEditMode() then
-		return nil
-	end
-
-	local rootPosition = playerRootPosition()
-	if not rootPosition then
-		return nil
-	end
-
-	local closest = nil
-	local closestDistanceSq = math.huge
-	local pickupDistanceSq = FOOD_PICKUP_PROMPT_DISTANCE * FOOD_PICKUP_PROMPT_DISTANCE
-	for target in pairs(passiveTreePickupTargets) do
-		local bucket = byTarget[target]
-		local prompt = bucket and bucket.TreeGroundPickup
-		if not (prompt and prompt.Parent ~= nil and target.Parent ~= nil) then
-			passiveTreePickupTargets[target] = nil
-			continue
-		end
-		if isAutoSuppressedPrompt(target, "TreeGroundPickup") then
-			continue
-		end
-		if isInOwnPlot(target) ~= true or isHiddenByTutorial("TreeGroundPickup", target) then
-			continue
-		end
-		if not isTreeGroundPickupTarget(target) then
-			continue
-		end
-
-		local markerPosition = loadedTreeGroundPosition(target)
-		local delta = markerPosition and markerPosition - rootPosition or nil
-		local distanceSq = delta and delta:Dot(delta) or nil
-		if distanceSq and distanceSq <= pickupDistanceSq and distanceSq < closestDistanceSq then
-			closest = autoCandidateFor(target, "TreeGroundPickup", prompt, math.sqrt(distanceSq))
-			closestDistanceSq = distanceSq
-		end
-	end
-
-	return closest
 end
 
 local function externalPromptHighlightTarget(record)
@@ -1042,11 +1019,16 @@ function LocalPrompts.EndAutoHold()
 	autoHoldMode = nil
 	autoHoldNextActionAt = 0
 	autoHoldInputKeyCode = nil
+	autoHoldInputUserInputType = nil
 	autoHoldLockedTarget = nil
 end
 
 local function stepAutoHold()
 	if not autoHoldMode then
+		return
+	end
+	if not isAutoHoldInputStillDown() then
+		LocalPrompts.EndAutoHold()
 		return
 	end
 	if isPlacementPromptBlocked() then
@@ -1077,11 +1059,70 @@ local function stepAutoHold()
 	end
 end
 
-local function stepPassiveTreeGroundPickup()
+local function startAutoHoldState(mode, lockedTarget, inputUserInputType, inputKeyCode, firstDelay)
 	if autoHoldMode ~= nil then
-		return
+		return false
+	end
+	if mode ~= LocalPrompts.AutoModes.Feed and mode ~= LocalPrompts.AutoModes.Collect then
+		return false
+	end
+	autoHoldMode = mode
+	autoHoldNextActionAt = os.clock() + math.max(tonumber(firstDelay) or 0, 0)
+	autoHoldLockedTarget = lockedTarget
+	autoHoldInputUserInputType = inputUserInputType
+	autoHoldInputKeyCode = inputKeyCode
+	return true
+end
+
+local function findPassiveTreeGroundPickupCandidate()
+	if autoHoldMode ~= nil or isShovelEquipped() or isOfflineProgressPending() or isPlacementPromptBlocked() then
+		return nil
+	end
+	if isEditMode() then
+		return nil
 	end
 
+	local rootPosition = playerRootPosition()
+	if not rootPosition then
+		return nil
+	end
+
+	local closest = nil
+	local closestDistanceSq = math.huge
+	local pickupDistanceSq = PASSIVE_TREE_PICKUP_DISTANCE * PASSIVE_TREE_PICKUP_DISTANCE
+	for target in pairs(passiveTreePickupTargets) do
+		local bucket = byTarget[target]
+		local prompt = bucket and bucket.TreeGroundPickup
+		if not (prompt and prompt.Parent ~= nil and target.Parent ~= nil) then
+			passiveTreePickupTargets[target] = nil
+			passiveTreePickupAttempted[target] = nil
+			continue
+		end
+		if isInOwnPlot(target) ~= true or isHiddenByTutorial("TreeGroundPickup", target) or not isTreeGroundPickupTarget(target) then
+			passiveTreePickupAttempted[target] = nil
+			continue
+		end
+
+		local markerPosition = loadedTreeGroundPosition(target)
+		local delta = markerPosition and markerPosition - rootPosition or nil
+		local distanceSq = delta and delta:Dot(delta) or nil
+		if not distanceSq or distanceSq > pickupDistanceSq then
+			passiveTreePickupAttempted[target] = nil
+			continue
+		end
+
+		if not passiveTreePickupAttempted[target]
+			and not isAutoSuppressedPrompt(target, "TreeGroundPickup")
+			and distanceSq < closestDistanceSq then
+			closest = autoCandidateFor(target, "TreeGroundPickup", prompt, math.sqrt(distanceSq))
+			closestDistanceSq = distanceSq
+		end
+	end
+
+	return closest
+end
+
+local function stepPassiveTreeGroundPickup()
 	local now = os.clock()
 	if now < passiveTreePickupNextActionAt then
 		return
@@ -1089,6 +1130,7 @@ local function stepPassiveTreeGroundPickup()
 
 	local candidate = findPassiveTreeGroundPickupCandidate()
 	if candidate then
+		passiveTreePickupAttempted[candidate.target] = true
 		LocalPrompts.TriggerAutoPrompt(candidate)
 	end
 	passiveTreePickupNextActionAt = now + PASSIVE_TREE_PICKUP_INTERVAL
@@ -1131,6 +1173,7 @@ local function removePrompt(target, kind)
 	end
 	if kind == "TreeGroundPickup" then
 		passiveTreePickupTargets[target] = nil
+		passiveTreePickupAttempted[target] = nil
 	end
 end
 
@@ -1233,6 +1276,20 @@ addPrompt = function(target, kind, action)
 		suppressCollectAutoTarget(target, kind, prompt)
 		playPromptSound(kind)
 		PromptInteract:FireServer(action, target)
+		if isCollectAutoKind(kind) and autoHoldMode == nil then
+			local ok, isDown = pcall(function()
+				return UserInputService:IsKeyDown(prompt.KeyboardKeyCode)
+			end)
+			if ok and isDown == true then
+				startAutoHoldState(
+					LocalPrompts.AutoModes.Collect,
+					nil,
+					Enum.UserInputType.Keyboard,
+					prompt.KeyboardKeyCode,
+					PROMPT_AUTO_FIRST_REPEAT_DELAY
+				)
+			end
+		end
 	end)
 	-- Stored and disconnected in removePrompt: many targets (ground markers,
 	-- machines) outlive their prompts by a whole session, so an unstored
@@ -1247,6 +1304,7 @@ addPrompt = function(target, kind, action)
 	byTarget[target][kind] = prompt
 	if kind == "TreeGroundPickup" then
 		passiveTreePickupTargets[target] = true
+		passiveTreePickupAttempted[target] = nil
 	end
 end
 
@@ -1547,14 +1605,20 @@ local function beginPromptAutoHold(input)
 		return
 	end
 
+	local lockedTarget = visibleCandidate.target
+	if visibleCandidate.mode == LocalPrompts.AutoModes.Collect then
+		lockedTarget = nil
+	end
+
 	local candidate = LocalPrompts.BeginAutoHold(visibleCandidate.mode, {
 		firstDelay = PROMPT_AUTO_FIRST_REPEAT_DELAY,
-		lockedTarget = visibleCandidate.target,
+		lockedTarget = lockedTarget,
 	})
 	if not candidate then
 		return
 	end
 	autoHoldInputKeyCode = input.KeyCode
+	autoHoldInputUserInputType = input.UserInputType
 end
 
 local function endPromptAutoHold(input)
