@@ -278,7 +278,7 @@ local function beginPress(input)
 		return
 	end
 
-	currentCandidate = LocalPrompts.BeginAutoHold(nil, { immediate = true })
+	currentCandidate = LocalPrompts.BeginPromptActionHold(nil, { immediate = true })
 	if not currentCandidate then
 		setButtonMode(nil, false)
 		return
@@ -296,16 +296,14 @@ local function endPress(input)
 		return
 	end
 	if input ~= nil and activePressInput ~= nil and input ~= activePressInput then
-		if activePressInputType ~= Enum.UserInputType.Touch or input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
+		return
 	end
 
 	pressed = false
 	activePressInput = nil
 	activePressInputType = nil
 	lockedMode = nil
-	LocalPrompts.EndAutoHold()
+	LocalPrompts.EndPromptActionHold()
 	refreshIdleState({ liveLookup = true })
 end
 

@@ -25,6 +25,21 @@ local function consumeRateLimit(map, player, interval)
 	return true
 end
 
+local function acquirePlayerLock(map, player)
+	local key = userKey(player)
+	if key == nil or map[key] then
+		return false
+	end
+	map[key] = true
+	return true, key
+end
+
+local function releasePlayerLock(map, key)
+	if key ~= nil then
+		map[key] = nil
+	end
+end
+
 local function actionSetFromList(actions)
 	local set = {}
 	if type(actions) ~= "table" then
@@ -40,14 +55,6 @@ local function actionSetFromList(actions)
 	return set
 end
 
-local function withPlayerLock(map, player, callback)
-	local key = userKey(player)
-	if key == nil or map[key] then return end
-	map[key] = true
-	RuntimeGuard.Run("PromptInteractionService.Handler", callback)
-	map[key] = nil
-end
-
 function PromptInteractionService.Start(config)
 	config = config or {}
 	local handlers = config.handlers or {}
@@ -55,34 +62,34 @@ function PromptInteractionService.Start(config)
 	local afterInteraction = config.afterInteraction
 	local requireTargetInPlot = config.requireTargetInPlot ~= false
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
-	local autoActionRateSeconds = tonumber(config.autoActionRateSeconds)
-	local autoActions = actionSetFromList(config.autoActions)
+	local familyActionRateSeconds = tonumber(config.familyActionRateSeconds)
+	local familyActions = actionSetFromList(config.familyActions)
 	local lastFire = {}
-	local lastAutoFire = {}
+	local lastFamilyAction = {}
 	local locks = {}
 
 	RuntimeGuard.Connect(Players.PlayerRemoving, "PromptInteractionService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key == nil then return end
 		lastFire[key] = nil
-		lastAutoFire[key] = nil
+		lastFamilyAction[key] = nil
 		locks[key] = nil
 	end)
 
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PromptInteract).OnServerEvent, "PromptInteractionService.PromptInteract", function(player, action, target, isAutoHold)
 		if type(action) ~= "string" or typeof(target) ~= "Instance" then return end
-		if not consumeRateLimit(lastFire, player, rateSeconds) then return end
+		if not consumeRateLimit(lastFire, player, rateSeconds) then
+			TelemetryService.Record("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "rate-limited",
+				action = action,
+			}))
+			return
+		end
 		if not Interactions.IsAction(action) then
 			TelemetryService.Warn("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
 				reason = "invalid-action",
 				action = action,
 			}))
-			return
-		end
-		if isAutoHold == true
-			and autoActionRateSeconds
-			and autoActions[action] == true
-			and not consumeRateLimit(lastAutoFire, player, autoActionRateSeconds) then
 			return
 		end
 		if type(getContext) ~= "function" then return end
@@ -100,15 +107,54 @@ function PromptInteractionService.Start(config)
 			return
 		end
 
-		local handlerResult = nil
-		withPlayerLock(locks, player, function()
-			local handler = handlers[action]
-			if handler then
-				handlerResult = handler(player, target, plot, profile)
-			end
-		end)
+		local handler = handlers[action]
+		if type(handler) ~= "function" then
+			TelemetryService.Warn("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "no-handler",
+				action = action,
+			}))
+			return
+		end
 
-		if type(afterInteraction) == "function" then
+		local acquired, lockKey = acquirePlayerLock(locks, player)
+		if not acquired then
+			TelemetryService.Record("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "lock-busy",
+				action = action,
+				isAutoHold = isAutoHold == true,
+			}))
+			return
+		end
+
+		local handlerResult = nil
+		local handlerRan = false
+		local shouldReleaseLock = true
+		local function release()
+			if shouldReleaseLock then
+				shouldReleaseLock = false
+				releasePlayerLock(locks, lockKey)
+			end
+		end
+
+		if familyActionRateSeconds
+			and familyActions[action] == true
+			and not consumeRateLimit(lastFamilyAction, player, familyActionRateSeconds) then
+			TelemetryService.Record("prompt_interact_rejected", TelemetryService.ForPlayer(player, {
+				reason = "family-rate-limited",
+				action = action,
+				isAutoHold = isAutoHold == true,
+			}))
+			release()
+			return
+		end
+
+		local handlerOk = RuntimeGuard.Run("PromptInteractionService.Handler", function()
+			handlerRan = true
+			handlerResult = handler(player, target, plot, profile)
+		end)
+		release()
+
+		if handlerRan and handlerOk and type(afterInteraction) == "function" then
 			RuntimeGuard.Run("PromptInteractionService.AfterInteraction", afterInteraction, player, plot, profile, action, target, handlerResult)
 		end
 	end)

@@ -65,6 +65,7 @@ local Inventory = require(Shared:WaitForChild("Inventory"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PromptActionConfig = require(Shared:WaitForChild("PromptActionConfig"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
 local State    = require(Shared:WaitForChild("State"))
 local Food     = require(Shared:WaitForChild("Food"))
@@ -87,12 +88,11 @@ CurrencyService.RegisterChangedCallback(function(player, profile, amount)
 end)
 
 local PROMPT_RATE_SECONDS = 1 / 10
-local AUTO_PROMPT_RATE_SECONDS = 1 / 4
+local PROMPT_ACTION_RATE_SECONDS = PromptActionConfig.ActionIntervalSeconds
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
 local PET_FEED_REACTION_SECONDS = 2
-local PET_FEED_PROMPT_DISTANCE = 8
 local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local OFFLINE_PET_EARN_FRACTION = 0.01
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
@@ -681,17 +681,6 @@ local function withinHorizontalDistance(rootPosition, targetX, targetZ, maxDista
 	return dx * dx + dz * dz <= distance * distance
 end
 
-local function isPlayerNearPet(player, pet, maxDistance)
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not (root and root:IsA("BasePart")) then
-		return false
-	end
-
-	local petX, petZ = PetMotionService.GetLogicalPlanarPosition(pet)
-	return withinHorizontalDistance(root.Position, petX, petZ, maxDistance)
-end
-
 local function playerFloorLocal(plot, player)
 	local floor = PlotService.GetFloor(plot)
 	local character = player.Character
@@ -721,7 +710,6 @@ local function feedPet(plot, player, profile, pet)
 	local primary = pet.PrimaryPart
 	if not primary then return false end
 	if player:GetAttribute("EditMode") == true then return false end
-	if not isPlayerNearPet(player, pet, PET_FEED_PROMPT_DISTANCE) then return false end
 
 	local idx = pet:GetAttribute(State.Pet.Index)
 	local petData = profile.Data.Pets[idx]
@@ -1179,12 +1167,8 @@ end)
 RuntimeGuard.Run("PromptInteractionService.Start", function()
 	PromptInteractionService.Start({
 		rateSeconds = PROMPT_RATE_SECONDS,
-		autoActionRateSeconds = AUTO_PROMPT_RATE_SECONDS,
-		autoActions = {
-			Interactions.Actions.PetFeed,
-			Interactions.Actions.PatchHarvest,
-			Interactions.Actions.TreeGroundPickup,
-		},
+		familyActionRateSeconds = PROMPT_ACTION_RATE_SECONDS,
+		familyActions = PromptActionConfig.FeedCollectActions,
 		getContext = function(player)
 			if OfflineProgressService.IsPending(player) then
 				return nil, nil
