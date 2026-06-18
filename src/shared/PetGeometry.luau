@@ -111,6 +111,32 @@ function PetGeometry.WorldBottomCenterPosition(instance)
 	return Vector3.new(center.X, lowestY, center.Z)
 end
 
+function PetGeometry.WorldBottomFrontPosition(instance)
+	if not (instance and (instance:IsA("Model") or instance:IsA("BasePart"))) then
+		return nil
+	end
+
+	local cframe, size
+	if instance:IsA("Model") then
+		cframe, size = instance:GetBoundingBox()
+	else
+		cframe = instance.CFrame
+		size = instance.Size
+	end
+
+	local bottomCenter = PetGeometry.WorldBottomCenterPosition(instance)
+	if not (bottomCenter and finiteVector3(size)) then
+		return nil
+	end
+
+	local frontCenter = cframe:PointToWorldSpace(Vector3.new(0, 0, -size.Z * 0.5 + 1))
+	if not finiteVector3(frontCenter) then
+		return nil
+	end
+
+	return Vector3.new(frontCenter.X, bottomCenter.Y, frontCenter.Z)
+end
+
 function PetGeometry.PivotFloorOffset(model)
 	if not (model and (model:IsA("Model") or model:IsA("BasePart"))) then
 		return nil

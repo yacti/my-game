@@ -321,7 +321,7 @@ local function promptAnchorWorldPosition(instance, kind)
 		return rollButtonPromptPosition(instance)
 	end
 	if kind == "PetFeed" and instance:IsA("Model") then
-		return PetGeometry.WorldBottomCenterPosition(instance)
+		return PetGeometry.WorldBottomFrontPosition(instance)
 	end
 	local anchor = promptAnchorInstance(instance, kind)
 	return anchor and instanceWorldCenter(anchor) or nil
