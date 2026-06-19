@@ -45,6 +45,7 @@ function Notifications.Normalize(payload)
 		normalized.text = payload.text or payload.message or payload[1]
 		normalized.kind = payload.kind
 		normalized.lifetime = payload.lifetime or payload.duration
+		normalized.preserveTrailingPeriods = payload.preserveTrailingPeriods == true
 		if type(payload.sound) == "string" and payload.sound ~= "" then
 			normalized.sound = payload.sound
 		end
@@ -55,7 +56,9 @@ function Notifications.Normalize(payload)
 	end
 
 	normalized.text = string.gsub(normalized.text, "^%s*(.-)%s*$", "%1")
-	normalized.text = string.gsub(normalized.text, "%.+$", "")
+	if not normalized.preserveTrailingPeriods then
+		normalized.text = string.gsub(normalized.text, "%.+$", "")
+	end
 	if normalized.text == "" then
 		return nil
 	end

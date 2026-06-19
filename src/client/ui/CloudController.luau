@@ -16,7 +16,7 @@ local MOVE_SPEED = 5
 local FADE_SECONDS = 10
 local MIN_SCALE = 1
 local MAX_SCALE = 2
-local UPDATE_INTERVAL = 0.1
+local DEFAULT_UPDATE_HZ = 10
 local FADE_TWEEN = TweenInfo.new(FADE_SECONDS, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
 local LANE_NAMES = { "Clouds", "Clouds0", "Clouds1" }
 
@@ -24,6 +24,8 @@ local rng = Random.new()
 local cloudFolder = nil
 local heartbeatConnection = nil
 local updateAccumulator = 0
+local speedMultiplier = 1
+local updateHz = DEFAULT_UPDATE_HZ
 
 local function warnCloud(message)
 	warn("[CloudController] " .. message)
@@ -154,6 +156,7 @@ local function spawnCloud(assets, lane, seeded)
 end
 
 local function updateLane(assets, lane, deltaTime)
+	local adjustedDeltaTime = deltaTime * speedMultiplier
 	for index = #lane.active, 1, -1 do
 		local cloud = lane.active[index]
 		if not cloud.part.Parent then
@@ -161,7 +164,7 @@ local function updateLane(assets, lane, deltaTime)
 			continue
 		end
 
-		cloud.elapsed += deltaTime
+		cloud.elapsed += adjustedDeltaTime
 		local progress = math.clamp(cloud.elapsed / cloud.duration, 0, 1)
 		cloud.part.CFrame = CFrame.new(cloud.startPosition:Lerp(cloud.endPosition, progress)) * cloud.rotation
 
@@ -180,6 +183,22 @@ local function updateLane(assets, lane, deltaTime)
 			break
 		end
 	end
+end
+
+function CloudController.GetSpeedMultiplier()
+	return speedMultiplier
+end
+
+function CloudController.SetSpeedMultiplier(multiplier)
+	speedMultiplier = math.max(tonumber(multiplier) or 1, 0)
+end
+
+function CloudController.GetUpdateHz()
+	return updateHz
+end
+
+function CloudController.SetUpdateHz(hz)
+	updateHz = math.max(tonumber(hz) or DEFAULT_UPDATE_HZ, 1)
 end
 
 function CloudController.start()
@@ -202,7 +221,8 @@ function CloudController.start()
 
 		heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "CloudController.Heartbeat", function(deltaTime)
 			updateAccumulator += deltaTime
-			if updateAccumulator < UPDATE_INTERVAL then
+			local updateInterval = 1 / updateHz
+			if updateAccumulator < updateInterval then
 				return
 			end
 

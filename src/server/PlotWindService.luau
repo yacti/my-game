@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Server = script.Parent
+local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
@@ -18,8 +19,8 @@ local PlotWindService = {}
 local WIND_UP_SECONDS = 4
 local WIND_ACTIVE_SECONDS = 30
 local WIND_DOWN_SECONDS = 4
-local MIN_SEQUENCE_INTERVAL = 90
-local MAX_SEQUENCE_INTERVAL = 180
+local MIN_SEQUENCE_INTERVAL = 120
+local MAX_SEQUENCE_INTERVAL = 240
 local MIN_TREE_WAVES = 10
 local MAX_TREE_WAVES = 30
 local MIN_FRUIT_PER_WAVE = 2
@@ -29,6 +30,8 @@ local TREE_EFFECT_RADIUS = 35
 local MAX_WAVE_EVENTS_PER_HEARTBEAT = 50
 local SHAKE_START_PADDING = 0.1
 local SHAKE_END_PADDING = 0.2
+local PRE_WIND_NOTICE_SECONDS = 3
+local PRE_WIND_NOTICE_TEXT = "It's getting windy..."
 local WAIT_STEP = 0.25
 
 local PlotWindEffect = Remotes.get(Remotes.Names.PlotWindEffect)
@@ -156,6 +159,18 @@ local function fireWindEffects(entries)
 	end
 end
 
+local function notifyWindStarting(entries)
+	for _, entry in ipairs(entries) do
+		RuntimeGuard.Run("PlotWindService.NotifyWindStarting", function()
+			NotificationService.Notify(entry.player, {
+				text = PRE_WIND_NOTICE_TEXT,
+				lifetime = PRE_WIND_NOTICE_SECONDS,
+				preserveTrailingPeriods = true,
+			})
+		end)
+	end
+end
+
 local function buildWaveQueue(entries)
 	local queue = {}
 	for _, entry in ipairs(entries) do
@@ -217,6 +232,16 @@ end
 
 local function runSequence()
 	local entries = eligibleEntries()
+	if #entries == 0 then
+		return false
+	end
+
+	notifyWindStarting(entries)
+	if not waitWhileRegistered(PRE_WIND_NOTICE_SECONDS) then
+		return false
+	end
+
+	entries = eligibleEntries()
 	if #entries == 0 then
 		return false
 	end

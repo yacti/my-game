@@ -2085,40 +2085,6 @@ local function validatePlots(errors, warnings)
 		end
 	end
 
-	local function validateWindEffect(plot)
-		local matches = {}
-		for _, childInstance in ipairs(plot:GetChildren()) do
-			if childInstance.Name == "WindEffect" and childInstance:IsA("Model") then
-				matches[#matches + 1] = childInstance
-			end
-		end
-		if #matches ~= 1 then
-			add(warnings, string.format("%s should contain exactly one direct WindEffect Model for plot wind visuals; found %d", plot:GetFullName(), #matches))
-			return
-		end
-
-		local windEffect = matches[1]
-		local beamCount = 0
-		for _, descendant in ipairs(windEffect:GetDescendants()) do
-			if descendant:IsA("Beam") then
-				beamCount += 1
-			elseif descendant:IsA("BasePart") then
-				if not descendant.Anchored then
-					add(warnings, descendant:GetFullName() .. " should be Anchored for plot wind visuals")
-				end
-				if descendant.CanCollide or descendant.CanTouch or descendant.CanQuery then
-					add(warnings, descendant:GetFullName() .. " should be non-colliding, non-touching, and non-querying for plot wind visuals")
-				end
-				if descendant.CastShadow then
-					add(warnings, descendant:GetFullName() .. " should not cast shadows for invisible plot wind carrier geometry")
-				end
-			end
-		end
-		if beamCount == 0 then
-			add(warnings, windEffect:GetFullName() .. " should contain at least one Beam descendant for plot wind visuals")
-		end
-	end
-
 	local function validatePlotShape(plot)
 		local floor = plot:FindFirstChild("Floor")
 		if floor and not floor:IsA("BasePart") then
@@ -2175,7 +2141,6 @@ local function validatePlots(errors, warnings)
 				end
 			end
 		end
-		validateWindEffect(plot)
 	end
 
 	local function validateLoadingPads(folder)

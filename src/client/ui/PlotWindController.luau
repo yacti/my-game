@@ -9,7 +9,9 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
+local CloudController = require(script.Parent:WaitForChild("CloudController"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
+local PlotWindLines = require(script.Parent:WaitForChild("PlotWindLines"))
 local TreeMotionEffects = require(script.Parent:WaitForChild("TreeMotionEffects"))
 
 local PlotWindController = {}
@@ -18,13 +20,15 @@ local HUD_NAME = "HUD"
 local BUFFS_NAME = "Buffs"
 local WIND_BUFF_NAME = "Wind"
 local WIND_TIMER_NAME = "Timer"
-local WIND_EFFECT_NAME = "WindEffect"
 local WIND_SOUND_NAME = "Wind"
+local WIND_DIRECTION = Vector3.new(-1, 0, 0)
+local WIND_CLOUD_SPEED_MULTIPLIER = 15
+local DEFAULT_CLOUD_UPDATE_HZ = 10
+local WIND_CLOUD_UPDATE_HZ = 60
 local DEFAULT_WIND_UP_SECONDS = 4
 local DEFAULT_WIND_ACTIVE_SECONDS = 30
 local DEFAULT_WIND_DOWN_SECONDS = 4
 local WAIT_STEP = 0.1
-local ASSET_WAIT_SECONDS = 10
 
 local PlotWindEffect = Remotes.get(Remotes.Names.PlotWindEffect)
 
@@ -122,106 +126,19 @@ local function collectTrees(plot)
 	return trees
 end
 
-local function directWindModels(plot)
-	local matches = {}
-	for _, child in ipairs(plot:GetChildren()) do
-		if child.Name == WIND_EFFECT_NAME and child:IsA("Model") then
-			matches[#matches + 1] = child
-		end
+local function tweenWindLineIntensity(windLines, alpha, tweenInfo, token)
+	if not windLines then
+		return
 	end
-	return matches
-end
-
-local function waitForWindModel(plot, token)
-	local deadline = os.clock() + ASSET_WAIT_SECONDS
-	while not token.cancelled and plot:IsDescendantOf(Workspace) do
-		local matches = directWindModels(plot)
-		if #matches == 1 then
-			return matches[1]
-		elseif #matches > 1 then
-			warnWind(string.format("%s has %d direct WindEffect models; plot wind skipped", plot:GetFullName(), #matches))
-			return nil
-		end
-		if os.clock() >= deadline then
-			break
-		end
-		task.wait(WAIT_STEP)
+	if tweenInfo.Time <= 0 then
+		windLines:SetIntensity(alpha)
+		return
 	end
-	if not token.cancelled then
-		warnWind(plot:GetFullName() .. " has no direct WindEffect model; plot wind skipped")
-	end
-	return nil
-end
-
-local function collectBeamRecords(windModel, shouldWarn)
-	local records = {}
-	for _, descendant in ipairs(windModel:GetDescendants()) do
-		if descendant:IsA("Beam") then
-			records[#records + 1] = {
-				beam = descendant,
-				enabled = false,
-				transparency = descendant.Transparency,
-			}
-		end
-	end
-	if #records == 0 then
-		if shouldWarn ~= false then
-			warnWind(windModel:GetFullName() .. " has no Beam descendants; plot wind skipped")
-		end
-		return nil
-	end
-	return records
-end
-
-local function waitForBeamRecords(windModel, token)
-	local deadline = os.clock() + ASSET_WAIT_SECONDS
-	while not token.cancelled and windModel:IsDescendantOf(Workspace) do
-		local records = collectBeamRecords(windModel, false)
-		if records then
-			return records
-		end
-		if os.clock() >= deadline then
-			break
-		end
-		task.wait(WAIT_STEP)
-	end
-	if not token.cancelled then
-		warnWind(windModel:GetFullName() .. " has no Beam descendants; plot wind skipped")
-	end
-	return nil
-end
-
-local function blendedTransparency(sequence, alpha)
-	alpha = math.clamp(alpha, 0, 1)
-	local keypoints = {}
-	for index, keypoint in ipairs(sequence.Keypoints) do
-		local value = 1 + ((keypoint.Value - 1) * alpha)
-		local envelope = keypoint.Envelope * alpha
-		keypoints[index] = NumberSequenceKeypoint.new(keypoint.Time, value, envelope)
-	end
-	return NumberSequence.new(keypoints)
-end
-
-local function applyBeamAlpha(records, alpha)
-	for _, record in ipairs(records) do
-		if record.beam.Parent then
-			if alpha > 0 then
-				record.beam.Enabled = true
-				record.beam.Transparency = blendedTransparency(record.transparency, alpha)
-			elseif alpha <= 0 then
-				record.beam.Transparency = record.transparency
-				record.beam.Enabled = record.enabled
-			end
-		end
-	end
-end
-
-local function tweenBeamAlpha(records, alpha, tweenInfo, token)
 	local value = Instance.new("NumberValue")
-	value.Value = alpha == 0 and 1 or 0
+	value.Value = windLines:GetIntensity()
 	local connection = value.Changed:Connect(function(nextAlpha)
 		if not token.cancelled then
-			applyBeamAlpha(records, nextAlpha)
+			windLines:SetIntensity(nextAlpha)
 		end
 	end)
 	local tween = TweenService:Create(value, tweenInfo, { Value = alpha })
@@ -229,7 +146,57 @@ local function tweenBeamAlpha(records, alpha, tweenInfo, token)
 		connection:Disconnect()
 		value:Destroy()
 		if not token.cancelled then
-			applyBeamAlpha(records, alpha)
+			windLines:SetIntensity(alpha)
+		end
+	end)
+	token.tweens[#token.tweens + 1] = tween
+	tween:Play()
+end
+
+local function tweenCloudSpeedMultiplier(multiplier, tweenInfo, token)
+	if tweenInfo.Time <= 0 then
+		CloudController.SetSpeedMultiplier(multiplier)
+		return
+	end
+
+	local value = Instance.new("NumberValue")
+	value.Value = CloudController.GetSpeedMultiplier()
+	local connection = value.Changed:Connect(function(nextMultiplier)
+		if not token.cancelled then
+			CloudController.SetSpeedMultiplier(nextMultiplier)
+		end
+	end)
+	local tween = TweenService:Create(value, tweenInfo, { Value = multiplier })
+	tween.Completed:Connect(function()
+		connection:Disconnect()
+		value:Destroy()
+		if not token.cancelled then
+			CloudController.SetSpeedMultiplier(multiplier)
+		end
+	end)
+	token.tweens[#token.tweens + 1] = tween
+	tween:Play()
+end
+
+local function tweenCloudUpdateHz(hz, tweenInfo, token)
+	if tweenInfo.Time <= 0 then
+		CloudController.SetUpdateHz(hz)
+		return
+	end
+
+	local value = Instance.new("NumberValue")
+	value.Value = CloudController.GetUpdateHz()
+	local connection = value.Changed:Connect(function(nextHz)
+		if not token.cancelled then
+			CloudController.SetUpdateHz(nextHz)
+		end
+	end)
+	local tween = TweenService:Create(value, tweenInfo, { Value = hz })
+	tween.Completed:Connect(function()
+		connection:Disconnect()
+		value:Destroy()
+		if not token.cancelled then
+			CloudController.SetUpdateHz(hz)
 		end
 	end)
 	token.tweens[#token.tweens + 1] = tween
@@ -258,7 +225,7 @@ local function playWindSound(token, windUpSeconds)
 	end
 
 	local sound = template:Clone()
-	local targetVolume = ((tonumber(template.Volume) or 0.5) * 0.425)
+	local targetVolume = ((tonumber(template.Volume) or 0.5) * 0.5)
 	sound.Name = WIND_SOUND_NAME
 	sound.Looped = true
 	sound.Volume = 0
@@ -311,9 +278,12 @@ local function cleanupToken(token)
 		token.sound:Destroy()
 	end
 	hideWindBuff()
-	if token.beamRecords then
-		applyBeamAlpha(token.beamRecords, 0)
+	if token.windLines then
+		token.windLines:Stop()
+		token.windLines = nil
 	end
+	CloudController.SetSpeedMultiplier(1)
+	CloudController.SetUpdateHz(DEFAULT_CLOUD_UPDATE_HZ)
 	for _, tree in ipairs(token.activeTrees) do
 		TreeMotionEffects.ClearTree(tree)
 	end
@@ -334,7 +304,7 @@ local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
 		cancelled = false,
 		tweens = {},
 		activeTrees = {},
-		beamRecords = nil,
+		windLines = nil,
 		sound = nil,
 		windEndsAt = os.clock() + windUpSeconds + activeSeconds + windDownSeconds,
 	}
@@ -342,17 +312,12 @@ local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
 	startWindBuffCountdown(token)
 
 	task.spawn(function()
-		local windModel = waitForWindModel(plot, token)
-		if not windModel then
-			cleanupToken(token)
-			return
+		token.windLines = PlotWindLines.Start(plot, {
+			direction = WIND_DIRECTION,
+		})
+		if not token.windLines then
+			warnWind(plot:GetFullName() .. " could not start plot wind lines")
 		end
-		local beamRecords = waitForBeamRecords(windModel, token)
-		if not beamRecords then
-			cleanupToken(token)
-			return
-		end
-		token.beamRecords = beamRecords
 		token.activeTrees = collectTrees(plot)
 		task.delay(windUpSeconds + activeSeconds + windDownSeconds + 0.25, function()
 			if activeToken == token then
@@ -360,7 +325,9 @@ local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
 			end
 		end)
 
-		tweenBeamAlpha(beamRecords, 1, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+		tweenWindLineIntensity(token.windLines, 1, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+		tweenCloudSpeedMultiplier(WIND_CLOUD_SPEED_MULTIPLIER, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+		tweenCloudUpdateHz(WIND_CLOUD_UPDATE_HZ, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
 		playWindSound(token, windUpSeconds)
 		for _, tree in ipairs(token.activeTrees) do
 			TreeMotionEffects.SwayTree(tree, windUpSeconds + activeSeconds + windDownSeconds)
@@ -374,7 +341,9 @@ local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
 			return
 		end
 
-		tweenBeamAlpha(beamRecords, 0, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenWindLineIntensity(token.windLines, 0, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenCloudSpeedMultiplier(1, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenCloudUpdateHz(DEFAULT_CLOUD_UPDATE_HZ, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
 		fadeOutSound(token, windDownSeconds)
 		if not cancellableWait(token, windDownSeconds) then
 			return

@@ -141,13 +141,14 @@ Run this checklist before publishing a live build.
   ground fruit visuals.
 - During active onboarding, verify plot wind does not play. After onboarding is complete,
   wait for synchronized plot wind across eligible players and verify sequence starts are roughly
-  90-180 seconds apart, wave processing is capped at 50 events per heartbeat, and `PlotTemplate.WindEffect` beams
-  and wind audio ramp up together for 4 seconds, `HUD.Buffs.Wind` shows the
+  120-240 seconds apart, a white `It's getting windy...` notification appears 3 seconds before wind starts,
+  wave processing is capped at 50 events per heartbeat, and client wind lines
+  move from positive X toward negative X while wind audio, 15x cloud speed, and 60 Hz cloud updates ramp up for 4 seconds, `HUD.Buffs.Wind` shows the
   full-sequence remaining time as `(n)s`, every mature tree sways and
   runs 10-30 independent shake/drop waves during the 30-second active window,
   each wave drops 2-4 ready fruit when available, wind-triggered tree shake sounds
   play once per wave with spatial rolloff, and drop effects are only received within 35 studs even
-  for the plot owner, beams/audio ramp down for 4 seconds, and wind carrier parts do not affect
-  collision, placement, edit, or tree click raycasts.
+  for the plot owner, wind lines/audio/cloud speed/cloud update rate ramp down for 4 seconds, and local wind trail attachments do
+  not affect collision, placement, edit, or tree click raycasts.
 - With dense feeds/cosmetics, verify pet navigation still routes around placements
   after place, move, delete, seed maturity, restore, and teardown.
