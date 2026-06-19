@@ -2,8 +2,33 @@ local CosmeticShopBalance = {}
 
 CosmeticShopBalance.Items = {
 	{
+		ItemID = "Path",
+		Price = 2500,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "GrassPath",
+		Price = 5000,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "TikiTorch",
+		Price = 50000,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "Arch",
+		Price = 250000,
+		DevProductId = 0,
+	},
+	{
 		ItemID = "Fountain",
-		Price = 1,
+		Price = 1000000,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "Golden Fountain",
+		Price = 100000000,
 		DevProductId = 0,
 	},
 }

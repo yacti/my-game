@@ -9,6 +9,9 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local CosmeticTools = {}
+local TOOL_VISUAL_SCALE = 0.5
+local TOOL_HANDLE_SIZE = Vector3.new(0.2, 0.2, 0.2)
+local TOOL_VISUAL_NAME = "CosmeticVisual"
 
 local function applyToolRarity(tool, rarity)
 	if type(rarity) == "string" and Rarities.IsValid(rarity) then
@@ -35,12 +38,85 @@ local function destroyPrepared(prepared)
 	end
 end
 
-local function configureHeldToolQuery(tool)
-	for _, descendant in ipairs(tool:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.CanQuery = false
+local function configureBodyPart(part, isHandle)
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Massless = true
+	if isHandle then
+		part.Transparency = 1
+		part.CastShadow = false
+	end
+end
+
+local function clearTemplateBody(tool)
+	for _, child in ipairs(tool:GetChildren()) do
+		if child:IsA("BasePart") or child.Name == TOOL_VISUAL_NAME then
+			child:Destroy()
 		end
 	end
+end
+
+local function makeToolHandle(tool)
+	local handle = Instance.new("Part")
+	handle.Name = "Handle"
+	handle.Size = TOOL_HANDLE_SIZE
+	handle.CFrame = CFrame.identity
+	configureBodyPart(handle, true)
+	handle.Parent = tool
+	return handle
+end
+
+local function weldToHandle(handle, part)
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = handle
+	weld.Part1 = part
+	weld.Parent = part
+end
+
+local function insertCosmeticVisual(tool, template)
+	clearTemplateBody(tool)
+	local handle = makeToolHandle(tool)
+
+	if template:IsA("BasePart") then
+		local visual = template:Clone()
+		visual.Name = TOOL_VISUAL_NAME
+		visual.Size *= TOOL_VISUAL_SCALE
+		visual.CFrame = CFrame.identity
+		configureBodyPart(visual, false)
+		visual.Parent = tool
+		weldToHandle(handle, visual)
+		return true
+	end
+
+	if template:IsA("Model") then
+		if not template.PrimaryPart then
+			warn(string.format("[CosmeticTools] Cosmetic model %s missing PrimaryPart", template:GetFullName()))
+			return false
+		end
+
+		local clone = template:Clone()
+		clone.Name = TOOL_VISUAL_NAME
+		clone:ScaleTo(clone:GetScale() * TOOL_VISUAL_SCALE)
+		local sourcePrimary = clone.PrimaryPart
+		clone:PivotTo(sourcePrimary.CFrame:Inverse() * clone:GetPivot())
+		clone.Parent = tool
+
+		for _, descendant in ipairs(clone:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				configureBodyPart(descendant, false)
+				if descendant == sourcePrimary and descendant.Transparency >= 1 then
+					descendant:Destroy()
+				else
+					weldToHandle(handle, descendant)
+				end
+			end
+		end
+		return true
+	end
+
+	return false
 end
 
 function CosmeticTools.MakeCosmeticTool(cosmeticId)
@@ -58,10 +134,16 @@ function CosmeticTools.MakeCosmeticTool(cosmeticId)
 
 	local tool = wrapper:Clone()
 	tool.Name = template.Name
-	configureHeldToolQuery(tool)
+	tool.RequiresHandle = true
 	tool:SetAttribute(State.Cosmetic.Id, cosmeticId)
 	applyToolRarity(tool, template:GetAttribute(State.Cosmetic.Rarity))
 	ToolIdentity.AssignGuid(tool)
+
+	if not insertCosmeticVisual(tool, template) then
+		tool:Destroy()
+		return nil
+	end
+
 	return tool
 end
 

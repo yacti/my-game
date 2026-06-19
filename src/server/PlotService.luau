@@ -174,6 +174,35 @@ local function placeableHitboxRootFromPart(plot, part)
 	return feedHitboxRootFromPart(plot, part) or cosmeticHitboxRootFromPart(plot, part)
 end
 
+local function isFeedPlacementRoot(instance)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(instance:GetAttribute(State.Feed.Type)) == "string"
+		and instance:GetAttribute(State.Feed.Type) ~= ""
+		and instance:GetAttribute(State.Feed.Index) ~= nil
+end
+
+local function isCosmeticPlacementRoot(instance)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(instance:GetAttribute(State.Cosmetic.Id)) == "string"
+		and instance:GetAttribute(State.Cosmetic.Id) ~= ""
+		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function canIgnorePlacementOverlap(movingKind, movingCosmeticId, hitPlaceable)
+	if movingKind == "Feed" then
+		return isCosmeticPlacementRoot(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+	end
+	if movingKind == "Cosmetic" then
+		if Cosmetics.CanOverlapFeed(movingCosmeticId) then
+			return isFeedPlacementRoot(hitPlaceable) or isCosmeticPlacementRoot(hitPlaceable)
+		end
+		return isCosmeticPlacementRoot(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+	end
+	return false
+end
+
 local function collectPlots()
 	local list = {}
 	local folder = Workspace:FindFirstChild("Plots")
@@ -1067,10 +1096,11 @@ function PlotService.CosmeticPlacementFitsOnFloor(plot, cosmeticId, lx, lz, lry)
 		and PlotGridService.CanPlaceFootprint(plot, boundsCF, boundsSize)
 end
 
-local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlaceable)
+local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlaceable, options)
 	if not boundsCF or not boundsSize then return true end
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return true end
+	options = options or {}
 
 	local querySize = Vector3.new(
 		math.max(boundsSize.X - OVERLAP_QUERY_INSET, 0.05),
@@ -1084,7 +1114,9 @@ local function placementOverlapsBounds(plot, boundsCF, boundsSize, excludedPlace
 
 	for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
 		local hitPlaceable = placeableHitboxRootFromPart(plot, part)
-		if hitPlaceable and hitPlaceable ~= excludedPlaceable then
+		if hitPlaceable
+			and hitPlaceable ~= excludedPlaceable
+			and not canIgnorePlacementOverlap(options.movingKind, options.cosmeticId, hitPlaceable) then
 			local hitBoundsCF, hitBoundsSize = placementBoundsForInstance(hitPlaceable)
 			if boundsOverlapOnFloor(floor, boundsCF, querySize, hitBoundsCF, hitBoundsSize) then
 				return true
@@ -1099,7 +1131,9 @@ local function feedPlacementOverlaps(plot, feedType, lx, lz, lry, excludedFeed)
 	if not floor then return true end
 
 	local boundsCF, boundsSize = feedPlacementBounds(floor, feedType, lx, lz, lry)
-	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedFeed)
+	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedFeed, {
+		movingKind = "Feed",
+	})
 end
 
 local function cosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry, excludedCosmetic)
@@ -1107,7 +1141,10 @@ local function cosmeticPlacementOverlaps(plot, cosmeticId, lx, lz, lry, excluded
 	if not floor then return true end
 
 	local boundsCF, boundsSize = cosmeticPlacementBounds(floor, cosmeticId, lx, lz, lry)
-	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedCosmetic)
+	return placementOverlapsBounds(plot, boundsCF, boundsSize, excludedCosmetic, {
+		movingKind = "Cosmetic",
+		cosmeticId = cosmeticId,
+	})
 end
 
 function PlotService.FeedPlacementOverlaps(plot, feedType, lx, lz, lry)
@@ -1232,7 +1269,9 @@ local function navigationObstacleEntries(plot, floor)
 		addObstacle(feed, true, tostring(feedIndex or feedOrder))
 	end
 	for _, cosmetic in ipairs(PlotService.GetSortedCosmetics(plot)) do
-		addObstacle(cosmetic, false)
+		if not Cosmetics.CanOverlapFeed(cosmetic) then
+			addObstacle(cosmetic, false)
+		end
 	end
 
 	record.navStaticObstacleEntries = entries

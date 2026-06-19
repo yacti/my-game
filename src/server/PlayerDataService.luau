@@ -57,6 +57,7 @@ local DATA_TEMPLATE = {
 	UnlockedGridKeys = {},
 	Onboarding = Onboarding.DefaultState(),
 	JoinGroupRewardCollected = false,
+	LastSeenUpdateLogId = "",
 	LastSeen = 0,
 }
 
@@ -583,6 +584,9 @@ local function ensureValidData(profile)
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
+	if type(profile.Data.LastSeenUpdateLogId) ~= "string" then
+		profile.Data.LastSeenUpdateLogId = ""
+	end
 
 	if type(profile.Data.LastSeen) ~= "number" then
 		profile.Data.LastSeen = 0

@@ -271,6 +271,32 @@ local function placeableHitboxRootFromPart(plot, part)
 	return nil
 end
 
+local function isFeedPlaceable(instance)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(instance:GetAttribute(State.Feed.Type)) == "string"
+		and instance:GetAttribute(State.Feed.Type) ~= ""
+		and instance:GetAttribute(State.Feed.Index) ~= nil
+end
+
+local function isCosmeticPlaceable(instance)
+	return instance ~= nil
+		and (instance:IsA("BasePart") or instance:IsA("Model"))
+		and type(instance:GetAttribute(State.Cosmetic.Id)) == "string"
+		and instance:GetAttribute(State.Cosmetic.Id) ~= ""
+		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function canIgnorePlacementOverlap(movingCosmeticId, hitPlaceable)
+	if type(movingCosmeticId) == "string" and movingCosmeticId ~= "" then
+		if Cosmetics.CanOverlapFeed(movingCosmeticId) then
+			return isFeedPlaceable(hitPlaceable) or isCosmeticPlaceable(hitPlaceable)
+		end
+		return isCosmeticPlaceable(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+	end
+	return isCosmeticPlaceable(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+end
+
 local function setPreviewCFrame(preview, cframe)
 	if preview:IsA("BasePart") then
 		preview.CFrame = cframe
@@ -706,7 +732,7 @@ function FeedPlacement.start()
 
 		for _, part in ipairs(workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
 			local placeable = placeableHitboxRootFromPart(plot, part)
-			if placeable then
+			if placeable and not canIgnorePlacementOverlap(activeCosmeticId, placeable) then
 				local placeableBoundsCF, placeableBoundsSize = placementBoundsForInstance(placeable)
 				if boundsOverlapOnFloor(floor, boundsCF, querySize, placeableBoundsCF, placeableBoundsSize) then
 					return true

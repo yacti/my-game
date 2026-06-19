@@ -802,6 +802,10 @@ local function validateCosmetics(errors, warnings)
 		if type(description) ~= "string" then
 			add(warnings or errors, template:GetFullName() .. " missing string " .. Cosmetics.Attributes.Description .. " attribute")
 		end
+		local canOverlapFeed = template:GetAttribute(Cosmetics.Attributes.CanOverlapFeed)
+		if canOverlapFeed ~= nil and type(canOverlapFeed) ~= "boolean" then
+			add(errors, template:GetFullName() .. " has non-boolean " .. Cosmetics.Attributes.CanOverlapFeed .. " attribute")
+		end
 	end
 
 	if count == 0 then
@@ -1575,6 +1579,17 @@ local function validateYesNoWarningUi(menu, errors)
 	descendant(warning, "CloseButton", "GuiButton", errors)
 end
 
+local function validateUpdateLogUi(menu, warnings)
+	local updateLog = child(menu, "UpdateLog", "GuiObject", warnings)
+	if not updateLog then return end
+
+	descendant(updateLog, "CloseButton", "GuiButton", warnings)
+	local updateId = updateLog:GetAttribute(State.UpdateLog.Id)
+	if type(updateId) ~= "string" or updateId == "" then
+		add(warnings, updateLog:GetFullName() .. " must define a non-empty " .. State.UpdateLog.Id .. " attribute")
+	end
+end
+
 local function validateOnboardingPresentation(ui, hud, billboardFolder, warnings)
 	local onboarding = hud and child(hud, "Onboarding", "Frame", warnings)
 	if onboarding then
@@ -1927,6 +1942,7 @@ local function validateUi(errors, warnings)
 		validateSeedPacksUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
+		validateUpdateLogUi(menu, warnings)
 		validateAutoRollSettingsUi(menu, errors)
 	end
 

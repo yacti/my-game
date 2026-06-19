@@ -39,6 +39,10 @@ local function nonnegativeNumber(value, fallback)
 	return math.max(value, 0)
 end
 
+local function stringValue(value)
+	return type(value) == "string" and value or ""
+end
+
 local function copyCountMap(map)
 	local copy = {}
 	if type(map) ~= "table" then
@@ -113,6 +117,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
 		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
+		[PlayerState.Fields.LastSeenUpdateLogId] = stringValue(data.LastSeenUpdateLogId),
 	}
 end
 
@@ -341,6 +346,11 @@ end
 function PlayerReplicaService.PublishJoinGroupRewardCollected(player, profile)
 	local data = profile and profile.Data or {}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinGroupRewardCollected, data.JoinGroupRewardCollected == true)
+end
+
+function PlayerReplicaService.PublishLastSeenUpdateLogId(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.LastSeenUpdateLogId, stringValue(data.LastSeenUpdateLogId))
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)

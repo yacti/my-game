@@ -108,6 +108,9 @@
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },
+        "UpdateLogClosed": {
+          "$className": "RemoteEvent"
+        },
         "PlaceCosmetic": {
           "$className": "RemoteEvent"
         },

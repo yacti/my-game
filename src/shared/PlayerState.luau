@@ -21,6 +21,7 @@ PlayerState.Fields = {
 	HourlyPetIncome = "HourlyPetIncome",
 	JoinBackShowcase = "JoinBackShowcase",
 	JoinGroupRewardCollected = "JoinGroupRewardCollected",
+	LastSeenUpdateLogId = "LastSeenUpdateLogId",
 }
 
 return PlayerState

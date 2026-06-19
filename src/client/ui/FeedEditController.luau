@@ -5,6 +5,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -120,6 +121,19 @@ local function isCosmetic(instance)
 		and type(instance:GetAttribute(State.Cosmetic.Id)) == "string"
 		and instance:GetAttribute(State.Cosmetic.Id) ~= ""
 		and instance:GetAttribute(State.Cosmetic.Index) ~= nil
+end
+
+local function canIgnorePlacementOverlap(movingPlaceable, hitPlaceable)
+	if isCosmetic(movingPlaceable) and Cosmetics.CanOverlapFeed(movingPlaceable) then
+		return isMatureFeed(hitPlaceable) or isCosmetic(hitPlaceable)
+	end
+	if isMatureFeed(movingPlaceable) then
+		return isCosmetic(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+	end
+	if isCosmetic(movingPlaceable) then
+		return isCosmetic(hitPlaceable) and Cosmetics.CanOverlapFeed(hitPlaceable)
+	end
+	return false
 end
 
 local function placeableRootFromInstance(plot, instance)
@@ -745,7 +759,9 @@ function FeedEditController.start()
 
 		for _, part in ipairs(Workspace:GetPartBoundsInBox(boundsCF, querySize, params)) do
 			local placeable = placeableHitboxRootFromPart(plot, part)
-			if placeable and placeable ~= selectedFeed then
+			if placeable
+				and placeable ~= selectedFeed
+				and not canIgnorePlacementOverlap(selectedFeed, placeable) then
 				local placeableBoundsCF, placeableBoundsSize = placeableBounds(placeable)
 				if boundsOverlapOnFloor(floor, boundsCF, querySize, placeableBoundsCF, placeableBoundsSize) then
 					return true

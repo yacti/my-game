@@ -47,6 +47,10 @@ State.UpdateEvent = {
 	EventId = "UpdateEventId",
 }
 
+State.UpdateLog = {
+	Id = "UpdateLogId",
+}
+
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",
@@ -111,6 +115,7 @@ State.Cosmetic = {
 	Id = "CosmeticID",
 	Index = "CosmeticIndex",
 	Rarity = "Rarity",
+	CanOverlapFeed = "CanOverlapFeed",
 }
 
 State.TreeClicker = {

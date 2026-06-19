@@ -7,6 +7,7 @@ Cosmetics.Attributes = {
 	Id = State.Cosmetic.Id,
 	Rarity = State.Cosmetic.Rarity,
 	Description = "Description",
+	CanOverlapFeed = State.Cosmetic.CanOverlapFeed,
 }
 
 local root
@@ -114,6 +115,23 @@ function Cosmetics.DescriptionFor(cosmeticId)
 		return description
 	end
 	return ""
+end
+
+function Cosmetics.CanOverlapFeed(cosmeticOrId)
+	local cosmetic = cosmeticOrId
+	if type(cosmeticOrId) == "string" then
+		cosmetic = Cosmetics.GetTemplate(cosmeticOrId)
+	end
+	if typeof(cosmetic) ~= "Instance" then
+		return false
+	end
+	if cosmetic:GetAttribute(Cosmetics.Attributes.CanOverlapFeed) == true then
+		return true
+	end
+
+	local cosmeticId = Cosmetics.IdOf(cosmetic)
+	local template = cosmeticId and Cosmetics.GetTemplate(cosmeticId) or nil
+	return template ~= nil and template:GetAttribute(Cosmetics.Attributes.CanOverlapFeed) == true
 end
 
 return Cosmetics

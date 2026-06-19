@@ -29,6 +29,7 @@ local CONTROLLERS = {
 	"LocalPrompts",
 	"HudController",
 	"UpdateTimerController",
+	"UpdateLogController",
 	"HoverOver",
 	"RobuxShopController",
 	"CashPackShopController",

@@ -33,6 +33,11 @@ local MESSAGES = {
 	remember = "Remember, your farm grows offline!",
 }
 
+local STARTABLE_PHASES = {
+	pending = true,
+	started = true,
+}
+
 local started = false
 
 local function findGuiObject(root, name)
@@ -221,7 +226,7 @@ function JoinBackShowcaseController.start()
 			return
 		end
 		local seq = tonumber(payload.seq)
-		if not seq or seq == activeSeq or payload.phase ~= "pending" then
+		if not seq or seq == activeSeq or STARTABLE_PHASES[payload.phase] ~= true then
 			return
 		end
 		activeSeq = seq
