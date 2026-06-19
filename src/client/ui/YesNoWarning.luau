@@ -53,10 +53,29 @@ local function setText(root, text)
 	end
 end
 
-local function setItemColor(color)
-	if itemLabel then
-		itemLabel.TextColor3 = color
+local function setTextStackColor(root, color)
+	if not (root and color) then
+		return
 	end
+
+	local function apply(instance)
+		if instance:IsA("TextLabel") or instance:IsA("TextButton") then
+			instance.TextColor3 = color
+			local gradient = instance:FindFirstChildOfClass("UIGradient")
+			if gradient then
+				gradient.Color = ColorSequence.new(color)
+			end
+		end
+	end
+
+	apply(root)
+	for _, descendant in ipairs(root:GetDescendants()) do
+		apply(descendant)
+	end
+end
+
+local function setItemColor(color)
+	setTextStackColor(itemLabel, color)
 end
 
 local function getFrame()

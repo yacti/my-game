@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
+local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -117,8 +118,20 @@ local function rarityForTarget(target)
 		return rarity
 	end
 
-	local template = feedTemplate(target:GetAttribute(State.Feed.Type))
+	local feedType = target:GetAttribute(State.Feed.Type)
+	local template = feedTemplate(feedType)
 	rarity = template and template:GetAttribute(State.Feed.Rarity)
+	if type(rarity) == "string" and rarity ~= "" then
+		return rarity
+	end
+
+	rarity = Seeds.RarityForFeedType(feedType)
+	if type(rarity) == "string" and rarity ~= "" then
+		return rarity
+	end
+
+	local shopItem = GearShopBalance.Get(feedType)
+	rarity = shopItem and shopItem.Rarity
 	if type(rarity) == "string" and rarity ~= "" then
 		return rarity
 	end

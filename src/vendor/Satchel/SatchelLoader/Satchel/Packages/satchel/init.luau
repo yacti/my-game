@@ -43,6 +43,7 @@ require(script.Attribution)
 
 -- Local game patch: item tools can carry rarity metadata for Satchel name styling.
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Food = require(Shared:WaitForChild("Food"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -660,6 +661,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolIcon: ImageLabel = nil
 	local ToolName: TextLabel = nil
 	local ToolChangeConn: any = nil
+	local ToolFoodIdChangeConn: RBXScriptConnection? = nil
+	local ToolFoodTypeChangeConn: RBXScriptConnection? = nil
 	local ToolRarityChangeConn: RBXScriptConnection? = nil
 	local ToolRarityRenderConn: RBXScriptConnection? = nil
 	local HighlightFrame: any = nil -- UIStroke
@@ -705,10 +708,26 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			ToolRarityChangeConn:Disconnect()
 			ToolRarityChangeConn = nil
 		end
+		if ToolFoodIdChangeConn then
+			ToolFoodIdChangeConn:Disconnect()
+			ToolFoodIdChangeConn = nil
+		end
+		if ToolFoodTypeChangeConn then
+			ToolFoodTypeChangeConn:Disconnect()
+			ToolFoodTypeChangeConn = nil
+		end
+	end
+
+	local function setToolNameColor(color: Color3): ()
+		ToolName.TextColor3 = color
+		local gradient = ToolName:FindFirstChildOfClass("UIGradient")
+		if gradient then
+			gradient.Color = ColorSequence.new(color)
+		end
 	end
 
 	local function applyToolNameRarityColor(rarity: any): ()
-		ToolName.TextColor3 = Rarities.ColorFor(rarity, os.clock()) or TEXT_COLOR
+		setToolNameColor(Rarities.ColorFor(rarity, os.clock()) or TEXT_COLOR)
 	end
 
 	local function refreshToolNameRarity(): ()
@@ -717,15 +736,18 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		local tool = slot.Tool
 		if not tool then
 			if ToolName then
-				ToolName.TextColor3 = TEXT_COLOR
+				setToolNameColor(TEXT_COLOR)
 			end
 			return
 		end
 
 		local rarity = tool:GetAttribute(State.Tool.Rarity)
+		if type(rarity) ~= "string" or not Rarities.Get(rarity) then
+			rarity = Food.RarityOf(tool)
+		end
 		local definition = type(rarity) == "string" and Rarities.Get(rarity) or nil
 		if not definition then
-			ToolName.TextColor3 = TEXT_COLOR
+			setToolNameColor(TEXT_COLOR)
 			return
 		end
 
@@ -799,6 +821,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			end
 		end)
 		ToolRarityChangeConn = tool:GetAttributeChangedSignal(State.Tool.Rarity):Connect(refreshToolNameRarity)
+		ToolFoodIdChangeConn = tool:GetAttributeChangedSignal(State.Food.Id):Connect(refreshToolNameRarity)
+		ToolFoodTypeChangeConn = tool:GetAttributeChangedSignal(State.Food.Type):Connect(refreshToolNameRarity)
 		refreshToolNameRarity()
 
 		local hotbarSlot: boolean = (self.Index <= NumberOfHotbarSlots)
@@ -847,7 +871,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 
 		ToolIcon.Image = ""
 		ToolName.Text = ""
-		ToolName.TextColor3 = TEXT_COLOR
+		setToolNameColor(TEXT_COLOR)
 		if DeleteHighlightFrame then
 			DeleteHighlightFrame.Parent = nil
 		end

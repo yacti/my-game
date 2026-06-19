@@ -1893,6 +1893,10 @@ local function validateFoodTemplates(errors)
 					))
 				end
 			end
+			local rarity = template:GetAttribute("Rarity")
+			if rarity ~= nil and not Rarities.IsValid(rarity) then
+				add(errors, string.format("%s has unknown Rarity %q", template:GetFullName(), tostring(rarity)))
+			end
 		end
 	end
 end

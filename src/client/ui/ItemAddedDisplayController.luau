@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -99,6 +100,39 @@ local function applyColor(label, color)
 	end
 end
 
+local function disconnectRarity(entry)
+	if entry and entry.rarityConnection then
+		entry.rarityConnection:Disconnect()
+		entry.rarityConnection = nil
+	end
+end
+
+local function applyRarity(entry, rarity, fallbackColor)
+	if not (entry and entry.label) then
+		return
+	end
+	disconnectRarity(entry)
+
+	local definition = type(rarity) == "string" and Rarities.Get(rarity) or nil
+	if not definition then
+		applyColor(entry.label, fallbackColor)
+		return
+	end
+
+	local function refresh()
+		if not (entry.label and entry.label.Parent) then
+			disconnectRarity(entry)
+			return
+		end
+		applyColor(entry.label, Rarities.ColorFor(rarity, os.clock()))
+	end
+
+	refresh()
+	if definition.Animated then
+		entry.rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "ItemAddedDisplay.RarityRender", refresh)
+	end
+end
+
 local function scaleUDim2(value, scale)
 	return UDim2.new(
 		value.X.Scale * scale,
@@ -130,6 +164,7 @@ local function fadeOutDisplay(key, entry)
 	if not (label and label.Parent) then
 		return
 	end
+	disconnectRarity(entry)
 
 	local textTween = TweenService:Create(label, HIDE_TWEEN, {
 		TextTransparency = 1,
@@ -163,7 +198,7 @@ local function scheduleRemoval(key, entry)
 	end)
 end
 
-local function showDisplay(key, baseText, amount, color)
+local function showDisplay(key, baseText, amount, color, rarity)
 	amount = countOf(amount)
 	if amount <= 0 then
 		return
@@ -178,7 +213,7 @@ local function showDisplay(key, baseText, amount, color)
 		existing.baseText = baseText
 		existing.token += 1
 		existing.label.Text = formatCount(baseText, existing.amount)
-		applyColor(existing.label, color)
+		applyRarity(existing, rarity, color)
 		scheduleRemoval(key, existing)
 		return
 	end
@@ -199,17 +234,18 @@ local function showDisplay(key, baseText, amount, color)
 	if stroke then
 		stroke.Transparency = 1
 	end
-	applyColor(label, color)
 	label.Parent = displayMain
 
 	local entry = {
 		amount = amount,
 		baseText = baseText,
 		label = label,
+		rarityConnection = nil,
 		removing = false,
 		token = 1,
 	}
 	activeDisplays[key] = entry
+	applyRarity(entry, rarity, color)
 
 	TweenService:Create(label, SHOW_TWEEN, {
 		Size = originalSize,
@@ -283,7 +319,8 @@ end
 local function foodDisplayInfo(foodId, xp)
 	local name = displayNameForFood(foodId)
 	local xpText = NumberFormatter.XP(xp, "xp")
-	return string.format("%s %s", name, xpText), nil
+	local rarity = Food.RarityFor(foodId)
+	return string.format("%s %s", name, xpText), colorForRarity(rarity), rarity
 end
 
 local function seedDisplayInfo(seedId)
@@ -392,9 +429,9 @@ local function tryProcessFoodTool(tool, retriesRemaining)
 		return
 	end
 
-	local baseText, color = foodDisplayInfo(foodId, xp)
+	local baseText, color, rarity = foodDisplayInfo(foodId, xp)
 	local displayXP = math.max(math.floor(xp), 0)
-	showDisplay("food:" .. foodId .. ":" .. tostring(displayXP), baseText, 1, color)
+	showDisplay("food:" .. foodId .. ":" .. tostring(displayXP), baseText, 1, color, rarity)
 end
 
 local function processFoodTool(tool)

@@ -77,6 +77,18 @@ function Seeds.GetTemplate(seedId)
 	return nil
 end
 
+function Seeds.TemplateForFeedType(feedType)
+	if type(feedType) ~= "string" or feedType == "" then
+		return nil
+	end
+	for _, template in pairs(getIndex()) do
+		if template:GetAttribute(Seeds.Attributes.FeedType) == feedType then
+			return template
+		end
+	end
+	return nil
+end
+
 function Seeds.AllSeedIds()
 	local ids = {}
 	for seedId in pairs(getIndex()) do
@@ -135,6 +147,15 @@ end
 
 function Seeds.RarityFor(seedId)
 	local template = Seeds.GetTemplate(seedId)
+	local rarity = template and template:GetAttribute(Seeds.Attributes.Rarity)
+	if type(rarity) == "string" and rarity ~= "" then
+		return rarity
+	end
+	return nil
+end
+
+function Seeds.RarityForFeedType(feedType)
+	local template = Seeds.TemplateForFeedType(feedType)
 	local rarity = template and template:GetAttribute(Seeds.Attributes.Rarity)
 	if type(rarity) == "string" and rarity ~= "" then
 		return rarity

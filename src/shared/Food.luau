@@ -14,6 +14,7 @@ local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity
 local Assets = require(script.Parent:WaitForChild("Assets"))
 local Inventory = require(script.Parent:WaitForChild("Inventory"))
 local Rarities = require(script.Parent:WaitForChild("Rarities"))
+local Seeds = require(script.Parent:WaitForChild("Seeds"))
 
 local Food = {}
 
@@ -63,6 +64,18 @@ local function findFeedTemplate(feedType)
 	if not feedRoot then return nil end
 	for _, obj in ipairs(feedRoot:GetDescendants()) do
 		if isFoodTemplate(obj) and obj:GetAttribute(State.Feed.Type) == feedType then
+			return obj
+		end
+	end
+	return nil
+end
+
+local function findFoodProducerTemplate(foodId)
+	if type(foodId) ~= "string" or foodId == "" then return nil end
+	local feedRoot = Assets.WaitFor(Assets.Names.FeedMachines)
+	if not feedRoot then return nil end
+	for _, obj in ipairs(feedRoot:GetDescendants()) do
+		if isFoodTemplate(obj) and obj:GetAttribute(State.Feed.FoodDrop) == foodId then
 			return obj
 		end
 	end
@@ -152,6 +165,36 @@ function Food.TypeFor(foodId)
 	return type(foodType) == "string" and foodType ~= "" and foodType or "Fruit"
 end
 
+function Food.RarityFor(foodId)
+	if type(foodId) ~= "string" or foodId == "" then
+		return nil
+	end
+
+	local producerFeedType, sourceFoodId = Food.ParseJamFoodId(foodId)
+	if producerFeedType and sourceFoodId then
+		return Food.RarityFor(sourceFoodId)
+	end
+
+	local template = Food.GetTemplate(foodId)
+	local rarity = template and template:GetAttribute(FOOD_RARITY_ATTRIBUTE)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		return rarity
+	end
+
+	local producerTemplate = findFoodProducerTemplate(foodId)
+	rarity = producerTemplate and producerTemplate:GetAttribute(State.Feed.Rarity)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		return rarity
+	end
+
+	local producerFeedType = producerTemplate and producerTemplate:GetAttribute(State.Feed.Type)
+	rarity = Seeds.RarityForFeedType(producerFeedType)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		return rarity
+	end
+	return nil
+end
+
 function Food.IdOf(food)
 	if not food then return nil end
 	local foodId = food:GetAttribute(State.Food.Id)
@@ -195,6 +238,14 @@ function Food.XPOf(food)
 	local baseXP = tonumber(template:GetAttribute(State.Food.XP)) or 1
 	local xp = tonumber(food:GetAttribute(State.Food.XP)) or baseXP
 	return math.max(xp, 0)
+end
+
+function Food.RarityOf(food)
+	local rarity = food and food:GetAttribute(State.Tool.Rarity)
+	if type(rarity) == "string" and Rarities.IsValid(rarity) then
+		return rarity
+	end
+	return Food.RarityFor(Food.IdOf(food))
 end
 
 local function configureBodyPart(part, isHandle)
@@ -284,7 +335,7 @@ function Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride)
 	end
 
 	local xp = tonumber(xpOverride) or defaultJamXP(producerFeedType, sourceFoodId)
-	configureFoodTool(tool, foodId, JAM_FOOD_TYPE, math.max(xp, 0), sourceTemplate:GetAttribute(FOOD_RARITY_ATTRIBUTE))
+	configureFoodTool(tool, foodId, JAM_FOOD_TYPE, math.max(xp, 0), Food.RarityFor(foodId))
 	tool:SetAttribute(State.Food.JamProducerFeedType, producerFeedType)
 	tool:SetAttribute(State.Food.JamSourceFoodId, sourceFoodId)
 	return tool
@@ -310,7 +361,7 @@ function Food.MakeTool(foodId, xpOverride)
 	if not tool then return nil end
 
 	local xp = xpOverride or (template:GetAttribute(State.Food.XP) or 1)
-	return configureFoodTool(tool, foodId, Food.TypeFor(foodId), xp, template:GetAttribute(FOOD_RARITY_ATTRIBUTE))
+	return configureFoodTool(tool, foodId, Food.TypeFor(foodId), xp, Food.RarityFor(foodId))
 end
 
 function Food.IsFood(tool)
