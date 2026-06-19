@@ -73,6 +73,7 @@ local Food     = require(Shared:WaitForChild("Food"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
+local PetBillboardFeedEffect = Remotes.get(Remotes.Names.PetBillboardFeedEffect)
 local PlotStressTest = nil
 local AnimalAmbientSoundService = require(Server:WaitForChild("AnimalAmbientSoundService"))
 
@@ -745,7 +746,7 @@ local function feedPet(plot, player, profile, pet)
 	local faceLX, faceLZ = playerFloorLocal(plot, player)
 	PetMotionService.HoldAfterFeed(activePet, faceLX, faceLZ, evolved and PET_EVOLUTION_IDLE_HOLD_SECONDS or nil)
 	triggerPetFeedReaction(activePet, faceLX, faceLZ)
-	return true
+	return true, activePet, foodXP
 end
 
 -- ── Currency / offline helpers ────────────────────────────────────────────────
@@ -1179,7 +1180,12 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 		end,
 		handlers = {
 			[Interactions.Actions.PetFeed] = function(player, target, plot, profile)
-				if feedPet(plot, player, profile, target) then
+				local fed, activePet, xpGained = feedPet(plot, player, profile, target)
+				if fed then
+					PetBillboardFeedEffect:FireClient(player, {
+						pet = activePet,
+						xp = xpGained,
+					})
 					OnboardingService.OnPetFed(player, profile)
 					return PET_FEED_SNAPSHOT
 				end

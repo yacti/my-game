@@ -24,6 +24,9 @@
         "AnimalAmbientSound": {
           "$className": "RemoteEvent"
         },
+        "PetBillboardFeedEffect": {
+          "$className": "RemoteEvent"
+        },
         "CrateRollEffect": {
           "$className": "RemoteEvent"
         },

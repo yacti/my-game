@@ -53,6 +53,7 @@ local CONTROLLERS = {
 	"Notifications",
 	"ServerLuckController",
 	"PetBillboards",
+	"PetBillboardFeedEffectController",
 	"PetPreloader",
 	"CurrencySpendSounds",
 	"AnimalAmbientSounds",

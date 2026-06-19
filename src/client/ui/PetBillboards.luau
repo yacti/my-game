@@ -12,6 +12,7 @@ local RunService        = game:GetService("RunService")
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -87,6 +88,17 @@ local function isOwnPet(pet)
 	return plot ~= nil and pet:IsDescendantOf(plot)
 end
 
+local function displayNameForPet(pet)
+	local petId = pet:GetAttribute(State.Pet.Id)
+	local definition = type(petId) == "string" and PetCatalog.GetDefinition(petId) or nil
+	local visual = definition and definition.Visual
+	local modelName = visual and visual.ModelName
+	if type(modelName) == "string" and modelName ~= "" then
+		return modelName
+	end
+	return pet.Name
+end
+
 local function ensureBillboardAttachment(primary)
 	local attachment = primary:FindFirstChild(BILLBOARD_ATTACHMENT_NAME)
 	if attachment and attachment:IsA("Attachment") then
@@ -140,6 +152,7 @@ local function attach(pet)
 	local stats = billboard:FindFirstChild("Stats")
 	local xpBar = billboard:FindFirstChild("XP")
 	local fill = xpBar and xpBar:FindFirstChild("Fill")
+	local xpCountLabel = descendant(xpBar, "XPCount", "TextLabel")
 	local moneyLabel = descendant(stats, "Money", "TextLabel")
 	local moneyRateLabel = descendant(stats, "MoneyRateLabel", "TextLabel")
 	local nameLabel = descendant(stats, "NameLabel", "TextLabel")
@@ -195,14 +208,17 @@ local function attach(pet)
 		end)
 	end
 
-	local function renderXPFill()
+	local function renderXPProgress()
 		local xp    = pet:GetAttribute(State.Pet.XP)    or 0
 		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
 		if fill then fill.Size = UDim2.new(Balance.XPProgress(xp, maxXP), 0, 1, 0) end
+		if xpCountLabel then
+			xpCountLabel.Text = NumberFormatter.XP(xp, "") .. "/" .. NumberFormatter.XP(maxXP, " xp")
+		end
 	end
 
 	local function renderXPBar()
-		renderXPFill()
+		renderXPProgress()
 		local maxXP = pet:GetAttribute(State.Pet.MaxXP)
 		if xpBar and xpBar:IsA("GuiObject") then
 			xpBar.Visible = type(maxXP) == "number" and maxXP > 0
@@ -223,7 +239,7 @@ local function attach(pet)
 		local nickname = pet:GetAttribute(State.Pet.Nickname)
 		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
 
-		if nameLabel then nameLabel.Text = pet.Name end
+		if nameLabel then nameLabel.Text = displayNameForPet(pet) end
 		if nicknameLabel then
 			nicknameLabel.Text = type(nickname) == "string" and ('"' .. nickname .. '"') or ""
 			nicknameLabel.TextColor3 = typeof(nicknameColor) == "Color3" and nicknameColor or baseNicknameColor
@@ -254,12 +270,13 @@ local function attach(pet)
 	refreshNameColor()
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.XP), "PetBillboards.XPChanged", function()
 		refreshAttachmentForSizeChange()
-		renderXPFill()
+		renderXPProgress()
 	end)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MaxXP), "PetBillboards.MaxXPChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", handleMoneyChanged)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MoneyRate), "PetBillboards.MoneyRateChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetBillboards.IdChanged", render)
+	RuntimeGuard.Connect(pet:GetPropertyChangedSignal("Name"), "PetBillboards.NameChanged", renderIdentity)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Nickname), "PetBillboards.NicknameChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.NicknameColor), "PetBillboards.NicknameColorChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Rarity), "PetBillboards.RarityChanged", function()
