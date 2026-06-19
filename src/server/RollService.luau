@@ -12,6 +12,7 @@ local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
+local RollAnnouncementService = require(Server:WaitForChild("RollAnnouncementService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -856,6 +857,7 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 	task.delay(visualDuration, function()
 		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {})
 	end)
+	RuntimeGuard.Run("RollService.ScheduleRollAnnouncements", RollAnnouncementService.ScheduleRoll, player, batchIdOrNil, effectOffers, visualDuration)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
 		batchId = batchIdOrNil,
 		offerCount = #effectOffers,

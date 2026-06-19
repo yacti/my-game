@@ -108,6 +108,9 @@
         "ServerLuckBoosted": {
           "$className": "RemoteEvent"
         },
+        "RollAnnouncement": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

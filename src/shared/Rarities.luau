@@ -77,4 +77,25 @@ function Rarities.ColorFor(rarity, timeSeconds)
 	return definition.Color
 end
 
+function Rarities.ChatColorSequenceFor(rarity, timeSeconds)
+	local definition = Rarities.Get(rarity)
+	if not definition then
+		return nil
+	end
+
+	if typeof(definition.ChatColorSequence) == "ColorSequence" then
+		return definition.ChatColorSequence
+	end
+	if definition.Animated then
+		local period = tonumber(definition.RainbowPeriod) or DEFINITIONS[Rarities.Mythical].RainbowPeriod
+		local baseTime = tonumber(timeSeconds) or 0
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Rarities.RainbowColorAt(baseTime)),
+			ColorSequenceKeypoint.new(0.5, Rarities.RainbowColorAt(baseTime + period / 3)),
+			ColorSequenceKeypoint.new(1, Rarities.RainbowColorAt(baseTime + period * 2 / 3)),
+		})
+	end
+	return ColorSequence.new(definition.Color)
+end
+
 return Rarities
