@@ -86,10 +86,6 @@ if RunService:IsStudio() then
 	end
 end
 
-CurrencyService.RegisterChangedCallback(function(player, profile, amount)
-	OnboardingService.OnCurrencyChanged(player, profile, amount)
-end)
-
 local PROMPT_RATE_SECONDS = 1 / 10
 local PROMPT_ACTION_RATE_SECONDS = PromptActionConfig.ActionIntervalSeconds
 local PLACE_RATE_SECONDS = 0.25

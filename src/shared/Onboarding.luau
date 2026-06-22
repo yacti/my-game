@@ -1,7 +1,5 @@
 local Workspace = game:GetService("Workspace")
 
-local NumberFormatter = require(script.Parent:WaitForChild("NumberFormatter"))
-
 local Onboarding = {}
 
 Onboarding.AttributeName = "Onboarding"
@@ -13,11 +11,9 @@ Onboarding.Stages = {
 	ShakeAppleTree = "ShakeAppleTree",
 	CollectApple = "CollectApple",
 	FeedPetApple = "FeedPetApple",
-	MakeCurrency = "MakeCurrency",
 	RollPumpkinSeed = "RollPumpkinSeed",
 	BuyPumpkinSeed = "BuyPumpkinSeed",
 	PlantPumpkinSeed = "PlantPumpkinSeed",
-	GatherPumpkinXP = "GatherPumpkinXP",
 	HarvestPumpkin = "HarvestPumpkin",
 	FeedPetPumpkin = "FeedPetPumpkin",
 	ExpandFarm = "ExpandFarm",
@@ -26,7 +22,7 @@ Onboarding.Stages = {
 }
 
 Onboarding.ProgressKeys = {
-	PumpkinXPGained = "PumpkinXPGained",
+	CurrencySupplementsGranted = "CurrencySupplementsGranted",
 	TreeClickCount = "TreeClickCount",
 	TreeDroppedSlots = "TreeDroppedSlots",
 	TreeFruitTarget = "TreeFruitTarget",
@@ -48,8 +44,6 @@ Onboarding.FoodIds = {
 	Apple = "Apple",
 }
 
-Onboarding.CurrencyRequired = 100
-Onboarding.PumpkinXPRequired = 50
 Onboarding.TreeClicksRequired = 8
 Onboarding.ExpandFarmGrid = {
 	X = 2,
@@ -57,6 +51,10 @@ Onboarding.ExpandFarmGrid = {
 }
 Onboarding.FinalNoteDisplaySeconds = 8
 Onboarding.FinalNoteFadeSeconds = 0.45
+Onboarding.CurrencySupplements = {
+	[Onboarding.Stages.BuyPumpkinSeed] = 100,
+	[Onboarding.Stages.ExpandFarm] = 25,
+}
 
 local HIDDEN_DURING_ACTIVE_TUTORIAL = {
 	Hud = {
@@ -75,11 +73,9 @@ local ORDERED_STAGES = {
 	Onboarding.Stages.ShakeAppleTree,
 	Onboarding.Stages.CollectApple,
 	Onboarding.Stages.FeedPetApple,
-	Onboarding.Stages.MakeCurrency,
 	Onboarding.Stages.RollPumpkinSeed,
 	Onboarding.Stages.BuyPumpkinSeed,
 	Onboarding.Stages.PlantPumpkinSeed,
-	Onboarding.Stages.GatherPumpkinXP,
 	Onboarding.Stages.HarvestPumpkin,
 	Onboarding.Stages.FeedPetPumpkin,
 	Onboarding.Stages.ExpandFarm,
@@ -94,11 +90,9 @@ local STAGE_TEXT = {
 	[Onboarding.Stages.ShakeAppleTree] = "Shake tree!",
 	[Onboarding.Stages.CollectApple] = "Collect all the fruit!",
 	[Onboarding.Stages.FeedPetApple] = "Feed your pet!",
-	[Onboarding.Stages.MakeCurrency] = "Feed your pet and make " .. NumberFormatter.Currency(Onboarding.CurrencyRequired),
 	[Onboarding.Stages.RollPumpkinSeed] = "Press the button",
 	[Onboarding.Stages.BuyPumpkinSeed] = "Buy the seed!",
 	[Onboarding.Stages.PlantPumpkinSeed] = "Plant the Pumpkin Seed!",
-	[Onboarding.Stages.GatherPumpkinXP] = "Grow your Pumpkin to 50 xp",
 	[Onboarding.Stages.HarvestPumpkin] = "Harvest your Pumpkin!",
 	[Onboarding.Stages.FeedPetPumpkin] = "Feed your pet",
 	[Onboarding.Stages.ExpandFarm] = "Expand your farm",
@@ -151,6 +145,10 @@ end
 
 function Onboarding.UsesRichText(stage)
 	return STAGE_RICH_TEXT[stage] ~= nil
+end
+
+function Onboarding.CurrencySupplementFor(stage)
+	return Onboarding.CurrencySupplements[stage] or 0
 end
 
 function Onboarding.HiddenDuringActiveTutorial()
@@ -253,13 +251,27 @@ local function countSlotMap(value)
 	return count
 end
 
+local function sanitizeCurrencySupplementMap(value)
+	local clean = {}
+	if type(value) ~= "table" then
+		return clean
+	end
+	for stage, granted in pairs(value) do
+		if granted == true and Onboarding.CurrencySupplementFor(stage) > 0 then
+			clean[stage] = true
+		end
+	end
+	return clean
+end
+
 function Onboarding.SanitizeProgress(progress)
 	local clean = {}
 	if type(progress) ~= "table" then
 		progress = {}
 	end
 
-	clean[Onboarding.ProgressKeys.PumpkinXPGained] = sanitizeCount(progress[Onboarding.ProgressKeys.PumpkinXPGained])
+	clean[Onboarding.ProgressKeys.CurrencySupplementsGranted] =
+		sanitizeCurrencySupplementMap(progress[Onboarding.ProgressKeys.CurrencySupplementsGranted])
 	clean[Onboarding.ProgressKeys.TreeDroppedSlots] = sanitizeSlotMap(progress[Onboarding.ProgressKeys.TreeDroppedSlots])
 	clean[Onboarding.ProgressKeys.TreeClickCount] = math.min(
 		math.max(
@@ -273,10 +285,12 @@ function Onboarding.SanitizeProgress(progress)
 	return clean
 end
 
--- Stage ids stored in saved profiles before a rename; without the alias,
--- SanitizeState would treat the old id as invalid and skip to Complete.
+-- Stage ids stored in saved profiles before a rename/removal; without these
+-- aliases, SanitizeState would treat old ids as invalid and skip to Complete.
 local LEGACY_STAGE_ALIASES = {
-	MakeCurrency500 = Onboarding.Stages.MakeCurrency,
+	MakeCurrency500 = Onboarding.Stages.RollPumpkinSeed,
+	MakeCurrency = Onboarding.Stages.RollPumpkinSeed,
+	GatherPumpkinXP = Onboarding.Stages.HarvestPumpkin,
 }
 
 function Onboarding.SanitizeState(value, fallback)
@@ -297,9 +311,6 @@ function Onboarding.SanitizeState(value, fallback)
 	end
 
 	local progress = Onboarding.SanitizeProgress(state.Progress)
-	if stage ~= Onboarding.Stages.GatherPumpkinXP then
-		progress[Onboarding.ProgressKeys.PumpkinXPGained] = 0
-	end
 	if stage ~= Onboarding.Stages.ShakeAppleTree and stage ~= Onboarding.Stages.CollectApple then
 		progress[Onboarding.ProgressKeys.TreeClickCount] = 0
 		progress[Onboarding.ProgressKeys.TreeDroppedSlots] = {}

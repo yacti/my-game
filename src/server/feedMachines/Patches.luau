@@ -9,15 +9,14 @@
 -- growth-start timestamp per slot and publishes both as attributes once per
 -- anchor change (spawn, harvest, respawn, restore, offline credit). Current
 -- XP is computed on demand via PatchGrowth, so there is no per-second growth
--- loop and no per-second attribute replication. Harvest, persistence, and
--- onboarding all read the same derived value, so earnings are unchanged.
+-- loop and no per-second attribute replication. Harvest and persistence read
+-- the same derived value, so earnings are unchanged.
 --
 -- Tunable attribute on the model:
 --   FoodDrop (string, required) exact food id produced by each slot
 --   XP       (number, default 1) XP gained per growth interval
 --   GrowRate (number, default 3) seconds per growth interval
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -52,7 +51,7 @@ local GROWING_SEED_PHASE = "GrowingSeed"
 --   slots = { [i] = {
 --     baseXP, growthStart (server clock), respawnAt (wall clock),
 --     pendingOfflineGrowthElapsed, pendingMaterialize, respawnToken,
---     lastReportedXP, anchor, foodPart,
+--     anchor, foodPart,
 --   } },
 -- }
 local state = {}
@@ -150,16 +149,6 @@ local function creditSlotGrowth(machine, slot, extraSeconds, now)
 	anchorSlotGrowth(machine, slot, current + math.max(tonumber(extraSeconds) or 0, 0), now)
 end
 
--- Onboarding progress: reports the delta since the last report for this slot.
-local function reportSlotXP(machine, s, slot, profile, xpNow)
-	local gained = xpNow - (slot.lastReportedXP or 0)
-	if gained <= 0 then return end
-	slot.lastReportedXP = xpNow
-	if s.owner and profile then
-		OnboardingService.OnPatchXPGained(s.owner, profile, machine, gained)
-	end
-end
-
 local function configureSlotPart(part)
 	part.Anchored   = true
 	part.CanCollide = false
@@ -206,7 +195,6 @@ local function materializeSlot(machine, s, slot)
 	slot.respawnAt = nil
 	slot.baseXP = 0
 	slot.growthStart = serverNow()
-	slot.lastReportedXP = 0
 	if slot.foodPart then slot.foodPart:Destroy() end
 	slot.foodPart = spawnFoodAtSlot(slot)
 end
@@ -236,40 +224,9 @@ local function emptySlot(slot, respawnAt)
 	slot.baseXP = 0
 	slot.growthStart = nil
 	slot.pendingOfflineGrowthElapsed = nil
-	slot.lastReportedXP = 0
 	slot.respawnAt = respawnAt
 	clearSlotStealReservation(slot)
 end
-
-local function isOfflineProgressPending(s)
-	return s.owner and s.owner:GetAttribute(State.Player.OfflineProgressPending) == true
-end
-
--- Onboarding pumpkin-XP progress is the only consumer that needs periodic
--- growth observation. This 1Hz loop does work only for players currently in
--- the gather-pumpkin-XP tutorial stage (early-game players with few patches);
--- for everyone else each pass is a cheap profile/stage check per player.
-RuntimeGuard.Spawn("Patches.OnboardingXPLoop", function()
-	while true do
-		task.wait(1)
-		for _, player in ipairs(Players:GetPlayers()) do
-			RuntimeGuard.Run("Patches.OnboardingXPTick", function()
-				local profile = PlayerDataService.GetProfile(player)
-				if not profile or not OnboardingService.NeedsPatchXPReports(profile) then return end
-				local now = serverNow()
-				for machine, s in pairs(state) do
-					if s.owner == player and machine.Parent and not isOfflineProgressPending(s) then
-						for _, slot in ipairs(s.slots) do
-							if not slot.respawnAt and slot.growthStart then
-								reportSlotXP(machine, s, slot, profile, slotXPNow(machine, slot, now))
-							end
-						end
-					end
-				end
-			end)
-		end
-	end
-end)
 
 local function scaleToolToXP(tool, xp, patchXP)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
@@ -301,7 +258,6 @@ local function harvest(machine, s, slotIndex, player)
 
 	local profile = PlayerDataService.GetProfile(player)
 	if profile then
-		reportSlotXP(machine, s, slot, profile, xp)
 		OnboardingService.OnPatchHarvested(player, profile, machine, foodId)
 	end
 
@@ -369,7 +325,6 @@ function Patches.Setup(machine, plot, owner)
 				patchXP = s.patchXP,
 				baseXP = 0,
 				growthStart = now,
-				lastReportedXP = 0,
 				anchor = anchor,
 				foodPart = nil,
 				stealReservationId = nil,
@@ -474,9 +429,6 @@ function Patches.Apply(machine, placement, options)
 				slot.baseXP = savedXP
 				slot.growthStart = nil
 				slot.pendingOfflineGrowthElapsed = savedElapsed
-				-- Report future onboarding gains relative to the saved XP so
-				-- offline credit counts, matching the previous behavior.
-				slot.lastReportedXP = savedXP
 				if not deferOfflineProgress then
 					creditSlotGrowth(machine, slot, offlineSeconds, now)
 				end

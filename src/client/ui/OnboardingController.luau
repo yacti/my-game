@@ -34,13 +34,11 @@ local PATCH_SPOT_STEP = 2
 local PLANT_FRONT_INSET = 4
 local FINAL_NOTE_FADE_TWEEN = TweenInfo.new(Onboarding.FinalNoteFadeSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
--- Stages with no floating arrow: progress-bar stages plus clicker billboard
+-- Stages with no floating arrow: clicker billboard stages and seed placement
 -- stages where the target is already clear.
 local NO_MAIN_ARROW_STAGES = {
 	[Onboarding.Stages.CollectApple] = true,
 	[Onboarding.Stages.ShakeAppleTree] = true,
-	[Onboarding.Stages.MakeCurrency] = true,
-	[Onboarding.Stages.GatherPumpkinXP] = true,
 	[Onboarding.Stages.PlantAppleTreeSeed] = true,
 	[Onboarding.Stages.PlantPumpkinSeed] = true,
 }
@@ -97,42 +95,17 @@ local function onboardingProgressBar(frame)
 	return bar, fill
 end
 
-local function progressRatio(value, maximum)
-	maximum = tonumber(maximum) or 0
-	if maximum <= 0 then
-		return 0
-	end
-	return math.clamp((tonumber(value) or 0) / maximum, 0, 1)
-end
-
-local function tutorialBarProgress(stage)
-	if stage == Onboarding.Stages.MakeCurrency then
-		return true, progressRatio(
-			PlayerStateStore.Get(PlayerStateStore.Fields.Currency),
-			Onboarding.CurrencyRequired
-		)
-	end
-	if stage == Onboarding.Stages.GatherPumpkinXP then
-		return true, progressRatio(
-			currentProgress[Onboarding.ProgressKeys.PumpkinXPGained],
-			Onboarding.PumpkinXPRequired
-		)
-	end
-	return false, 0
-end
-
-local function updateHudProgressBar(stage)
+local function updateHudProgressBar()
 	local frame = hudOnboardingFrame()
 	if not frame then
 		return
 	end
 	local bar, fill = onboardingProgressBar(frame)
-	local visible, progress = tutorialBarProgress(stage or currentStage)
 	if bar then
-		bar.Visible = visible
+		bar.Visible = false
 	end
 	if fill then
-		fill.Size = UDim2.new(progress, 0, 1, 0)
+		fill.Size = UDim2.new(0, 0, 1, 0)
 	end
 end
 
@@ -254,7 +227,7 @@ local function setHudText(stage)
 		label.RichText = Onboarding.UsesRichText(stage)
 		label.Text = Onboarding.RichTextFor(stage)
 	end
-	updateHudProgressBar(stage)
+	updateHudProgressBar()
 	if stage == Onboarding.Stages.FinalNote then
 		scheduleFinalNoteFade(frame)
 	end
@@ -1171,9 +1144,6 @@ function OnboardingController.start()
 	applyState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(state)
 		applyState(state)
-	end)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, function()
-		updateHudProgressBar(currentStage)
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "OnboardingController.AssignedPlotChanged", function()
 		disconnectTargetCache()

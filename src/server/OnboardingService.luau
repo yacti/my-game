@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local OnboardingAnalyticsService = require(Server:WaitForChild("OnboardingAnalyticsService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
@@ -41,9 +42,6 @@ end
 
 local function resetStageProgressFor(state, nextStage)
 	local progress = Onboarding.SanitizeProgress(state.Progress)
-	if nextStage ~= Onboarding.Stages.GatherPumpkinXP then
-		progress[Onboarding.ProgressKeys.PumpkinXPGained] = 0
-	end
 	if nextStage ~= Onboarding.Stages.ShakeAppleTree and nextStage ~= Onboarding.Stages.CollectApple then
 		progress[Onboarding.ProgressKeys.TreeClickCount] = 0
 		progress[Onboarding.ProgressKeys.TreeDroppedSlots] = {}
@@ -157,16 +155,6 @@ local function hasExpandFarmGridUnlocked(profile)
 	return false
 end
 
-local function maybeCompleteMakeCurrency(player, profile, currency)
-	if stageFor(profile) ~= Onboarding.Stages.MakeCurrency then
-		return false
-	end
-	if (tonumber(currency) or 0) < Onboarding.CurrencyRequired then
-		return false
-	end
-	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.MakeCurrency))
-end
-
 local function maybeCompleteExpandFarm(player, profile)
 	if stageFor(profile) ~= Onboarding.Stages.ExpandFarm then
 		return false
@@ -175,6 +163,38 @@ local function maybeCompleteExpandFarm(player, profile)
 		return false
 	end
 	return setStage(player, profile, Onboarding.NextStage(Onboarding.Stages.ExpandFarm))
+end
+
+local function supplementGrantMap(progress)
+	local key = Onboarding.ProgressKeys.CurrencySupplementsGranted
+	local granted = progress[key]
+	if type(granted) ~= "table" then
+		granted = {}
+		progress[key] = granted
+	end
+	return granted
+end
+
+local function applyCurrencySupplement(player, profile, stage)
+	local amount = Onboarding.CurrencySupplementFor(stage)
+	if amount <= 0 or not (profile and profile.Data) then
+		return false
+	end
+
+	local progress = progressFor(profile)
+	local granted = supplementGrantMap(progress)
+	if granted[stage] == true then
+		return false
+	end
+
+	local _, code = CurrencyService.Add(player, profile, amount)
+	if code ~= nil then
+		return false
+	end
+
+	granted[stage] = true
+	publishOnboarding(player, profile)
+	return true
 end
 
 setStage = function(player, profile, nextStage)
@@ -196,9 +216,8 @@ setStage = function(player, profile, nextStage)
 	else
 		cancelFinalNoteCompletion(player)
 	end
-	if nextStage == Onboarding.Stages.MakeCurrency then
-		maybeCompleteMakeCurrency(player, profile, profile.Data.Currency)
-	elseif nextStage == Onboarding.Stages.ExpandFarm then
+	applyCurrencySupplement(player, profile, nextStage)
+	if nextStage == Onboarding.Stages.ExpandFarm then
 		maybeCompleteExpandFarm(player, profile)
 	end
 	return true
@@ -286,8 +305,8 @@ function OnboardingService.ApplyCurrentStageEntry(player, profile)
 		scheduleFinalNoteCompletion(player, profile)
 		return false
 	end
-	return maybeCompleteExpandFarm(player, profile)
-		or maybeCompleteMakeCurrency(player, profile, profile and profile.Data and profile.Data.Currency)
+	local grantedSupplement = applyCurrencySupplement(player, profile, currentStage)
+	return maybeCompleteExpandFarm(player, profile) or grantedSupplement
 end
 
 function OnboardingService.Advance(player, profile, expectedStage)
@@ -300,10 +319,6 @@ function OnboardingService.Advance(player, profile, expectedStage)
 		return false
 	end
 	return setStage(player, profile, nextStage)
-end
-
-function OnboardingService.OnCurrencyChanged(player, profile, currency)
-	return maybeCompleteMakeCurrency(player, profile, currency)
 end
 
 function OnboardingService.CanUnlockGridPart(profile, gridPart)
@@ -386,37 +401,6 @@ function OnboardingService.OnSeedPlaced(player, profile, plot, placedFeed, seedI
 		return OnboardingService.Advance(player, profile, Onboarding.Stages.PlantPumpkinSeed)
 	end
 	return false
-end
-
--- Patch growth is derived (no per-second server tick), so Patches only runs
--- its periodic onboarding reporting for players currently in this stage.
-function OnboardingService.NeedsPatchXPReports(profile)
-	return stageFor(profile) == Onboarding.Stages.GatherPumpkinXP
-end
-
-function OnboardingService.OnPatchXPGained(player, profile, machine, xpGained)
-	if stageFor(profile) ~= Onboarding.Stages.GatherPumpkinXP then
-		return false
-	end
-	if feedTypeOf(machine) ~= Onboarding.FeedTypes.Pumpkin then
-		return false
-	end
-	xpGained = tonumber(xpGained) or 0
-	if xpGained <= 0 then
-		return false
-	end
-
-	local progress = progressFor(profile)
-	local total = math.min(
-		(progress[Onboarding.ProgressKeys.PumpkinXPGained] or 0) + xpGained,
-		Onboarding.PumpkinXPRequired
-	)
-	progress[Onboarding.ProgressKeys.PumpkinXPGained] = total
-	if total >= Onboarding.PumpkinXPRequired then
-		return OnboardingService.Advance(player, profile, Onboarding.Stages.GatherPumpkinXP)
-	end
-	publishOnboarding(player, profile)
-	return true
 end
 
 function OnboardingService.OnPatchHarvested(player, profile, machine, foodId)
