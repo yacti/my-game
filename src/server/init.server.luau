@@ -39,6 +39,7 @@ local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local FeedPlacementService = require(Server:WaitForChild("FeedPlacementService"))
 local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService"))
 local FoodStealService = require(Server:WaitForChild("FoodStealService"))
+local FriendBoostService = require(Server:WaitForChild("FriendBoostService"))
 local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
@@ -67,6 +68,7 @@ local Interactions = require(Shared:WaitForChild("Interactions"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PromptActionConfig = require(Shared:WaitForChild("PromptActionConfig"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
@@ -183,6 +185,7 @@ RuntimeGuard.Run("UpdateEventConfigService.Start", UpdateEventConfigService.Star
 RuntimeGuard.Run("UpdateLogService.Start", UpdateLogService.Start)
 RuntimeGuard.Run("HomeTeleportService.Start", HomeTeleportService.Start)
 RuntimeGuard.Run("JoinGroupRewardService.Start", JoinGroupRewardService.Start)
+RuntimeGuard.Run("FriendBoostService.Start", FriendBoostService.Start)
 RuntimeGuard.Run("PetIncomeService.Start", function()
 	PetIncomeService.Start({
 		PetCashMultiplier = GamePassService.PetCashMultiplier,
@@ -802,7 +805,10 @@ local function startPetMoneyLoop(player, plot, profile)
 				if OfflineProgressService.IsPending(player) then
 					return
 				end
-				local earnRate = GamePassService.PetCashMultiplier(player)
+				local earnRate = PlayerBonuses.EffectiveMultiplier(
+					GamePassService.PetCashMultiplier(player),
+					FriendBoostService.Multiplier(player)
+				)
 				for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 					local idx = pet:GetAttribute(State.Pet.Index)
 					local petData = profile.Data.Pets[idx]
@@ -1047,6 +1053,8 @@ local function handlePlayerAdded(player)
 		end
 
 		PlayerReplicaService.Create(player, profile)
+		FriendBoostService.Publish(player)
+		FriendBoostService.ScheduleRefresh()
 		CurrencyService.Publish(player, profile)
 		OfflineProgressService.Publish(player)
 		OnboardingService.ApplyCurrentStageEntry(player, profile)

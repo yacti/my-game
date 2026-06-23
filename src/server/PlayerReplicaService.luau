@@ -7,6 +7,7 @@ local Replica = require(ServerScriptService:WaitForChild("ReplicaServer"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -18,6 +19,7 @@ local replicas = {}
 local readyConnections = {}
 local gamePassOwnership = {}
 local hourlyPetIncome = {}
+local friendBoostPercent = {}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -92,6 +94,14 @@ local function hourlyIncomeForKey(key)
 	return nonnegativeNumber(key and hourlyPetIncome[key] or nil, 0)
 end
 
+local function friendBoostPercentForKey(key)
+	return math.clamp(
+		integer(key and friendBoostPercent[key] or nil, 0),
+		0,
+		PlayerBonuses.FriendBoostPercent(PlayerBonuses.MaxFriendBoostFriends)
+	)
+end
+
 local function copyOnboardingState(value)
 	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
 end
@@ -115,6 +125,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
+		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),
 		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
 		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
 		[PlayerState.Fields.LastSeenUpdateLogId] = stringValue(data.LastSeenUpdateLogId),
@@ -332,6 +343,19 @@ function PlayerReplicaService.PublishHourlyPetIncome(player, amount)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.HourlyPetIncome, safeAmount)
 end
 
+function PlayerReplicaService.PublishFriendBoostPercent(player, amount)
+	local key = userKey(player)
+	local safeAmount = math.clamp(
+		integer(amount, 0),
+		0,
+		PlayerBonuses.FriendBoostPercent(PlayerBonuses.MaxFriendBoostFriends)
+	)
+	if key then
+		friendBoostPercent[key] = safeAmount
+	end
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.FriendBoostPercent, safeAmount)
+end
+
 function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 	if type(payload) ~= "table" then
 		return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, nil)
@@ -359,6 +383,7 @@ RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemovin
 	if key then
 		gamePassOwnership[key] = nil
 		hourlyPetIncome[key] = nil
+		friendBoostPercent[key] = nil
 	end
 end)
 

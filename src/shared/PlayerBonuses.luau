@@ -4,6 +4,9 @@ local ShopBalance = require(ReplicatedStorage.Shared:WaitForChild("ShopBalance")
 
 local PlayerBonuses = {}
 
+PlayerBonuses.FriendBoostPercentPerFriend = 10
+PlayerBonuses.MaxFriendBoostFriends = 4
+
 local function finiteNumber(value, fallback)
 	value = tonumber(value)
 	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
@@ -34,6 +37,19 @@ function PlayerBonuses.EffectiveMultiplier(...)
 		total = addMultiplierTerm(total, select(index, ...))
 	end
 	return math.max(total, 1)
+end
+
+function PlayerBonuses.FriendBoostFriendCount(friendCount)
+	friendCount = math.floor(finiteNumber(friendCount, 0))
+	return math.clamp(friendCount, 0, PlayerBonuses.MaxFriendBoostFriends)
+end
+
+function PlayerBonuses.FriendBoostPercent(friendCount)
+	return PlayerBonuses.FriendBoostFriendCount(friendCount) * PlayerBonuses.FriendBoostPercentPerFriend
+end
+
+function PlayerBonuses.FriendBoostMultiplier(friendCount)
+	return 1 + (PlayerBonuses.FriendBoostPercent(friendCount) / 100)
 end
 
 function PlayerBonuses.PetCashMultiplier(ownership)

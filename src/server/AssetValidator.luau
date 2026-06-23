@@ -1383,6 +1383,8 @@ local function validateHudCurrency(hud, errors)
 	local currency = child(hud, "Currency", "GuiObject", errors)
 	if not currency then return end
 	child(currency, "CurrencyLabel", "TextLabel", errors)
+	child(currency, "FriendBoost", "TextLabel", errors)
+	child(currency, "InviteFriends", "GuiButton", errors)
 end
 
 local function validateHoverOverHud(hud, warnings)

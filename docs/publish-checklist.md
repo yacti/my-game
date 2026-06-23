@@ -111,6 +111,11 @@ Run this checklist before publishing a live build.
   shows `Sold`, ownership persists after rejoin, pet cash-rate billboards use the
   additive effective rate, and online/offline pet cash generation stacks with VIP
   as `2.25x` instead of multiplying to `2.5x`.
+- Join a server with 1-4 Roblox friends, verify `HUD.Currency.FriendBoost` shows
+  `+10%` per same-server friend up to `+40%`, live pet money generation stacks
+  additively with VIP/x2 Cash, offline earnings and cash-pack hourly income stay
+  unchanged by friend boost, and `HUD.Currency.InviteFriends` opens Roblox's
+  native invite prompt when available on the player's platform.
 - Buy x2 Food XP gamepass id `1876239739`, verify the `x2XP` Robux shop card
   shows `Sold`, feeding a pet grants double the equipped food tool's stored XP,
   food tool XP labels remain unchanged, and patch/tree/processor/jam outputs are

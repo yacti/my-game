@@ -3,6 +3,7 @@
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SocialService     = game:GetService("SocialService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
@@ -31,6 +32,30 @@ local function findCurrencyLabel(gui)
 	local label = currency:FindFirstChild("CurrencyLabel")
 	if label and label:IsA("TextLabel") then return label end
 	warn("[HudController] HUD missing Currency.CurrencyLabel TextLabel")
+	return nil
+end
+
+local function findFriendBoostLabel(gui)
+	local currency = gui:FindFirstChild("Currency")
+	if not (currency and currency:IsA("GuiObject")) then
+		return nil
+	end
+
+	local label = currency:FindFirstChild("FriendBoost")
+	if label and label:IsA("TextLabel") then return label end
+	warn("[HudController] HUD missing Currency.FriendBoost TextLabel")
+	return nil
+end
+
+local function findInviteFriendsButton(gui)
+	local currency = gui:FindFirstChild("Currency")
+	if not (currency and currency:IsA("GuiObject")) then
+		return nil
+	end
+
+	local button = currency:FindFirstChild("InviteFriends")
+	if button and button:IsA("GuiButton") then return button end
+	warn("[HudController] HUD missing Currency.InviteFriends GuiButton")
 	return nil
 end
 
@@ -96,6 +121,47 @@ local function bindHomeButton(topBar)
 	end)
 end
 
+local function bindInviteFriendsButton(button, player)
+	if not button then
+		return
+	end
+
+	button.Active = true
+	button.Selectable = true
+	UiEffects.BindButton(button)
+
+	local promptInFlight = false
+	RuntimeGuard.Connect(button.Activated, "HudController.InviteFriendsActivated", function()
+		if promptInFlight then
+			return
+		end
+		promptInFlight = true
+
+		RuntimeGuard.Spawn("HudController.InviteFriendsPrompt", function()
+			local canInvite = false
+			local ok, result = pcall(function()
+				return SocialService:CanSendGameInviteAsync(player)
+			end)
+			if ok then
+				canInvite = result == true
+			else
+				warn("[HudController] CanSendGameInviteAsync failed: " .. tostring(result))
+			end
+
+			if canInvite then
+				local promptOk, promptErr = pcall(function()
+					SocialService:PromptGameInvite(player)
+				end)
+				if not promptOk then
+					warn("[HudController] PromptGameInvite failed: " .. tostring(promptErr))
+				end
+			end
+
+			promptInFlight = false
+		end)
+	end)
+end
+
 function HudController.start()
 	local player    = Players.LocalPlayer
 	local PlayerGui = player:WaitForChild("PlayerGui")
@@ -114,6 +180,8 @@ function HudController.start()
 	end
 
 	local label = findCurrencyLabel(gui)
+	local friendBoostLabel = findFriendBoostLabel(gui)
+	bindInviteFriendsButton(findInviteFriendsButton(gui), player)
 	local hiddenDuringTutorial = hiddenDuringTutorialObjects(gui)
 	local topBar = gui:FindFirstChild(TOP_BAR_NAME)
 	if topBar and topBar:IsA("GuiObject") then
@@ -123,6 +191,13 @@ function HudController.start()
 
 	local function setAmount(n)
 		if label then label.Text = UiEffects.FormatCurrency(n) end
+	end
+
+	local function setFriendBoost(percent)
+		percent = math.max(math.floor(tonumber(percent) or 0), 0)
+		if friendBoostLabel then
+			friendBoostLabel.Text = "Friend boost: +" .. tostring(percent) .. "%"
+		end
 	end
 
 	local function setTutorialVisibility(state)
@@ -136,6 +211,8 @@ function HudController.start()
 
 	setAmount(PlayerStateStore.Get(PlayerStateStore.Fields.Currency) or 0)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Currency, setAmount)
+	setFriendBoost(PlayerStateStore.Get(PlayerStateStore.Fields.FriendBoostPercent) or 0)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.FriendBoostPercent, setFriendBoost)
 	setTutorialVisibility(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, setTutorialVisibility)
 end
