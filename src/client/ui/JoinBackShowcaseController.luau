@@ -15,7 +15,7 @@ local LOADING_SCREEN_NAME = "LoadingScreen"
 local TEXT_FRAME_NAME = "JoinBackText"
 local TEXT_LABEL_NAME = "JoinBackText"
 local FLASH_NAME = "JoinBackFlash"
-local CURRENCY_NAME = "Currency"
+local TOP_BAR_NAME = "TopBar"
 local NOTIFICATIONS_NAME = "Notifications"
 
 local PRE_SEQUENCE_DELAY = 2
@@ -121,18 +121,39 @@ local function fadeFlashOut(flashFrame)
 end
 
 local function rememberVisibility(objects)
-	local previous = {}
+	local records = {}
 	for _, object in ipairs(objects) do
 		if object then
-			previous[object] = object.Visible
+			local record = {
+				object = object,
+				visible = object.Visible,
+			}
+			record.connection = RuntimeGuard.Connect(
+				object:GetPropertyChangedSignal("Visible"),
+				"JoinBackShowcaseController.HoldHidden." .. object.Name,
+				function()
+					if object.Parent and object.Visible then
+						object.Visible = false
+					end
+				end
+			)
 			object.Visible = false
+			records[#records + 1] = record
 		end
 	end
-	return previous
+	return records
 end
 
-local function restoreVisibility(previous)
-	for object, visible in pairs(previous) do
+local function restoreVisibility(records)
+	for _, record in ipairs(records) do
+		local connection = record.connection
+		if connection then
+			connection:Disconnect()
+		end
+	end
+	for _, record in ipairs(records) do
+		local object = record.object
+		local visible = record.visible
 		if object.Parent then
 			object.Visible = visible
 		end
@@ -167,7 +188,7 @@ local function runSequence(playerGui, requestRemote, payload)
 	waitForLoadingScreenDismissed(playerGui)
 
 	local hidden = rememberVisibility({
-		findGuiObject(hud, CURRENCY_NAME),
+		findGuiObject(hud, TOP_BAR_NAME),
 		findGuiObject(hud, NOTIFICATIONS_NAME),
 	})
 
