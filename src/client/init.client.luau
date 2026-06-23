@@ -28,6 +28,7 @@ local CONTROLLERS = {
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
 	"HudController",
+	"EventHudController",
 	"UpdateTimerController",
 	"UpdateLogController",
 	"HoverOver",

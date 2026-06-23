@@ -1,103 +1,103 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Remotes = require(Shared:WaitForChild("Remotes"))
+local GameEvents = require(Shared:WaitForChild("GameEvents"))
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local CloudController = require(script.Parent:WaitForChild("CloudController"))
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 local PlotWindLines = require(script.Parent:WaitForChild("PlotWindLines"))
 local TreeMotionEffects = require(script.Parent:WaitForChild("TreeMotionEffects"))
 
 local PlotWindController = {}
 
-local HUD_NAME = "HUD"
-local BUFFS_NAME = "Buffs"
-local WIND_BUFF_NAME = "Wind"
-local WIND_TIMER_NAME = "Timer"
 local WIND_SOUND_NAME = "Wind"
 local WIND_DIRECTION = Vector3.new(-1, 0, 0)
 local WIND_CLOUD_SPEED_MULTIPLIER = 15
 local DEFAULT_CLOUD_UPDATE_HZ = 10
 local WIND_CLOUD_UPDATE_HZ = 60
-local DEFAULT_WIND_UP_SECONDS = 4
-local DEFAULT_WIND_ACTIVE_SECONDS = 30
-local DEFAULT_WIND_DOWN_SECONDS = 4
+local REFRESH_SECONDS = 0.25
 local WAIT_STEP = 0.1
-
-local PlotWindEffect = Remotes.get(Remotes.Names.PlotWindEffect)
+local RUNTIME_WAIT_SECONDS = 15
 
 local player = Players.LocalPlayer
 local started = false
 local scopedPlots = {}
 local activeToken = nil
-local windBuffRecord = nil
-local warnedMissingWindBuff = false
+local runtimeFolder = nil
+local activeFolder = nil
+local warnedMissingRuntime = false
+local runtimeWarnAt = nil
 
 local function warnWind(message)
 	warn("[PlotWindController] " .. message)
 end
 
-local function resolveWindBuff(shouldWarn)
-	if windBuffRecord
-		and windBuffRecord.root.Parent
-		and windBuffRecord.timer.Parent then
-		return windBuffRecord
+local function serverNow()
+	return Workspace:GetServerTimeNow()
+end
+
+local function resolveRuntime()
+	if activeFolder and activeFolder.Parent then
+		return activeFolder
 	end
 
-	local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
-	local hud = playerGui and playerGui:FindFirstChild(HUD_NAME)
-	local buffs = hud and hud:FindFirstChild(BUFFS_NAME)
-	local windBuff = buffs and buffs:FindFirstChild(WIND_BUFF_NAME)
-	local timer = windBuff and windBuff:FindFirstChild(WIND_TIMER_NAME)
-	if windBuff and windBuff:IsA("GuiObject") and timer and timer:IsA("TextLabel") then
-		windBuffRecord = {
-			root = windBuff,
-			timer = timer,
-		}
-		return windBuffRecord
+	runtimeFolder = ReplicatedStorage:FindFirstChild(GameEvents.RuntimeFolderName)
+	activeFolder = runtimeFolder and runtimeFolder:FindFirstChild(GameEvents.ActiveFolderName)
+	if not activeFolder and not warnedMissingRuntime then
+		runtimeWarnAt = runtimeWarnAt or (os.clock() + RUNTIME_WAIT_SECONDS)
+		if os.clock() >= runtimeWarnAt then
+			warnedMissingRuntime = true
+			warnWind("Missing ReplicatedStorage." .. GameEvents.RuntimeFolderName .. "." .. GameEvents.ActiveFolderName .. "; wind visuals disabled")
+		end
+	elseif activeFolder then
+		runtimeWarnAt = nil
 	end
+	return activeFolder
+end
 
-	windBuffRecord = nil
-	if shouldWarn and not warnedMissingWindBuff then
-		warnedMissingWindBuff = true
-		warnWind("Missing PlayerGui.HUD.Buffs.Wind.Timer TextLabel; wind buff UI skipped")
+local function onboardingComplete()
+	local state = PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding)
+	return type(state) == "table" and not Onboarding.IsActive(Onboarding.SanitizeState(state, Onboarding.CompleteState()).Stage)
+end
+
+local function currentPlot()
+	for plot in pairs(scopedPlots) do
+		if plot:IsDescendantOf(Workspace) then
+			return plot
+		end
 	end
 	return nil
 end
 
-local function setWindBuffVisible(visible, remainingSeconds)
-	local record = resolveWindBuff(visible)
-	if not record then
-		return
+local function activeWindRecord()
+	local folder = resolveRuntime()
+	if not folder then
+		return nil
 	end
-	record.root.Visible = visible
-	if visible then
-		local remaining = math.max(0, math.ceil(tonumber(remainingSeconds) or 0))
-		record.timer.Text = tostring(remaining) .. "s"
-	end
-end
-
-local function hideWindBuff()
-	setWindBuffVisible(false, 0)
-end
-
-local function startWindBuffCountdown(token)
-	task.spawn(function()
-		while not token.cancelled do
-			local remaining = (token.windEndsAt or os.clock()) - os.clock()
-			if remaining <= 0 then
-				break
+	local now = serverNow()
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:GetAttribute(State.GameEvent.EventId) == GameEvents.Ids.Windy then
+			local startsAt = tonumber(child:GetAttribute(State.GameEvent.StartsAt))
+			local endsAt = tonumber(child:GetAttribute(State.GameEvent.EndsAt))
+			if startsAt and endsAt and now >= startsAt and now < endsAt then
+				return {
+					instanceId = child.Name,
+					startsAt = startsAt,
+					endsAt = endsAt,
+				}
 			end
-			setWindBuffVisible(true, remaining)
-			task.wait(math.min(WAIT_STEP, remaining))
 		end
-	end)
+	end
+	return nil
 end
 
 local function cancellableWait(token, seconds)
@@ -218,52 +218,45 @@ local function localSoundParent()
 	return playerGui or SoundService
 end
 
-local function playWindSound(token, windUpSeconds)
+local function createWindSound(token, initialVolume)
 	local template = windSoundTemplate()
 	if not template then
-		return
+		return nil, 0
 	end
 
 	local sound = template:Clone()
 	local targetVolume = ((tonumber(template.Volume) or 0.5) * 0.5)
 	sound.Name = WIND_SOUND_NAME
 	sound.Looped = true
-	sound.Volume = 0
+	sound.Volume = math.clamp(tonumber(initialVolume) or 0, 0, targetVolume)
 	sound.Parent = localSoundParent()
 	sound:Play()
 	token.sound = sound
-
-	local fadeIn = TweenService:Create(sound, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Volume = targetVolume,
-	})
-	token.tweens[#token.tweens + 1] = fadeIn
-	fadeIn:Play()
+	return sound, targetVolume
 end
 
-local function fadeOutSound(token, windDownSeconds)
+local function tweenSoundVolume(token, targetVolume, seconds, easingDirection)
 	local sound = token.sound
 	if not (sound and sound.Parent) then
 		return
 	end
-	local fadeOut = TweenService:Create(sound, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		Volume = 0,
+	if seconds <= 0 then
+		sound.Volume = targetVolume
+		return
+	end
+	local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, easingDirection), {
+		Volume = targetVolume,
 	})
-	token.tweens[#token.tweens + 1] = fadeOut
-	fadeOut.Completed:Connect(function()
-		if sound.Parent then
+	token.tweens[#token.tweens + 1] = tween
+	tween.Completed:Connect(function()
+		if targetVolume <= 0 and sound.Parent then
 			sound:Destroy()
 		end
-		if token.sound == sound then
+		if targetVolume <= 0 and token.sound == sound then
 			token.sound = nil
 		end
 	end)
-	fadeOut:Play()
-	task.delay(windDownSeconds + 0.1, function()
-		if token.sound == sound and sound.Parent then
-			sound:Destroy()
-			token.sound = nil
-		end
-	end)
+	tween:Play()
 end
 
 local function cleanupToken(token)
@@ -277,7 +270,6 @@ local function cleanupToken(token)
 	if token.sound and token.sound.Parent then
 		token.sound:Destroy()
 	end
-	hideWindBuff()
 	if token.windLines then
 		token.windLines:Stop()
 		token.windLines = nil
@@ -292,24 +284,41 @@ local function cleanupToken(token)
 	end
 end
 
-local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
+local function windPhase(startsAt)
+	local config = GameEvents.GetEvent(GameEvents.Ids.Windy)
+	local windUpSeconds, activeSeconds, windDownSeconds = GameEvents.WindTimings(config)
+	local elapsed = math.max(serverNow() - startsAt, 0)
+	local windUpEnd = windUpSeconds
+	local activeEnd = windUpSeconds + activeSeconds
+	if elapsed < windUpEnd then
+		return "windUp", elapsed, windUpSeconds, activeSeconds, windDownSeconds
+	end
+	if elapsed < activeEnd then
+		return "active", elapsed, windUpSeconds, activeSeconds, windDownSeconds
+	end
+	return "windDown", elapsed, windUpSeconds, activeSeconds, windDownSeconds
+end
+
+local function playSequence(plot, record)
 	if activeToken then
 		cleanupToken(activeToken)
 	end
 
-	windUpSeconds = math.max(tonumber(windUpSeconds) or DEFAULT_WIND_UP_SECONDS, 0)
-	activeSeconds = math.max(tonumber(activeSeconds) or DEFAULT_WIND_ACTIVE_SECONDS, 0)
-	windDownSeconds = math.max(tonumber(windDownSeconds) or DEFAULT_WIND_DOWN_SECONDS, 0)
+	local phase, elapsed, windUpSeconds, activeSeconds, windDownSeconds = windPhase(record.startsAt)
+	local remaining = math.max(record.endsAt - serverNow(), 0)
+	if remaining <= 0 then
+		return
+	end
+
 	local token = {
+		instanceId = record.instanceId,
 		cancelled = false,
 		tweens = {},
 		activeTrees = {},
 		windLines = nil,
 		sound = nil,
-		windEndsAt = os.clock() + windUpSeconds + activeSeconds + windDownSeconds,
 	}
 	activeToken = token
-	startWindBuffCountdown(token)
 
 	task.spawn(function()
 		token.windLines = PlotWindLines.Start(plot, {
@@ -319,54 +328,80 @@ local function playSequence(plot, windUpSeconds, activeSeconds, windDownSeconds)
 			warnWind(plot:GetFullName() .. " could not start plot wind lines")
 		end
 		token.activeTrees = collectTrees(plot)
-		task.delay(windUpSeconds + activeSeconds + windDownSeconds + 0.25, function()
+		task.delay(remaining + 0.25, function()
 			if activeToken == token then
 				cleanupToken(token)
 			end
 		end)
 
-		tweenWindLineIntensity(token.windLines, 1, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
-		tweenCloudSpeedMultiplier(WIND_CLOUD_SPEED_MULTIPLIER, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
-		tweenCloudUpdateHz(WIND_CLOUD_UPDATE_HZ, TweenInfo.new(windUpSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
-		playWindSound(token, windUpSeconds)
 		for _, tree in ipairs(token.activeTrees) do
-			TreeMotionEffects.SwayTree(tree, windUpSeconds + activeSeconds + windDownSeconds)
+			TreeMotionEffects.SwayTree(tree, remaining)
 		end
 
-		if not cancellableWait(token, windUpSeconds) then
-			return
+		local sound, targetVolume = createWindSound(token, phase == "windUp" and 0 or nil)
+		if phase == "windUp" then
+			local remainingUp = math.max(windUpSeconds - elapsed, 0)
+			tweenWindLineIntensity(token.windLines, 1, TweenInfo.new(remainingUp, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+			tweenCloudSpeedMultiplier(WIND_CLOUD_SPEED_MULTIPLIER, TweenInfo.new(remainingUp, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+			tweenCloudUpdateHz(WIND_CLOUD_UPDATE_HZ, TweenInfo.new(remainingUp, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), token)
+			if sound then
+				tweenSoundVolume(token, targetVolume, remainingUp, Enum.EasingDirection.Out)
+			end
+			if not cancellableWait(token, remainingUp) then
+				return
+			end
+			elapsed = windUpSeconds
+		else
+			if token.windLines then
+				token.windLines:SetIntensity(1)
+			end
+			CloudController.SetSpeedMultiplier(WIND_CLOUD_SPEED_MULTIPLIER)
+			CloudController.SetUpdateHz(WIND_CLOUD_UPDATE_HZ)
+			if sound then
+				sound.Volume = targetVolume
+			end
 		end
 
-		if not cancellableWait(token, activeSeconds) then
-			return
+		if phase ~= "windDown" then
+			local activeRemaining = math.max((windUpSeconds + activeSeconds) - elapsed, 0)
+			if not cancellableWait(token, activeRemaining) then
+				return
+			end
 		end
 
-		tweenWindLineIntensity(token.windLines, 0, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
-		tweenCloudSpeedMultiplier(1, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
-		tweenCloudUpdateHz(DEFAULT_CLOUD_UPDATE_HZ, TweenInfo.new(windDownSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
-		fadeOutSound(token, windDownSeconds)
-		if not cancellableWait(token, windDownSeconds) then
+		local downElapsed = math.max(serverNow() - record.startsAt - windUpSeconds - activeSeconds, 0)
+		local remainingDown = math.max(windDownSeconds - downElapsed, 0)
+		tweenWindLineIntensity(token.windLines, 0, TweenInfo.new(remainingDown, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenCloudSpeedMultiplier(1, TweenInfo.new(remainingDown, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenCloudUpdateHz(DEFAULT_CLOUD_UPDATE_HZ, TweenInfo.new(remainingDown, Enum.EasingStyle.Quad, Enum.EasingDirection.In), token)
+		tweenSoundVolume(token, 0, remainingDown, Enum.EasingDirection.In)
+		if not cancellableWait(token, remainingDown) then
 			return
 		end
 		cleanupToken(token)
 	end)
 end
 
-local function onPlotWindEffect(payload)
-	if type(payload) ~= "table" then
+local function refreshWind()
+	if not onboardingComplete() then
+		if activeToken then
+			cleanupToken(activeToken)
+		end
 		return
 	end
-	local plot = payload.plot
-	if typeof(plot) ~= "Instance" or not (plot:IsA("Model") or plot:IsA("Folder")) then
+
+	local record = activeWindRecord()
+	local plot = currentPlot()
+	if not record or not plot then
+		if activeToken then
+			cleanupToken(activeToken)
+		end
 		return
 	end
-	if not scopedPlots[plot] then
+	if activeToken and activeToken.instanceId == record.instanceId then
 		return
 	end
-	if not plot:IsDescendantOf(Workspace) then
-		return
-	end
-	playSequence(plot, payload.windUp, payload.active, payload.windDown)
+	playSequence(plot, record)
 end
 
 function PlotWindController.start()
@@ -379,6 +414,7 @@ function PlotWindController.start()
 		label = "PlotWindController",
 		onPlotAdded = function(plot)
 			scopedPlots[plot] = true
+			refreshWind()
 			return function()
 				scopedPlots[plot] = nil
 				if activeToken then
@@ -388,8 +424,17 @@ function PlotWindController.start()
 		end,
 	})
 
-	RuntimeGuard.Connect(PlotWindEffect.OnClientEvent, "PlotWindController.Event", onPlotWindEffect)
-	task.defer(hideWindBuff)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, refreshWind)
+
+	local elapsed = 0
+	RuntimeGuard.Connect(RunService.Heartbeat, "PlotWindController.Refresh", function(dt)
+		elapsed += dt
+		if elapsed < REFRESH_SECONDS then
+			return
+		end
+		elapsed = 0
+		refreshWind()
+	end)
 end
 
 return PlotWindController

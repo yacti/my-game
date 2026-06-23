@@ -1422,12 +1422,31 @@ local function validateServerLuckHud(hud, warnings)
 	child(serverLuck, "Multiplier", "TextLabel", warnings)
 end
 
-local function validateWindBuffHud(hud, warnings)
-	local buffs = child(hud, "Buffs", "GuiObject", warnings)
-	local wind = buffs and child(buffs, "Wind", "GuiObject", warnings)
-	if not wind then return end
+local function validateTopBarEventHud(hud, warnings)
+	local topBar = child(hud, "TopBar", "GuiObject", warnings)
+	if not topBar then return end
 
-	child(wind, "Timer", "TextLabel", warnings)
+	local home = topBar:FindFirstChild("Home", true)
+	if not home then
+		add(warnings, "Missing descendant " .. topBar:GetFullName() .. ".Home")
+	elseif not home:IsA("GuiButton") and not home:FindFirstChildWhichIsA("GuiButton", true) then
+		add(warnings, home:GetFullName() .. " must be a GuiButton or contain a nested GuiButton")
+	end
+
+	local currentEvent = child(topBar, "CurrentEvent", "GuiObject", warnings)
+	if currentEvent then
+		child(currentEvent, "Sunny", "GuiObject", warnings)
+		child(currentEvent, "Windy", "GuiObject", warnings)
+		child(currentEvent, "Stormy", "GuiObject", warnings)
+	end
+
+	local eventTimer = child(topBar, "EventTimer", "GuiObject", warnings)
+	if eventTimer then
+		child(eventTimer, "Timer", "TextLabel", warnings)
+		child(eventTimer, "Title", "TextLabel", warnings)
+	end
+
+	child(topBar, "CurrentEventTimer", "TextLabel", warnings)
 end
 
 local function validateUpdateTimerHud(hud, warnings)
@@ -1911,7 +1930,7 @@ local function validateUi(errors, warnings)
 		validateHoverOverHud(hud, warnings)
 		validateJoinBackShowcaseUi(hud, warnings)
 		validateServerLuckHud(hud, warnings)
-		validateWindBuffHud(hud, warnings)
+		validateTopBarEventHud(hud, warnings)
 		validateUpdateTimerHud(hud, warnings)
 		validateVipHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)

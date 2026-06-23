@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local ResponsiveHud = require(script.Parent:WaitForChild("ResponsiveHud"))
 local ResponsiveUi = require(script.Parent:WaitForChild("ResponsiveUi"))
@@ -13,6 +15,11 @@ local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local HudController = {}
 local LEFT_BUTTONS_NAME = "LeftButtons"
+local TOP_BAR_NAME = "TopBar"
+local HOME_BUTTON_NAME = "Home"
+local HOME_TELEPORT_COOLDOWN_SECONDS = 0.75
+
+local HomeTeleportRequest = Remotes.get(Remotes.Names.HomeTeleportRequest)
 
 local function findCurrencyLabel(gui)
 	local currency = gui:FindFirstChild("Currency")
@@ -48,6 +55,47 @@ local function hiddenDuringTutorialObjects(gui)
 	return objects
 end
 
+local function resolveButtonFromHomeNode(homeNode)
+	if not homeNode then
+		return nil
+	end
+	if homeNode:IsA("GuiButton") then
+		return homeNode
+	end
+	for _, descendant in ipairs(homeNode:GetDescendants()) do
+		if descendant:IsA("GuiButton") then
+			return descendant
+		end
+	end
+	return nil
+end
+
+local function bindHomeButton(topBar)
+	if not (topBar and topBar:IsA("GuiObject")) then
+		return
+	end
+
+	local homeNode = topBar:FindFirstChild(HOME_BUTTON_NAME, true)
+	local button = resolveButtonFromHomeNode(homeNode)
+	if not button then
+		warn("[HudController] HUD.TopBar missing Home GuiButton or nested GuiButton")
+		return
+	end
+
+	button.Active = true
+	button.Selectable = true
+	UiEffects.BindButton(button)
+	local lastRequestAt = 0
+	RuntimeGuard.Connect(button.Activated, "HudController.HomeActivated", function()
+		local now = os.clock()
+		if now - lastRequestAt < HOME_TELEPORT_COOLDOWN_SECONDS then
+			return
+		end
+		lastRequestAt = now
+		HomeTeleportRequest:FireServer()
+	end)
+end
+
 function HudController.start()
 	local player    = Players.LocalPlayer
 	local PlayerGui = player:WaitForChild("PlayerGui")
@@ -67,16 +115,22 @@ function HudController.start()
 
 	local label = findCurrencyLabel(gui)
 	local hiddenDuringTutorial = hiddenDuringTutorialObjects(gui)
+	local topBar = gui:FindFirstChild(TOP_BAR_NAME)
+	if topBar and topBar:IsA("GuiObject") then
+		topBar.Visible = false
+		bindHomeButton(topBar)
+	end
 
 	local function setAmount(n)
 		if label then label.Text = UiEffects.FormatCurrency(n) end
 	end
 
 	local function setTutorialVisibility(state)
+		local hasState = type(state) == "table"
 		state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
 		local visible = not Onboarding.IsActive(state.Stage)
 		for _, object in ipairs(hiddenDuringTutorial) do
-			object.Visible = visible
+			object.Visible = (object == topBar and not hasState) and false or visible
 		end
 	end
 

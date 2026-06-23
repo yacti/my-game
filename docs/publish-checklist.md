@@ -139,16 +139,23 @@ Run this checklist before publishing a live build.
   clients see drop/shake effects, visible ground fruit appears only when close,
   pickup targets the invisible marker, and far clients do not keep unnecessary
   ground fruit visuals.
-- During active onboarding, verify plot wind does not play. After onboarding is complete,
-  wait for synchronized plot wind across eligible players and verify sequence starts are roughly
-  120-240 seconds apart, a white `It's getting windy...` notification appears 3 seconds before wind starts,
+- During active onboarding, verify `HUD.TopBar` is hidden and plot wind does not play.
+  After onboarding is complete, verify `Weather.Windy` starts on synchronized 10-minute
+  wall-clock marks (`HH:00`, `HH:10`, etc.), lasts 60 seconds, and shows through
+  `HUD.TopBar.CurrentEvent.Windy` with `EventTimer.Timer = "NOW"` and
+  `CurrentEventTimer` showing `Events end in ...`. Verify `Sunny` shows while no event is active,
+  the next weather countdown points at the next 10-minute mark, the white
+  `It's getting windy...` notification appears 3 seconds before wind starts,
   wave processing is capped at 50 events per heartbeat, and client wind lines
-  move from positive X toward negative X while wind audio, 15x cloud speed, and 60 Hz cloud updates ramp up for 4 seconds, `HUD.Buffs.Wind` shows the
-  full-sequence remaining time as `(n)s`, every mature tree sways and
-  runs 10-30 independent shake/drop waves during the 30-second active window,
+  move from positive X toward negative X while wind audio, 15x cloud speed, and
+  60 Hz cloud updates ramp up for 4 seconds. Verify every mature tree sways and
+  runs 18-52 independent shake/drop waves during the 52-second active window,
   each wave drops 2-4 ready fruit when available, wind-triggered tree shake sounds
-  play once per wave with spatial rolloff, and drop effects are only received within 35 studs even
-  for the plot owner, wind lines/audio/cloud speed/cloud update rate ramp down for 4 seconds, and local wind trail attachments do
-  not affect collision, placement, edit, or tree click raycasts.
+  play once per wave with spatial rolloff, drop effects are only received within
+  35 studs even for the plot owner, wind lines/audio/cloud speed/cloud update rate
+  ramp down for 4 seconds, and local wind trail attachments do not affect collision,
+  placement, edit, or tree click raycasts.
+- Click `HUD.TopBar.Home` from away from the plot spawn and verify the player is
+  server-teleported to their assigned plot `SpawnLocation`.
 - With dense feeds/cosmetics, verify pet navigation still routes around placements
   after place, move, delete, seed maturity, restore, and teardown.

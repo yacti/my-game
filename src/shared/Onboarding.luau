@@ -60,6 +60,7 @@ local HIDDEN_DURING_ACTIVE_TUTORIAL = {
 	Hud = {
 		"RollButtons",
 		"RebirthButton",
+		"TopBar",
 	},
 	LocalPromptKinds = {
 		"GridPartUnlock",

@@ -15,9 +15,6 @@
         "TreeClickerRequest": {
           "$className": "RemoteEvent"
         },
-        "PlotWindEffect": {
-          "$className": "RemoteEvent"
-        },
         "GridUnlockEffect": {
           "$className": "RemoteEvent"
         },
@@ -112,6 +109,9 @@
           "$className": "RemoteEvent"
         },
         "UpdateLogClosed": {
+          "$className": "RemoteEvent"
+        },
+        "HomeTeleportRequest": {
           "$className": "RemoteEvent"
         },
         "PlaceCosmetic": {

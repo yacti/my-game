@@ -47,6 +47,20 @@ State.UpdateEvent = {
 	EventId = "UpdateEventId",
 }
 
+State.GameEvent = {
+	NextWeatherEventId = "NextWeatherEventId",
+	NextWeatherStartsAt = "NextWeatherStartsAt",
+	Revision = "GameEventRevision",
+	EventId = "EventId",
+	Layer = "Layer",
+	Source = "Source",
+	StartsAt = "StartsAt",
+	EndsAt = "EndsAt",
+	Priority = "Priority",
+	DisplayPriority = "DisplayPriority",
+	DisplayFrame = "DisplayFrame",
+}
+
 State.UpdateLog = {
 	Id = "UpdateLogId",
 }
