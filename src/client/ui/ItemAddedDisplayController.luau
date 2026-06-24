@@ -24,6 +24,7 @@ local HUD_WAIT_SECONDS = 10
 local FOOD_TOOL_ATTRIBUTE_RETRIES = 12
 local FOOD_TOOL_ATTRIBUTE_RETRY_SECONDS = 0.08
 local DISPLAY_SECONDS = 3
+local MAX_VISIBLE_ITEMS = 4
 
 local SHOW_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Exponential, Enum.EasingDirection.In)
 local HIDE_TWEEN = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
@@ -39,6 +40,7 @@ local foodSuppressionById = {}
 local seenFoodTools = {}
 local previousCountMaps = {}
 local activeDisplays = {}
+local activeDisplayOrder = {}
 local displaySequence = 0
 local feedTemplateByType = nil
 
@@ -147,9 +149,53 @@ local function strokeFor(label)
 	return stroke
 end
 
+local function removeFromDisplayOrder(entry)
+	for index, current in ipairs(activeDisplayOrder) do
+		if current == entry then
+			table.remove(activeDisplayOrder, index)
+			break
+		end
+	end
+end
+
 local function forgetDisplay(key, entry)
-	if activeDisplays[key] == entry then
+	if key ~= nil and activeDisplays[key] == entry then
 		activeDisplays[key] = nil
+	end
+end
+
+local function destroyDisplay(key, entry)
+	entry.removing = true
+	forgetDisplay(key, entry)
+	removeFromDisplayOrder(entry)
+	disconnectRarity(entry)
+
+	local label = entry.label
+	if label and label.Parent then
+		label:Destroy()
+	end
+end
+
+local function pruneDisplayOrder()
+	local index = 1
+	while index <= #activeDisplayOrder do
+		local entry = activeDisplayOrder[index]
+		if not (entry and entry.label and entry.label.Parent) then
+			table.remove(activeDisplayOrder, index)
+		else
+			index += 1
+		end
+	end
+end
+
+local function trimDisplaysToMaxVisible(limit)
+	pruneDisplayOrder()
+	while #activeDisplayOrder > limit do
+		local oldest = activeDisplayOrder[1]
+		if not oldest then
+			return
+		end
+		destroyDisplay(oldest.key, oldest)
 	end
 end
 
@@ -162,6 +208,7 @@ local function fadeOutDisplay(key, entry)
 
 	local label = entry.label
 	if not (label and label.Parent) then
+		removeFromDisplayOrder(entry)
 		return
 	end
 	disconnectRarity(entry)
@@ -184,6 +231,7 @@ local function fadeOutDisplay(key, entry)
 		if label.Parent then
 			label:Destroy()
 		end
+		removeFromDisplayOrder(entry)
 	end)
 end
 
@@ -218,6 +266,8 @@ local function showDisplay(key, baseText, amount, color, rarity)
 		return
 	end
 
+	trimDisplaysToMaxVisible(MAX_VISIBLE_ITEMS - 1)
+
 	local label = itemTemplate:Clone()
 	label.Name = "ItemAdded"
 	label.Visible = true
@@ -239,12 +289,14 @@ local function showDisplay(key, baseText, amount, color, rarity)
 	local entry = {
 		amount = amount,
 		baseText = baseText,
+		key = key,
 		label = label,
 		rarityConnection = nil,
 		removing = false,
 		token = 1,
 	}
 	activeDisplays[key] = entry
+	table.insert(activeDisplayOrder, entry)
 	applyRarity(entry, rarity, color)
 
 	TweenService:Create(label, SHOW_TWEEN, {

@@ -25,6 +25,26 @@ local function targetCFrame(target)
 	return CFrame.identity
 end
 
+local function treePivotCFrame(tree)
+	local primary = tree.PrimaryPart
+	if primary and primary.Parent then
+		return primary.CFrame
+	end
+	return tree:GetPivot()
+end
+
+local function setTargetBaseCFrame(treePivot, target, cframe)
+	target.baseCFrame = cframe
+	target.localBaseCFrame = treePivot:ToObjectSpace(cframe)
+end
+
+local function targetBaseCFrame(treePivot, target)
+	if target.localBaseCFrame then
+		return treePivot * target.localBaseCFrame
+	end
+	return target.baseCFrame
+end
+
 local function applyTargetCFrame(target, cframe)
 	if target:IsA("BasePart") then
 		target.CFrame = cframe
@@ -44,10 +64,11 @@ local function applyMotionTarget(target, cframe)
 	end
 end
 
-local function restoreTargets(targets)
+local function restoreTargets(tree, targets)
+	local treePivot = treePivotCFrame(tree)
 	for _, target in ipairs(targets) do
 		if target.instance.Parent then
-			applyMotionTarget(target, target.baseCFrame)
+			applyMotionTarget(target, targetBaseCFrame(treePivot, target))
 		end
 	end
 end
@@ -78,27 +99,30 @@ end
 
 local function collectTargets(tree)
 	local targets = {}
+	local treePivot = treePivotCFrame(tree)
 	for _, descendant in ipairs(tree:GetDescendants()) do
 		if descendant:IsA("BasePart") and descendant.Name == "Leaf" and not hasLeafAncestor(descendant, tree) then
-			table.insert(targets, {
+			local target = {
 				instance = descendant,
-				baseCFrame = descendant.CFrame,
 				children = leafChildren(descendant),
 				kind = "leaf",
 				phase = math.random() * math.pi * 2,
-			})
+			}
+			setTargetBaseCFrame(treePivot, target, descendant.CFrame)
+			table.insert(targets, target)
 		end
 	end
 	for _, anchor in ipairs(tree:GetChildren()) do
 		if anchor.Name == "SlotAnchor" then
 			for _, child in ipairs(anchor:GetChildren()) do
 				if child:IsA("BasePart") or child:IsA("Model") then
-					table.insert(targets, {
+					local target = {
 						instance = child,
-						baseCFrame = targetCFrame(child),
 						kind = "slot",
 						phase = #targets * 0.7,
-					})
+					}
+					setTargetBaseCFrame(treePivot, target, targetCFrame(child))
+					table.insert(targets, target)
 				end
 			end
 		end
@@ -124,7 +148,7 @@ local function clearTargetCache(tree)
 	end
 	local activeRecord = activeEffects[tree]
 	if activeRecord then
-		restoreTargets(activeRecord.targets)
+		restoreTargets(tree, activeRecord.targets)
 		activeEffects[tree] = nil
 		stopRenderConnectionIfIdle()
 	end
@@ -141,9 +165,10 @@ local function cachedTargets(tree)
 	end
 	if cacheRecord then
 		if not activeEffects[tree] then
+			local treePivot = treePivotCFrame(tree)
 			for _, target in ipairs(cacheRecord.targets) do
 				if target.instance.Parent then
-					target.baseCFrame = targetCFrame(target.instance)
+					setTargetBaseCFrame(treePivot, target, targetCFrame(target.instance))
 				end
 			end
 		end
@@ -201,7 +226,7 @@ local function updateActiveRecord(tree, record, now)
 	end
 
 	if not shake and not sway then
-		restoreTargets(record.targets)
+		restoreTargets(tree, record.targets)
 		activeEffects[tree] = nil
 		local cacheRecord = targetCache[tree]
 		if cacheRecord and cacheRecord.dirty then
@@ -210,9 +235,10 @@ local function updateActiveRecord(tree, record, now)
 		return
 	end
 
+	local treePivot = treePivotCFrame(tree)
 	for _, target in ipairs(record.targets) do
 		if target.instance.Parent then
-			local cframe = target.baseCFrame
+			local cframe = targetBaseCFrame(treePivot, target)
 			if sway and target.kind == "leaf" then
 				local elapsed = now - sway.startedAt
 				local alpha = elapsed / sway.duration

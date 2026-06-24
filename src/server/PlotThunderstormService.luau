@@ -504,7 +504,7 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 		session.suppressedActiveRecord = true
 		if type(callbacks.complete) == "function" then
 			callbacks.complete(session.instanceId, {
-				blockLowerPriorityUntil = serverNow() + session.settings.windDownSeconds,
+				blockLowerPriorityUntil = session.endsAt,
 				keepHandlerRunning = true,
 			})
 		end
