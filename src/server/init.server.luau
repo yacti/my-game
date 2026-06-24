@@ -459,6 +459,10 @@ local function snapshotFoodInventory(player, profile, context)
 	return true
 end
 
+GameEventService.Configure({
+	snapshotProfileState = snapshotProfileState,
+})
+
 local function clearPendingPetFeedSnapshot(player)
 	local key = userKey(player)
 	if key then

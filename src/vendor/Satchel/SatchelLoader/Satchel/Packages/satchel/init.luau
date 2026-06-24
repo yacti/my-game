@@ -45,6 +45,7 @@ require(script.Attribution)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local State = require(Shared:WaitForChild("State"))
@@ -663,6 +664,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolChangeConn: any = nil
 	local ToolFoodIdChangeConn: RBXScriptConnection? = nil
 	local ToolFoodTypeChangeConn: RBXScriptConnection? = nil
+	local ToolMutationChangeConn: RBXScriptConnection? = nil
+	local ToolPrimaryMutationChangeConn: RBXScriptConnection? = nil
 	local ToolRarityChangeConn: RBXScriptConnection? = nil
 	local ToolRarityRenderConn: RBXScriptConnection? = nil
 	local HighlightFrame: any = nil -- UIStroke
@@ -716,6 +719,14 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			ToolFoodTypeChangeConn:Disconnect()
 			ToolFoodTypeChangeConn = nil
 		end
+		if ToolMutationChangeConn then
+			ToolMutationChangeConn:Disconnect()
+			ToolMutationChangeConn = nil
+		end
+		if ToolPrimaryMutationChangeConn then
+			ToolPrimaryMutationChangeConn:Disconnect()
+			ToolPrimaryMutationChangeConn = nil
+		end
 	end
 
 	local function setToolNameColor(color: Color3): ()
@@ -764,6 +775,19 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		end
 	end
 
+	local function refreshMutationBackground(): ()
+		local tool = slot.Tool
+		local primaryMutationId = tool and Mutations.PrimaryFromInstance(tool) or nil
+		local color = primaryMutationId and Mutations.DisplayColor(primaryMutationId) or nil
+		if color then
+			ToolIcon.BackgroundColor3 = color
+			ToolIcon.BackgroundTransparency = 0.18
+		else
+			ToolIcon.BackgroundColor3 = BACKGROUND_COLOR
+			ToolIcon.BackgroundTransparency = 1
+		end
+	end
+
 	-- Adjust the slots to the centered
 	function slot:Readjust(visualIndex: number, visualTotal: number): ...any --NOTE: Only used for Hotbar slots
 		local centered: number = HotbarFrame.Size.X.Offset / 2
@@ -797,6 +821,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 
 			ToolName.Text = tool.Name
 			refreshToolNameRarity()
+			refreshMutationBackground()
 
 			-- If there is a tooltip, then show it
 			if ToolTip and tool:IsA("Tool") then --NOTE: HopperBin
@@ -823,7 +848,10 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		ToolRarityChangeConn = tool:GetAttributeChangedSignal(State.Tool.Rarity):Connect(refreshToolNameRarity)
 		ToolFoodIdChangeConn = tool:GetAttributeChangedSignal(State.Food.Id):Connect(refreshToolNameRarity)
 		ToolFoodTypeChangeConn = tool:GetAttributeChangedSignal(State.Food.Type):Connect(refreshToolNameRarity)
+		ToolMutationChangeConn = tool:GetAttributeChangedSignal(State.Food.MutationIds):Connect(refreshMutationBackground)
+		ToolPrimaryMutationChangeConn = tool:GetAttributeChangedSignal(State.Food.PrimaryMutationId):Connect(refreshMutationBackground)
 		refreshToolNameRarity()
+		refreshMutationBackground()
 
 		local hotbarSlot: boolean = (self.Index <= NumberOfHotbarSlots)
 		local inventoryOpen: boolean = InventoryFrame.Visible
@@ -870,6 +898,8 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		disconnectToolRarity()
 
 		ToolIcon.Image = ""
+		ToolIcon.BackgroundColor3 = BACKGROUND_COLOR
+		ToolIcon.BackgroundTransparency = 1
 		ToolName.Text = ""
 		setToolNameColor(TEXT_COLOR)
 		if DeleteHighlightFrame then

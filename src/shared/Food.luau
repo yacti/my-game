@@ -13,6 +13,7 @@ local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
 local Assets = require(script.Parent:WaitForChild("Assets"))
 local Inventory = require(script.Parent:WaitForChild("Inventory"))
+local Mutations = require(script.Parent:WaitForChild("Mutations"))
 local Rarities = require(script.Parent:WaitForChild("Rarities"))
 local Seeds = require(script.Parent:WaitForChild("Seeds"))
 
@@ -240,6 +241,14 @@ function Food.XPOf(food)
 	return math.max(xp, 0)
 end
 
+function Food.MutationIdsOf(food)
+	return Mutations.FromInstance(food)
+end
+
+function Food.PrimaryMutationIdOf(food)
+	return Mutations.PrimaryFromInstance(food)
+end
+
 function Food.RarityOf(food)
 	local rarity = food and food:GetAttribute(State.Tool.Rarity)
 	if type(rarity) == "string" and Rarities.IsValid(rarity) then
@@ -297,16 +306,17 @@ local function buildToolFromTemplate(template, toolName)
 	return tool
 end
 
-local function configureFoodTool(tool, foodId, foodType, xp, rarity)
+local function configureFoodTool(tool, foodId, foodType, xp, rarity, mutationIds, primaryMutationId)
 	tool:SetAttribute(State.Food.Id, foodId)
 	tool:SetAttribute(State.Food.Type, foodType)
 	tool:SetAttribute(State.Food.XP, xp)
+	Mutations.ApplyAttribute(tool, mutationIds, primaryMutationId)
 	applyToolRarity(tool, rarity)
 	ToolIdentity.AssignGuid(tool)
 	return tool
 end
 
-function Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride)
+function Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride, mutationIds, primaryMutationId)
 	local foodId = Food.MakeJamFoodId(producerFeedType, sourceFoodId)
 	if not foodId then return nil end
 
@@ -335,7 +345,7 @@ function Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride)
 	end
 
 	local xp = tonumber(xpOverride) or defaultJamXP(producerFeedType, sourceFoodId)
-	configureFoodTool(tool, foodId, JAM_FOOD_TYPE, math.max(xp, 0), Food.RarityFor(foodId))
+	configureFoodTool(tool, foodId, JAM_FOOD_TYPE, math.max(xp, 0), Food.RarityFor(foodId), mutationIds, primaryMutationId)
 	tool:SetAttribute(State.Food.JamProducerFeedType, producerFeedType)
 	tool:SetAttribute(State.Food.JamSourceFoodId, sourceFoodId)
 	return tool
@@ -345,10 +355,10 @@ end
 -- Templates can be BaseParts or Models. Model templates use their
 -- PrimaryPart as the Tool's Handle; sibling parts get welded to it so the
 -- Tool keeps RequiresHandle semantics while still showing the full visual.
-function Food.MakeTool(foodId, xpOverride)
+function Food.MakeTool(foodId, xpOverride, mutationIds, primaryMutationId)
 	local producerFeedType, sourceFoodId = Food.ParseJamFoodId(foodId)
 	if producerFeedType and sourceFoodId then
-		return Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride)
+		return Food.MakeJamTool(producerFeedType, sourceFoodId, xpOverride, mutationIds, primaryMutationId)
 	end
 
 	local template = Food.GetTemplate(foodId)
@@ -361,7 +371,7 @@ function Food.MakeTool(foodId, xpOverride)
 	if not tool then return nil end
 
 	local xp = xpOverride or (template:GetAttribute(State.Food.XP) or 1)
-	return configureFoodTool(tool, foodId, Food.TypeFor(foodId), xp, Food.RarityFor(foodId))
+	return configureFoodTool(tool, foodId, Food.TypeFor(foodId), xp, Food.RarityFor(foodId), mutationIds, primaryMutationId)
 end
 
 function Food.IsFood(tool)

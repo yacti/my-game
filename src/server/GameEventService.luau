@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
+local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotWindService = require(Server:WaitForChild("PlotWindService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -18,8 +19,12 @@ local activeFolder = nil
 local started = false
 local revision = 0
 local lastSignature = nil
-local activeWindInstanceId = nil
+local activeInstanceIdsByEventId = {}
+local activeRecordsByEventId = {}
+local completedInstanceIds = {}
+local completionBlocksByLayer = {}
 local notifiedInstanceIds = {}
+local serviceConfig = {}
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
@@ -107,6 +112,21 @@ local function signatureFor(records, nextWeather)
 	return table.concat(parts, "|")
 end
 
+local handlers = {
+	[GameEvents.Ids.Windy] = {
+		start = PlotWindService.StartWind,
+		stop = PlotWindService.StopWind,
+		preNotice = PlotWindService.NotifyWindStarting,
+	},
+	[GameEvents.Ids.Stormy] = {
+		start = function(record, callbacks)
+			PlotThunderstormService.StartStorm(record, callbacks)
+		end,
+		stop = PlotThunderstormService.StopStorm,
+		preNotice = PlotThunderstormService.NotifyStormApproaching,
+	},
+}
+
 local function clearActiveFolder(folder)
 	for _, child in ipairs(folder:GetChildren()) do
 		child:Destroy()
@@ -147,9 +167,9 @@ local function publishSnapshot(records, nextWeather)
 	folder:SetAttribute(State.GameEvent.Revision, revision)
 end
 
-local function activeWindRecord(records)
+local function activeRecordFor(records, eventId)
 	for _, record in ipairs(records or {}) do
-		if record.eventId == GameEvents.Ids.Windy then
+		if record.eventId == eventId then
 			return record
 		end
 	end
@@ -157,21 +177,33 @@ local function activeWindRecord(records)
 end
 
 local function updateHandlers(records)
-	local windRecord = activeWindRecord(records)
-	if windRecord then
-		if activeWindInstanceId ~= windRecord.instanceId then
-			if activeWindInstanceId then
-				logEvent("Stopping", activeWindInstanceId)
-				RuntimeGuard.Run("GameEventService.StopWind", PlotWindService.StopWind, activeWindInstanceId)
+	for eventId, handler in pairs(handlers) do
+		local record = activeRecordFor(records, eventId)
+		local activeInstanceId = activeInstanceIdsByEventId[eventId]
+		if record then
+			if activeInstanceId ~= record.instanceId then
+				if activeInstanceId and handler.stop then
+					logEvent("Stopping", activeInstanceId)
+					RuntimeGuard.Run("GameEventService.Stop." .. tostring(eventId), handler.stop, activeInstanceId)
+				end
+				activeInstanceIdsByEventId[eventId] = record.instanceId
+				activeRecordsByEventId[eventId] = record
+				logEvent("Starting", record)
+				RuntimeGuard.Run("GameEventService.Start." .. tostring(eventId), handler.start, record, {
+					complete = GameEventService.CompleteInstance,
+					snapshotProfileState = serviceConfig.snapshotProfileState,
+				})
+			else
+				activeRecordsByEventId[eventId] = record
 			end
-			activeWindInstanceId = windRecord.instanceId
-			logEvent("Starting", windRecord)
-			RuntimeGuard.Run("GameEventService.StartWind", PlotWindService.StartWind, windRecord)
+		elseif activeInstanceId then
+			if handler.stop then
+				logEvent("Stopping", activeInstanceId)
+				RuntimeGuard.Run("GameEventService.Stop." .. tostring(eventId), handler.stop, activeInstanceId)
+			end
+			activeInstanceIdsByEventId[eventId] = nil
+			activeRecordsByEventId[eventId] = nil
 		end
-	elseif activeWindInstanceId then
-		logEvent("Stopping", activeWindInstanceId)
-		RuntimeGuard.Run("GameEventService.StopWind", PlotWindService.StopWind, activeWindInstanceId)
-		activeWindInstanceId = nil
 	end
 end
 
@@ -182,10 +214,14 @@ local function updatePreNotice(now, nextWeather)
 		end
 	end
 
-	if not nextWeather or nextWeather.eventId ~= GameEvents.Ids.Windy then
+	if not nextWeather then
 		return
 	end
-	local config = GameEvents.GetEvent(GameEvents.Ids.Windy) or {}
+	local handler = handlers[nextWeather.eventId]
+	if not (handler and handler.preNotice) then
+		return
+	end
+	local config = GameEvents.GetEvent(nextWeather.eventId) or {}
 	local preNoticeSeconds = math.max(tonumber(config.preNoticeSeconds) or 0, 0)
 	if preNoticeSeconds <= 0 then
 		return
@@ -199,12 +235,22 @@ local function updatePreNotice(now, nextWeather)
 		return
 	end
 	notifiedInstanceIds[nextWeather.instanceId] = nextWeather.startsAt
-	RuntimeGuard.Run("GameEventService.NotifyWindStarting", PlotWindService.NotifyWindStarting)
+	RuntimeGuard.Run("GameEventService.NotifyStarting." .. tostring(nextWeather.eventId), handler.preNotice)
 end
 
 local function update()
 	local now = serverNow()
-	local snapshot = GameEvents.WeatherSnapshot(now)
+	for instanceId, completedAt in pairs(completedInstanceIds) do
+		if tonumber(completedAt) and completedAt < now - 3600 then
+			completedInstanceIds[instanceId] = nil
+		end
+	end
+	for layer, block in pairs(completionBlocksByLayer) do
+		if type(block) ~= "table" or (tonumber(block.untilTime) or 0) <= now then
+			completionBlocksByLayer[layer] = nil
+		end
+	end
+	local snapshot = GameEvents.WeatherSnapshot(now, completedInstanceIds, completionBlocksByLayer)
 	local records = snapshot.activeRecords or {}
 	local nextWeather = snapshot.nextWeather
 
@@ -218,10 +264,52 @@ local function update()
 	updatePreNotice(now, nextWeather)
 end
 
-function GameEventService.Start()
-	if started then
+function GameEventService.CompleteInstance(instanceId, options)
+	if type(instanceId) ~= "string" or instanceId == "" then
 		return
 	end
+	options = type(options) == "table" and options or {}
+	local keepHandlerRunning = options.keepHandlerRunning == true
+	local now = serverNow()
+	completedInstanceIds[instanceId] = now
+	for eventId, activeInstanceId in pairs(activeInstanceIdsByEventId) do
+		if activeInstanceId == instanceId then
+			local handler = handlers[eventId]
+			local record = activeRecordsByEventId[eventId]
+			local blockUntil = tonumber(options.blockLowerPriorityUntil)
+			if record and blockUntil and blockUntil > now then
+				completionBlocksByLayer[record.layer] = {
+					instanceId = instanceId,
+					priority = tonumber(record.priority) or 0,
+					untilTime = blockUntil,
+				}
+			end
+			if not keepHandlerRunning and handler and handler.stop then
+				RuntimeGuard.Run("GameEventService.CompleteStop." .. tostring(eventId), handler.stop, instanceId)
+			end
+			activeInstanceIdsByEventId[eventId] = nil
+			activeRecordsByEventId[eventId] = nil
+		end
+	end
+	lastSignature = nil
+	update()
+end
+
+function GameEventService.Configure(config)
+	if type(config) ~= "table" then
+		return
+	end
+	if type(config.snapshotProfileState) == "function" then
+		serviceConfig.snapshotProfileState = config.snapshotProfileState
+	end
+end
+
+function GameEventService.Start(config)
+	if started then
+		GameEventService.Configure(config)
+		return
+	end
+	GameEventService.Configure(config)
 	started = true
 
 	getRuntimeFolder()

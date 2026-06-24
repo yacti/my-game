@@ -41,6 +41,7 @@ local REQUIRED_ASSET_ROOTS = {
 	"SeedTool",
 	"Shovel",
 	"Misc",
+	"Mutations",
 	"VFX",
 }
 
@@ -216,6 +217,103 @@ local function validateClientSounds(errors)
 		if sound and not sound.SoundId:match("^rbxassetid://%d+$") then
 			add(errors, string.format("%s has invalid SoundId %q", sound:GetFullName(), sound.SoundId))
 		end
+	end
+end
+
+local function hasDescendantOfClass(root, className)
+	if not root then
+		return false
+	end
+	for _, instance in ipairs(root:GetDescendants()) do
+		if instance:IsA(className) then
+			return true
+		end
+	end
+	return false
+end
+
+local function validateLightingPreset(lightingRoot, presetName, errors)
+	local preset = child(lightingRoot, presetName, "Folder", errors)
+	if not preset then
+		return
+	end
+
+	local settingsModule = child(preset, "LightingSettings", "ModuleScript", errors)
+	if settingsModule then
+		local ok, settings = pcall(require, settingsModule)
+		if not ok or type(settings) ~= "table" then
+			add(errors, settingsModule:GetFullName() .. " must return a table")
+		elseif settings.Lighting ~= nil and type(settings.Lighting) ~= "table" then
+			add(errors, settingsModule:GetFullName() .. ".Lighting must be a table when present")
+		end
+	end
+
+	local hasLightingChild = false
+	for _, instance in ipairs(preset:GetChildren()) do
+		if instance:IsA("Atmosphere")
+			or instance:IsA("Sky")
+			or instance:IsA("BloomEffect")
+			or instance:IsA("ColorCorrectionEffect")
+			or instance:IsA("SunRaysEffect") then
+			hasLightingChild = true
+			break
+		end
+	end
+	if not hasLightingChild then
+		add(errors, preset:GetFullName() .. " must contain at least one supported Lighting child")
+	end
+end
+
+local function validateThunderstormAssets(errors, warnings)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Default", errors)
+		validateLightingPreset(lightingRoot, "Storm", errors)
+	end
+
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
+	local rain = child(misc, "Rain", "BasePart", errors)
+	if rain and not hasDescendantOfClass(rain, "ParticleEmitter") then
+		add(errors, rain:GetFullName() .. " must contain a ParticleEmitter")
+	end
+	child(misc, "ThunderCloud", "BasePart", errors)
+	local strike = child(misc, "LightningStrike", "BasePart", errors)
+	if strike then
+		child(strike, "StrikeAttachment", "Attachment", errors)
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local lightning = child(mutations, "Lightning", nil, errors)
+	if lightning then
+		local xpMultiplier = lightning:GetAttribute(State.Feed.XPMultiplier)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid %s %q", lightning:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(lightning, "Highlight") then
+			add(errors, lightning:GetFullName() .. " must contain a Highlight for mutation visuals")
+		end
+		if not hasDescendantOfClass(lightning, "ParticleEmitter") then
+			add(errors, lightning:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+
+	local sounds = ReplicatedStorage:FindFirstChild("Sounds")
+	local thunderSound = sounds and sounds:FindFirstChild("ThunderStrike")
+	if thunderSound then
+		if not thunderSound:IsA("Sound") then
+			add(errors, string.format("%s is %s, expected Sound", thunderSound:GetFullName(), thunderSound.ClassName))
+		elseif not thunderSound.SoundId:match("^rbxassetid://%d+$") then
+			add(errors, string.format("%s has invalid SoundId %q", thunderSound:GetFullName(), thunderSound.SoundId))
+		end
+	else
+		add(warnings, "Missing ReplicatedStorage.Sounds.ThunderStrike; clients will use the local thunder asset-id fallback")
+	end
+
+	local map = Workspace:FindFirstChild("Map")
+	if not map then
+		add(errors, "Missing Workspace.Map")
+	else
+		child(map, "CENTER", "BasePart", errors)
 	end
 end
 
@@ -2277,6 +2375,7 @@ function AssetValidator.validate()
 	validateClientSounds(errors)
 	validateMusicPlaylist(errors)
 	validateAnimalAmbientSounds(errors)
+	validateThunderstormAssets(errors, warnings)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)

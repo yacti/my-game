@@ -29,6 +29,7 @@ local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Food    = require(Shared:WaitForChild("Food"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State   = require(Shared:WaitForChild("State"))
@@ -37,7 +38,7 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 local Processor = {}
 local ProcessorDepositEffect = Remotes.get(Remotes.Names.ProcessorDepositEffect)
 
--- [machine] = { owner, plot, queue: { { foodId, xp, depositedAt }, ... } }
+-- [machine] = { owner, plot, queue: { { foodId, xp, mutationIds, depositedAt }, ... } }
 local state = {}
 
 local function acceptedFoodType(machine)
@@ -113,7 +114,7 @@ local function dispenseAllReady(machine, s, player)
 			local foodId = item.foodId or item.foodType -- foodType kept for old saves
 			local inputXP = tonumber(item.xp) or Food.BaseXP(foodId)
 			local boostXP = inputXP * mult
-			local tool    = Food.MakeTool(foodId, boostXP)
+				local tool    = Food.MakeTool(foodId, boostXP, item.mutationIds, item.primaryMutationId)
 			if tool and not ToolGrantService.GrantTool(player, tool) then
 				tool:Destroy()
 				-- Grant blocked (e.g. food cap): keep the item queued so the
@@ -138,9 +139,11 @@ local function depositOne(machine, s, player)
 	if not foodId then return end
 	local foodXP = Food.XPOf(food)
 	if foodXP == nil then return end
+	local mutationIds = Food.MutationIdsOf(food)
+	local primaryMutationId = Food.PrimaryMutationIdOf(food)
 	local foodGuid = ToolIdentity.EnsureGuid(food)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
-	table.insert(s.queue, { foodId = foodId, xp = foodXP, depositedAt = os.time() })
+	table.insert(s.queue, { foodId = foodId, xp = foodXP, mutationIds = mutationIds, primaryMutationId = primaryMutationId, depositedAt = os.time() })
 	refreshAttrs(machine, s)
 	RuntimeGuard.Run("Processor.DepositEffect", function()
 		ProcessorDepositEffect:FireClient(player, machine, foodId)
@@ -196,10 +199,12 @@ function Processor.Serialize(machine)
 	local queue = table.create(#s.queue)
 	for _, item in ipairs(s.queue) do
 		queue[#queue+1] = {
-			foodId = item.foodId or item.foodType,
-			xp = item.xp,
-			depositedAt = item.depositedAt,
-		}
+				foodId = item.foodId or item.foodType,
+				xp = item.xp,
+				mutationIds = item.mutationIds,
+				primaryMutationId = item.primaryMutationId,
+				depositedAt = item.depositedAt,
+			}
 	end
 	return { queue = queue }
 end
@@ -212,10 +217,12 @@ function Processor.Apply(machine, placement, options)
 		for _, item in ipairs(placement.queue) do
 			if type(item) == "table" and (item.foodId or item.foodType) and item.depositedAt then
 				table.insert(s.queue, {
-					foodId = item.foodId or item.foodType,
-					xp = item.xp,
-					depositedAt = item.depositedAt,
-				})
+						foodId = item.foodId or item.foodType,
+						xp = item.xp,
+						mutationIds = Mutations.SanitizeList(item.mutationIds or item.mutations),
+						primaryMutationId = Mutations.Primary(item.mutationIds or item.mutations, item.primaryMutationId or item.primaryMutation),
+						depositedAt = item.depositedAt,
+					})
 			end
 		end
 		if options.deferOfflineProgress == true then

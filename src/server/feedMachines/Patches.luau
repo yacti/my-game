@@ -26,6 +26,7 @@ local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
+local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local PatchGrowth = require(ReplicatedStorage.Shared:WaitForChild("PatchGrowth"))
 local PatchScale = require(ReplicatedStorage.Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
@@ -97,6 +98,7 @@ local function publishSlotGrowth(slot)
 	if not food then return end
 	food:SetAttribute(State.Food.XP, slot.baseXP or 0)
 	food:SetAttribute(State.Food.GrowthStart, slot.growthStart)
+	Mutations.ApplyAttribute(food, slot.mutationIds, slot.primaryMutationId)
 	food:SetAttribute(State.Food.StealReservationId, slot.stealReservationId)
 	food:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
 end
@@ -164,6 +166,7 @@ local function spawnFoodAtSlot(slot)
 	clone:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	clone:SetAttribute(State.Food.XP, slot.baseXP or 0)
 	clone:SetAttribute(State.Food.GrowthStart, slot.growthStart)
+	Mutations.ApplyAttribute(clone, slot.mutationIds, slot.primaryMutationId)
 	clone:SetAttribute(State.Food.StealReservationId, slot.stealReservationId)
 	clone:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
 	if clone:IsA("BasePart") then
@@ -223,6 +226,8 @@ local function emptySlot(slot, respawnAt)
 	slot.foodPart = nil
 	slot.baseXP = 0
 	slot.growthStart = nil
+	slot.mutationIds = nil
+	slot.primaryMutationId = nil
 	slot.pendingOfflineGrowthElapsed = nil
 	slot.respawnAt = respawnAt
 	clearSlotStealReservation(slot)
@@ -244,7 +249,7 @@ local function harvest(machine, s, slotIndex, player)
 	local foodId = s.foodId
 	if not foodId then return false end
 	local xp = slotXPNow(machine, slot, serverNow())
-	local tool = Food.MakeTool(foodId, xp)
+	local tool = Food.MakeTool(foodId, xp, slot.mutationIds, slot.primaryMutationId)
 	if not tool then return false end
 	scaleToolToXP(tool, xp, slot.patchXP)
 	if not ToolGrantService.GrantTool(player, tool, {
@@ -328,6 +333,8 @@ function Patches.Setup(machine, plot, owner)
 				anchor = anchor,
 				foodPart = nil,
 				stealReservationId = nil,
+				mutationIds = nil,
+				primaryMutationId = nil,
 				respawnAt = nil,
 			}
 			slot.foodPart = spawnFoodAtSlot(slot)
@@ -369,6 +376,8 @@ function Patches.Serialize(machine)
 				xp = slot.baseXP or 0,
 				growthElapsed = slot.pendingOfflineGrowthElapsed or 0,
 				respawnAt = slot.respawnAt,
+				mutationIds = slot.mutationIds,
+				primaryMutationId = slot.primaryMutationId,
 			}
 		end
 		return { slots = slots, lastTick = s.lastTick }
@@ -390,6 +399,8 @@ function Patches.Serialize(machine)
 				xp = (slot.baseXP or 0) + intervals * slot.patchXP,
 				growthElapsed = elapsed - intervals * growRate,
 				respawnAt = nil,
+				mutationIds = slot.mutationIds,
+				primaryMutationId = slot.primaryMutationId,
 			}
 		end
 	end
@@ -427,6 +438,8 @@ function Patches.Apply(machine, placement, options)
 				slot.respawnAt = nil
 				slot.pendingMaterialize = nil
 				slot.baseXP = savedXP
+				slot.mutationIds = Mutations.SanitizeList(savedSlot.mutationIds or savedSlot.mutations)
+				slot.primaryMutationId = Mutations.Primary(slot.mutationIds, savedSlot.primaryMutationId or savedSlot.primaryMutation)
 				slot.growthStart = nil
 				slot.pendingOfflineGrowthElapsed = savedElapsed
 				if not deferOfflineProgress then
@@ -516,11 +529,86 @@ function Patches.ReserveStealTarget(anchor, player, reservationId, expiresAt)
 		foodId = foodId,
 		xp = xp,
 		scale = PatchScale.ComputeScale(xp, slot.patchXP),
+		mutationIds = slot.mutationIds,
+		primaryMutationId = slot.primaryMutationId,
 		sourceKind = "Patch",
 		sourceOwnerUserId = s.owner and s.owner.UserId or 0,
 		sourceFeedIndex = machine:GetAttribute(State.Feed.Index),
 		sourceSlotIndex = entry.slotIndex,
 	}, machine
+end
+
+local function slotPosition(slot)
+	local food = slot and slot.foodPart
+	if food then
+		if food:IsA("BasePart") then
+			return food.Position
+		elseif food:IsA("Model") then
+			return food:GetPivot().Position
+		end
+	end
+	local anchor = slot and slot.anchor
+	return anchor and anchor.Position or nil
+end
+
+function Patches.CollectMutationTargets(machine, mutationId)
+	local s = state[machine]
+	if not (s and machine.Parent) then
+		return {}
+	end
+	local targets = {}
+	for slotIndex, slot in ipairs(s.slots) do
+		clearExpiredSlotStealReservation(slot)
+		if not slot.respawnAt
+			and slot.foodPart
+			and slot.stealReservationId == nil
+			and not Mutations.Contains(slot.mutationIds, mutationId) then
+			local position = slotPosition(slot)
+			if position then
+				targets[#targets + 1] = {
+					kind = "Patch",
+					machine = machine,
+					targetKey = slotIndex,
+					position = position,
+					foodId = slot.foodId,
+				}
+			end
+		end
+	end
+	return targets
+end
+
+function Patches.ApplyMutation(machine, targetKey, mutationId)
+	local s = state[machine]
+	local slot = s and s.slots[tonumber(targetKey) or 0]
+	if not (slot and slot.foodPart and not slot.respawnAt) then
+		return false, "no-food"
+	end
+	clearExpiredSlotStealReservation(slot)
+	if slot.stealReservationId ~= nil then
+		return false, "reserved"
+	end
+	local nextMutationIds, added = Mutations.Add(slot.mutationIds, mutationId)
+	if not added then
+		return false, "already-mutated"
+	end
+	local multiplier = Mutations.XPMultiplier(mutationId) or 1
+
+	local now = serverNow()
+	local growRate = growRateFor(machine)
+	local elapsed = type(slot.growthStart) == "number" and math.max(now - slot.growthStart, 0) or 0
+	local residual = elapsed - (math.floor(elapsed / growRate) * growRate)
+	slot.baseXP = slotXPNow(machine, slot, now) * multiplier
+	slot.growthStart = now - residual
+	slot.mutationIds = nextMutationIds
+	slot.primaryMutationId = mutationId
+	publishSlotGrowth(slot)
+	return true, {
+		position = slotPosition(slot),
+		foodId = slot.foodId,
+		mutationIds = nextMutationIds,
+		primaryMutationId = slot.primaryMutationId,
+	}
 end
 
 function Patches.ReleaseSteal(machine, reservation, reservationId)

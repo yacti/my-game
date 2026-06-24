@@ -41,7 +41,7 @@ local DATA_TEMPLATE = {
 	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
 	SeedInventory = STARTER_SEED_INVENTORY, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
-	FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number? } }
+		FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number?, mutationIds = { string }?, primaryMutationId = string? } }
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
 	PendingGrowSkipReservation = nil,
@@ -258,9 +258,11 @@ local function sanitizePendingFoodStealReservation(value)
 	end
 	local item = FoodInventoryService.SanitizeRecord({
 		foodId = value.foodId,
-		xp = value.xp,
-		scale = value.scale,
-	})
+			xp = value.xp,
+			scale = value.scale,
+			mutationIds = value.mutationIds or value.mutations,
+			primaryMutationId = value.primaryMutationId or value.primaryMutation,
+		})
 	if not item then
 		return nil
 	end
@@ -281,8 +283,10 @@ local function sanitizePendingFoodStealReservation(value)
 		productId = productId,
 		foodId = item.foodId,
 		xp = item.xp,
-		scale = item.scale,
-		sourceKind = sourceKind,
+			scale = item.scale,
+			mutationIds = item.mutationIds,
+			primaryMutationId = item.primaryMutationId,
+			sourceKind = sourceKind,
 		sourceOwnerUserId = math.floor(tonumber(value.sourceOwnerUserId) or 0),
 		sourceFeedIndex = math.floor(tonumber(value.sourceFeedIndex) or 0),
 		sourceSlotIndex = math.floor(tonumber(value.sourceSlotIndex) or 0),

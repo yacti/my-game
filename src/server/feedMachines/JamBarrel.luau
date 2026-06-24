@@ -10,6 +10,7 @@ local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -18,7 +19,7 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 local JamBarrel = {}
 local ProcessorDepositEffect = Remotes.get(Remotes.Names.ProcessorDepositEffect)
 
--- [machine] = { owner, plot, queue: { { sourceFoodId, sourceXP, readyAt }, ... } }
+-- [machine] = { owner, plot, queue: { { sourceFoodId, sourceXP, sourceMutationIds, sourcePrimaryMutationId, readyAt }, ... } }
 local state = {}
 
 local function feedTypeOf(machine)
@@ -117,6 +118,15 @@ local function nextReadyAt(machine, s)
 	return readyAt + durationFor(machine)
 end
 
+local function mutationPayloadForQueueItem(item)
+	local mutationIds = Mutations.SanitizeList(item.sourceMutationIds or item.mutationIds or item.mutations)
+	local primaryMutationId = Mutations.Primary(
+		mutationIds,
+		item.sourcePrimaryMutationId or item.primaryMutationId or item.primaryMutation
+	)
+	return mutationIds, primaryMutationId
+end
+
 local function dispenseAllReady(machine, s, player)
 	local now = os.time()
 	local producerFeedType = feedTypeOf(machine)
@@ -130,7 +140,8 @@ local function dispenseAllReady(machine, s, player)
 			if type(sourceFoodId) == "string" and sourceFoodId ~= "" then
 				local sourceXP = tonumber(item.sourceXP) or tonumber(item.xp) or Food.BaseXP(sourceFoodId)
 				local boostXP = sourceXP * multiplier
-				local tool = Food.MakeJamTool(producerFeedType, sourceFoodId, boostXP)
+				local mutationIds, primaryMutationId = mutationPayloadForQueueItem(item)
+				local tool = Food.MakeJamTool(producerFeedType, sourceFoodId, boostXP, mutationIds, primaryMutationId)
 				if tool and not ToolGrantService.GrantTool(player, tool) then
 					tool:Destroy()
 					-- Grant blocked (e.g. food cap): keep the item queued so the
@@ -157,6 +168,8 @@ local function depositOne(machine, s, player, food)
 	end
 	local sourceXP = Food.XPOf(food)
 	if sourceXP == nil then return end
+	local sourceMutationIds = Food.MutationIdsOf(food)
+	local sourcePrimaryMutationId = Food.PrimaryMutationIdOf(food)
 
 	local foodGuid = ToolIdentity.EnsureGuid(food)
 	if not ToolIdentity.DestroyIfGuidMatches(food, foodGuid) then return end
@@ -164,6 +177,8 @@ local function depositOne(machine, s, player, food)
 	table.insert(s.queue, {
 		sourceFoodId = sourceFoodId,
 		sourceXP = sourceXP,
+		sourceMutationIds = sourceMutationIds,
+		sourcePrimaryMutationId = sourcePrimaryMutationId,
 		readyAt = nextReadyAt(machine, s),
 	})
 	refreshAttrs(machine, s)
@@ -230,6 +245,8 @@ function JamBarrel.Serialize(machine)
 		queue[#queue + 1] = {
 			sourceFoodId = item.sourceFoodId or item.foodId or item.foodType,
 			sourceXP = item.sourceXP or item.xp,
+			sourceMutationIds = item.sourceMutationIds or item.mutationIds,
+			sourcePrimaryMutationId = item.sourcePrimaryMutationId or item.primaryMutationId,
 			readyAt = item.readyAt,
 		}
 	end
@@ -252,9 +269,12 @@ function JamBarrel.Apply(machine, placement, options)
 				readyAt = item.depositedAt + duration
 			end
 			if type(sourceFoodId) == "string" and sourceFoodId ~= "" and type(readyAt) == "number" then
+				local sourceMutationIds, sourcePrimaryMutationId = mutationPayloadForQueueItem(item)
 				table.insert(s.queue, {
 					sourceFoodId = sourceFoodId,
 					sourceXP = sourceXP,
+					sourceMutationIds = sourceMutationIds,
+					sourcePrimaryMutationId = sourcePrimaryMutationId,
 					readyAt = readyAt,
 				})
 			end

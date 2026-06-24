@@ -12,6 +12,7 @@ Assets.Names = {
 	FeedMachineTool = "FeedMachineTool",
 	Food = "Food",
 	Misc = "Misc",
+	Mutations = "Mutations",
 	PetModels = "PetModels",
 	Seeds = "Seeds",
 	SeedTool = "SeedTool",

@@ -12,6 +12,9 @@
         "TreeClickerEffect": {
           "$className": "RemoteEvent"
         },
+        "ThunderstormEffect": {
+          "$className": "RemoteEvent"
+        },
         "TreeClickerRequest": {
           "$className": "RemoteEvent"
         },
@@ -263,6 +266,13 @@
             "SoundId": "rbxassetid://93035214379043",
             "Volume": 0.35,
             "Looped": true
+          }
+        },
+        "ThunderStrike": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://93403424380357",
+            "Volume": 0.85
           }
         },
         "MusicPlaylist": {

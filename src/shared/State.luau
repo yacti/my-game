@@ -108,6 +108,8 @@ State.Food = {
 	Id      = "FoodId",   -- exact template key, e.g. Pumpkin1
 	Type    = "FoodType", -- broad group/category, e.g. Fruit
 	XP      = "XP",
+	MutationIds = "MutationIds",
+	PrimaryMutationId = "PrimaryMutationId",
 	StealReservationId = "FoodStealReservationId",
 	StealReservationExpiresAt = "FoodStealReservationExpiresAt",
 	-- Patch slot growth anchor (server clock, Workspace:GetServerTimeNow()).

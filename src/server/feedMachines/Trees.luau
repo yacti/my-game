@@ -36,6 +36,7 @@ local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food   = require(Shared:WaitForChild("Food"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State  = require(Shared:WaitForChild("State"))
@@ -257,12 +258,13 @@ end
 
 -- ── Ground fruit state ────────────────────────────────────────────────────────
 
-local function setGroundMarkerState(marker, slot, foodId, xp)
+local function setGroundMarkerState(marker, slot, foodId, xp, mutationIds, primaryMutationId)
 	marker:SetAttribute(State.TreeClicker.GroundPile, true)
 	marker:SetAttribute(State.TreeClicker.SlotIndex, slot.n)
 	marker:SetAttribute(State.Food.Id, foodId)
 	marker:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	marker:SetAttribute(State.Food.XP, xp)
+	Mutations.ApplyAttribute(marker, mutationIds, primaryMutationId)
 	marker:SetAttribute(State.Food.StealReservationId, slot.ground and slot.ground.stealReservationId or nil)
 	marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground and slot.ground.stealReservationExpiresAt or nil)
 end
@@ -273,6 +275,8 @@ local function clearGroundMarkerState(marker)
 	marker:SetAttribute(State.Food.Id, nil)
 	marker:SetAttribute(State.Food.Type, nil)
 	marker:SetAttribute(State.Food.XP, nil)
+	marker:SetAttribute(State.Food.MutationIds, nil)
+	marker:SetAttribute(State.Food.PrimaryMutationId, nil)
 	marker:SetAttribute(State.Food.StealReservationId, nil)
 	marker:SetAttribute(State.Food.StealReservationExpiresAt, nil)
 end
@@ -308,11 +312,15 @@ end
 
 -- forward decl so handlers can call each other
 local pickupSlotGround
-local function spawnSlotGround(machine, s, slot, foodId, xp)
-	setGroundMarkerState(slot.marker, slot, foodId, xp)
+local function spawnSlotGround(machine, s, slot, foodId, xp, mutationIds, primaryMutationId)
+	mutationIds = Mutations.SanitizeList(mutationIds)
+	primaryMutationId = Mutations.Primary(mutationIds, primaryMutationId)
+	setGroundMarkerState(slot.marker, slot, foodId, xp, mutationIds, primaryMutationId)
 	slot.ground = {
 		foodId   = foodId,
 		xp       = xp,
+		mutationIds = mutationIds,
+		primaryMutationId = primaryMutationId,
 		marker   = slot.marker,
 		stealReservationId = nil,
 	}
@@ -335,7 +343,7 @@ pickupSlotGround = function(machine, s, slot, player)
 	if not slot.ground then return false end
 	clearExpiredGroundStealReservation(slot)
 	if slot.ground.stealReservationId ~= nil then return false end
-	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp)
+	local tool = Food.MakeTool(slot.ground.foodId, slot.ground.xp, slot.ground.mutationIds, slot.ground.primaryMutationId)
 	if not tool then return false end
 	if not ToolGrantService.GrantTool(player, tool, {
 		deferAutoEquip = true,
@@ -668,7 +676,9 @@ function TreeClicker.Serialize(machine)
 		if slot.ground then
 			piles[tostring(slot.n)] = {
 				foodId = slot.ground.foodId,
-				xp     = slot.ground.xp,
+				xp = slot.ground.xp,
+				mutationIds = slot.ground.mutationIds,
+				primaryMutationId = slot.ground.primaryMutationId,
 			}
 			any = true
 		end
@@ -688,7 +698,8 @@ function TreeClicker.Apply(machine, placement)
 		if type(entry) == "table" then
 			local xp = math.max(tonumber(entry.xp) or 0, 0)
 			destroySlotGround(slot)
-			spawnSlotGround(machine, s, slot, s.foodDrop, xp)
+			local foodId = Food.GetTemplate(entry.foodId) and entry.foodId or s.foodDrop
+			spawnSlotGround(machine, s, slot, foodId, xp, entry.mutationIds or entry.mutations, entry.primaryMutationId or entry.primaryMutation)
 		end
 	end
 end
@@ -718,6 +729,66 @@ local function recordForGround(ground)
 	return nil
 end
 
+function TreeClicker.CollectMutationTargets(machine, mutationId)
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then
+		return {}
+	end
+	local targets = {}
+	for _, slot in ipairs(s.slots) do
+		clearExpiredGroundStealReservation(slot)
+		if slot.ground
+			and slot.ground.stealReservationId == nil
+			and not Mutations.Contains(slot.ground.mutationIds, mutationId) then
+			targets[#targets + 1] = {
+				kind = "Tree",
+				machine = machine,
+				targetKey = slot.n,
+				position = slot.marker.Position,
+				foodId = slot.ground.foodId,
+			}
+		end
+	end
+	return targets
+end
+
+function TreeClicker.ApplyMutation(machine, targetKey, mutationId)
+	local s = machine and state[machine]
+	if not s then
+		return false, "not-ready"
+	end
+	targetKey = tonumber(targetKey)
+	local slot = nil
+	for _, candidate in ipairs(s.slots) do
+		if candidate.n == targetKey then
+			slot = candidate
+			break
+		end
+	end
+	if not (slot and slot.ground) then
+		return false, "no-food"
+	end
+	clearExpiredGroundStealReservation(slot)
+	if slot.ground.stealReservationId ~= nil then
+		return false, "reserved"
+	end
+	local nextMutationIds, added = Mutations.Add(slot.ground.mutationIds, mutationId)
+	if not added then
+		return false, "already-mutated"
+	end
+	local multiplier = Mutations.XPMultiplier(mutationId) or 1
+	slot.ground.xp *= multiplier
+	slot.ground.mutationIds = nextMutationIds
+	slot.ground.primaryMutationId = mutationId
+	setGroundMarkerState(slot.ground.marker, slot, slot.ground.foodId, slot.ground.xp, nextMutationIds, slot.ground.primaryMutationId)
+	return true, {
+		position = slot.ground.marker.Position,
+		foodId = slot.ground.foodId,
+		mutationIds = nextMutationIds,
+		primaryMutationId = slot.ground.primaryMutationId,
+	}
+end
+
 function TreeClicker.ReserveStealTarget(ground, player, reservationId, expiresAt)
 	if type(reservationId) ~= "string" or reservationId == "" then return false, "invalid-reservation" end
 	local record = recordForGround(ground)
@@ -736,9 +807,11 @@ function TreeClicker.ReserveStealTarget(ground, player, reservationId, expiresAt
 	slot.ground.marker:SetAttribute(State.Food.StealReservationId, reservationId)
 	slot.ground.marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground.stealReservationExpiresAt)
 	return true, {
-		foodId = slot.ground.foodId,
-		xp = slot.ground.xp,
-		sourceKind = "Tree",
+			foodId = slot.ground.foodId,
+			xp = slot.ground.xp,
+			mutationIds = slot.ground.mutationIds,
+			primaryMutationId = slot.ground.primaryMutationId,
+			sourceKind = "Tree",
 		sourceOwnerUserId = s.owner and s.owner.UserId or 0,
 		sourceFeedIndex = machine:GetAttribute(State.Feed.Index),
 		sourceSlotIndex = slot.n,

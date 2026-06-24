@@ -27,6 +27,7 @@ SoundEffects.Names = {
 	CrateBreak = "CrateBreak",
 	RollReveal = "RollReveal",
 	Wind = "Wind",
+	ThunderStrike = "ThunderStrike",
 }
 
 local function getSoundsFolder()

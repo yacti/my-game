@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
@@ -70,6 +71,14 @@ function FoodInventoryService.SanitizeRecord(record, seenGuids)
 		foodId = foodId,
 		xp = xp,
 	}
+	local mutationIds = Mutations.SanitizeList(record.mutationIds or record.mutations or record[State.Food.MutationIds])
+	if #mutationIds > 0 then
+		clean.mutationIds = mutationIds
+	end
+	local primaryMutationId = Mutations.Primary(mutationIds, record.primaryMutationId or record.primaryMutation or record[State.Food.PrimaryMutationId])
+	if primaryMutationId then
+		clean.primaryMutationId = primaryMutationId
+	end
 	local guid = record.guid
 	if ToolIdentity.IsValidGuid(guid) and (not seenGuids or not seenGuids[guid]) then
 		clean.guid = guid
@@ -151,6 +160,14 @@ function FoodInventoryService.SerializeTool(tool)
 		xp = nonnegativeNumber(xp, Food.BaseXP(foodId)),
 		guid = ToolIdentity.EnsureGuid(tool),
 	}
+	local mutationIds = Food.MutationIdsOf(tool)
+	if #mutationIds > 0 then
+		record.mutationIds = mutationIds
+	end
+	local primaryMutationId = Mutations.Primary(mutationIds, Food.PrimaryMutationIdOf(tool))
+	if primaryMutationId then
+		record.primaryMutationId = primaryMutationId
+	end
 	local scale = toolScale(tool)
 	if scale then
 		record.scale = scale
@@ -186,7 +203,7 @@ function FoodInventoryService.MakeTool(record)
 	if not clean then
 		return nil
 	end
-	local tool = Food.MakeTool(clean.foodId, clean.xp)
+	local tool = Food.MakeTool(clean.foodId, clean.xp, clean.mutationIds, clean.primaryMutationId)
 	if not tool then
 		return nil
 	end

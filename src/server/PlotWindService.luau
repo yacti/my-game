@@ -4,9 +4,8 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
+local EventEligibility = require(Server:WaitForChild("EventEligibility"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
-local OnboardingService = require(Server:WaitForChild("OnboardingService"))
-local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local TreeClicker = require(Server:WaitForChild("feedMachines"):WaitForChild("Trees"))
 
@@ -55,13 +54,12 @@ local function isActiveRecord(player, plot, record)
 		and PlotService.GetPlayerPlot(player) == plot
 end
 
-local function isOnboardingActive(player)
-	local profile = PlayerDataService.GetProfile(player)
-	return profile ~= nil and OnboardingService.IsActive(profile)
-end
-
 local function isWindEligible(player, plot, record)
-	return isActiveRecord(player, plot, record) and not isOnboardingActive(player)
+	if not isActiveRecord(player, plot, record) then
+		return false
+	end
+	local eligible = EventEligibility.IsEligibleForPlot(player, plot)
+	return eligible == true
 end
 
 local function isTreeFeed(feed)

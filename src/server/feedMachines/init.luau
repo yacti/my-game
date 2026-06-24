@@ -204,6 +204,29 @@ function FeedMachines.ResyncVisualScales(machine)
 	end
 end
 
+function FeedMachines.CollectMutationTargets(machine, mutationId)
+	local mod = impl(machine)
+	if mod and mod.CollectMutationTargets then
+		local ok, targets = RuntimeGuard.Run("FeedMachines.CollectMutationTargets", mod.CollectMutationTargets, machine, mutationId)
+		if ok and type(targets) == "table" then
+			return targets
+		end
+	end
+	return {}
+end
+
+function FeedMachines.ApplyMutation(machine, targetKey, mutationId)
+	local mod = impl(machine)
+	if mod and mod.ApplyMutation then
+		local results = table.pack(RuntimeGuard.Run("FeedMachines.ApplyMutation", mod.ApplyMutation, machine, targetKey, mutationId))
+		if results[1] ~= true then
+			return false, "apply-failed"
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return false, "unsupported"
+end
+
 function FeedMachines.BlocksPetNavigation(machine, now)
 	local mod = impl(machine)
 	if mod and mod.BlocksPetNavigation then

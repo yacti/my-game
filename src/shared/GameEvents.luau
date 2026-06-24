@@ -39,10 +39,11 @@ GameEvents.EventConfigs = {
 		displayFrame = "Windy",
 		cadenceSeconds = 10 * 60,
 		offsetSeconds = 0,
-		priority = 10,
-		displayPriority = 10,
+		priority = 1,
+		displayPriority = 1,
 		preNoticeSeconds = 3,
 		preNoticeText = "It's getting windy...",
+		appliedMutationId = nil,
 		wind = {
 			windUpSeconds = 4,
 			durationSeconds = 52,
@@ -56,6 +57,33 @@ GameEvents.EventConfigs = {
 			maxWaveEventsPerHeartbeat = 50,
 			shakeStartPadding = 0.1,
 			shakeEndPadding = 0.2,
+		},
+	},
+	[GameEvents.Ids.Stormy] = {
+		eventId = GameEvents.Ids.Stormy,
+		layer = GameEvents.Layers.Weather,
+		source = GameEvents.Sources.Schedule,
+		displayFrame = "Stormy",
+		cadenceSeconds = 30 * 60,
+		offsetSeconds = 0,
+		priority = 2,
+		displayPriority = 2,
+		preNoticeSeconds = 5,
+		preNoticeText = "A storm is approaching",
+		appliedMutationId = "Lightning",
+		storm = {
+			windUpSeconds = 10,
+			plotTurnSeconds = 30,
+			maxPlotTurns = 8,
+			windDownSeconds = 10,
+			minStrikesPerPlot = 5,
+			maxStrikesPerPlot = 15,
+			targetRetrySeconds = 2,
+			thunderSoundRange = 500,
+			rainFollowHeight = 30,
+			cloudStartHeight = 100,
+			cloudPlotHeight = 100,
+			cloudTravelSeconds = 6,
 		},
 	},
 }
@@ -79,6 +107,9 @@ function GameEvents.TotalDuration(config)
 	if type(config.wind) == "table" then
 		return select(4, GameEvents.WindTimings(config))
 	end
+	if type(config.storm) == "table" then
+		return select(4, GameEvents.StormTimings(config))
+	end
 	return math.max(numeric(config.durationSeconds, 0), 0)
 end
 
@@ -90,6 +121,17 @@ function GameEvents.WindTimings(config)
 	local active = math.max(numeric(wind.durationSeconds, numeric(wind.activeSeconds, 52)), 0)
 	local windDown = math.max(numeric(wind.windDownSeconds, 4), 0)
 	return windUp, active, windDown, windUp + active + windDown
+end
+
+function GameEvents.StormTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Stormy)
+	local storm = type(config) == "table" and config.storm or nil
+	storm = type(storm) == "table" and storm or {}
+	local windUp = math.max(numeric(storm.windUpSeconds, 5), 0)
+	local turn = math.max(numeric(storm.plotTurnSeconds, 30), 0)
+	local maxTurns = math.max(math.floor(numeric(storm.maxPlotTurns, 8)), 0)
+	local windDown = math.max(numeric(storm.windDownSeconds, 5), 0)
+	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
 end
 
 local function scheduledStartAt(config, now)
@@ -139,8 +181,28 @@ local function compareNext(left, right)
 	return comparePriority(left, right)
 end
 
-function GameEvents.WeatherSnapshot(now)
+local function completionBlockApplies(record, blocksByLayer)
+	if type(record) ~= "table" or type(blocksByLayer) ~= "table" then
+		return false
+	end
+	local block = blocksByLayer[record.layer]
+	if type(block) ~= "table" then
+		return false
+	end
+	local blockUntil = numeric(block.untilTime, 0)
+	if blockUntil <= numeric(record.startsAt, 0) then
+		return false
+	end
+	if tostring(block.instanceId or "") == tostring(record.instanceId or "") then
+		return false
+	end
+	return numeric(record.priority, 0) < numeric(block.priority, 0)
+end
+
+function GameEvents.WeatherSnapshot(now, suppressedInstanceIds, completionBlocksByLayer)
 	now = numeric(now, os.time())
+	suppressedInstanceIds = type(suppressedInstanceIds) == "table" and suppressedInstanceIds or {}
+	completionBlocksByLayer = type(completionBlocksByLayer) == "table" and completionBlocksByLayer or {}
 	local active = nil
 	local nextWeather = nil
 
@@ -148,7 +210,11 @@ function GameEvents.WeatherSnapshot(now)
 		if config.layer == GameEvents.Layers.Weather and config.cadenceSeconds then
 			local start = scheduledStartAt(config, now)
 			local current = scheduledInstance(config, start)
-			if now >= current.startsAt and now < current.endsAt and comparePriority(current, active) then
+			if not suppressedInstanceIds[current.instanceId]
+				and now >= current.startsAt
+				and now < current.endsAt
+				and not completionBlockApplies(current, completionBlocksByLayer)
+				and comparePriority(current, active) then
 				active = current
 			end
 
@@ -157,7 +223,8 @@ function GameEvents.WeatherSnapshot(now)
 				nextStart = start + math.max(numeric(config.cadenceSeconds, 0), 1)
 			end
 			local nextCandidate = scheduledInstance(config, nextStart)
-			if compareNext(nextCandidate, nextWeather) then
+			if not completionBlockApplies(nextCandidate, completionBlocksByLayer)
+				and compareNext(nextCandidate, nextWeather) then
 				nextWeather = nextCandidate
 			end
 		end
