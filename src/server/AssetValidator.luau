@@ -13,6 +13,7 @@ local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local GroupReward = require(Shared:WaitForChild("GroupReward"))
+local Mutations = require(Shared:WaitForChild("Mutations"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -285,9 +286,9 @@ local function validateThunderstormAssets(errors, warnings)
 	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
 	local lightning = child(mutations, "Lightning", nil, errors)
 	if lightning then
-		local xpMultiplier = lightning:GetAttribute(State.Feed.XPMultiplier)
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Lightning)
 		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
-			add(errors, string.format("%s has invalid %s %q", lightning:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+			add(errors, string.format("%s has invalid configured %s %q", lightning:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
 		end
 		if not hasDescendantOfClass(lightning, "Highlight") then
 			add(errors, lightning:GetFullName() .. " must contain a Highlight for mutation visuals")

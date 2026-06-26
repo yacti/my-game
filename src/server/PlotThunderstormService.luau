@@ -67,6 +67,14 @@ local function displayNameForFood(foodId)
 	return template and template.Name or tostring(foodId or "food")
 end
 
+local function multiplierLabel(multiplier)
+	local value = tonumber(multiplier) or 1
+	if value % 1 == 0 then
+		return tostring(math.floor(value))
+	end
+	return tostring(value)
+end
+
 local function settingsFor()
 	local config = GameEvents.GetEvent(GameEvents.Ids.Stormy) or {}
 	local storm = type(config.storm) == "table" and config.storm or {}
@@ -97,29 +105,11 @@ local function isEventEligible(player)
 	return eligible == true
 end
 
-local function blockedOnboardingViewers()
-	local blocked = {}
-	for _, player in ipairs(Players:GetPlayers()) do
-		local _, code = EventEligibility.IsEligible(player)
-		if code == "onboarding" then
-			blocked[player.UserId] = true
-		end
-	end
-	return blocked
-end
-
 local function viewerEligible(session, player)
 	if not (session and player) then
 		return false
 	end
-	if session.blockedViewerUserIds[player.UserId] then
-		return false
-	end
-	local eligible, code = EventEligibility.IsEligible(player)
-	if code == "onboarding" then
-		session.blockedViewerUserIds[player.UserId] = true
-		return false
-	end
+	local eligible = EventEligibility.IsEligible(player)
 	return eligible == true
 end
 
@@ -201,10 +191,27 @@ local function eligibleEntries(mutationId, maxEntries)
 	return capped
 end
 
+local function scheduledMapFor(entries)
+	local scheduled = {}
+	for _, entry in ipairs(entries or {}) do
+		if entry.userId then
+			scheduled[entry.userId] = true
+		end
+	end
+	return scheduled
+end
+
 local function fireViewer(player, command, payload)
 	RuntimeGuard.Run("PlotThunderstormService.FireClient." .. tostring(command), function()
 		ThunderstormEffect:FireClient(player, command, payload)
 	end)
+end
+
+local function shouldFireViewer(session, player, command)
+	if command == "end" and session.syncedViewers and session.syncedViewers[player.UserId] then
+		return true
+	end
+	return viewerEligible(session, player)
 end
 
 local function syncPayload(session)
@@ -229,7 +236,7 @@ end
 
 local function fireViewers(session, command, payload)
 	for _, player in ipairs(Players:GetPlayers()) do
-		if viewerEligible(session, player) then
+		if shouldFireViewer(session, player, command) then
 			if command ~= "start"
 				and command ~= "sync"
 				and command ~= "end"
@@ -309,6 +316,41 @@ local function entryStillEligible(session, entry)
 		return false
 	end
 	return context and context.plot == entry.plot
+end
+
+local function canScheduleEntry(session)
+	return sessionActive(session)
+		and #session.entries < session.settings.maxPlotTurns
+		and serverNow() < session.endsAt - session.settings.windDownSeconds
+end
+
+local function scheduleNewlyEligibleEntries(session)
+	if not canScheduleEntry(session) then
+		return 0
+	end
+
+	local remaining = session.settings.maxPlotTurns - #session.entries
+	local added = 0
+	for _, entry in ipairs(eligibleEntries(session.settings.mutationId, #Players:GetPlayers())) do
+		if added >= remaining then
+			break
+		end
+		if not session.scheduledByUserId[entry.userId] then
+			session.scheduledByUserId[entry.userId] = true
+			session.entries[#session.entries + 1] = entry
+			added += 1
+		end
+	end
+	return added
+end
+
+local function nextQueuedEntry(session)
+	local index = session.nextEntryIndex or 1
+	local entry = session.entries[index]
+	if entry then
+		session.nextEntryIndex = index + 1
+	end
+	return entry
 end
 
 local function scheduleOwnerSnapshot(session, entry)
@@ -403,9 +445,11 @@ local function runPlotTurn(session, entry)
 		if applied then
 			scheduleOwnerSnapshot(session, entry)
 			local targetPosition = result and result.position or target.position
+			local xpMultiplier = Mutations.XPMultiplier(session.settings.mutationId) or 1
 			notifyPlayer(entry.player, string.format(
-				"Your %s got struck by lightning!",
-				displayNameForFood((result and result.foodId) or target.foodId)
+				"Your %s has been struck by lightning! (x%s XP)",
+				displayNameForFood((result and result.foodId) or target.foodId),
+				multiplierLabel(xpMultiplier)
 			), 5)
 			fireViewers(session, "strike", {
 				instanceId = session.instanceId,
@@ -439,11 +483,14 @@ local function runStorm(session)
 	end
 
 	local ranAnyTurn = false
-	for _, entry in ipairs(session.entries) do
-		if not sessionActive(session) then
-			return
-		end
+	while sessionActive(session) do
 		if serverNow() >= session.endsAt - session.settings.windDownSeconds then
+			break
+		end
+		scheduleNewlyEligibleEntries(session)
+
+		local entry = nextQueuedEntry(session)
+		if not entry then
 			break
 		end
 		ranAnyTurn = runPlotTurn(session, entry) or ranAnyTurn
@@ -476,6 +523,35 @@ local function runStorm(session)
 	session.complete()
 end
 
+local function cleanupFailedStorm(session)
+	if type(session) ~= "table" or session.failureCleanupDone then
+		return
+	end
+	session.failureCleanupDone = true
+	session.cancelled = true
+	if not session.loggedEnd then
+		session.loggedEnd = true
+		printStormLifecycle("end", session, "failed")
+	end
+	RuntimeGuard.Run("PlotThunderstormService.FailedEnd." .. tostring(session.instanceId), function()
+		fireViewers(session, "end", {
+			instanceId = session.instanceId,
+		})
+	end)
+	if type(session.complete) == "function" then
+		RuntimeGuard.Run("PlotThunderstormService.FailedComplete." .. tostring(session.instanceId), session.complete)
+	end
+end
+
+local function runStormGuarded(session)
+	local ok, err = RuntimeGuard.Try("PlotThunderstormService.Run." .. tostring(session and session.instanceId), runStorm, session)
+	if ok then
+		return
+	end
+	warn(err)
+	cleanupFailedStorm(session)
+end
+
 function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 	if type(eventRecord) ~= "table" then
 		return
@@ -488,6 +564,7 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 	local settings = settingsFor()
 	local startsAt = numberValue(eventRecord.startsAt, serverNow())
 	local endsAt = numberValue(eventRecord.endsAt, startsAt + settings.totalSeconds)
+	local initialEntries = eligibleEntries(settings.mutationId, settings.maxPlotTurns)
 	local session = {
 		instanceId = tostring(eventRecord.instanceId or ""),
 		startsAt = startsAt,
@@ -503,9 +580,10 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 			thunderSoundRange = settings.thunderSoundRange,
 		},
 		mapCenter = mapCenter(),
-		entries = eligibleEntries(settings.mutationId, settings.maxPlotTurns),
+		entries = initialEntries,
+		nextEntryIndex = 1,
+		scheduledByUserId = scheduledMapFor(initialEntries),
 		syncedViewers = {},
-		blockedViewerUserIds = blockedOnboardingViewers(),
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
 		cancelled = false,
@@ -539,7 +617,7 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 	activeSession = session
 	printStormLifecycle("start", session, string.format("entries=%d", #session.entries))
 
-	RuntimeGuard.Spawn("PlotThunderstormService.Run." .. session.instanceId, runStorm, session)
+	RuntimeGuard.Spawn("PlotThunderstormService.RunGuarded." .. session.instanceId, runStormGuarded, session)
 end
 
 function PlotThunderstormService.NotifyStormApproaching()

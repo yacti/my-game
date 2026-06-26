@@ -13,6 +13,10 @@ Mutations.DisplayColors = {
 	[Mutations.Ids.Lightning] = Color3.fromRGB(35, 221, 255),
 }
 
+Mutations.XPMultipliers = {
+	[Mutations.Ids.Lightning] = 5,
+}
+
 local function mutationRoot()
 	local assets = Assets.FindRoot() or Assets.WaitForRoot(5)
 	local mutations = assets and assets:FindFirstChild("Mutations")
@@ -178,6 +182,14 @@ function Mutations.ApplyAttribute(instance, mutationIds, primaryMutationId)
 end
 
 function Mutations.XPMultiplier(mutationId)
+	mutationId = cleanId(mutationId)
+	local configuredMultiplier = mutationId and Mutations.XPMultipliers[mutationId]
+	if type(configuredMultiplier) == "number"
+		and configuredMultiplier > 0
+		and configuredMultiplier == configuredMultiplier
+		and math.abs(configuredMultiplier) ~= math.huge then
+		return configuredMultiplier
+	end
 	local template = Mutations.Template(mutationId)
 	local multiplier = template and template:GetAttribute(State.Feed.XPMultiplier)
 	if type(multiplier) ~= "number" or multiplier <= 0 or multiplier ~= multiplier or math.abs(multiplier) == math.huge then
