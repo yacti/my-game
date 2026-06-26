@@ -14,6 +14,8 @@ local MIN_DESTINATION_DISTANCE = 4
 local MIN_DIRECT_WANDER_DISTANCE = 1.25
 local MAX_CORNER_RADIUS = 1.75
 local LINE_SAMPLE_STEP = CELL_SIZE * 0.5
+local IGNORE_PATCHES_HEIGHT = 12
+local IGNORE_ALL_HEIGHT = 25
 
 local SQRT_2 = math.sqrt(2)
 local DIRECTIONS = {
@@ -97,10 +99,10 @@ local function buildGrid(plot, paddingX, paddingZ, obstacles)
 	return grid
 end
 
--- Grids depend only on the plot's unlocked cells, its effective obstacle
--- layout, and the (quantized) pet padding, so they are cached per plot and
--- reused across pets and route plans. Patch growth contributes a coarse
--- threshold token only; exact time/scale never enters the cache key.
+-- Grids depend only on the plot's unlocked cells, route policy, effective
+-- obstacle layout, and the (quantized) pet padding, so they are cached per
+-- plot and reused across pets and route plans. Patch growth contributes a
+-- coarse threshold token only; exact time/scale never enters the cache key.
 -- [plot] = { unlockVersion, navVersion, grids = { [padKey] = grid | false } }
 local gridCache = setmetatable({}, { __mode = "k" })
 
@@ -108,21 +110,45 @@ local function quantizePadding(value)
 	return math.ceil(math.max(value, 0) / PADDING_QUANTUM) * PADDING_QUANTUM
 end
 
+local function routePolicyForHeight(height)
+	local modes = PlotService.NavigationObstacleModes
+	if type(height) == "number" then
+		if height > IGNORE_ALL_HEIGHT then
+			return "HugeCenter", modes.IgnoreAll, true
+		end
+		if height > IGNORE_PATCHES_HEIGHT then
+			return "IgnorePatches", modes.IgnorePatches, false
+		end
+	end
+	return "Default", modes.Default, false
+end
+
 local function getGrid(plot, floor, pet)
-	local paddingX, paddingZ = PlotService.PetPathFootprintPadding(floor, pet)
+	local paddingX, paddingZ, petHeight = PlotService.PetNavigationMetrics(floor, pet)
+	local policyKey, obstacleMode, centerPointOnly = routePolicyForHeight(petHeight)
+	if centerPointOnly then
+		paddingX = 0
+		paddingZ = 0
+	end
 	paddingX = quantizePadding(paddingX)
 	paddingZ = quantizePadding(paddingZ)
 
 	local unlockVersion = PlotGridService.GetUnlockVersion(plot)
 	local navVersion = PlotService.GetNavigationObstacleVersion(plot)
-	local obstacles, obstacleKey = PlotService.GetNavigationObstacleSnapshot(plot, Workspace:GetServerTimeNow())
+	local obstacles, obstacleKey = PlotService.GetNavigationObstacleSnapshot(plot, Workspace:GetServerTimeNow(), obstacleMode)
 	local entry = gridCache[plot]
 	if not entry or entry.unlockVersion ~= unlockVersion or entry.navVersion ~= navVersion then
 		entry = { unlockVersion = unlockVersion, navVersion = navVersion, grids = {} }
 		gridCache[plot] = entry
 	end
 
-	local padKey = paddingX .. ":" .. paddingZ .. ":" .. tostring(obstacleKey)
+	local padKey = table.concat({
+		policyKey,
+		tostring(obstacleMode),
+		tostring(paddingX),
+		tostring(paddingZ),
+		tostring(obstacleKey),
+	}, ":")
 	local grid = entry.grids[padKey]
 	if grid == nil then
 		-- Cache failed builds as false so unbuildable layouts (e.g. unlocked

@@ -8,7 +8,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
-local PatchScale = require(Shared:WaitForChild("PatchScale"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
@@ -43,9 +42,7 @@ end
 local function currentScaleFor(food, machine, now)
 	-- Slot XP is derived locally from the replicated growth anchor; the
 	-- server only re-publishes attributes on harvest/respawn/restore/move.
-	local xp = PatchGrowth.ComputeXPForFood(food, machine, now)
-	local patchXP = machine and machine:GetAttribute(State.Feed.XP)
-	return PatchScale.ComputeScale(xp, patchXP)
+	return PatchGrowth.ComputeScaleForFood(food, machine, now)
 end
 
 local function disconnectAll(record)

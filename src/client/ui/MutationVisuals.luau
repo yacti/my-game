@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Mutations = require(Shared:WaitForChild("Mutations"))
+local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -14,9 +15,10 @@ local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 local MutationVisuals = {}
 
 local FOLDER_NAME = "__MutationVisuals"
-local MAX_VISUAL_DISTANCE = 50
+local MAX_VISUAL_DISTANCE = 80
 local SCOPE_RANGE = MAX_VISUAL_DISTANCE
 local REFRESH_SECONDS = 0.3
+local EFFECT_SCALE_EPSILON = 0.0001
 
 local player = Players.LocalPlayer
 local tracked = {}
@@ -25,6 +27,21 @@ local function isTreeGroundCandidate(instance)
 	return (instance:IsA("BasePart") or instance:IsA("Model"))
 		and instance.Name:match("^BaseFoodGround%d+$") ~= nil
 		and instance:GetAttribute(State.TreeClicker.LocalVisual) ~= true
+end
+
+local function isPatchSlotFood(instance)
+	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
+		return false
+	end
+	if instance:GetAttribute(State.Food.Id) == nil and instance:GetAttribute(State.Food.Type) == nil then
+		return false
+	end
+	local anchor = instance.Parent
+	if not anchor or anchor.Name ~= "SlotAnchor" then
+		return false
+	end
+	local machine = anchor.Parent
+	return machine ~= nil and machine:GetAttribute(State.Feed.Class) == "Patch"
 end
 
 local function isFoodCandidate(instance)
@@ -89,6 +106,8 @@ local function clearRecord(record)
 		end
 	end
 	record.extras = {}
+	record.scaledEmitters = {}
+	record.effectScale = nil
 	record.renderKey = nil
 	record.host = nil
 end
@@ -105,6 +124,73 @@ local function inVisualRange(targetPart)
 		return false
 	end
 	return (targetPart.Position - position).Magnitude <= MAX_VISUAL_DISTANCE
+end
+
+local function scaledNumberSequence(sequence, scale)
+	local keypoints = table.create(#sequence.Keypoints)
+	for index, keypoint in ipairs(sequence.Keypoints) do
+		keypoints[index] = NumberSequenceKeypoint.new(
+			keypoint.Time,
+			keypoint.Value * scale,
+			keypoint.Envelope * scale
+		)
+	end
+	return NumberSequence.new(keypoints)
+end
+
+local function targetEffectScale(target)
+	if not isPatchSlotFood(target) then
+		return 1
+	end
+
+	local machine = target.Parent and target.Parent.Parent
+	if not machine then
+		return 1
+	end
+
+	local now = Workspace:GetServerTimeNow()
+	return PatchGrowth.ComputeScaleForFood(target, machine, now)
+end
+
+local function registerScalableEmitters(record, root)
+	if root:IsA("ParticleEmitter") then
+		record.scaledEmitters[#record.scaledEmitters + 1] = {
+			emitter = root,
+			size = root.Size,
+		}
+	end
+
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("ParticleEmitter") then
+			record.scaledEmitters[#record.scaledEmitters + 1] = {
+				emitter = descendant,
+				size = descendant.Size,
+			}
+		end
+	end
+end
+
+local function applyEffectScale(record)
+	if #record.scaledEmitters == 0 then
+		record.effectScale = nil
+		return
+	end
+
+	local scale = targetEffectScale(record.target)
+	if record.effectScale and math.abs(record.effectScale - scale) < EFFECT_SCALE_EPSILON then
+		return
+	end
+
+	for index = #record.scaledEmitters, 1, -1 do
+		local entry = record.scaledEmitters[index]
+		local emitter = entry.emitter
+		if emitter and emitter.Parent then
+			emitter.Size = scaledNumberSequence(entry.size, scale)
+		else
+			table.remove(record.scaledEmitters, index)
+		end
+	end
+	record.effectScale = scale
 end
 
 local function enablePersistentParticles(root)
@@ -166,6 +252,7 @@ local function render(record)
 		return true
 	end
 	if record.renderKey == key and record.host == host then
+		applyEffectScale(record)
 		return true
 	end
 
@@ -182,6 +269,7 @@ local function render(record)
 					if not clone:IsA("Highlight") then
 						record.extras[#record.extras + 1] = clone
 					end
+					registerScalableEmitters(record, clone)
 					enablePersistentParticles(clone)
 				end
 			end
@@ -189,6 +277,7 @@ local function render(record)
 	end
 	record.renderKey = key
 	record.host = host
+	applyEffectScale(record)
 	return true
 end
 
@@ -212,6 +301,8 @@ local function track(target)
 		target = target,
 		connections = {},
 		extras = {},
+		scaledEmitters = {},
+		effectScale = nil,
 		folder = nil,
 		renderKey = nil,
 		host = nil,

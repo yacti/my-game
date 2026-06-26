@@ -16,6 +16,7 @@ local HEAD_START_OFFSET = Vector3.new(1.35, 0.25, 0)
 local ROOT_START_OFFSET = Vector3.new(1.35, 2.5, 0)
 local RISE_OFFSET = Vector3.new(0, 1.35, 0)
 local STACK_OFFSET = Vector3.new(0, 0.18, 0)
+local SIZE_MULTIPLIER = 2
 local MAX_ACTIVE = 8
 local MAX_DISTANCE = 80
 
@@ -65,6 +66,15 @@ local function xpFromPayload(payload)
 		return tonumber(payload.xp)
 	end
 	return tonumber(payload)
+end
+
+local function scaleGuiSize(size, multiplier)
+	return UDim2.new(
+		size.X.Scale * multiplier,
+		size.X.Offset * multiplier,
+		size.Y.Scale * multiplier,
+		size.Y.Offset * multiplier
+	)
 end
 
 local function ensureFixedTextStroke(label)
@@ -118,6 +128,7 @@ local function play(payload)
 	gui.Adornee = adornee
 	gui.MaxDistance = MAX_DISTANCE
 	gui.StudsOffset = startOffset
+	gui.Size = scaleGuiSize(gui.Size, SIZE_MULTIPLIER)
 	label.BackgroundTransparency = 1
 	label.TextTransparency = 0
 	label.Text = "+" .. NumberFormatter.XP(xp)

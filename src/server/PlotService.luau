@@ -20,6 +20,9 @@ local OVERLAP_QUERY_INSET = 0.05
 local BOX_CORNER_SIGNS = { -1, 1 }
 local PET_PATH_PADDING_SCALE = 0.75
 local NAV_OBSTACLE_STATIC_KEY = "static"
+local NAV_OBSTACLE_MODE_DEFAULT = "Default"
+local NAV_OBSTACLE_MODE_IGNORE_PATCHES = "IgnorePatches"
+local NAV_OBSTACLE_MODE_IGNORE_ALL = "IgnoreAll"
 local ROLL_AREA_NAME = "RollArea"
 local EDIT_SELECTION_HITBOX_NAME = "EditSelectionHitbox"
 local STARTER_AREA_NAME = "StarterArea"
@@ -237,6 +240,12 @@ local plotPlacementRecords = setmetatable({}, { __mode = "k" })
 local navObstacleVersions = setmetatable({}, { __mode = "k" })
 
 local PlotService = {}
+
+PlotService.NavigationObstacleModes = {
+	Default = NAV_OBSTACLE_MODE_DEFAULT,
+	IgnorePatches = NAV_OBSTACLE_MODE_IGNORE_PATCHES,
+	IgnoreAll = NAV_OBSTACLE_MODE_IGNORE_ALL,
+}
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -609,7 +618,7 @@ local function seatPetOnFloor(pet, floor, lx, lz, lry)
 	pet:PivotTo(localToWorldOnFloorTop(floor, lx, lz, modelPivotFloorOffset(pet), lry))
 end
 
-local function petFootprintPadding(floor, pet)
+local function petFootprintMetrics(floor, pet)
 	local pivotLocal = floor.CFrame:PointToObjectSpace(pet:GetPivot().Position)
 	local boundsCF, boundsSize = pet:GetBoundingBox()
 	local halfBounds = Vector3.new(boundsSize.X / 2, boundsSize.Y / 2, boundsSize.Z / 2)
@@ -632,12 +641,22 @@ local function petFootprintPadding(floor, pet)
 	end
 
 	local rotationSafePadding = math.max(maxX, maxZ)
-	return rotationSafePadding, rotationSafePadding
+	return rotationSafePadding, rotationSafePadding, boundsSize.Y
+end
+
+local function petFootprintPadding(floor, pet)
+	local paddingX, paddingZ = petFootprintMetrics(floor, pet)
+	return paddingX, paddingZ
 end
 
 local function petPathFootprintPadding(floor, pet)
-	local paddingX, paddingZ = petFootprintPadding(floor, pet)
+	local paddingX, paddingZ = petFootprintMetrics(floor, pet)
 	return paddingX * PET_PATH_PADDING_SCALE, paddingZ * PET_PATH_PADDING_SCALE
+end
+
+local function petNavigationMetrics(floor, pet)
+	local paddingX, paddingZ, height = petFootprintMetrics(floor, pet)
+	return paddingX * PET_PATH_PADDING_SCALE, paddingZ * PET_PATH_PADDING_SCALE, height
 end
 
 local function petFloorLocalBounds(floor, pet, plot)
@@ -1218,6 +1237,10 @@ function PlotService.PetPathFootprintPadding(floor, pet)
 	return petPathFootprintPadding(floor, pet)
 end
 
+function PlotService.PetNavigationMetrics(floor, pet)
+	return petNavigationMetrics(floor, pet)
+end
+
 function PlotService.FitPetOnUnlockedGrid(plot, pet, lx, lz, lry, preferRandom)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return false end
@@ -1226,6 +1249,13 @@ end
 
 function PlotService.GetNavigationObstacleVersion(plot)
 	return plot and navObstacleVersions[plot] or 0
+end
+
+local function normalizeNavigationObstacleMode(mode)
+	if mode == NAV_OBSTACLE_MODE_IGNORE_PATCHES or mode == NAV_OBSTACLE_MODE_IGNORE_ALL then
+		return mode
+	end
+	return NAV_OBSTACLE_MODE_DEFAULT
 end
 
 local function navigationObstacleEntries(plot, floor)
@@ -1279,11 +1309,15 @@ local function navigationObstacleEntries(plot, floor)
 	return entries
 end
 
-function PlotService.GetNavigationObstacleSnapshot(plot, now)
+function PlotService.GetNavigationObstacleSnapshot(plot, now, mode)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return {}, NAV_OBSTACLE_STATIC_KEY end
 	if type(now) ~= "number" then
 		now = Workspace:GetServerTimeNow()
+	end
+	mode = normalizeNavigationObstacleMode(mode)
+	if mode == NAV_OBSTACLE_MODE_IGNORE_ALL then
+		return {}, NAV_OBSTACLE_STATIC_KEY
 	end
 
 	local entries = navigationObstacleEntries(plot, floor)
@@ -1293,6 +1327,11 @@ function PlotService.GetNavigationObstacleSnapshot(plot, now)
 		local blocks = true
 		local token = "block"
 		if entry.isFeed then
+			if mode == NAV_OBSTACLE_MODE_IGNORE_PATCHES
+				and entry.instance:GetAttribute(State.Feed.Class) == "Patch" then
+				continue
+			end
+
 			blocks, token = FeedMachines.BlocksPetNavigation(entry.instance, now)
 			if type(token) ~= "string" or token == "" then
 				token = blocks and "block" or "walkable"

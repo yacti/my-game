@@ -48,4 +48,10 @@ function PatchGrowth.ComputeXPForFood(food, machine, now)
 	return PatchGrowth.ComputeXPFromState(baseXP, growthStart, growRate, xpPerInterval, now)
 end
 
+function PatchGrowth.ComputeScaleForFood(food, machine, now)
+	local xp = PatchGrowth.ComputeXPForFood(food, machine, now)
+	local patchXP = machine and machine:GetAttribute(State.Feed.XP)
+	return PatchScale.ComputeScale(xp, patchXP)
+end
+
 return PatchGrowth
