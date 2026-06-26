@@ -11,6 +11,7 @@ local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckB
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
+local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 
@@ -139,6 +140,29 @@ local function nonemptyString(value)
 	return type(value) == "string" and value ~= "" and value or nil
 end
 
+local function firstMutationIds(...)
+	for index = 1, select("#", ...) do
+		local mutationIds = Mutations.SanitizeList(select(index, ...))
+		if #mutationIds > 0 then
+			return mutationIds
+		end
+	end
+	return {}
+end
+
+local function copyMutationPayload(clean, mutationIdsValue, primaryMutationIdValue, mutationKey, primaryKey)
+	local mutationIds = Mutations.SanitizeList(mutationIdsValue)
+	if #mutationIds == 0 then
+		return
+	end
+
+	clean[mutationKey or "mutationIds"] = mutationIds
+	local primaryMutationId = Mutations.Primary(mutationIds, primaryMutationIdValue)
+	if primaryMutationId then
+		clean[primaryKey or "primaryMutationId"] = primaryMutationId
+	end
+end
+
 local function sanitizeFeedQueueItem(item)
 	if type(item) ~= "table" then
 		return nil
@@ -174,6 +198,13 @@ local function sanitizeFeedQueueItem(item)
 			return nil
 		end
 
+		copyMutationPayload(
+			clean,
+			firstMutationIds(item.sourceMutationIds, item.mutationIds, item.mutations),
+			item.sourcePrimaryMutationId or item.primaryMutationId or item.primaryMutation,
+			"sourceMutationIds",
+			"sourcePrimaryMutationId"
+		)
 		return clean
 	end
 
@@ -189,6 +220,11 @@ local function sanitizeFeedQueueItem(item)
 	if xp ~= nil then
 		clean.xp = xp
 	end
+	copyMutationPayload(
+		clean,
+		firstMutationIds(item.mutationIds, item.mutations, item.sourceMutationIds),
+		item.primaryMutationId or item.primaryMutation or item.sourcePrimaryMutationId
+	)
 	return clean
 end
 
@@ -468,11 +504,17 @@ local function ensureValidData(profile)
 					clean.slots = {}
 					for _, slot in ipairs(placement.slots) do
 						if type(slot) == "table" then
-							clean.slots[#clean.slots + 1] = {
+							local cleanSlot = {
 								xp = math.max(tonumber(slot.xp) or 0, 0),
 								growthElapsed = math.max(tonumber(slot.growthElapsed) or 0, 0),
 								respawnAt = tonumber(slot.respawnAt),
 							}
+							copyMutationPayload(
+								cleanSlot,
+								firstMutationIds(slot.mutationIds, slot.mutations),
+								slot.primaryMutationId or slot.primaryMutation
+							)
+							clean.slots[#clean.slots + 1] = cleanSlot
 						end
 					end
 					clean.lastTick = tonumber(placement.lastTick) or os.time()
@@ -481,10 +523,16 @@ local function ensureValidData(profile)
 					clean.piles = {}
 					for slotKey, pile in pairs(placement.piles) do
 						if type(slotKey) == "string" and type(pile) == "table" and type(pile.foodId or pile.foodType) == "string" then
-							clean.piles[slotKey] = {
+							local cleanPile = {
 								foodId = pile.foodId or pile.foodType,
 								xp = math.max(tonumber(pile.xp) or 0, 0),
 							}
+							copyMutationPayload(
+								cleanPile,
+								firstMutationIds(pile.mutationIds, pile.mutations),
+								pile.primaryMutationId or pile.primaryMutation
+							)
+							clean.piles[slotKey] = cleanPile
 						end
 					end
 				end
