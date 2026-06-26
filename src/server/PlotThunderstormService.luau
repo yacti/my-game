@@ -38,6 +38,21 @@ local function numberValue(value, fallback)
 	return value
 end
 
+local function printStormLifecycle(action, session, detail)
+	local suffix = ""
+	if detail ~= nil and detail ~= "" then
+		suffix = " " .. tostring(detail)
+	end
+	print(string.format(
+		"[PlotThunderstormService] Storm %s %s (%d -> %d)%s",
+		tostring(action),
+		tostring(session.instanceId),
+		math.floor(tonumber(session.startsAt) or 0),
+		math.floor(tonumber(session.endsAt) or 0),
+		suffix
+	))
+end
+
 local function integerValue(value, fallback)
 	return math.max(math.floor(numberValue(value, fallback)), 0)
 end
@@ -510,6 +525,10 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 		end
 	end
 	session.complete = function()
+		if not session.loggedEnd then
+			session.loggedEnd = true
+			printStormLifecycle("end", session, "completed")
+		end
 		if activeSession == session then
 			activeSession = nil
 		end
@@ -518,6 +537,7 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 		end
 	end
 	activeSession = session
+	printStormLifecycle("start", session, string.format("entries=%d", #session.entries))
 
 	RuntimeGuard.Spawn("PlotThunderstormService.Run." .. session.instanceId, runStorm, session)
 end
@@ -538,6 +558,10 @@ function PlotThunderstormService.StopStorm(instanceId)
 		return
 	end
 	session.cancelled = true
+	if not session.loggedEnd then
+		session.loggedEnd = true
+		printStormLifecycle("end", session, "stopped")
+	end
 	fireViewers(session, "end", {
 		instanceId = session.instanceId,
 	})
