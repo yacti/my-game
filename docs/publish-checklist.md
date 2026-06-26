@@ -154,7 +154,7 @@ Run this checklist before publishing a live build.
   wave processing is capped at 50 events per heartbeat, and client wind lines
   move from positive X toward negative X while wind audio, 15x cloud speed, and
   60 Hz cloud updates ramp up for 4 seconds. Verify every mature tree sways and
-  runs 18-52 independent shake/drop waves during the 52-second active window,
+  runs 32-52 independent shake/drop waves during the 52-second active window,
   each wave drops 2-4 ready fruit when available, wind-triggered tree shake sounds
   play once per wave with spatial rolloff, drop effects are only received within
   35 studs even for the plot owner, wind lines/audio/cloud speed/cloud update rate

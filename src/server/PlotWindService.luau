@@ -87,7 +87,7 @@ local function windSettings()
 		activeSeconds = activeSeconds,
 		windDownSeconds = windDownSeconds,
 		totalSeconds = totalSeconds,
-		minTreeWaves = integerValue(wind.minTreeWaves, 18),
+		minTreeWaves = integerValue(wind.minTreeWaves, 32),
 		maxTreeWaves = integerValue(wind.maxTreeWaves, 52),
 		minFruitPerWave = minFruitPerWave,
 		maxFruitPerWave = maxFruitPerWave,
