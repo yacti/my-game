@@ -532,9 +532,7 @@ local function isAutoHoldInputStillDown()
 end
 
 local function playPromptSound(kind)
-	if kind == "PetFeed" then
-		PetFeedLullabyController.PlayNextFeedNote()
-	elseif kind == "GridPartUnlock" then
+	if kind == "GridPartUnlock" then
 		SoundEffects.Play(SoundEffects.Names.RollReveal)
 	end
 end
@@ -543,14 +541,20 @@ local function handlePromptInteractEffect(payload)
 	if type(payload) ~= "table" then
 		return
 	end
-	if payload.effect ~= "collect" or payload.sound ~= SoundEffects.Names.FruitPop then
-		return
-	end
 	local action = payload.action
-	if action ~= Interactions.Actions.PatchHarvest and action ~= Interactions.Actions.TreeGroundPickup then
+
+	if action == Interactions.Actions.PetFeed then
+		if payload.effect == "feed" and payload.sound == SoundEffects.Names.PetFed then
+			PetFeedLullabyController.PlayNextFeedNote()
+		end
 		return
 	end
-	SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+
+	if action == Interactions.Actions.PatchHarvest or action == Interactions.Actions.TreeGroundPickup then
+		if payload.effect == "collect" and payload.sound == SoundEffects.Names.FruitPop then
+			SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
+		end
+	end
 end
 
 local function promptParentFor(instance, kind)

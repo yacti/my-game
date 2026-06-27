@@ -1249,6 +1249,11 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 			end
 			if action == Interactions.Actions.PetFeed then
 				if handlerResult == PET_FEED_SNAPSHOT then
+					PromptInteractEffect:FireClient(player, {
+						action = action,
+						effect = "feed",
+						sound = "PetFed",
+					})
 					snapshotFoodInventory(player, profile, "snapshotPetFeedFoodInventory")
 					schedulePetFeedSnapshot(player)
 				end
