@@ -91,7 +91,7 @@ local function windSettings()
 		maxTreeWaves = integerValue(wind.maxTreeWaves, 52),
 		minFruitPerWave = minFruitPerWave,
 		maxFruitPerWave = maxFruitPerWave,
-		minShakeGap = math.max(numberValue(wind.minShakeGap, 0.5), 0),
+		minShakeGap = math.max(numberValue(wind.minShakeGap, 1), 0),
 		treeEffectRadius = math.max(numberValue(wind.treeEffectRadius, 35), 0),
 		maxWaveEventsPerHeartbeat = math.max(integerValue(wind.maxWaveEventsPerHeartbeat, 50), 1),
 		shakeStartPadding = math.max(numberValue(wind.shakeStartPadding, 0.1), 0),
@@ -129,11 +129,11 @@ local function triggerTreeWave(session, player, plot, record, tree, amount)
 		if not tree:IsDescendantOf(plot) then
 			return false
 		end
-		TreeClicker.TriggerWindWave(tree, player, amount, {
+		local didDrop = TreeClicker.TriggerWindWave(tree, player, amount, {
 			effectRadius = session.settings.treeEffectRadius,
 			includeTriggeringPlayer = false,
 		})
-		return true
+		return didDrop == true
 	end)
 	return ok == true and didRun == true
 end

@@ -4,8 +4,8 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Food = require(Shared:WaitForChild("Food"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
-local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -18,7 +18,10 @@ local FOLDER_NAME = "__MutationVisuals"
 local MAX_VISUAL_DISTANCE = 80
 local SCOPE_RANGE = MAX_VISUAL_DISTANCE
 local REFRESH_SECONDS = 0.3
-local EFFECT_SCALE_EPSILON = 0.0001
+local DEFAULT_EFFECT_REFERENCE_EXTENT = 4
+local MIN_EFFECT_SCALE = 0.2
+local MAX_EFFECT_SCALE = 1.5
+local EFFECT_EXTENT_EPSILON = 0.01
 
 local player = Players.LocalPlayer
 local tracked = {}
@@ -27,21 +30,6 @@ local function isTreeGroundCandidate(instance)
 	return (instance:IsA("BasePart") or instance:IsA("Model"))
 		and instance.Name:match("^BaseFoodGround%d+$") ~= nil
 		and instance:GetAttribute(State.TreeClicker.LocalVisual) ~= true
-end
-
-local function isPatchSlotFood(instance)
-	if not (instance:IsA("BasePart") or instance:IsA("Model")) then
-		return false
-	end
-	if instance:GetAttribute(State.Food.Id) == nil and instance:GetAttribute(State.Food.Type) == nil then
-		return false
-	end
-	local anchor = instance.Parent
-	if not anchor or anchor.Name ~= "SlotAnchor" then
-		return false
-	end
-	local machine = anchor.Parent
-	return machine ~= nil and machine:GetAttribute(State.Feed.Class) == "Patch"
 end
 
 local function isFoodCandidate(instance)
@@ -107,7 +95,7 @@ local function clearRecord(record)
 	end
 	record.extras = {}
 	record.scaledEmitters = {}
-	record.effectScale = nil
+	record.effectExtent = nil
 	record.renderKey = nil
 	record.host = nil
 end
@@ -138,25 +126,100 @@ local function scaledNumberSequence(sequence, scale)
 	return NumberSequence.new(keypoints)
 end
 
-local function targetEffectScale(target)
-	if not isPatchSlotFood(target) then
-		return 1
-	end
-
-	local machine = target.Parent and target.Parent.Parent
-	if not machine then
-		return 1
-	end
-
-	local now = Workspace:GetServerTimeNow()
-	return PatchGrowth.ComputeScaleForFood(target, machine, now)
+local function finitePositiveNumber(value)
+	return type(value) == "number" and value == value and value > 0 and value < math.huge
 end
 
-local function registerScalableEmitters(record, root)
+local function instanceScale(instance)
+	local ok, scale = pcall(function()
+		return instance:GetScale()
+	end)
+	return ok and finitePositiveNumber(scale) and scale or nil
+end
+
+local function maxDimension(size)
+	return math.max(size.X, size.Y, size.Z)
+end
+
+local function visualExtent(instance)
+	if not instance then
+		return nil
+	end
+
+	if instance:IsA("BasePart") then
+		local extent = maxDimension(instance.Size)
+		return finitePositiveNumber(extent) and extent or nil
+	end
+
+	if instance:IsA("Model") then
+		local ok, _, size = pcall(function()
+			return instance:GetBoundingBox()
+		end)
+		if ok and typeof(size) == "Vector3" then
+			local extent = maxDimension(size)
+			return finitePositiveNumber(extent) and extent or nil
+		end
+	end
+
+	if instance:IsA("Tool") then
+		local ok, _, size = pcall(function()
+			return instance:GetBoundingBox()
+		end)
+		if ok and typeof(size) == "Vector3" then
+			local extent = maxDimension(size)
+			if finitePositiveNumber(extent) then
+				return extent
+			end
+		end
+
+		local part = firstBasePart(instance)
+		if part then
+			return visualExtent(part)
+		end
+	end
+
+	return nil
+end
+
+local function persistedToolExtent(tool)
+	if not (tool and tool:IsA("Tool")) then
+		return nil
+	end
+
+	local scale = instanceScale(tool)
+	if not scale then
+		return nil
+	end
+
+	local foodId = Food.IdOf(tool)
+	local template = foodId and Food.GetTemplate(foodId)
+	local baseExtent = visualExtent(template)
+	if not baseExtent then
+		return nil
+	end
+
+	return baseExtent * scale
+end
+
+local function targetEffectExtent(target, host)
+	if target:IsA("Tool") then
+		return persistedToolExtent(target) or visualExtent(target) or visualExtent(host) or DEFAULT_EFFECT_REFERENCE_EXTENT
+	end
+
+	return visualExtent(host) or visualExtent(target) or DEFAULT_EFFECT_REFERENCE_EXTENT
+end
+
+local function templateReferenceExtent(template)
+	return visualExtent(template) or DEFAULT_EFFECT_REFERENCE_EXTENT
+end
+
+local function registerScalableEmitters(record, root, referenceExtent)
+	referenceExtent = finitePositiveNumber(referenceExtent) and referenceExtent or DEFAULT_EFFECT_REFERENCE_EXTENT
 	if root:IsA("ParticleEmitter") then
 		record.scaledEmitters[#record.scaledEmitters + 1] = {
 			emitter = root,
 			size = root.Size,
+			referenceExtent = referenceExtent,
 		}
 	end
 
@@ -165,6 +228,7 @@ local function registerScalableEmitters(record, root)
 			record.scaledEmitters[#record.scaledEmitters + 1] = {
 				emitter = descendant,
 				size = descendant.Size,
+				referenceExtent = referenceExtent,
 			}
 		end
 	end
@@ -172,12 +236,12 @@ end
 
 local function applyEffectScale(record)
 	if #record.scaledEmitters == 0 then
-		record.effectScale = nil
+		record.effectExtent = nil
 		return
 	end
 
-	local scale = targetEffectScale(record.target)
-	if record.effectScale and math.abs(record.effectScale - scale) < EFFECT_SCALE_EPSILON then
+	local extent = targetEffectExtent(record.target, record.host)
+	if record.effectExtent and math.abs(record.effectExtent - extent) < EFFECT_EXTENT_EPSILON then
 		return
 	end
 
@@ -185,12 +249,16 @@ local function applyEffectScale(record)
 		local entry = record.scaledEmitters[index]
 		local emitter = entry.emitter
 		if emitter and emitter.Parent then
+			local referenceExtent = finitePositiveNumber(entry.referenceExtent)
+				and entry.referenceExtent
+				or DEFAULT_EFFECT_REFERENCE_EXTENT
+			local scale = math.clamp(extent / referenceExtent, MIN_EFFECT_SCALE, MAX_EFFECT_SCALE)
 			emitter.Size = scaledNumberSequence(entry.size, scale)
 		else
 			table.remove(record.scaledEmitters, index)
 		end
 	end
-	record.effectScale = scale
+	record.effectExtent = extent
 end
 
 local function enablePersistentParticles(root)
@@ -262,6 +330,7 @@ local function render(record)
 	for _, mutationId in ipairs(mutationIds) do
 		local template = Mutations.Template(mutationId)
 		if template then
+			local referenceExtent = templateReferenceExtent(template)
 			for _, descendant in ipairs(template:GetDescendants()) do
 				local clone = cloneVisualDescendant(descendant, host, folder, targetPart)
 				if clone then
@@ -269,7 +338,7 @@ local function render(record)
 					if not clone:IsA("Highlight") then
 						record.extras[#record.extras + 1] = clone
 					end
-					registerScalableEmitters(record, clone)
+					registerScalableEmitters(record, clone, referenceExtent)
 					enablePersistentParticles(clone)
 				end
 			end
@@ -302,7 +371,7 @@ local function track(target)
 		connections = {},
 		extras = {},
 		scaledEmitters = {},
-		effectScale = nil,
+		effectExtent = nil,
 		folder = nil,
 		renderKey = nil,
 		host = nil,
