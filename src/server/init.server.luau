@@ -78,6 +78,7 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 local PetBillboardFeedEffect = Remotes.get(Remotes.Names.PetBillboardFeedEffect)
+local PromptInteractEffect = Remotes.get(Remotes.Names.PromptInteractEffect)
 local PlotStressTest = nil
 local AnimalAmbientSoundService = require(Server:WaitForChild("AnimalAmbientSoundService"))
 
@@ -1257,6 +1258,11 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 				if type(handlerResult) ~= "table" or handlerResult.snapshot ~= FOOD_COLLECTION_SNAPSHOT then
 					return
 				end
+				PromptInteractEffect:FireClient(player, {
+					action = action,
+					effect = "collect",
+					sound = "FruitPop",
+				})
 				if snapshotFoodCollection(player, plot, profile, handlerResult.feed) then
 					return
 				end

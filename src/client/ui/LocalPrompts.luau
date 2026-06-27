@@ -31,6 +31,7 @@ local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local TreeVisuals = require(script.Parent:WaitForChild("AppleTreeSlotVisuals"))
 
 local PromptInteract = Remotes.get(Remotes.Names.PromptInteract)
+local PromptInteractEffect = Remotes.get(Remotes.Names.PromptInteractEffect)
 
 local LocalPrompts = {}
 LocalPrompts.AutoModes = {
@@ -79,6 +80,7 @@ local PASSIVE_TREE_PICKUP_DISTANCE = 4.5
 local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
 local FEED_INTENT_GRACE_SECONDS = 2
 local COLLECT_AFTER_FEED_SUPPRESS_SECONDS = 0.5
+local PET_FEED_HIGHLIGHT_LOCK_SECONDS = 0.5
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
@@ -87,6 +89,8 @@ local activePromptHighlight = nil
 local activePromptHighlightTarget = nil
 local feedIntentUntil = 0
 local collectPromptsSuppressedUntil = 0
+local feedHighlightLockedTarget = nil
+local feedHighlightLockedUntil = 0
 local AUTO_PROMPT_ACTIONS = {
 	PetFeed = Interactions.Actions.PetFeed,
 	PatchHarvest = Interactions.Actions.PatchHarvest,
@@ -530,11 +534,23 @@ end
 local function playPromptSound(kind)
 	if kind == "PetFeed" then
 		PetFeedLullabyController.PlayNextFeedNote()
-	elseif kind == "PatchHarvest" or kind == "TreeGroundPickup" then
-		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	elseif kind == "GridPartUnlock" then
 		SoundEffects.Play(SoundEffects.Names.RollReveal)
 	end
+end
+
+local function handlePromptInteractEffect(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	if payload.effect ~= "collect" or payload.sound ~= SoundEffects.Names.FruitPop then
+		return
+	end
+	local action = payload.action
+	if action ~= Interactions.Actions.PatchHarvest and action ~= Interactions.Actions.TreeGroundPickup then
+		return
+	end
+	SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 end
 
 local function promptParentFor(instance, kind)
@@ -667,6 +683,19 @@ local function promptHighlightTarget(target, kind)
 		return TreeVisuals.GroundVisualForMarker(target) or target
 	end
 	return nil
+end
+
+local function lockedFeedHighlightTarget(now)
+	if feedHighlightLockedTarget == nil then
+		return nil
+	end
+	now = now or os.clock()
+	if now >= feedHighlightLockedUntil or feedHighlightLockedTarget.Parent == nil then
+		feedHighlightLockedTarget = nil
+		feedHighlightLockedUntil = 0
+		return nil
+	end
+	return feedHighlightLockedTarget
 end
 
 local function loadedTreeGroundPosition(marker)
@@ -979,8 +1008,13 @@ local function firePromptAction(kind, action, target, options)
 	end
 	playPromptSound(kind)
 	PromptInteract:FireServer(action, target, options.isAutoHold == true)
-	if kind == "PetFeed" and UserInputService.TouchEnabled then
-		collectPromptsSuppressedUntil = os.clock() + COLLECT_AFTER_FEED_SUPPRESS_SECONDS
+	if kind == "PetFeed" then
+		local now = os.clock()
+		feedHighlightLockedTarget = target
+		feedHighlightLockedUntil = now + PET_FEED_HIGHLIGHT_LOCK_SECONDS
+		if UserInputService.TouchEnabled then
+			collectPromptsSuppressedUntil = now + COLLECT_AFTER_FEED_SUPPRESS_SECONDS
+		end
 	end
 	return true
 end
@@ -1588,7 +1622,7 @@ refreshAll = function(shouldScan)
 	end
 	activeAutoCandidate = closestAutoCandidate
 	activeMobileAutoCandidate = closestMobileAutoCandidate
-	setPromptHighlightTarget(closestHighlightTarget)
+	setPromptHighlightTarget(lockedFeedHighlightTarget() or closestHighlightTarget)
 end
 
 local toolRefreshScheduled = false
@@ -1666,6 +1700,7 @@ function LocalPrompts.start()
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "LocalPrompts.OfflineProgressPendingChanged", function()
 		refreshAll(false)
 	end)
+	RuntimeGuard.Connect(PromptInteractEffect.OnClientEvent, "LocalPrompts.PromptInteractEffect", handlePromptInteractEffect)
 	applyTutorialState(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(state)
 		local wasTutorialActive = tutorialActive

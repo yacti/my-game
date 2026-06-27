@@ -56,6 +56,7 @@ Remotes.Names = {
 	InventoryDeleteRequest = "InventoryDeleteRequest",
 	InventoryDeleteResult = "InventoryDeleteResult",
 	PromptInteract = "PromptInteract",
+	PromptInteractEffect = "PromptInteractEffect",
 	RebirthRequest = "RebirthRequest",
 	RebirthResult = "RebirthResult",
 }
@@ -108,6 +109,7 @@ local Definitions = {
 	[Remotes.Names.InventoryDeleteRequest] = "RemoteEvent",
 	[Remotes.Names.InventoryDeleteResult] = "RemoteEvent",
 	[Remotes.Names.PromptInteract] = "RemoteEvent",
+	[Remotes.Names.PromptInteractEffect] = "RemoteEvent",
 	[Remotes.Names.RebirthRequest] = "RemoteEvent",
 	[Remotes.Names.RebirthResult] = "RemoteEvent",
 }

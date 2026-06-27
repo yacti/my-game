@@ -159,6 +159,9 @@
         "PromptInteract": {
           "$className": "RemoteEvent"
         },
+        "PromptInteractEffect": {
+          "$className": "RemoteEvent"
+        },
         "RebirthRequest": {
           "$className": "RemoteEvent"
         },
