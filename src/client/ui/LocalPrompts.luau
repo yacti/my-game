@@ -78,6 +78,7 @@ local PASSIVE_TREE_PICKUP_INTERVAL = AUTO_ACTION_INTERVAL
 local PASSIVE_TREE_PICKUP_DISTANCE = 4.5
 local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
 local FEED_INTENT_GRACE_SECONDS = 2
+local COLLECT_AFTER_FEED_SUPPRESS_SECONDS = 0.5
 local ROLL_BUTTON_UNAVAILABLE_ATTR = "RollButtonUnavailable"
 local warnedInvalidPromptTemplates = {}
 local warnedMissingPromptTemplates = {}
@@ -85,6 +86,7 @@ local warnedMissingHighlightTemplate = false
 local activePromptHighlight = nil
 local activePromptHighlightTarget = nil
 local feedIntentUntil = 0
+local collectPromptsSuppressedUntil = 0
 local AUTO_PROMPT_ACTIONS = {
 	PetFeed = Interactions.Actions.PetFeed,
 	PatchHarvest = Interactions.Actions.PatchHarvest,
@@ -369,6 +371,11 @@ local function isCollectAutoKind(kind)
 	return kind == "PatchHarvest" or kind == "TreeGroundPickup"
 end
 
+local function areCollectPromptsSuppressed(now)
+	return UserInputService.TouchEnabled
+		and (now or os.clock()) < collectPromptsSuppressedUntil
+end
+
 local function isFeedIntentActive()
 	local now = os.clock()
 	if Food.GetEquipped(player, nil) ~= nil then
@@ -414,6 +421,9 @@ local function activeAutoCandidateForMode(candidate, mode, options)
 	end
 	options = type(options) == "table" and options or {}
 	if mode ~= nil and candidate.mode ~= mode then
+		return nil
+	end
+	if isCollectAutoKind(candidate.kind) and areCollectPromptsSuppressed() then
 		return nil
 	end
 	local target = candidate.target
@@ -647,6 +657,9 @@ local function hasSlotFood(anchor)
 end
 
 local function promptHighlightTarget(target, kind)
+	if kind == "PetFeed" then
+		return target
+	end
 	if kind == "PatchHarvest" then
 		return slotFoodTarget(target)
 	end
@@ -878,6 +891,7 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 	end
 
 	local feedIntentActive = isFeedIntentActive()
+	local collectPromptsSuppressed = areCollectPromptsSuppressed()
 	local closest = nil
 	local closestDistance = math.huge
 	local closestKind = nil
@@ -891,7 +905,7 @@ function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 			if not action or not candidateMode or (mode ~= nil and candidateMode ~= mode) then
 				continue
 			end
-			refreshPrompt(target, kind, prompt)
+			refreshPrompt(target, kind, prompt, collectPromptsSuppressed)
 			if prompt.Parent == nil or target.Parent == nil or not prompt.Enabled then
 				continue
 			end
@@ -965,6 +979,9 @@ local function firePromptAction(kind, action, target, options)
 	end
 	playPromptSound(kind)
 	PromptInteract:FireServer(action, target, options.isAutoHold == true)
+	if kind == "PetFeed" and UserInputService.TouchEnabled then
+		collectPromptsSuppressedUntil = os.clock() + COLLECT_AFTER_FEED_SUPPRESS_SECONDS
+	end
 	return true
 end
 
@@ -1058,7 +1075,11 @@ local function stepAutoHold()
 end
 
 local function findPassiveTreeGroundPickupCandidate()
-	if autoHoldMode ~= nil or isShovelEquipped() or isOfflineProgressPending() or isPlacementPromptBlocked() then
+	if autoHoldMode ~= nil
+		or areCollectPromptsSuppressed()
+		or isShovelEquipped()
+		or isOfflineProgressPending()
+		or isPlacementPromptBlocked() then
 		return nil
 	end
 	if isEditMode() then
@@ -1382,7 +1403,10 @@ scanPlot = function()
 	end)
 end
 
-refreshPrompt = function(target, kind, prompt)
+refreshPrompt = function(target, kind, prompt, collectPromptsSuppressed)
+	if collectPromptsSuppressed == nil then
+		collectPromptsSuppressed = areCollectPromptsSuppressed()
+	end
 	if prompt.Parent == nil or target.Parent == nil then
 		removePrompt(target, kind)
 		return
@@ -1423,7 +1447,8 @@ refreshPrompt = function(target, kind, prompt)
 		prompt.Enabled = enabled
 	elseif kind == "PatchHarvest" then
 		prompt.ActionText = "Collect"
-		prompt.Enabled = not isEditMode()
+		prompt.Enabled = not collectPromptsSuppressed
+			and not isEditMode()
 			and not isGrowingSeedFeed(target.Parent)
 			and hasSlotFood(target)
 	elseif kind == "TreeGroundPickup" then
@@ -1432,7 +1457,7 @@ refreshPrompt = function(target, kind, prompt)
 			return
 		end
 		prompt.ActionText = "Collect"
-		prompt.Enabled = not isEditMode()
+		prompt.Enabled = not collectPromptsSuppressed and not isEditMode()
 	elseif kind == "GridPartUnlock" then
 		local parent = promptParentFor(target, kind)
 		if not parent then
@@ -1481,6 +1506,7 @@ refreshAll = function(shouldScan)
 	local closestMobileAutoKind = nil
 	local closestHighlightTarget = nil
 	local feedIntentActive = isFeedIntentActive()
+	local collectPromptsSuppressed = areCollectPromptsSuppressed()
 
 	for target, bucket in pairs(byTarget) do
 		for kind, prompt in pairs(bucket) do
@@ -1494,7 +1520,7 @@ refreshAll = function(shouldScan)
 				prompt.Enabled = false
 				continue
 			end
-			refreshPrompt(target, kind, prompt)
+			refreshPrompt(target, kind, prompt, collectPromptsSuppressed)
 			if prompt.Parent ~= nil and prompt.Enabled then
 				distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 				if distance and distance <= prompt.MaxActivationDistance then
