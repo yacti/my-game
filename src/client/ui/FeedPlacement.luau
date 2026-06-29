@@ -1004,11 +1004,19 @@ function FeedPlacement.start()
 		return true
 	end
 
+	local function hasControllerSelection()
+		return hasActiveSelection and preview and selectedLX ~= nil and selectedLZ ~= nil
+	end
+
 	local function ensureControllerSelection()
-		if hasActiveSelection and preview and selectedLX ~= nil and selectedLZ ~= nil then
+		if hasControllerSelection() then
 			return true
 		end
 		return selectControllerStartCell()
+	end
+
+	local function shouldAutoSelectControllerCellOnEquip()
+		return PlacementInput.IsGamepadPreferred() and activeSeedId == nil
 	end
 
 	local function moveControllerSelection(direction)
@@ -1178,6 +1186,20 @@ function FeedPlacement.start()
 		SoundEffects.PlayVaried(SoundEffects.Names.FruitPop)
 	end
 
+	local function confirmControllerPlacement()
+		if hasControllerSelection() then
+			confirmPlacement()
+			return
+		end
+		if not ensureControllerSelection() then
+			return
+		end
+		if activeSeedId ~= nil then
+			return
+		end
+		confirmPlacement()
+	end
+
 	local function beginMoving(screenPosition)
 		if not placing or not preview or pendingPlacementRequestId ~= nil then return end
 		moving = true
@@ -1320,9 +1342,9 @@ function FeedPlacement.start()
 		end,
 		onRotate = rotatePreview,
 		canConfirm = function()
-			return ensureControllerSelection()
+			return true
 		end,
-		onConfirm = confirmPlacement,
+		onConfirm = confirmControllerPlacement,
 		onCancel = cancelPlacement,
 	})
 
@@ -1513,7 +1535,7 @@ function FeedPlacement.start()
 			setConfirmVisible(true)
 			setConfirmEnabled(false)
 			setGridEffectEnabled(true)
-			if PlacementInput.IsGamepadPreferred() then
+			if shouldAutoSelectControllerCellOnEquip() then
 				selectControllerStartCell()
 			end
 		end
