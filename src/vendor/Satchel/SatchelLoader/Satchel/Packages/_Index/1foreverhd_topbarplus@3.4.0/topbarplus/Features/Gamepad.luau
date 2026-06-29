@@ -183,6 +183,19 @@ function Gamepad.registerButton(buttonInstance)
 		local unselectKeyCodes = {"ButtonB", "ButtonSelect"}
 		local keyName = input.KeyCode.Name
 		if table.find(unselectKeyCodes, keyName) and isSelected then
+			if keyName == "ButtonB" then
+				local iconUID = buttonInstance:GetAttribute("CorrespondingIconUID")
+				local icon = Icon and iconUID and Icon.iconsDictionary[iconUID]
+				if icon and not icon.locked then
+					if icon.isSelected then
+						icon:deselect("User", icon)
+					else
+						icon:select("User", icon)
+					end
+					return
+				end
+			end
+
 			-- We unfocus when back button is pressed, but ignore
 			-- if the virtual cursor is disabled otherwise it will be
 			-- impossible to select the topbar
