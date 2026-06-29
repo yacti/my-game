@@ -3,6 +3,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -19,6 +20,9 @@ local GAMEPAD_ACTION_PRIORITY = Enum.ContextActionPriority.High.Value + 10
 local guiNavigationLockDepth = 0
 local guiNavigationRestore = nil
 local guiNavigationLocks = {}
+local virtualCursorLockDepth = 0
+local virtualCursorRestore = nil
+local virtualCursorLocks = {}
 
 PlacementInput.GamepadKeyCodes = {
 	Move = Enum.KeyCode.DPadUp,
@@ -76,8 +80,34 @@ local function writeGuiServiceProperty(propertyName, value)
 	end)
 end
 
+local function readStarterGuiProperty(propertyName)
+	local ok, value = pcall(function()
+		return StarterGui[propertyName]
+	end)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function writeStarterGuiProperty(propertyName, value)
+	return pcall(function()
+		StarterGui[propertyName] = value
+	end)
+end
+
 local function clearGuiSelection()
 	writeGuiServiceProperty("SelectedObject", nil)
+end
+
+local function virtualCursorModeEnum()
+	local ok, modeEnum = pcall(function()
+		return Enum.VirtualCursorMode
+	end)
+	if ok then
+		return modeEnum
+	end
+	return nil
 end
 
 local function lockGuiNavigation()
@@ -89,6 +119,47 @@ local function lockGuiNavigation()
 	end
 	guiNavigationLockDepth += 1
 	clearGuiSelection()
+end
+
+local function setVirtualCursorModeEnabled()
+	local modeEnum = virtualCursorModeEnum()
+	if not modeEnum then
+		return false
+	end
+
+	if virtualCursorLockDepth == 0 then
+		virtualCursorRestore = readStarterGuiProperty("VirtualCursorMode")
+	end
+
+	local ok = writeStarterGuiProperty("VirtualCursorMode", modeEnum.Enabled)
+	if ok then
+		virtualCursorLockDepth += 1
+		clearGuiSelection()
+	end
+	return ok
+end
+
+local function restoreVirtualCursorMode()
+	if virtualCursorLockDepth <= 0 then
+		virtualCursorLockDepth = 0
+		virtualCursorRestore = nil
+		return
+	end
+
+	virtualCursorLockDepth -= 1
+	if virtualCursorLockDepth > 0 then
+		return
+	end
+
+	local modeEnum = virtualCursorModeEnum()
+	local restore = virtualCursorRestore
+	virtualCursorRestore = nil
+	if restore == nil and modeEnum then
+		restore = modeEnum.Default
+	end
+	if restore ~= nil then
+		writeStarterGuiProperty("VirtualCursorMode", restore)
+	end
 end
 
 local function unlockGuiNavigation()
@@ -204,6 +275,30 @@ end
 
 function PlacementInput.ClearGamepadGuiSelection()
 	clearGuiSelection()
+end
+
+function PlacementInput.SetVirtualCursorEnabled(lockName, enabled)
+	lockName = tostring(lockName or "PlacementInput")
+	enabled = enabled == true
+
+	if enabled then
+		if virtualCursorLocks[lockName] then
+			return
+		end
+		virtualCursorLocks[lockName] = {
+			modeEnabled = setVirtualCursorModeEnabled(),
+		}
+		return
+	end
+
+	local lock = virtualCursorLocks[lockName]
+	if not lock then
+		return
+	end
+	virtualCursorLocks[lockName] = nil
+	if lock.modeEnabled == true then
+		restoreVirtualCursorMode()
+	end
 end
 
 function PlacementInput.CameraRelativeFloorStep(floor, direction)

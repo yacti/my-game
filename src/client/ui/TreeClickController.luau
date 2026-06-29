@@ -129,9 +129,6 @@ local function canShakeTree(tree)
 	if isOfflineProgressPending() or FeedPlacement.IsPlacementActive() or isEditMode() then
 		return false
 	end
-	if not equippedTool() then
-		return false
-	end
 	if not (tree and tree:IsA("Model") and tree.Parent ~= nil) then
 		return false
 	end

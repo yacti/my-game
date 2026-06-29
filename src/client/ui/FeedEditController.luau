@@ -30,6 +30,7 @@ local HUD_NAME = "HUD"
 local EDIT_BUTTON_NAME = "EditModeButton"
 local EXIT_EDIT_BUTTON_NAME = "ExitEditMode"
 local EXIT_EDIT_CONTROLLER_HINT_NAME = "ControllerHint"
+local EDIT_MODE_VIRTUAL_CURSOR_LOCK_NAME = "FeedEditController.EditMode"
 local TOPBAR_EDIT_ICON_NAME = "EditMode"
 local TOPBAR_EDIT_ICON_IMAGE = "rbxassetid://116968621046326"
 local EDIT_MODE_ICON_PENDING_SECONDS = 1.5
@@ -1344,11 +1345,22 @@ function FeedEditController.start()
 		setExitEditButtonOpen(buttonVisible and editEnabled)
 	end
 
+	local function syncEditModeVirtualCursor()
+		PlacementInput.SetVirtualCursorEnabled(
+			EDIT_MODE_VIRTUAL_CURSOR_LOCK_NAME,
+			editEnabled
+				and buttonVisible
+				and not isOfflineProgressPending()
+				and hasConnectedController()
+		)
+	end
+
 	local function refreshButtonVisibility()
 		local floor = getPlayerFloor()
 		local visible = floor ~= nil and isOnFloor(floor) and not isOfflineProgressPending()
 		buttonVisible = visible
 		refreshEditButtonVisibility()
+		syncEditModeVirtualCursor()
 		if not visible then
 			setPendingDesiredEditMode(nil)
 			setEditModeIconSelected(false)
@@ -1373,6 +1385,7 @@ function FeedEditController.start()
 		if not editEnabled then
 			clearSelection(true)
 		end
+		syncEditModeVirtualCursor()
 	end
 
 	local function requestExitEditMode()
@@ -1411,12 +1424,15 @@ function FeedEditController.start()
 	end)
 	RuntimeGuard.Connect(UserInputService.GamepadConnected, "FeedEditController.GamepadConnected", function()
 		applyExitEditControllerHint(exitEditButton)
+		syncEditModeVirtualCursor()
 	end)
 	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "FeedEditController.GamepadDisconnected", function()
 		applyExitEditControllerHint(exitEditButton)
+		syncEditModeVirtualCursor()
 	end)
 	RuntimeGuard.Connect(UserInputService.LastInputTypeChanged, "FeedEditController.LastInputTypeChanged", function()
 		applyExitEditControllerHint(exitEditButton)
+		syncEditModeVirtualCursor()
 	end)
 
 	PlacementInput.BindMoveDrag(moveButton, "FeedEditController.MoveDrag", {
@@ -1457,20 +1473,24 @@ function FeedEditController.start()
 		isActive = function()
 			return not isOfflineProgressPending()
 				and editEnabled
-				and pendingRequestId == nil
 		end,
 		canMoveStart = function()
-			return selectedFeed ~= nil and selectedFeed.Parent ~= nil
+			return pendingRequestId == nil
+				and selectedFeed ~= nil
+				and selectedFeed.Parent ~= nil
 		end,
 		onMoveStart = beginControllerMoving,
 		onMoveStep = moveControllerSelection,
 		onMoveEnd = stopControllerMoving,
 		canRotate = function()
-			return not moving and selectedFeed ~= nil and selectedFeed.Parent ~= nil
+			return pendingRequestId == nil
+				and not moving
+				and selectedFeed ~= nil
+				and selectedFeed.Parent ~= nil
 		end,
 		onRotate = rotateSelected,
 		canConfirm = function()
-			return not moving
+			return pendingRequestId == nil and not moving
 		end,
 		onConfirm = handleControllerEditSelect,
 		canCancel = function()
