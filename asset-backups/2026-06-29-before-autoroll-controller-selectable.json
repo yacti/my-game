@@ -1,0 +1,27 @@
+{
+  "takenAt": "2026-06-29",
+  "path": "ReplicatedStorage.UI.HUD.RollButtons.AutoRoll",
+  "reason": "Before enabling controller selection on AutoRoll HUD buttons",
+  "snapshot": {
+    "Toggle": {
+      "className": "ImageButton",
+      "Visible": true,
+      "Active": false,
+      "Selectable": false,
+      "Interactable": true,
+      "AutoButtonColor": true,
+      "Position": "{0.490684658, 0}, {0.394069135, 0}",
+      "Size": "{0.809906006, 0}, {0.751217186, 0}"
+    },
+    "Settings": {
+      "className": "ImageButton",
+      "Visible": true,
+      "Active": false,
+      "Selectable": false,
+      "Interactable": true,
+      "AutoButtonColor": true,
+      "Position": "{1.22535956, 0}, {0.857757509, 0}",
+      "Size": "{0.46306473, 0}, {0.42950964, 0}"
+    }
+  }
+}

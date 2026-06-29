@@ -4,6 +4,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
@@ -20,10 +21,13 @@ local TreeClickController = {}
 
 local TREE_SHAKE_CLICK_DISTANCE = 24
 local TREE_SHAKE_RAY_DISTANCE = 500
+local TREE_SHAKE_HOLD_INTERVAL = 0.2
 local TREE_CLICK_TARGET_NAME = "LeafShake"
+local TREE_SHAKE_GAMEPAD_KEYCODE = Enum.KeyCode.ButtonR2
 
 local player = Players.LocalPlayer
 local TreeClickerRequest = Remotes.get(Remotes.Names.TreeClickerRequest)
+local activeTreeHold = nil
 
 local function isEditMode()
 	return player:GetAttribute("EditMode") == true
@@ -88,9 +92,17 @@ local function treeFromHit(instance, plot)
 	return nil
 end
 
+local function isGamepadTreeShakeInput(input)
+	return input.KeyCode == TREE_SHAKE_GAMEPAD_KEYCODE
+		and PlacementInput.IsGamepadInputType(input.UserInputType)
+end
+
 local function screenPositionForClickInput(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		return Vector2.new(input.Position.X, input.Position.Y)
+	end
+	if isGamepadTreeShakeInput(input) then
+		return UserInputService:GetMouseLocation()
 	end
 	return nil
 end
@@ -113,44 +125,145 @@ local function treeFromInput(input)
 	return result and treeFromHit(result.Instance, plot) or nil
 end
 
-local function triggerTreeShakeFromInput(input)
+local function canShakeTree(tree)
 	if isOfflineProgressPending() or FeedPlacement.IsPlacementActive() or isEditMode() then
-		return
+		return false
+	end
+	if not equippedTool() then
+		return false
+	end
+	if not (tree and tree:IsA("Model") and tree.Parent ~= nil) then
+		return false
 	end
 
-	local tree = treeFromInput(input)
-	if not tree then
-		return
+	local plot = getPlot()
+	if not (plot and tree:IsDescendantOf(plot)) then
+		return false
 	end
 
 	local rootPosition = playerRootPosition()
 	local primary = tree.PrimaryPart
 	local treePosition = primary and primary.Position or nil
 	if not (rootPosition and treePosition) then
-		return
+		return false
 	end
 	if (treePosition - rootPosition).Magnitude > TREE_SHAKE_CLICK_DISTANCE then
-		return
+		return false
+	end
+
+	return true
+end
+
+local function triggerTreeShake(tree)
+	if not canShakeTree(tree) then
+		return false
 	end
 
 	TreeClickerRequest:FireServer(tree)
+	return true
+end
+
+local function triggerTreeShakeFromInput(input)
+	return triggerTreeShake(treeFromInput(input))
+end
+
+local function isTreeShakeGuiBlocked(input)
+	local screenPosition = screenPositionForClickInput(input)
+	return screenPosition ~= nil and PlacementInput.IsInteractiveGuiAt(screenPosition)
+end
+
+local function beginTreeHold(input)
+	if activeTreeHold ~= nil then
+		return
+	end
+	if not isGamepadTreeShakeInput(input) then
+		return
+	end
+	if UserInputService:GetFocusedTextBox() ~= nil or isTreeShakeGuiBlocked(input) then
+		return
+	end
+
+	local tree = treeFromInput(input)
+	if not triggerTreeShake(tree) then
+		return
+	end
+
+	activeTreeHold = {
+		inputType = input.UserInputType,
+		keyCode = input.KeyCode,
+		nextActionAt = os.clock() + TREE_SHAKE_HOLD_INTERVAL,
+		tree = tree,
+	}
+end
+
+local function endTreeHold(input)
+	if activeTreeHold == nil then
+		return
+	end
+	if input.UserInputType ~= activeTreeHold.inputType or input.KeyCode ~= activeTreeHold.keyCode then
+		return
+	end
+	activeTreeHold = nil
+end
+
+local function isTreeHoldInputStillDown()
+	if activeTreeHold == nil then
+		return false
+	end
+	local ok, isDown = pcall(function()
+		return UserInputService:IsGamepadButtonDown(activeTreeHold.inputType, activeTreeHold.keyCode)
+	end)
+	return ok and isDown == true
+end
+
+local function stepTreeHold()
+	if activeTreeHold == nil then
+		return
+	end
+	if not isTreeHoldInputStillDown() then
+		activeTreeHold = nil
+		return
+	end
+
+	local now = os.clock()
+	if now < activeTreeHold.nextActionAt then
+		return
+	end
+	if triggerTreeShake(activeTreeHold.tree) then
+		activeTreeHold.nextActionAt = now + TREE_SHAKE_HOLD_INTERVAL
+	else
+		activeTreeHold = nil
+	end
 end
 
 function TreeClickController.start()
 	RuntimeGuard.Connect(UserInputService.InputBegan, "TreeClickController.InputBegan", function(input, gameProcessed)
+		if isGamepadTreeShakeInput(input) then
+			RuntimeGuard.Run("TreeClickController.BeginTreeHold", beginTreeHold, input)
+			return
+		end
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
 		if not equippedTool() then
 			return
 		end
+		if gameProcessed then
+			return
+		end
 		if UserInputService:GetFocusedTextBox() ~= nil then
 			return
 		end
-		if PlacementInput.IsInteractiveGuiAt(input.Position) then
+		if isTreeShakeGuiBlocked(input) then
 			return
 		end
 		RuntimeGuard.Run("TreeClickController.TriggerTreeShake", triggerTreeShakeFromInput, input)
+	end)
+	RuntimeGuard.Connect(UserInputService.InputEnded, "TreeClickController.InputEnded", function(input)
+		RuntimeGuard.Run("TreeClickController.EndTreeHold", endTreeHold, input)
+	end)
+	RuntimeGuard.Connect(RunService.Heartbeat, "TreeClickController.Heartbeat", function()
+		RuntimeGuard.Run("TreeClickController.StepTreeHold", stepTreeHold)
 	end)
 end
 

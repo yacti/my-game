@@ -408,6 +408,7 @@ function FeedPlacement.start()
 	local function setPlacing(value)
 		placing = value == true
 		hasActivePlacement = placing
+		PlacementInput.SetGamepadGuiNavigationLocked("FeedPlacement.Active", placing)
 	end
 
 	local function snapToGrid(v) return math.round(v) end

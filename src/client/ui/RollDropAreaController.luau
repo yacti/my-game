@@ -47,6 +47,7 @@ end
 
 local function updateUpgradeButton(button, cannotAffordImage, enabled, showCannotAfford)
 	button.Active = enabled
+	button.Selectable = enabled
 	button.AutoButtonColor = enabled
 	if cannotAffordImage then
 		cannotAffordImage.Visible = showCannotAfford

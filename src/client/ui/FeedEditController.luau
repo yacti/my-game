@@ -29,6 +29,7 @@ local EDIT_MODE_ATTR = "EditMode"
 local HUD_NAME = "HUD"
 local EDIT_BUTTON_NAME = "EditModeButton"
 local EXIT_EDIT_BUTTON_NAME = "ExitEditMode"
+local EXIT_EDIT_CONTROLLER_HINT_NAME = "ControllerHint"
 local TOPBAR_EDIT_ICON_NAME = "EditMode"
 local TOPBAR_EDIT_ICON_IMAGE = "rbxassetid://116968621046326"
 local EDIT_MODE_ICON_PENDING_SECONDS = 1.5
@@ -61,6 +62,61 @@ local MOVE_FAILURE_MESSAGES = {
 }
 
 local GROWING_PLANT_MESSAGE = "You can't move growing plants!"
+
+local function isGamepadInputType(inputType)
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
+local function hasConnectedController()
+	local okPreferred, preferred = pcall(function()
+		return UserInputService.PreferredInput
+	end)
+	local preferredInputEnum = Enum.PreferredInput
+	if okPreferred and preferredInputEnum and preferred == preferredInputEnum.Gamepad then
+		return true
+	end
+
+	local okLastInput, lastInputType = pcall(UserInputService.GetLastInputType, UserInputService)
+	if okLastInput and isGamepadInputType(lastInputType) then
+		return true
+	end
+
+	if UserInputService.GamepadEnabled then
+		return true
+	end
+	local ok, gamepads = pcall(UserInputService.GetConnectedGamepads, UserInputService)
+	return ok and type(gamepads) == "table" and #gamepads > 0
+end
+
+local function gamepadButtonImage(keyCode)
+	local ok, image = pcall(UserInputService.GetImageForKeyCode, UserInputService, keyCode)
+	if ok and type(image) == "string" and image ~= "" then
+		return image
+	end
+	return nil
+end
+
+local function applyExitEditControllerHint(exitEditButton)
+	local hint = exitEditButton:FindFirstChild(EXIT_EDIT_CONTROLLER_HINT_NAME)
+	if not (hint and hint:IsA("ImageLabel")) then
+		warn("[FeedEditController] HUD ExitEditMode missing ControllerHint ImageLabel")
+		return
+	end
+
+	local image = gamepadButtonImage(PlacementInput.GamepadKeyCodes.Cancel)
+	if image then
+		hint.Image = image
+	end
+	hint.Visible = hasConnectedController()
+	hint:SetAttribute("KeyCode", PlacementInput.GamepadKeyCodes.Cancel.Name)
+end
 
 local function requireTopbarIcon()
 	local satchelRoot = ReplicatedStorage:WaitForChild("Satchel", 10)
@@ -545,6 +601,7 @@ function FeedEditController.start()
 		warn("[FeedEditController] HUD missing ExitEditMode GuiButton")
 		return
 	end
+	applyExitEditControllerHint(exitEditButton)
 
 	local Icon = requireTopbarIcon()
 	if not Icon then
@@ -1318,6 +1375,13 @@ function FeedEditController.start()
 		end
 	end
 
+	local function requestExitEditMode()
+		if not buttonVisible or not editEnabled then return end
+		setPendingDesiredEditMode(false)
+		refreshEditButtonVisibility()
+		FeedEditModeRequest:FireServer(false)
+	end
+
 	RuntimeGuard.Connect(editModeIcon.toggled, "FeedEditController.EditModeIconToggled", function(selected, fromSource)
 		if syncingEditModeIcon or fromSource ~= "User" then return end
 		if isOfflineProgressPending() or not buttonVisible then
@@ -1343,10 +1407,16 @@ function FeedEditController.start()
 		end
 	end)
 	RuntimeGuard.Connect(exitEditButton.Activated, "FeedEditController.ExitEditButtonActivated", function()
-		if not buttonVisible or not editEnabled then return end
-		setPendingDesiredEditMode(false)
-		refreshEditButtonVisibility()
-		FeedEditModeRequest:FireServer(false)
+		requestExitEditMode()
+	end)
+	RuntimeGuard.Connect(UserInputService.GamepadConnected, "FeedEditController.GamepadConnected", function()
+		applyExitEditControllerHint(exitEditButton)
+	end)
+	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "FeedEditController.GamepadDisconnected", function()
+		applyExitEditControllerHint(exitEditButton)
+	end)
+	RuntimeGuard.Connect(UserInputService.LastInputTypeChanged, "FeedEditController.LastInputTypeChanged", function()
+		applyExitEditControllerHint(exitEditButton)
 	end)
 
 	PlacementInput.BindMoveDrag(moveButton, "FeedEditController.MoveDrag", {
@@ -1404,9 +1474,14 @@ function FeedEditController.start()
 		end,
 		onConfirm = handleControllerEditSelect,
 		canCancel = function()
-			return selectedFeed ~= nil and selectedFeed.Parent ~= nil
+			return buttonVisible and editEnabled
 		end,
-		onCancel = cancelControllerSelection,
+		onCancel = function()
+			if moving or (selectedFeed ~= nil and selectedFeed.Parent ~= nil) then
+				cancelControllerSelection()
+			end
+			requestExitEditMode()
+		end,
 	})
 
 	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedEditController.InputBegan", function(input, gameProcessed)

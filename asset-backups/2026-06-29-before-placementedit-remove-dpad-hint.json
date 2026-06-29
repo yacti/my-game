@@ -1,0 +1,48 @@
+{
+  "takenAt": "2026-06-29",
+  "path": "ReplicatedStorage.UI.BillboardGUIs.PlacementEdit.options.move.ControllerHint",
+  "reason": "Before removing custom D-pad composite move hint",
+  "snapshot": {
+    "name": "ControllerHint",
+    "className": "ImageLabel",
+    "properties": {
+      "Visible": false,
+      "ScaleType": "Enum.ScaleType.Fit",
+      "Active": false,
+      "Selectable": false,
+      "Image": "",
+      "ImageTransparency": 1,
+      "AnchorPoint": "0.5, 0",
+      "Position": "{0.5, 0}, {1.29999995, 0}",
+      "Size": "{0.579999983, 0}, {0.579999983, 0}",
+      "ZIndex": 5
+    },
+    "attributes": {
+      "ControllerHintType": "DPadAll",
+      "KeyCode": "DPadAll",
+      "RobloxTextureFamily": "Controls/DesignSystem/Dpad*@2x"
+    },
+    "children": [
+      {
+        "name": "Left",
+        "className": "ImageLabel",
+        "image": "rbxasset://textures/ui/Controls/DesignSystem/DpadLeft@2x.png"
+      },
+      {
+        "name": "Right",
+        "className": "ImageLabel",
+        "image": "rbxasset://textures/ui/Controls/DesignSystem/DpadRight@2x.png"
+      },
+      {
+        "name": "Down",
+        "className": "ImageLabel",
+        "image": "rbxasset://textures/ui/Controls/DesignSystem/DpadDown@2x.png"
+      },
+      {
+        "name": "Up",
+        "className": "ImageLabel",
+        "image": "rbxasset://textures/ui/Controls/DesignSystem/DpadUp@2x.png"
+      }
+    ]
+  }
+}

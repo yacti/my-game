@@ -18,6 +18,7 @@ local GAMEPAD_REPEAT_INTERVAL = 0.09
 local GAMEPAD_ACTION_PRIORITY = Enum.ContextActionPriority.High.Value + 10
 local guiNavigationLockDepth = 0
 local guiNavigationRestore = nil
+local guiNavigationLocks = {}
 
 PlacementInput.GamepadKeyCodes = {
 	Move = Enum.KeyCode.DPadUp,
@@ -83,10 +84,8 @@ local function lockGuiNavigation()
 	if guiNavigationLockDepth == 0 then
 		guiNavigationRestore = {
 			AutoSelectGuiEnabled = readGuiServiceProperty("AutoSelectGuiEnabled"),
-			GuiNavigationEnabled = readGuiServiceProperty("GuiNavigationEnabled"),
 		}
 		writeGuiServiceProperty("AutoSelectGuiEnabled", false)
-		writeGuiServiceProperty("GuiNavigationEnabled", false)
 	end
 	guiNavigationLockDepth += 1
 	clearGuiSelection()
@@ -110,9 +109,6 @@ local function unlockGuiNavigation()
 	if restore then
 		if restore.AutoSelectGuiEnabled ~= nil then
 			writeGuiServiceProperty("AutoSelectGuiEnabled", restore.AutoSelectGuiEnabled)
-		end
-		if restore.GuiNavigationEnabled ~= nil then
-			writeGuiServiceProperty("GuiNavigationEnabled", restore.GuiNavigationEnabled)
 		end
 	end
 	clearGuiSelection()
@@ -183,6 +179,31 @@ function PlacementInput.IsInteractiveGuiAt(screenPosition)
 		end
 	end
 	return false
+end
+
+function PlacementInput.SetGamepadGuiNavigationLocked(lockName, locked)
+	lockName = tostring(lockName or "PlacementInput")
+	locked = locked == true
+
+	if locked then
+		if guiNavigationLocks[lockName] then
+			clearGuiSelection()
+			return
+		end
+		guiNavigationLocks[lockName] = true
+		lockGuiNavigation()
+		return
+	end
+
+	if not guiNavigationLocks[lockName] then
+		return
+	end
+	guiNavigationLocks[lockName] = nil
+	unlockGuiNavigation()
+end
+
+function PlacementInput.ClearGamepadGuiSelection()
+	clearGuiSelection()
 end
 
 function PlacementInput.CameraRelativeFloorStep(floor, direction)
@@ -551,6 +572,13 @@ function PlacementInput.BindGamepadPlacementControls(label, callbacks)
 
 	return true
 end
+
+RuntimeGuard.Connect(RunService.RenderStepped, "PlacementInput.GamepadGuiNavigationLock", function()
+	if guiNavigationLockDepth <= 0 then
+		return
+	end
+	clearGuiSelection()
+end)
 
 function PlacementInput.NewTapRecognizer(options)
 	options = options or {}

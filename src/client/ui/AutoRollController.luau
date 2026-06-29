@@ -249,9 +249,11 @@ local function renderHud()
 		hudToggle.ImageColor3 = serverEnabled and AutoRollConfig.ToggleColors.On or AutoRollConfig.ToggleColors.Off
 		UiEffects.SetButtonEnabled(hudToggle, unlocked)
 		hudToggle.AutoButtonColor = false
+		hudToggle.Selectable = unlocked
 	end
 	if hudSettings then
 		UiEffects.SetButtonEnabled(hudSettings, unlocked)
+		hudSettings.Selectable = unlocked
 	end
 	if not unlocked and serverEnabled then
 		request(AutoRollConfig.Actions.Stop)
@@ -301,6 +303,8 @@ local function createSettingRow(key, text, layoutOrder, rarity)
 
 	local toggleButton = findDescendant(row, "ToggleButton", "GuiButton")
 	if toggleButton then
+		toggleButton.Active = true
+		toggleButton.Selectable = true
 		UiEffects.BindButton(toggleButton)
 		RuntimeGuard.Connect(toggleButton.Activated, "AutoRollController.SettingActivated", function()
 			if key == AUTO_PURCHASE_KEY then
@@ -347,6 +351,8 @@ local function ensurePanel()
 
 	local closeButton = findDescendant(panel, "CloseButton", "GuiButton")
 	if closeButton then
+		closeButton.Active = true
+		closeButton.Selectable = true
 		UiEffects.BindButton(closeButton)
 		RuntimeGuard.Connect(closeButton.Activated, "AutoRollController.CloseActivated", function()
 			MenuGui.ClosePanel(PANEL_NAME)
@@ -415,6 +421,10 @@ function AutoRollController.start()
 	hudPanelState = UiEffects.PreparePanel(hudFrame)
 
 	hudToggle.AutoButtonColor = false
+	hudToggle.Active = false
+	hudToggle.Selectable = false
+	hudSettings.Active = false
+	hudSettings.Selectable = false
 	UiEffects.BindButton(hudToggle, {
 		colorTween = false,
 	})
