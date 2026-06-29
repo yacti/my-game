@@ -1,0 +1,11 @@
+{
+  "asset": "ReplicatedFirst.LoadingScreenLoader",
+  "className": "LocalScript",
+  "reason": "Before adding AFK rejoin auto-dismiss through the loader's existing cleanup path.",
+  "source": "Studio MCP script_read on active place [DEV] Build a Pet Farm",
+  "oldSnippets": [
+    "local TEMPLATE_NAME = \"LoadingScreen\"",
+    "local player = Players.LocalPlayer\\nlocal playerGui = player:WaitForChild(\"PlayerGui\")\\nlocal shownAt = os.clock()",
+    "setProgress(100, \"Tap anywhere to play\")\\nsetSkipButtonActive(false)\\nreadyForTap = true\\nsetTapButtonActive(true)"
+  ]
+}

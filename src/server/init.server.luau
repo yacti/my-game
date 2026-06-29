@@ -43,6 +43,7 @@ local FriendBoostService = require(Server:WaitForChild("FriendBoostService"))
 local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
 local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
+local AFKRejoinService = require(Server:WaitForChild("AFKRejoinService"))
 local HomeTeleportService = require(Server:WaitForChild("HomeTeleportService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local JoinGroupRewardService = require(Server:WaitForChild("JoinGroupRewardService"))
@@ -212,6 +213,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)
+RuntimeGuard.Run("AFKRejoinService.Start", AFKRejoinService.Start)
 RuntimeGuard.Run("OfflineProgressService.Start", OfflineProgressService.Start)
 
 -- ── Pet state save ────────────────────────────────────────────────────────────
@@ -982,10 +984,17 @@ local function handlePlayerAdded(player)
 	if PlotStressTest and PlotStressTest.ShouldDisableTutorial() then
 		RuntimeGuard.Run("PlotStressTest.PreparePlayerProfile." .. userLabel(player), PlotStressTest.PreparePlayerProfile, player, profile)
 	end
+	local afkRejoinData = AFKRejoinService.GetJoinData(player)
+	AFKRejoinService.MarkPending(player, afkRejoinData)
 
 	local label = userLabel(player)
 	local setupOk = RuntimeGuard.Run("PlayerAdded.Setup." .. label, function()
-		local offlineSession = OfflineProgressService.Begin(player, plot, profile)
+		local offlineSession = nil
+		if afkRejoinData then
+			RuntimeGuard.Run("PlayerAdded.ClearOfflineForAFKRejoin." .. label, OfflineProgressService.Clear, player)
+		else
+			offlineSession = OfflineProgressService.Begin(player, plot, profile)
+		end
 		local deferOfflineProgress = offlineSession ~= nil
 		local applied, applyReason = PlotGridService.ApplyProfileState(plot, profile)
 		if not applied then
@@ -1079,7 +1088,38 @@ local function handlePlayerAdded(player)
 		RuntimeGuard.Run("PlotWindService.StartForPlayer." .. label, PlotWindService.StartForPlayer, player, plot)
 
 		local toolsRestored = false
+		local afkRejoinRestored = false
 		local function onCharacterAdded(character)
+			if afkRejoinData and not afkRejoinRestored then
+				local restoreOk, restored = RuntimeGuard.Run(
+					"AFKRejoinService.RestoreCharacter." .. label,
+					AFKRejoinService.RestoreCharacter,
+					player,
+					plot,
+					afkRejoinData
+				)
+				if restoreOk == true and restored == true then
+					afkRejoinRestored = true
+					RuntimeGuard.Run(
+						"AFKRejoinService.FireCameraRestore." .. label,
+						AFKRejoinService.FireCameraRestore,
+						player,
+						afkRejoinData
+					)
+					if afkRejoinData.autoRollEnabled == true then
+						RuntimeGuard.Run(
+							"AFKRejoinService.ResumeAutoRoll." .. label,
+							RollService.ResumeAutoRoll,
+							player,
+							profile,
+							{
+								reason = "afk-rejoin",
+							}
+						)
+					end
+				end
+			end
+
 			ShovelTools.EnsureUtilityTool(player)
 			if not toolsRestored then
 				toolsRestored = true

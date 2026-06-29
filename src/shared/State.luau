@@ -35,6 +35,7 @@ State.Pet = {
 State.Player = {
 	AssignedPlotName = "AssignedPlotName",
 	OfflineProgressPending = "OfflineProgressPending",
+	AFKRejoinPending = "AFKRejoinPending",
 	SeedPacksAllowed = "SeedPacksAllowed",
 }
 

@@ -42,6 +42,12 @@
         "AutoRollState": {
           "$className": "RemoteEvent"
         },
+        "AFKRejoinRequest": {
+          "$className": "RemoteEvent"
+        },
+        "AFKRejoinRestore": {
+          "$className": "RemoteEvent"
+        },
         "RollLuckUpgradeRequest": {
           "$className": "RemoteEvent"
         },

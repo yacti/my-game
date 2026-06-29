@@ -1147,6 +1147,10 @@ local function autoRollSession(player, token)
 	return session
 end
 
+function RollService.IsAutoRollEnabled(player)
+	return autoRollSession(player) ~= nil
+end
+
 local function stopAutoRoll(player, code)
 	local key = userKey(player)
 	local session = key and autoRollSessions[key] or nil
@@ -1367,6 +1371,60 @@ local function startAutoRoll(player, payload)
 	sendAutoRollState(player, true, "ok", session)
 	NotificationService.Success(player, "Auto Roll enabled")
 	RuntimeGuard.Spawn("RollService.AutoRollLoop", runAutoRollLoop, player, session.token)
+end
+
+function RollService.ResumeAutoRoll(player, profile, options)
+	options = type(options) == "table" and options or {}
+	local key = userKey(player)
+	if key == nil or not PlayerDataServiceRef or not PlotServiceRef then
+		sendAutoRollState(player, false, "server-not-ready")
+		return false, "server-not-ready"
+	end
+
+	profile = profile or PlayerDataServiceRef.GetProfile(player)
+	if not isProfileActive(profile) then
+		sendAutoRollState(player, false, "no-profile")
+		return false, "no-profile"
+	end
+
+	local plot = PlotServiceRef.GetPlayerPlot(player)
+	local buttonPart, buttonCode = rollButtonForPlot(plot)
+	if not buttonPart then
+		sendAutoRollState(player, false, buttonCode or "missing-roll-button", profile.Data.AutoRollSettings)
+		return false, buttonCode or "missing-roll-button"
+	end
+
+	local settings = AutoRollConfig.CopySettings(profile.Data.AutoRollSettings)
+	local session = {
+		enabled = true,
+		token = 0,
+		playerUserId = key,
+		plot = plot,
+		buttonPart = buttonPart,
+		autoPurchase = settings.autoPurchase == true,
+		selectedRarities = cloneArray(settings.selectedRarities),
+	}
+	local valid, validCode = validateAutoRollState(player, session, profile, options.requireNearButton == true)
+	if not valid then
+		sendAutoRollState(player, false, validCode, settings)
+		return false, validCode
+	end
+
+	local existing = autoRollSessions[key]
+	if existing then
+		existing.enabled = false
+		existing.token += 1
+	end
+
+	nextAutoRollToken += 1
+	session.token = nextAutoRollToken
+	autoRollSessions[key] = session
+	sendAutoRollState(player, true, "ok", session)
+	if options.notify == true then
+		NotificationService.Success(player, "Auto Roll enabled")
+	end
+	RuntimeGuard.Spawn("RollService.AutoRollLoop", runAutoRollLoop, player, session.token)
+	return true, "ok"
 end
 
 local function handleAutoRollRequest(player, payload)
