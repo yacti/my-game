@@ -14,10 +14,11 @@ local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
+local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersistence"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 7
+local CURRENT_DATA_VERSION = 8
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -46,6 +47,7 @@ local DATA_TEMPLATE = {
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
 	PendingGrowSkipReservation = nil,
+	PendingRollOffers = {},
 	StarterPackPurchased = false,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
@@ -280,6 +282,10 @@ local function migrateData(data)
 		elseif nextVersion == 7 then
 			if type(data.FoodInventoryItems) ~= "table" then
 				data.FoodInventoryItems = FoodInventoryService.RecordsFromCountMap(data.FoodInventory)
+			end
+		elseif nextVersion == 8 then
+			if type(data.PendingRollOffers) ~= "table" then
+				data.PendingRollOffers = {}
 			end
 		end
 
@@ -616,6 +622,7 @@ local function ensureValidData(profile)
 	profile.Data.ProcessedReceipts = processedReceipts
 	profile.Data.PendingFoodStealReservation = sanitizePendingFoodStealReservation(profile.Data.PendingFoodStealReservation)
 	profile.Data.PendingGrowSkipReservation = sanitizePendingGrowSkipReservation(profile.Data.PendingGrowSkipReservation)
+	profile.Data.PendingRollOffers = RollOfferPersistence.SanitizeRecords(profile.Data.PendingRollOffers)
 
 	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true
 

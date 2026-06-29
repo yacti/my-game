@@ -10,6 +10,7 @@ local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local RollOfferPersistence = require(Server:WaitForChild("RollOfferPersistence"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
@@ -41,6 +42,7 @@ local LUCK_REQUEST_RATE_SECONDS = 0.35
 local DROP_AREA_REQUEST_RATE_SECONDS = 0.35
 local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
+local ACTION_RESTORE_OFFERS = "restoreOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 local RARE_TEASE_RARITIES = {
@@ -72,6 +74,14 @@ local PlotServiceRef = nil
 
 local function userKey(player)
 	return player and player.UserId or nil
+end
+
+local function finiteNumber(value)
+	value = tonumber(value)
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return nil
+	end
+	return value
 end
 
 local function rollLuckBreakdown(player, profile)
@@ -542,6 +552,15 @@ local function sendPublicRollOffers(player, rollBatchId, offers)
 	})
 end
 
+local function sendRestoreRollOffers(player, rollBatchId, offers)
+	CrateRollEffect:FireAllClients({
+		action = ACTION_RESTORE_OFFERS,
+		rollBatchId = rollBatchId,
+		ownerUserId = player.UserId,
+		offers = offers,
+	})
+end
+
 local function sendClearOffer(player, offerId)
 	CrateRollEffect:FireAllClients({
 		action = ACTION_CLEAR_OFFER,
@@ -601,6 +620,22 @@ local function activeOffer(player, offerId)
 		return nil, "offer-unavailable"
 	end
 	return offer
+end
+
+local function savePendingOfferRecords(profile, offers)
+	if not (profile and profile.Data) then
+		return
+	end
+
+	profile.Data.PendingRollOffers = RollOfferPersistence.SanitizeRecords(offers)
+end
+
+local function removePersistedOffer(profile, offer)
+	if not (profile and profile.Data) then
+		return
+	end
+
+	RollOfferPersistence.RemoveRecord(profile.Data.PendingRollOffers, offer)
 end
 
 local function hasRequiredTutorialOffer(player, profile)
@@ -765,7 +800,10 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 				feedType = rolled.feedType,
 				miscId = rolled.miscId,
 				displayName = rolled.displayName,
+				rarity = rolled.rarity,
 				price = rolled.price,
+				chanceN = rolled.chanceN,
+				rngChanceText = rolled.rngChanceText,
 				crateFloor = dropArea.crateFloor,
 				dropAreaIndex = dropArea.index,
 				tutorialGuaranteed = rolled.tutorialGuaranteed == true,
@@ -848,6 +886,7 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 
 	local effectOffers = codeOrOffers
 	local visualDuration = visualDurationOrNil or RollConfig.RollVisualDurationForOffers(effectOffers)
+	savePendingOfferRecords(profile, publicOffersOrNil or effectOffers)
 	if tutorialSeedIdOrNil then
 		OnboardingService.OnRollCreated(player, profile, tutorialSeedIdOrNil)
 	end
@@ -868,6 +907,102 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 		visualDuration = visualDuration,
 		button = buttonPart,
 	}
+end
+
+function RollService.RestorePendingOffers(player, plot, profile, options)
+	options = type(options) == "table" and options or {}
+	local key = userKey(player)
+	if key == nil then
+		return false, "invalid-player"
+	end
+	if pendingOffers[key] ~= nil then
+		return true, "already-active"
+	end
+	if not (profile and profile.Data) then
+		return false, "no-profile"
+	end
+
+	local records = type(profile.Data.PendingRollOffers) == "table" and profile.Data.PendingRollOffers or {}
+	if #records == 0 then
+		clearPendingOffers(player)
+		profile.Data.PendingRollOffers = {}
+		return true, "empty"
+	end
+
+	local dropAreas, dropAreaCode = unlockedDropAreas(profile, plot)
+	if not dropAreas then
+		return false, dropAreaCode or "missing-drop-area"
+	end
+
+	local dropAreasByIndex = {}
+	for _, dropArea in ipairs(dropAreas) do
+		dropAreasByIndex[dropArea.index] = dropArea
+	end
+
+	nextRollBatchId += 1
+	local rollBatchId = nextRollBatchId
+	local offerMap = {}
+	local payloads = {}
+	local savedRecords = {}
+	for _, record in ipairs(records) do
+		local dropAreaIndex = finiteNumber(record.dropAreaIndex)
+		dropAreaIndex = dropAreaIndex and math.floor(dropAreaIndex) or nil
+		local dropArea = dropAreaIndex and dropAreasByIndex[dropAreaIndex] or nil
+		if dropArea then
+			nextOfferId += 1
+			local offerId = nextOfferId
+			local active, payload, clean = RollOfferPersistence.RestoreRecord(record, dropArea, offerId, rollBatchId, player.UserId)
+			if active then
+				offerMap[offerId] = active
+				payloads[#payloads + 1] = payload
+				savedRecords[#savedRecords + 1] = clean
+			end
+		end
+	end
+
+	clearPendingOffers(player)
+	if #payloads == 0 then
+		profile.Data.PendingRollOffers = {}
+		return false, "no-valid-offers"
+	end
+
+	pendingOffers[key] = offerMap
+	profile.Data.PendingRollOffers = savedRecords
+
+	local function sendActiveRestoredOffers()
+		if not player:IsDescendantOf(Players) then
+			return
+		end
+		local currentOffers = pendingOffers[key]
+		if currentOffers ~= offerMap then
+			return
+		end
+
+		local activePayloads = {}
+		for _, payload in ipairs(payloads) do
+			if currentOffers[payload.offerId] then
+				activePayloads[#activePayloads + 1] = payload
+			end
+		end
+		if #activePayloads > 0 then
+			sendRestoreRollOffers(player, rollBatchId, activePayloads)
+		end
+	end
+
+	local visualDelaySeconds = finiteNumber(options.visualDelaySeconds) or 0
+	if visualDelaySeconds > 0 then
+		task.delay(visualDelaySeconds, function()
+			RuntimeGuard.Run("RollService.SendRestoredOffersDelayed", sendActiveRestoredOffers)
+		end)
+	else
+		sendActiveRestoredOffers()
+	end
+
+	TelemetryService.Record("crate_roll_offers_restored", TelemetryService.ForPlayer(player, {
+		batchId = rollBatchId,
+		offerCount = #payloads,
+	}))
+	return true, "ok"
 end
 
 local function purchaseOffer(player, offerId, profile, options)
@@ -974,6 +1109,7 @@ local function purchaseOffer(player, offerId, profile, options)
 		end
 
 		removePendingOffer(player, offerId)
+		removePersistedOffer(profile, offer)
 		spentAmount = 0
 		return true, "ok", profile.Data.Currency
 	end)

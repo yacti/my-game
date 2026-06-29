@@ -65,6 +65,7 @@ local CRATE_ROLL_PROMPT_NAME = "__LocalPrompt_CrateRoll"
 local ROLL_OFFER_PENDING_ATTR = "RollOfferPending"
 local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
+local ACTION_RESTORE_OFFERS = "restoreOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
 local ROLL_BILLBOARD_CARD_NAME = "Card"
@@ -1369,7 +1370,8 @@ local revealHandlers = {
 	[RollRewards.Categories.Misc] = playMiscReveal,
 }
 
-local function showPublicOffer(payload)
+local function showPublicOffer(payload, options)
+	options = type(options) == "table" and options or {}
 	local crateFloor = payload.crateFloor
 	if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
 		return
@@ -1395,6 +1397,9 @@ local function showPublicOffer(payload)
 	fadeIn(clone)
 	setRevealParticlesEnabled(clone, false)
 	addRevealBillboard(clone, payload)
+	if options.addPurchasePromptForOwner == true and ownerUserIdFromPayload(payload) == Players.LocalPlayer.UserId then
+		addPurchasePrompt(clone, payload)
+	end
 	startIdleAnimation(clone, baseCFrame, nil, 0)
 end
 
@@ -1519,6 +1524,21 @@ function RollController.start()
 				offer.ownerUserId = ownerUserId
 				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
 				RuntimeGuard.Spawn("RollController.ShowPublicOffer", showPublicOffer, offer)
+			end
+			return
+		end
+		if action == ACTION_RESTORE_OFFERS then
+			local ownerUserId = payload.ownerUserId
+			if type(ownerUserId) ~= "number" then
+				return
+			end
+			clearOwnerReveals(ownerUserId)
+			for _, offer in ipairs(collectPayloadOffers(payload)) do
+				offer.ownerUserId = ownerUserId
+				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
+				RuntimeGuard.Spawn("RollController.RestoreOffer", showPublicOffer, offer, {
+					addPurchasePromptForOwner = true,
+				})
 			end
 			return
 		end

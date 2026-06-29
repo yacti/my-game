@@ -1002,6 +1002,9 @@ local function handlePlayerAdded(player)
 			PlotGridService.ResetPlotState(plot)
 		end
 		RollService.ApplyDropAreaVisibility(plot, profile)
+		RuntimeGuard.Run("RollService.RestorePendingOffers." .. label, RollService.RestorePendingOffers, player, plot, profile, {
+			visualDelaySeconds = 1,
+		})
 
 		local spawnedPets, expectedPets = PlotService.SpawnPetsForPlot(plot, profile.Data.Pets)
 		if type(spawnedPets) == "number" and type(expectedPets) == "number" and spawnedPets < expectedPets then
