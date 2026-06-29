@@ -575,6 +575,7 @@ function FeedEditController.start()
 	local committedCFrame = nil
 	local currentBlocked = false
 	local moving = false
+	local controllerMoveChanged = false
 	local dragState = nil
 	local selectionTap = PlacementInput.NewTapRecognizer()
 	local nextRequestId = 0
@@ -798,6 +799,7 @@ function FeedEditController.start()
 		if pendingRequestId ~= nil then return end
 		cancelRotationTween()
 		moving = false
+		controllerMoveChanged = false
 		dragState = nil
 		if restore and selectedFeed and committedCFrame then
 			setObjectCFrame(selectedFeed, committedCFrame)
@@ -1077,6 +1079,56 @@ function FeedEditController.start()
 		applySelectionPreview(cframe, floor, plot, gridParts)
 	end
 
+	local function moveControllerSelection(direction)
+		if not moving or not selectedFeed or pendingRequestId ~= nil then return end
+		if not editEnabled then
+			clearSelection(true)
+			return
+		end
+		if not selectedFeed.Parent or not selectedPrimary or not selectedPrimary.Parent then
+			clearSelection(false)
+			return
+		end
+
+		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
+		if not floor or not plot then return end
+
+		local dx, dz = PlacementInput.CameraRelativeFloorStep(floor, direction)
+		if not dx or not dz then return end
+
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return end
+
+		local halfFloorX = floor.Size.X / 2
+		local halfFloorZ = floor.Size.Z / 2
+		local targetLX = math.clamp(selectedLX + dx, -halfFloorX, halfFloorX)
+		local targetLZ = math.clamp(selectedLZ + dz, -halfFloorZ, halfFloorZ)
+		local targetWorld = floor.CFrame:PointToWorldSpace(Vector3.new(targetLX, floor.Size.Y / 2, targetLZ))
+
+		local snappedLX, snappedLZ
+		if pointInsideUnlockedGrid(plot, targetWorld, gridParts)
+			and selectedFitsOnGridAt(targetLX, targetLZ, floor, plot, gridParts) then
+			snappedLX, snappedLZ = targetLX, targetLZ
+		else
+			snappedLX, snappedLZ = nearestSelectedLocalPoint(
+				Vector3.new(targetLX, floor.Size.Y / 2, targetLZ),
+				floor,
+				plot,
+				gridParts
+			)
+		end
+		if snappedLX == nil or snappedLZ == nil then return end
+		if selectedLX == snappedLX and selectedLZ == snappedLZ then
+			return
+		end
+
+		selectedLX = snappedLX
+		selectedLZ = snappedLZ
+		controllerMoveChanged = true
+		applySelectionPreview(selectedTargetCFrame(floor), floor, plot, gridParts)
+	end
+
 	local function beginMoving(screenPosition)
 		if not selectedFeed or pendingRequestId ~= nil then return end
 		moving = true
@@ -1088,7 +1140,7 @@ function FeedEditController.start()
 		UiEffects.SetGroupTransparency(placementEditCanvas, PLACEMENT_EDIT_DRAG_TRANSPARENCY)
 	end
 
-	local function stopMoving()
+	local function finishMoving(sendRequest)
 		if not moving then return end
 		moving = false
 		dragState = nil
@@ -1100,7 +1152,32 @@ function FeedEditController.start()
 			clearSelection(false)
 			return
 		end
-		sendMoveRequest()
+		if sendRequest ~= false then
+			sendMoveRequest()
+		end
+	end
+
+	local function stopMoving()
+		finishMoving(true)
+	end
+
+	local function beginControllerMoving()
+		controllerMoveChanged = false
+		beginMoving(nil)
+	end
+
+	local function stopControllerMoving()
+		local changed = controllerMoveChanged
+		controllerMoveChanged = false
+		finishMoving(changed)
+	end
+
+	local function cancelControllerSelection()
+		controllerMoveChanged = false
+		if moving then
+			finishMoving(false)
+		end
+		clearSelection(true)
 	end
 
 	local function handleWorldEditTap(screenPosition)
@@ -1134,6 +1211,17 @@ function FeedEditController.start()
 		tweenSelectedTo(cframe)
 		setSelectionBlocked(selectedPlacementBlocked(cframe))
 		sendMoveRequest()
+	end
+
+	local function handleControllerEditSelect()
+		if isOfflineProgressPending() or not editEnabled or moving or pendingRequestId ~= nil then
+			return
+		end
+		local position = UserInputService:GetMouseLocation()
+		if PlacementInput.IsInteractiveGuiAt(position) then
+			return
+		end
+		handleWorldEditTap(position)
 	end
 
 	local function setPendingDesiredEditMode(enabled)
@@ -1294,6 +1382,32 @@ function FeedEditController.start()
 		end
 	end)
 	RuntimeGuard.Connect(rotateButton.Activated, "FeedEditController.RotateActivated", rotateSelected)
+
+	PlacementInput.BindGamepadPlacementControls("FeedEditController", {
+		isActive = function()
+			return not isOfflineProgressPending()
+				and editEnabled
+				and pendingRequestId == nil
+		end,
+		canMoveStart = function()
+			return selectedFeed ~= nil and selectedFeed.Parent ~= nil
+		end,
+		onMoveStart = beginControllerMoving,
+		onMoveStep = moveControllerSelection,
+		onMoveEnd = stopControllerMoving,
+		canRotate = function()
+			return not moving and selectedFeed ~= nil and selectedFeed.Parent ~= nil
+		end,
+		onRotate = rotateSelected,
+		canConfirm = function()
+			return not moving
+		end,
+		onConfirm = handleControllerEditSelect,
+		canCancel = function()
+			return selectedFeed ~= nil and selectedFeed.Parent ~= nil
+		end,
+		onCancel = cancelControllerSelection,
+	})
 
 	RuntimeGuard.Connect(UserInputService.InputBegan, "FeedEditController.InputBegan", function(input, gameProcessed)
 		if isOfflineProgressPending() then return end

@@ -1,6 +1,10 @@
 local Players = game:GetService("Players")
+local ContextActionService = game:GetService("ContextActionService")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -9,6 +13,18 @@ local PlacementInput = {}
 
 local DEFAULT_TAP_MOVE_THRESHOLD = 16
 local MOVE_DRAG_DETECTOR_NAME = "__PlacementMoveDragDetector"
+local GAMEPAD_REPEAT_START_DELAY = 0.22
+local GAMEPAD_REPEAT_INTERVAL = 0.09
+local GAMEPAD_ACTION_PRIORITY = Enum.ContextActionPriority.High.Value + 10
+local guiNavigationLockDepth = 0
+local guiNavigationRestore = nil
+
+PlacementInput.GamepadKeyCodes = {
+	Move = Enum.KeyCode.DPadUp,
+	Rotate = Enum.KeyCode.ButtonY,
+	Confirm = Enum.KeyCode.ButtonR2,
+	Cancel = Enum.KeyCode.ButtonB,
+}
 
 local function screenPositionFrom(value)
 	local valueType = typeof(value)
@@ -32,6 +48,76 @@ local function isPressInput(input)
 		or input.UserInputType == Enum.UserInputType.Touch
 end
 
+local function isGamepadInputType(inputType)
+	return inputType == Enum.UserInputType.Gamepad1
+		or inputType == Enum.UserInputType.Gamepad2
+		or inputType == Enum.UserInputType.Gamepad3
+		or inputType == Enum.UserInputType.Gamepad4
+		or inputType == Enum.UserInputType.Gamepad5
+		or inputType == Enum.UserInputType.Gamepad6
+		or inputType == Enum.UserInputType.Gamepad7
+		or inputType == Enum.UserInputType.Gamepad8
+end
+
+local function readGuiServiceProperty(propertyName)
+	local ok, value = pcall(function()
+		return GuiService[propertyName]
+	end)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function writeGuiServiceProperty(propertyName, value)
+	pcall(function()
+		GuiService[propertyName] = value
+	end)
+end
+
+local function clearGuiSelection()
+	writeGuiServiceProperty("SelectedObject", nil)
+end
+
+local function lockGuiNavigation()
+	if guiNavigationLockDepth == 0 then
+		guiNavigationRestore = {
+			AutoSelectGuiEnabled = readGuiServiceProperty("AutoSelectGuiEnabled"),
+			GuiNavigationEnabled = readGuiServiceProperty("GuiNavigationEnabled"),
+		}
+		writeGuiServiceProperty("AutoSelectGuiEnabled", false)
+		writeGuiServiceProperty("GuiNavigationEnabled", false)
+	end
+	guiNavigationLockDepth += 1
+	clearGuiSelection()
+end
+
+local function unlockGuiNavigation()
+	if guiNavigationLockDepth <= 0 then
+		guiNavigationLockDepth = 0
+		clearGuiSelection()
+		return
+	end
+
+	guiNavigationLockDepth -= 1
+	if guiNavigationLockDepth > 0 then
+		clearGuiSelection()
+		return
+	end
+
+	local restore = guiNavigationRestore
+	guiNavigationRestore = nil
+	if restore then
+		if restore.AutoSelectGuiEnabled ~= nil then
+			writeGuiServiceProperty("AutoSelectGuiEnabled", restore.AutoSelectGuiEnabled)
+		end
+		if restore.GuiNavigationEnabled ~= nil then
+			writeGuiServiceProperty("GuiNavigationEnabled", restore.GuiNavigationEnabled)
+		end
+	end
+	clearGuiSelection()
+end
+
 local function isInteractiveGui(guiObject)
 	local current = guiObject
 	while current and current:IsA("GuiObject") do
@@ -45,6 +131,27 @@ end
 
 function PlacementInput.IsPressInput(input)
 	return input ~= nil and isPressInput(input)
+end
+
+function PlacementInput.IsGamepadInputType(inputType)
+	return isGamepadInputType(inputType)
+end
+
+function PlacementInput.IsGamepadPreferred()
+	local okPreferred, preferred = pcall(function()
+		return UserInputService.PreferredInput
+	end)
+	local preferredInputEnum = Enum.PreferredInput
+	if okPreferred and preferredInputEnum and preferred == preferredInputEnum.Gamepad then
+		return true
+	end
+
+	local okLastInput, lastInputType = pcall(UserInputService.GetLastInputType, UserInputService)
+	if okLastInput and isGamepadInputType(lastInputType) then
+		return true
+	end
+
+	return false
 end
 
 function PlacementInput.ScreenPosition(value)
@@ -76,6 +183,46 @@ function PlacementInput.IsInteractiveGuiAt(screenPosition)
 		end
 	end
 	return false
+end
+
+function PlacementInput.CameraRelativeFloorStep(floor, direction)
+	if not (floor and floor:IsA("BasePart")) then
+		return nil, nil
+	end
+	if typeof(direction) ~= "Vector2" or direction.Magnitude <= 0 then
+		return nil, nil
+	end
+
+	local normal = floor.CFrame.UpVector
+	local camera = Workspace.CurrentCamera
+
+	local function planarUnit(vector, fallback)
+		local projected = vector - normal * vector:Dot(normal)
+		if projected.Magnitude < 0.001 then
+			projected = fallback - normal * fallback:Dot(normal)
+		end
+		if projected.Magnitude < 0.001 then
+			return nil
+		end
+		return projected.Unit
+	end
+
+	local right = planarUnit(camera and camera.CFrame.RightVector or floor.CFrame.RightVector, floor.CFrame.RightVector)
+	local forward = planarUnit(camera and camera.CFrame.LookVector or floor.CFrame.LookVector, floor.CFrame.LookVector)
+	if not right or not forward then
+		return nil, nil
+	end
+
+	local worldDirection = right * direction.X + forward * direction.Y
+	if worldDirection.Magnitude < 0.001 then
+		return nil, nil
+	end
+
+	local localDirection = floor.CFrame:VectorToObjectSpace(worldDirection.Unit)
+	if math.abs(localDirection.X) >= math.abs(localDirection.Z) then
+		return localDirection.X >= 0 and 1 or -1, 0
+	end
+	return 0, localDirection.Z >= 0 and 1 or -1
 end
 
 function PlacementInput.BindMoveDrag(button, label, callbacks)
@@ -180,6 +327,226 @@ function PlacementInput.BindMoveDrag(button, label, callbacks)
 		if callbacks.onEnd then
 			callbacks.onEnd(nil)
 		end
+	end)
+
+	return true
+end
+
+function PlacementInput.BindGamepadPlacementControls(label, callbacks)
+	callbacks = callbacks or {}
+	label = tostring(label or "Placement")
+
+	local actionPrefix = label .. ".Gamepad"
+	local moving = false
+	local dpadDirection = Vector2.zero
+	local nextRepeatAt = 0
+
+	local function isActive()
+		return callbacks.isActive == nil or callbacks.isActive() == true
+	end
+
+	local function canMoveStart()
+		return isActive() and (callbacks.canMoveStart == nil or callbacks.canMoveStart() == true)
+	end
+
+	local function canRotate()
+		return isActive() and (callbacks.canRotate == nil or callbacks.canRotate() == true)
+	end
+
+	local function canConfirm()
+		return isActive() and (callbacks.canConfirm == nil or callbacks.canConfirm() == true)
+	end
+
+	local function canCancel()
+		return isActive() and (callbacks.canCancel == nil or callbacks.canCancel() == true)
+	end
+
+	local function sameDirection(a, b)
+		return a.X == b.X and a.Y == b.Y
+	end
+
+	local function activeMoveDirection()
+		return dpadDirection
+	end
+
+	local function stepMove(direction)
+		if direction.Magnitude <= 0 or not callbacks.onMoveStep then
+			return
+		end
+		callbacks.onMoveStep(direction)
+	end
+
+	local function setDpadDirection(nextDirection)
+		if sameDirection(dpadDirection, nextDirection) then
+			return
+		end
+		dpadDirection = nextDirection
+		if moving and dpadDirection.Magnitude > 0 then
+			stepMove(dpadDirection)
+			nextRepeatAt = os.clock() + GAMEPAD_REPEAT_START_DELAY
+		end
+	end
+
+	local function finishMove()
+		if not moving then
+			return
+		end
+		moving = false
+		dpadDirection = Vector2.zero
+		unlockGuiNavigation()
+		if callbacks.onMoveEnd then
+			callbacks.onMoveEnd()
+		end
+		clearGuiSelection()
+	end
+
+	local function beginMove()
+		if moving then
+			return true
+		end
+		if not canMoveStart() then
+			return false
+		end
+		moving = true
+		lockGuiNavigation()
+		nextRepeatAt = os.clock() + GAMEPAD_REPEAT_START_DELAY
+		if callbacks.onMoveStart then
+			callbacks.onMoveStart()
+		end
+		return true
+	end
+
+	local function thumbstickAction(_, inputState, inputObject)
+		if moving then
+			clearGuiSelection()
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end
+
+	local function dpadDirectionFor(keyCode)
+		if keyCode == Enum.KeyCode.DPadUp then
+			return Vector2.new(0, 1)
+		elseif keyCode == Enum.KeyCode.DPadDown then
+			return Vector2.new(0, -1)
+		elseif keyCode == Enum.KeyCode.DPadLeft then
+			return Vector2.new(-1, 0)
+		elseif keyCode == Enum.KeyCode.DPadRight then
+			return Vector2.new(1, 0)
+		end
+		return Vector2.zero
+	end
+
+	local function dpadAction(_, inputState, inputObject)
+		local direction = inputObject and dpadDirectionFor(inputObject.KeyCode) or Vector2.zero
+		if inputState == Enum.UserInputState.Begin then
+			if not beginMove() then
+				return Enum.ContextActionResult.Pass
+			end
+			setDpadDirection(direction)
+			return Enum.ContextActionResult.Sink
+		elseif inputState == Enum.UserInputState.End and moving then
+			if sameDirection(dpadDirection, direction) then
+				setDpadDirection(Vector2.zero)
+			end
+			finishMove()
+			return Enum.ContextActionResult.Sink
+		elseif not moving then
+			return Enum.ContextActionResult.Pass
+		end
+		return Enum.ContextActionResult.Sink
+	end
+
+	local function rotateAction(_, inputState)
+		if inputState == Enum.UserInputState.Begin and canRotate() then
+			if callbacks.onRotate then
+				callbacks.onRotate()
+			end
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end
+
+	local function confirmAction(_, inputState)
+		if inputState == Enum.UserInputState.Begin and canConfirm() then
+			if callbacks.onConfirm then
+				callbacks.onConfirm()
+			end
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end
+
+	local function cancelAction(_, inputState)
+		if inputState == Enum.UserInputState.Begin and canCancel() then
+			if moving then
+				moving = false
+				unlockGuiNavigation()
+			end
+			dpadDirection = Vector2.zero
+			if callbacks.onCancel then
+				callbacks.onCancel()
+			end
+			clearGuiSelection()
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end
+
+	ContextActionService:BindActionAtPriority(
+		actionPrefix .. ".Thumbstick",
+		thumbstickAction,
+		false,
+		GAMEPAD_ACTION_PRIORITY,
+		Enum.KeyCode.Thumbstick1
+	)
+	ContextActionService:BindActionAtPriority(
+		actionPrefix .. ".DPad",
+		dpadAction,
+		false,
+		GAMEPAD_ACTION_PRIORITY,
+		Enum.KeyCode.DPadUp,
+		Enum.KeyCode.DPadDown,
+		Enum.KeyCode.DPadLeft,
+		Enum.KeyCode.DPadRight
+	)
+	ContextActionService:BindActionAtPriority(
+		actionPrefix .. ".Rotate",
+		rotateAction,
+		false,
+		GAMEPAD_ACTION_PRIORITY,
+		PlacementInput.GamepadKeyCodes.Rotate
+	)
+	ContextActionService:BindActionAtPriority(
+		actionPrefix .. ".Confirm",
+		confirmAction,
+		false,
+		GAMEPAD_ACTION_PRIORITY,
+		PlacementInput.GamepadKeyCodes.Confirm
+	)
+	ContextActionService:BindActionAtPriority(
+		actionPrefix .. ".Cancel",
+		cancelAction,
+		false,
+		GAMEPAD_ACTION_PRIORITY,
+		PlacementInput.GamepadKeyCodes.Cancel
+	)
+
+	RuntimeGuard.Connect(RunService.RenderStepped, actionPrefix .. ".MoveRepeat", function()
+		if not moving then
+			return
+		end
+		clearGuiSelection()
+		local direction = activeMoveDirection()
+		if direction.Magnitude <= 0 then
+			return
+		end
+		local now = os.clock()
+		if now < nextRepeatAt then
+			return
+		end
+		stepMove(direction)
+		nextRepeatAt = now + GAMEPAD_REPEAT_INTERVAL
 	end)
 
 	return true

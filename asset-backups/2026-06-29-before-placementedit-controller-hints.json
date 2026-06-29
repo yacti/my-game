@@ -1,0 +1,246 @@
+{
+  "takenAt": "2026-06-29",
+  "path": "ReplicatedStorage.UI.BillboardGUIs.PlacementEdit",
+  "reason": "Before controller hint overlays for PlacementEdit",
+  "snapshot": {
+    "name": "PlacementEdit",
+    "className": "BillboardGui",
+    "properties": {
+      "Active": true,
+      "LightInfluence": 0,
+      "MaxDistance": {
+        "m": null,
+        "t": "numeric",
+        "v": "inf"
+      },
+      "Name": "PlacementEdit",
+      "ClassName": "BillboardGui",
+      "StudsOffsetWorldSpace": "0, 5, 0",
+      "StudsOffset": "0, 0, 0",
+      "AlwaysOnTop": true,
+      "Size": "{10, 0}, {3, 0}"
+    },
+    "children": [
+      {
+        "name": "options",
+        "className": "Frame",
+        "properties": {
+          "Visible": true,
+          "Active": false,
+          "Selectable": false,
+          "ClassName": "Frame",
+          "LayoutOrder": 0,
+          "AnchorPoint": "0, 0",
+          "BackgroundColor3": "1, 1, 1",
+          "Name": "options",
+          "Position": "{0.0500000007, 0}, {0.200000003, 0}",
+          "BackgroundTransparency": 1,
+          "ZIndex": 1,
+          "AutomaticSize": "Enum.AutomaticSize.None",
+          "Size": "{0.899999976, 0}, {0.800000012, 0}"
+        },
+        "children": [
+          {
+            "name": "UIListLayout",
+            "className": "UIListLayout",
+            "properties": {
+              "Name": "UIListLayout",
+              "ClassName": "UIListLayout"
+            },
+            "children": [],
+            "attributes": []
+          },
+          {
+            "name": "confirm",
+            "className": "ImageButton",
+            "properties": {
+              "Visible": true,
+              "ClassName": "ImageButton",
+              "LayoutOrder": 1,
+              "Active": true,
+              "Selectable": true,
+              "BackgroundColor3": "0.639216, 0.635294, 0.647059",
+              "ImageTransparency": 0,
+              "ImageColor3": "0, 0.784314, 0.352941",
+              "AnchorPoint": "0.5, 0.5",
+              "Image": "rbxassetid://16139452303",
+              "Name": "confirm",
+              "Position": "{0, 0}, {0, 0}",
+              "BackgroundTransparency": 1,
+              "ZIndex": 1,
+              "AutomaticSize": "Enum.AutomaticSize.None",
+              "Size": "{0.219999999, 0}, {0.823000014, 0}"
+            },
+            "children": [
+              {
+                "name": "icon",
+                "className": "TextLabel",
+                "properties": {
+                  "Visible": true,
+                  "FontFace": "Font { Family = rbxasset://fonts/families/GothamSSm.json, Weight = Bold, Style = Normal }",
+                  "Active": false,
+                  "Selectable": false,
+                  "AnchorPoint": "0.5, 0.5",
+                  "ZIndex": 2,
+                  "TextSize": 8,
+                  "Size": "{0.800000012, 0}, {0.800000012, 0}",
+                  "TextColor3": "1, 1, 1",
+                  "Text": "✓",
+                  "AutomaticSize": "Enum.AutomaticSize.None",
+                  "LayoutOrder": 0,
+                  "BackgroundTransparency": 1,
+                  "Position": "{0.5, 0}, {0.5, 0}",
+                  "Name": "icon",
+                  "ClassName": "TextLabel",
+                  "TextScaled": true,
+                  "BackgroundColor3": "0.639216, 0.635294, 0.647059"
+                },
+                "children": [],
+                "attributes": []
+              }
+            ],
+            "attributes": []
+          },
+          {
+            "name": "move",
+            "className": "ImageButton",
+            "properties": {
+              "Visible": true,
+              "ClassName": "ImageButton",
+              "LayoutOrder": 2,
+              "Active": true,
+              "Selectable": true,
+              "BackgroundColor3": "1, 1, 1",
+              "ImageTransparency": 0,
+              "ImageColor3": "0.105882, 0.529412, 1",
+              "AnchorPoint": "0.5, 0.5",
+              "Image": "rbxassetid://16139452303",
+              "Name": "move",
+              "Position": "{0.113534555, 0}, {0.578533649, 0}",
+              "BackgroundTransparency": 1,
+              "ZIndex": 1,
+              "AutomaticSize": "Enum.AutomaticSize.None",
+              "Size": "{0.219999999, 0}, {0.823000014, 0}"
+            },
+            "children": [
+              {
+                "name": "icon",
+                "className": "ImageLabel",
+                "properties": {
+                  "Visible": true,
+                  "ClassName": "ImageLabel",
+                  "LayoutOrder": 0,
+                  "Active": false,
+                  "Selectable": false,
+                  "BackgroundColor3": "1, 1, 1",
+                  "ImageTransparency": 0,
+                  "ImageColor3": "1, 1, 1",
+                  "AnchorPoint": "0, 0",
+                  "Image": "rbxassetid://17078838064",
+                  "Name": "icon",
+                  "Position": "{0.109999999, 0}, {0.0900000036, 0}",
+                  "BackgroundTransparency": 1,
+                  "ZIndex": 2,
+                  "AutomaticSize": "Enum.AutomaticSize.None",
+                  "Size": "{0.792667866, 0}, {0.763042867, 0}"
+                },
+                "children": [],
+                "attributes": []
+              }
+            ],
+            "attributes": []
+          },
+          {
+            "name": "rotate",
+            "className": "ImageButton",
+            "properties": {
+              "Visible": true,
+              "ClassName": "ImageButton",
+              "LayoutOrder": 3,
+              "Active": true,
+              "Selectable": true,
+              "BackgroundColor3": "1, 1, 1",
+              "ImageTransparency": 0,
+              "ImageColor3": "1, 0, 0",
+              "AnchorPoint": "0.5, 0.5",
+              "Image": "rbxassetid://16139452303",
+              "Name": "rotate",
+              "Position": "{0.113534555, 0}, {0.578533649, 0}",
+              "BackgroundTransparency": 1,
+              "ZIndex": 1,
+              "AutomaticSize": "Enum.AutomaticSize.None",
+              "Size": "{0.219999999, 0}, {0.823000014, 0}"
+            },
+            "children": [
+              {
+                "name": "icon",
+                "className": "ImageLabel",
+                "properties": {
+                  "Visible": true,
+                  "ClassName": "ImageLabel",
+                  "LayoutOrder": 0,
+                  "Active": false,
+                  "Selectable": false,
+                  "BackgroundColor3": "1, 1, 1",
+                  "ImageTransparency": 0,
+                  "ImageColor3": "1, 1, 1",
+                  "AnchorPoint": "0, 0",
+                  "Image": "rbxassetid://17078837787",
+                  "Name": "icon",
+                  "Position": "{0.119999997, 0}, {0.0900000036, 0}",
+                  "BackgroundTransparency": 1,
+                  "ZIndex": 2,
+                  "AutomaticSize": "Enum.AutomaticSize.None",
+                  "Size": "{0.75999999, 0}, {0.75, 0}"
+                },
+                "children": [],
+                "attributes": []
+              }
+            ],
+            "attributes": []
+          }
+        ],
+        "attributes": []
+      },
+      {
+        "name": "tip",
+        "className": "TextLabel",
+        "properties": {
+          "Visible": true,
+          "FontFace": "Font { Family = rbxasset://fonts/families/ComicNeueAngular.json, Weight = Regular, Style = Normal }",
+          "Active": false,
+          "Selectable": false,
+          "AnchorPoint": "0, 0",
+          "ZIndex": 2,
+          "TextSize": 14,
+          "Size": "{1, 0}, {0.300000012, 0}",
+          "TextColor3": "1, 1, 1",
+          "Text": "Hold to move",
+          "AutomaticSize": "Enum.AutomaticSize.None",
+          "LayoutOrder": 0,
+          "BackgroundTransparency": 1,
+          "Position": "{0, 0}, {0, 0}",
+          "Name": "tip",
+          "ClassName": "TextLabel",
+          "TextScaled": true,
+          "BackgroundColor3": "1, 1, 1"
+        },
+        "children": [
+          {
+            "name": "UIStroke",
+            "className": "UIStroke",
+            "properties": {
+              "ZIndex": 1,
+              "Name": "UIStroke",
+              "ClassName": "UIStroke"
+            },
+            "children": [],
+            "attributes": []
+          }
+        ],
+        "attributes": []
+      }
+    ],
+    "attributes": []
+  }
+}

@@ -451,7 +451,7 @@ function FeedPlacement.start()
 		placementEdit.Adornee = visible and previewAdornee() or nil
 		placementEdit.Enabled = visible and placementEdit.Adornee ~= nil
 		if tipLabel and tipLabel:IsA("TextLabel") then
-			tipLabel.Text = moving and "Release to place" or "Hold to move"
+			tipLabel.Text = moving and "Release to stop" or "Hold to move"
 		end
 		local targetTransparency = moving and PLACEMENT_EDIT_DRAG_TRANSPARENCY or 0
 		UiEffects.SetGroupTransparency(placementEditCanvas, targetTransparency, not placementEdit.Enabled)
@@ -971,6 +971,91 @@ function FeedPlacement.start()
 		return bestFitLX or bestAnyLX, bestFitLZ or bestAnyLZ
 	end
 
+	local function controllerLocalTarget(floor)
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") then
+			local targetWorld = root.Position + root.CFrame.LookVector * 4
+			return floor.CFrame:PointToObjectSpace(targetWorld)
+		end
+		return Vector3.new(0, floor.Size.Y / 2, 0)
+	end
+
+	local function selectControllerStartCell()
+		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
+		if not floor or not floor:IsA("BasePart") or not plot then return false end
+		if not ensurePreview() then return false end
+
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return false end
+
+		local snappedLX, snappedLZ = nearestUnlockedLocalPoint(controllerLocalTarget(floor), floor, plot, gridParts)
+		if snappedLX == nil or snappedLZ == nil then return false end
+
+		setGridEffectEnabled(true)
+		selectedLX = snappedLX
+		selectedLZ = snappedLZ
+		hasActiveSelection = true
+		applyPreviewCFrame()
+		setPlacementEditVisible(true)
+		setPreviewBlocked(previewPlacementBlocked())
+		return true
+	end
+
+	local function ensureControllerSelection()
+		if hasActiveSelection and preview and selectedLX ~= nil and selectedLZ ~= nil then
+			return true
+		end
+		return selectControllerStartCell()
+	end
+
+	local function moveControllerSelection(direction)
+		if not placing or pendingPlacementRequestId ~= nil then return end
+		if not ensureControllerSelection() then return end
+
+		local floor = getPlayerFloor()
+		local plot = getPlayerPlot()
+		if not floor or not floor:IsA("BasePart") or not plot then return end
+
+		local dx, dz = PlacementInput.CameraRelativeFloorStep(floor, direction)
+		if not dx or not dz then return end
+
+		local gridParts = unlockedGridParts(plot)
+		if #gridParts == 0 then return end
+
+		local halfFloorX = floor.Size.X / 2
+		local halfFloorZ = floor.Size.Z / 2
+		local targetLX = math.clamp(selectedLX + dx, -halfFloorX, halfFloorX)
+		local targetLZ = math.clamp(selectedLZ + dz, -halfFloorZ, halfFloorZ)
+		local targetWorld = floor.CFrame:PointToWorldSpace(Vector3.new(targetLX, floor.Size.Y / 2, targetLZ))
+
+		local snappedLX, snappedLZ
+		if pointInsideUnlockedGrid(plot, targetWorld, gridParts)
+			and previewFitsOnGridAt(targetLX, targetLZ, floor, plot, gridParts) then
+			snappedLX, snappedLZ = targetLX, targetLZ
+		else
+			snappedLX, snappedLZ = nearestUnlockedLocalPoint(
+				Vector3.new(targetLX, floor.Size.Y / 2, targetLZ),
+				floor,
+				plot,
+				gridParts
+			)
+		end
+		if snappedLX == nil or snappedLZ == nil then return end
+		if selectedLX == snappedLX and selectedLZ == snappedLZ then
+			return
+		end
+
+		setGridEffectEnabled(true)
+		selectedLX = snappedLX
+		selectedLZ = snappedLZ
+		hasActiveSelection = true
+		applyPreviewCFrame()
+		setPlacementEditVisible(true)
+		setPreviewBlocked(previewPlacementBlocked())
+	end
+
 	local function selectFloorCellFromScreen(screenPosition)
 		local floor = getPlayerFloor()
 		local plot = getPlayerPlot()
@@ -1100,11 +1185,30 @@ function FeedPlacement.start()
 		setPlacementEditVisible(true)
 	end
 
+	local function beginControllerMoving()
+		if not placing or pendingPlacementRequestId ~= nil then return end
+		if not ensureControllerSelection() then return end
+		moving = true
+		dragState = nil
+		worldTap:Cancel()
+		setPlacementEditVisible(true)
+	end
+
 	local function stopMoving()
 		if not moving then return end
 		moving = false
 		dragState = nil
 		setPlacementEditVisible(preview ~= nil)
+	end
+
+	local function cancelPlacement()
+		if pendingPlacementRequestId ~= nil then return end
+		activeFeedType = nil
+		activeSeedId = nil
+		activeCosmeticId = nil
+		activeTool = nil
+		activeToolGuid = nil
+		destroyPreview()
 	end
 
 	local function updateDragPreview(screenPosition)
@@ -1197,6 +1301,29 @@ function FeedPlacement.start()
 		if isOfflineProgressPending() then return end
 		rotatePreview()
 	end)
+
+	PlacementInput.BindGamepadPlacementControls("FeedPlacement", {
+		isActive = function()
+			return not isOfflineProgressPending()
+				and placing
+				and pendingPlacementRequestId == nil
+		end,
+		canMoveStart = function()
+			return ensureControllerSelection()
+		end,
+		onMoveStart = beginControllerMoving,
+		onMoveStep = moveControllerSelection,
+		onMoveEnd = stopMoving,
+		canRotate = function()
+			return ensureControllerSelection()
+		end,
+		onRotate = rotatePreview,
+		canConfirm = function()
+			return ensureControllerSelection()
+		end,
+		onConfirm = confirmPlacement,
+		onCancel = cancelPlacement,
+	})
 
 	RuntimeGuard.Connect(UserInputService.InputChanged, "FeedPlacement.InputChanged", function(input)
 		worldTap:Changed(input)
@@ -1330,6 +1457,9 @@ function FeedPlacement.start()
 				setConfirmVisible(true)
 				setConfirmEnabled(false)
 				setGridEffectEnabled(true)
+				if PlacementInput.IsGamepadPreferred() then
+					selectControllerStartCell()
+				end
 			end
 
 			RuntimeGuard.Connect(tool.Equipped, "FeedPlacement.CosmeticToolEquipped", activateCosmeticTool)
@@ -1382,6 +1512,9 @@ function FeedPlacement.start()
 			setConfirmVisible(true)
 			setConfirmEnabled(false)
 			setGridEffectEnabled(true)
+			if PlacementInput.IsGamepadPreferred() then
+				selectControllerStartCell()
+			end
 		end
 
 		RuntimeGuard.Connect(tool.Equipped, "FeedPlacement.ToolEquipped", activateTool)

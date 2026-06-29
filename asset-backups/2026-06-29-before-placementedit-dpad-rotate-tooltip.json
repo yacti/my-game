@@ -1,0 +1,214 @@
+{
+  "takenAt": "2026-06-29",
+  "path": "ReplicatedStorage.UI.BillboardGUIs.PlacementEdit",
+  "reason": "Before D-pad move hint and rotate tooltip reposition",
+  "snapshot": {
+    "move": {
+      "name": "move",
+      "className": "ImageButton",
+      "properties": {
+        "Visible": true,
+        "ScaleType": "Enum.ScaleType.Stretch",
+        "Active": true,
+        "Selectable": true,
+        "ImageColor3": "0.105882, 0.529412, 1",
+        "LayoutOrder": 2,
+        "AnchorPoint": "0.5, 0.5",
+        "Image": "rbxassetid://16139452303",
+        "BackgroundTransparency": 1,
+        "Position": "{0.113534555, 0}, {0.578533649, 0}",
+        "ImageTransparency": 0,
+        "ZIndex": 1,
+        "AutomaticSize": "Enum.AutomaticSize.None",
+        "Size": "{0.219999999, 0}, {0.823000014, 0}"
+      },
+      "children": [
+        {
+          "name": "ControllerHint",
+          "className": "ImageLabel",
+          "properties": {
+            "Visible": true,
+            "ScaleType": "Enum.ScaleType.Fit",
+            "Active": false,
+            "Selectable": false,
+            "ImageColor3": "1, 1, 1",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0.5, 0",
+            "Image": "rbxasset://textures/ui/Controls/XboxController/ButtonX@2x.png",
+            "BackgroundTransparency": 1,
+            "Position": "{0.5, 0}, {1.29999995, 0}",
+            "ImageTransparency": 0,
+            "ZIndex": 5,
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "Size": "{0.479999989, 0}, {0.479999989, 0}"
+          },
+          "children": [],
+          "attributes": {
+            "KeyCode": "ButtonX"
+          }
+        },
+        {
+          "name": "icon",
+          "className": "ImageLabel",
+          "properties": {
+            "Visible": true,
+            "ScaleType": "Enum.ScaleType.Stretch",
+            "Active": false,
+            "Selectable": false,
+            "ImageColor3": "1, 1, 1",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0, 0",
+            "Image": "rbxassetid://17078838064",
+            "BackgroundTransparency": 1,
+            "Position": "{0.109999999, 0}, {0.0900000036, 0}",
+            "ImageTransparency": 0,
+            "ZIndex": 2,
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "Size": "{0.792667866, 0}, {0.763042867, 0}"
+          },
+          "children": [],
+          "attributes": {}
+        }
+      ],
+      "attributes": {}
+    },
+    "rotate": {
+      "name": "rotate",
+      "className": "ImageButton",
+      "properties": {
+        "Visible": true,
+        "ScaleType": "Enum.ScaleType.Stretch",
+        "Active": true,
+        "Selectable": true,
+        "ImageColor3": "1, 0, 0",
+        "LayoutOrder": 3,
+        "AnchorPoint": "0.5, 0.5",
+        "Image": "rbxassetid://16139452303",
+        "BackgroundTransparency": 1,
+        "Position": "{0.113534555, 0}, {0.578533649, 0}",
+        "ImageTransparency": 0,
+        "ZIndex": 1,
+        "AutomaticSize": "Enum.AutomaticSize.None",
+        "Size": "{0.219999999, 0}, {0.823000014, 0}"
+      },
+      "children": [
+        {
+          "name": "ControllerHint",
+          "className": "ImageLabel",
+          "properties": {
+            "Visible": true,
+            "ScaleType": "Enum.ScaleType.Fit",
+            "Active": false,
+            "Selectable": false,
+            "ImageColor3": "1, 1, 1",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0.5, 0",
+            "Image": "rbxasset://textures/ui/Controls/XboxController/ButtonY@2x.png",
+            "BackgroundTransparency": 1,
+            "Position": "{0.5, 0}, {1.29999995, 0}",
+            "ImageTransparency": 0,
+            "ZIndex": 5,
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "Size": "{0.479999989, 0}, {0.479999989, 0}"
+          },
+          "children": [],
+          "attributes": {
+            "KeyCode": "ButtonY"
+          }
+        },
+        {
+          "name": "icon",
+          "className": "ImageLabel",
+          "properties": {
+            "Visible": true,
+            "ScaleType": "Enum.ScaleType.Stretch",
+            "Active": false,
+            "Selectable": false,
+            "ImageColor3": "1, 1, 1",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0, 0",
+            "Image": "rbxassetid://17078837787",
+            "BackgroundTransparency": 1,
+            "Position": "{0.119999997, 0}, {0.0900000036, 0}",
+            "ImageTransparency": 0,
+            "ZIndex": 2,
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "Size": "{0.75999999, 0}, {0.75, 0}"
+          },
+          "children": [],
+          "attributes": {}
+        }
+      ],
+      "attributes": {}
+    },
+    "confirm": {
+      "name": "confirm",
+      "className": "ImageButton",
+      "properties": {
+        "Visible": true,
+        "ScaleType": "Enum.ScaleType.Stretch",
+        "Active": true,
+        "Selectable": true,
+        "ImageColor3": "0, 0.784314, 0.352941",
+        "LayoutOrder": 1,
+        "AnchorPoint": "0.5, 0.5",
+        "Image": "rbxassetid://16139452303",
+        "BackgroundTransparency": 1,
+        "Position": "{0, 0}, {0, 0}",
+        "ImageTransparency": 0,
+        "ZIndex": 1,
+        "AutomaticSize": "Enum.AutomaticSize.None",
+        "Size": "{0.219999999, 0}, {0.823000014, 0}"
+      },
+      "children": [
+        {
+          "name": "ControllerHint",
+          "className": "ImageLabel",
+          "properties": {
+            "Visible": true,
+            "ScaleType": "Enum.ScaleType.Fit",
+            "Active": false,
+            "Selectable": false,
+            "ImageColor3": "1, 1, 1",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0.5, 0",
+            "Image": "rbxasset://textures/ui/Controls/XboxController/ButtonRT@2x.png",
+            "BackgroundTransparency": 1,
+            "Position": "{0.5, 0}, {1.29999995, 0}",
+            "ImageTransparency": 0,
+            "ZIndex": 5,
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "Size": "{0.479999989, 0}, {0.479999989, 0}"
+          },
+          "children": [],
+          "attributes": {
+            "KeyCode": "ButtonR2"
+          }
+        },
+        {
+          "name": "icon",
+          "className": "TextLabel",
+          "properties": {
+            "Visible": true,
+            "Active": false,
+            "Selectable": false,
+            "Text": "✓",
+            "AutomaticSize": "Enum.AutomaticSize.None",
+            "LayoutOrder": 0,
+            "AnchorPoint": "0.5, 0.5",
+            "TextColor3": "1, 1, 1",
+            "BackgroundTransparency": 1,
+            "Position": "{0.5, 0}, {0.5, 0}",
+            "TextSize": 8,
+            "ZIndex": 2,
+            "TextScaled": true,
+            "Size": "{0.800000012, 0}, {0.800000012, 0}"
+          },
+          "children": [],
+          "attributes": {}
+        }
+      ],
+      "attributes": {}
+    }
+  }
+}
