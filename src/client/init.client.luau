@@ -52,6 +52,7 @@ local CONTROLLERS = {
 	"RollDropAreaController",
 	"AutoRollController",
 	"SkipTimeButtonsController",
+	"MailboxCollisionController",
 	"AFKRejoinController",
 	"Notifications",
 	"ServerLuckController",

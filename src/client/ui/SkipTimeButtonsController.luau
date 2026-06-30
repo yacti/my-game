@@ -636,7 +636,10 @@ function SkipTimeButtonsController.start()
 	end
 
 	local panelState = UiEffects.PreparePanel(skipButtons)
-	ResponsiveHud.RegisterBottomShiftPanel(hud, "SkipTimeButtons", skipButtons, panelState)
+	ResponsiveHud.RegisterBottomShiftPanel(hud, "SkipTimeButtons", skipButtons, panelState, {
+		bottomChildNames = { "Skip5m", "Skip30m", "CollectAll" },
+		matchOpenPositionTo = "RollButtons",
+	})
 	local records = {}
 	local recordsBySkipId = {}
 	local collectAllRecord = nil
@@ -700,7 +703,9 @@ function SkipTimeButtonsController.start()
 		isOpen = true
 		transitionToken += 1
 		markPreviewDirty()
-		UiEffects.PlayOpen(skipButtons, panelState)
+		UiEffects.PlayOpen(skipButtons, panelState, {
+			silent = true,
+		})
 	end
 
 	local function closePanel()
@@ -711,11 +716,18 @@ function SkipTimeButtonsController.start()
 		transitionToken += 1
 		markPreviewDirty()
 		local token = transitionToken
-		UiEffects.PlayClose(skipButtons, panelState, function()
-			if transitionToken == token and not isOpen then
-				skipButtons.Visible = false
-			end
-		end)
+		UiEffects.PlayClose(
+			skipButtons,
+			panelState,
+			function()
+				if transitionToken == token and not isOpen then
+					skipButtons.Visible = false
+				end
+			end,
+			{
+				silent = true,
+			}
+		)
 	end
 
 	local function currentMailbox()
