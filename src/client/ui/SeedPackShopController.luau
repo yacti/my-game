@@ -2,6 +2,7 @@ local ContextActionService = game:GetService("ContextActionService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
@@ -27,7 +28,9 @@ local SeedPackShopController = {}
 local ROBUX_PANEL_NAME = "RobuxShop"
 local ROLL_PANEL_NAME = "PackRollFrame"
 local SHOP_MENU_GROUP = "Shop"
+local FEATURED_SECTION_NAME = "Featured"
 local SEED_PACKS_NAME = "SeedPacks"
+local CASH_PACKS_NAME = "CashPacks"
 local PACK_HOLDER_TEMPLATE_NAME = "PackHolder"
 local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
 local RUNTIME_SLICE_NAME = "__SeedPackSlice"
@@ -35,6 +38,9 @@ local CONSOLE_OPEN_KEYCODE = Enum.KeyCode.ButtonX
 local FALLBACK_CONSOLE_OPEN_ICON = "rbxasset://textures/ui/Controls/xboxX.png"
 local SLICE_CAMERA_SINK_ACTION = "SeedPackShopController.SliceCameraSink"
 local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
+local MAX_REVEAL_BATCH_SIZE = 3
+local ADVANCE_INPUT_GRACE_SECONDS = 0.12
+local RAINBOW_ROTATION_DEGREES_PER_SECOND = 90
 
 local PACK_REWARD_PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
@@ -56,6 +62,7 @@ local SLICE_MIN_DRAG_DISTANCE = 18
 local SLICE_FADE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local PACK_FADE_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local REWARD_POP_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local SHOP_SCROLL_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FTUE_DRAG_TWEEN = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FTUE_FADE_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FTUE_RESTART_DELAY = 0.18
@@ -76,6 +83,12 @@ local activeFtueDrag = nil
 local ftueToken = 0
 local cameraSinkBound = false
 local productPriceById = {}
+local awaitingAdvance = false
+local advanceReadyAt = 0
+local lastRevealSourceSection = SEED_PACKS_NAME
+local rainbowGradients = {}
+local rainbowConnection = nil
+local shopScrollTween = nil
 
 local function isSeedPacksAllowed()
 	return player:GetAttribute(State.Player.SeedPacksAllowed) == true
@@ -134,25 +147,6 @@ local function isPressInput(input)
 		and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch)
 end
 
-local function sortedGuiChildren(parent, name)
-	local children = {}
-	for _, child in ipairs(parent and parent:GetChildren() or {}) do
-		if child.Name == name and child:IsA("GuiObject") then
-			children[#children + 1] = child
-		end
-	end
-	table.sort(children, function(left, right)
-		if left.LayoutOrder ~= right.LayoutOrder then
-			return left.LayoutOrder < right.LayoutOrder
-		end
-		if left.Position.X.Scale ~= right.Position.X.Scale then
-			return left.Position.X.Scale < right.Position.X.Scale
-		end
-		return left.Position.X.Offset < right.Position.X.Offset
-	end)
-	return children
-end
-
 local function setTextStack(root, text)
 	UiEffects.SetTextStack(root, tostring(text or ""))
 end
@@ -160,13 +154,13 @@ end
 local function robuxText(productId, onLoaded)
 	productId = tonumber(productId) or 0
 	if productId <= 0 then
-		return "Robux"
+		return NumberFormatter.Robux(0)
 	end
 	if productPriceById[productId] then
 		return productPriceById[productId]
 	end
 
-	productPriceById[productId] = "Robux"
+	productPriceById[productId] = NumberFormatter.Robux(0)
 	RuntimeGuard.Spawn("SeedPackShopController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
@@ -229,35 +223,68 @@ local function currentMenu()
 	return panel and panel:FindFirstAncestorOfClass("ScreenGui") or nil
 end
 
-local function seedPacksFrame()
+local function shopFrames()
 	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
 	local holder = panel and findDescendant(panel, "SFHolder", "ScrollingFrame")
+	local featured = holder and holder:FindFirstChild(FEATURED_SECTION_NAME)
 	local seedPacks = holder and holder:FindFirstChild(SEED_PACKS_NAME)
-	if seedPacks and seedPacks:IsA("GuiObject") then
+	local cashPacks = holder and holder:FindFirstChild(CASH_PACKS_NAME)
+	return panel,
+		holder,
+		featured and featured:IsA("GuiObject") and featured or nil,
+		seedPacks and seedPacks:IsA("GuiObject") and seedPacks or nil,
+		cashPacks and cashPacks:IsA("GuiObject") and cashPacks or nil
+end
+
+local function shopSection(sectionName)
+	local _, holder, featured, seedPacks, cashPacks = shopFrames()
+	if sectionName == FEATURED_SECTION_NAME then
+		return featured, holder
+	elseif sectionName == SEED_PACKS_NAME then
 		return seedPacks, holder
+	elseif sectionName == CASH_PACKS_NAME then
+		return cashPacks, holder
 	end
 	return nil, holder
 end
 
-local function applySeedPacksVisibility()
-	local seedPacks = seedPacksFrame()
+local function applySeedPacksVisibility(rows)
+	local _, _, _, seedPacks = shopFrames()
+	local allowed = isSeedPacksAllowed()
 	if seedPacks then
-		seedPacks.Visible = isSeedPacksAllowed()
+		seedPacks.Visible = allowed
+	end
+	for _, row in ipairs(rows or {}) do
+		if row.frame and row.pack and row.pack.Featured == true then
+			row.frame.Visible = allowed
+		end
 	end
 end
 
-local function packFrame(packId)
-	local seedPacks = seedPacksFrame()
-	local frame = seedPacks and seedPacks:FindFirstChild(packId)
+local function packFrameForPack(pack)
+	local section = pack and pack.Featured == true and shopSection(FEATURED_SECTION_NAME) or shopSection(SEED_PACKS_NAME)
+	local frame = section and section:FindFirstChild(pack and pack.PackId or "")
 	return frame and frame:IsA("GuiObject") and frame or nil
 end
 
 local function packImage(packId)
-	local frame = packFrame(packId)
+	local frame = nil
+	local _, _, featured, seedPacks = shopFrames()
+	for _, section in ipairs({ featured, seedPacks }) do
+		local candidate = section and section:FindFirstChild(packId)
+		if candidate and candidate:IsA("GuiObject") then
+			frame = candidate
+			break
+		end
+	end
 	local iconHolder = frame and frame:FindFirstChild("IconHolder")
 	local icon = iconHolder and iconHolder:FindFirstChild("Icon")
 	if icon and icon:IsA("ImageLabel") then
 		return icon.Image
+	end
+	local descendantIcon = findDescendant(frame, "Icon", "ImageLabel")
+	if descendantIcon then
+		return descendantIcon.Image
 	end
 	local packButton = frame and frame:FindFirstChild("Pack")
 	if packButton and packButton:IsA("ImageButton") then
@@ -267,15 +294,32 @@ local function packImage(packId)
 end
 
 local function renderRewardSlot(slot, reward, pack)
+	if not (slot and slot:IsA("GuiObject")) then
+		return
+	end
+	slot.Visible = reward ~= nil
+	if not reward then
+		local icon = findDescendant(slot, "Icon", "ViewportFrame")
+		if icon then
+			ViewportPreview.Render(icon, nil, PACK_REWARD_PREVIEW_OPTIONS)
+		end
+		setTextStack(findDescendant(slot, "Name", "TextLabel"), "")
+		setTextStack(findDescendant(slot, "Chance", "TextLabel"), "")
+		return
+	end
 	local icon = findDescendant(slot, "Icon", "ViewportFrame")
+	local nameLabel = findDescendant(slot, "Name", "TextLabel")
 	local chance = findDescendant(slot, "Chance", "TextLabel")
-	local seedId = reward and reward.SeedId
+	local seedId = reward.SeedId
 	local rarity = Seeds.RarityFor(seedId)
 	local displayName = Seeds.DisplayNameFor(seedId)
-	ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PACK_REWARD_PREVIEW_OPTIONS)
+	if icon then
+		ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PACK_REWARD_PREVIEW_OPTIONS)
+	end
 	if chance then
 		setTextStack(chance, ShopBalance.ChanceText(pack, reward))
 	end
+	setTextStack(nameLabel, displayName)
 	HoverOver.Bind(slot, function()
 		return {
 			name = displayName,
@@ -284,10 +328,64 @@ local function renderRewardSlot(slot, reward, pack)
 	end)
 end
 
+local function rewardSlots(pack, items)
+	local slots = {}
+	if not items then
+		return slots
+	end
+	for _, item in ipairs(items:GetChildren()) do
+		if item:IsA("GuiObject") then
+			local isTemplate = item.Name == "Template"
+				or (pack and pack.PackId == "DurianPack" and (item.Name == "MythicalTemplate" or item.Name == "SecretTemplate"))
+			if isTemplate then
+				slots[#slots + 1] = item
+			end
+		end
+	end
+	table.sort(slots, function(left, right)
+		if left.LayoutOrder ~= right.LayoutOrder then
+			return left.LayoutOrder < right.LayoutOrder
+		end
+		if left.Position.X.Scale ~= right.Position.X.Scale then
+			return left.Position.X.Scale < right.Position.X.Scale
+		end
+		return left.Position.X.Offset < right.Position.X.Offset
+	end)
+	return slots
+end
+
+local function buttonNameCandidates(quantity, featured)
+	if quantity == 1 then
+		return featured and { "Buy1", "BuyOne", "BuyButton" } or { "BuyOne", "BuyButton", "Buy1" }
+	elseif quantity == 3 then
+		return featured and { "Buy3", "BuyThree" } or { "BuyThree", "Buy3" }
+	elseif quantity == 10 then
+		return { "Buy10" }
+	elseif quantity == 50 then
+		return { "Buy50" }
+	end
+	return { "Buy" .. tostring(quantity) }
+end
+
+local function findProductButton(frame, pack, product)
+	for _, buttonName in ipairs(buttonNameCandidates(tonumber(product and product.Quantity) or 0, pack and pack.Featured == true)) do
+		local direct = frame and frame:FindFirstChild(buttonName)
+		if direct and direct:IsA("GuiButton") then
+			return direct
+		end
+		local descendant = findDescendant(frame, buttonName, "GuiButton")
+		if descendant then
+			return descendant
+		end
+	end
+	return nil
+end
+
 local function renderPackCard(pack)
-	local frame = packFrame(pack.PackId)
+	local frame = packFrameForPack(pack)
 	if not frame then
-		warn("[SeedPackShopController] Missing SeedPacks." .. tostring(pack.PackId))
+		local sectionName = pack.Featured == true and FEATURED_SECTION_NAME or SEED_PACKS_NAME
+		warn("[SeedPackShopController] Missing " .. sectionName .. "." .. tostring(pack.PackId))
 		return nil
 	end
 
@@ -295,33 +393,41 @@ local function renderPackCard(pack)
 	if title and title:IsA("TextLabel") then
 		setTextStack(title, pack.DisplayName)
 	end
+	local nameLabel = frame:FindFirstChild("Name")
+	if nameLabel and nameLabel:IsA("TextLabel") then
+		setTextStack(nameLabel, pack.DisplayName)
+	end
 
 	local items = frame:FindFirstChild("Items")
-	local slots = sortedGuiChildren(items, "Template")
-	for index, reward in ipairs(pack.Rewards or {}) do
-		if slots[index] then
-			renderRewardSlot(slots[index], reward, pack)
-		end
+	local slots = rewardSlots(pack, items)
+	for index, slot in ipairs(slots) do
+		renderRewardSlot(slot, (pack.Rewards or {})[index], pack)
 	end
 
-	local buyButton = frame:FindFirstChild("BuyButton")
-	local buyThree = frame:FindFirstChild("BuyThree")
-	local buyButtonPrice = buyButton and findDescendant(buyButton, "Price", "TextLabel")
-	if buyButton and buyButton:IsA("GuiButton") then
-		UiEffects.BindButton(buyButton)
-		if not buyButtonPrice then
-			warn("[SeedPackShopController] Missing SeedPacks." .. tostring(pack.PackId) .. ".BuyButton.Price")
+	local productButtons = {}
+	for _, product in ipairs(ShopBalance.AllSeedPackProducts(pack)) do
+		local button = findProductButton(frame, pack, product)
+		if button then
+			UiEffects.BindButton(button)
+			productButtons[#productButtons + 1] = {
+				button = button,
+				priceLabel = findDescendant(button, "Price", "TextLabel"),
+				product = product,
+			}
+		else
+			warn(string.format(
+				"[SeedPackShopController] Missing %s.%s quantity %d buy button",
+				pack.Featured == true and FEATURED_SECTION_NAME or SEED_PACKS_NAME,
+				tostring(pack.PackId),
+				tonumber(product.Quantity) or 0
+			))
 		end
-	end
-	if buyThree and buyThree:IsA("GuiButton") then
-		UiEffects.BindButton(buyThree)
 	end
 
 	return {
 		pack = pack,
-		buyButton = buyButton and buyButton:IsA("GuiButton") and buyButton or nil,
-		buyThree = buyThree and buyThree:IsA("GuiButton") and buyThree or nil,
-		buyButtonPrice = buyButtonPrice,
+		frame = frame,
+		productButtons = productButtons,
 	}
 end
 
@@ -342,19 +448,20 @@ local function promptProduct(productId)
 end
 
 local function renderRows(rows)
-	applySeedPacksVisibility()
+	applySeedPacksVisibility(rows)
 	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true and isSeedPacksAllowed()
 	for _, row in ipairs(rows) do
-		local buyOneProductId = tonumber(row.pack.DevProductId) or 0
-		local buyThreeProductId = tonumber(row.pack.BuyThreeDevProductId) or 0
-		if row.buyButton then
-			setTextStack(row.buyButtonPrice, robuxText(buyOneProductId, function()
-				renderRows(rows)
-			end))
-			UiEffects.SetButtonEnabled(row.buyButton, ready and buyOneProductId > 0)
-		end
-		if row.buyThree then
-			UiEffects.SetButtonEnabled(row.buyThree, ready and buyThreeProductId > 0)
+		for _, productButton in ipairs(row.productButtons or {}) do
+			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
+			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
+			if quantity == 3 and row.pack and row.pack.PackId ~= "DurianPack" then
+				setTextStack(productButton.priceLabel, "x3")
+			else
+				setTextStack(productButton.priceLabel, robuxText(productId, function()
+					renderRows(rows)
+				end))
+			end
+			UiEffects.SetButtonEnabled(productButton.button, ready and productId > 0)
 		end
 	end
 end
@@ -401,6 +508,9 @@ local function setConsoleHintVisible(panel, visible)
 	local show = visible == true and hasConnectedController()
 	local openHint = panel and panel:FindFirstChild("OpenHint")
 	if openHint and openHint:IsA("GuiObject") then
+		if show then
+			setTextStack(openHint, "Press X to open")
+		end
 		openHint.Visible = show
 	end
 
@@ -408,6 +518,22 @@ local function setConsoleHintVisible(panel, visible)
 	if consoleIcon and consoleIcon:IsA("ImageLabel") then
 		consoleIcon.Image = consoleOpenIconImage()
 		consoleIcon.Visible = show
+	end
+end
+
+local function setAdvanceHintVisible(panel, visible)
+	local show = visible == true
+	local hasController = hasConnectedController()
+	local openHint = panel and panel:FindFirstChild("OpenHint")
+	if openHint and openHint:IsA("GuiObject") then
+		setTextStack(openHint, hasController and "Press X to continue" or "Click anywhere to continue")
+		openHint.Visible = show
+	end
+
+	local consoleIcon = panel and panel:FindFirstChild("ConsoleIcon")
+	if consoleIcon and consoleIcon:IsA("ImageLabel") then
+		consoleIcon.Image = consoleOpenIconImage()
+		consoleIcon.Visible = show and hasController
 	end
 end
 
@@ -461,6 +587,8 @@ local function buildReveal(payload)
 	clearRuntimeSlices(panel)
 	holderStates = {}
 	pendingSliced = {}
+	awaitingAdvance = false
+	advanceReadyAt = 0
 	ftueToken += 1
 	activeFtueDrag = nil
 	resetDragState()
@@ -470,7 +598,9 @@ local function buildReveal(payload)
 	end
 	if continueButton and continueButton:IsA("GuiButton") then
 		continueButton.Visible = false
+		continueButton.Active = false
 	end
+	setAdvanceHintVisible(panel, false)
 	setConsoleHintVisible(panel, true)
 
 	for index, result in ipairs(payload.results or {}) do
@@ -502,16 +632,24 @@ end
 
 local function refreshConsoleHint()
 	local panel = MenuGui.GetFrame(ROLL_PANEL_NAME, "SeedPackShopController")
-	setConsoleHintVisible(panel, activeReveal ~= nil and not allOpened())
+	if awaitingAdvance then
+		setAdvanceHintVisible(panel, true)
+	else
+		setConsoleHintVisible(panel, activeReveal ~= nil and not allOpened())
+	end
 end
 
-local function showContinue()
+local function showAdvancePrompt()
 	local panel = MenuGui.GetFrame(ROLL_PANEL_NAME, "SeedPackShopController")
 	local continueButton = panel and panel:FindFirstChild("ContinueButton")
 	if continueButton and continueButton:IsA("GuiButton") then
-		continueButton.Visible = true
+		continueButton.Visible = false
+		continueButton.Active = false
 	end
-	setConsoleHintVisible(panel, false)
+	awaitingAdvance = true
+	advanceReadyAt = os.clock() + ADVANCE_INPUT_GRACE_SECONDS
+	resetDragState()
+	setAdvanceHintVisible(panel, true)
 end
 
 local function popReward(holder)
@@ -565,7 +703,7 @@ local function openHolder(state)
 		setRewardVisible(holder, true)
 		popReward(holder)
 		if allOpened() then
-			showContinue()
+			showAdvancePrompt()
 		end
 	end
 
@@ -828,7 +966,7 @@ local function finishDrag(endPosition)
 end
 
 local function beginDrag(input)
-	if not activeReveal or allOpened() then
+	if not activeReveal or awaitingAdvance or allOpened() then
 		return
 	end
 	local position = pointerPosition(input)
@@ -905,31 +1043,65 @@ local function openAllWithKeybind()
 	end
 end
 
-local function scrollToSeedPacks()
-	local seedPacks, holder = seedPacksFrame()
-	if not (seedPacks and holder and holder:IsA("ScrollingFrame")) then
+local showNextReveal
+
+local function advanceReveal()
+	if not awaitingAdvance or os.clock() < advanceReadyAt then
+		return
+	end
+	awaitingAdvance = false
+	advanceReadyAt = 0
+	local panel = MenuGui.GetFrame(ROLL_PANEL_NAME, "SeedPackShopController")
+	setAdvanceHintVisible(panel, false)
+	showNextReveal()
+end
+
+local function scrollToShopSection(sectionName)
+	local section, holder = shopSection(sectionName)
+	if not (holder and holder:IsA("ScrollingFrame")) then
 		return
 	end
 	task.defer(function()
-		if not (seedPacks.Parent and holder.Parent) then
+		if not holder.Parent then
 			return
 		end
-		local relativeY = seedPacks.AbsolutePosition.Y - holder.AbsolutePosition.Y
-		local targetY = holder.CanvasPosition.Y + relativeY
+		local targetY = 0
+		if sectionName ~= FEATURED_SECTION_NAME then
+			if not (section and section.Parent) then
+				return
+			end
+			local relativeY = section.AbsolutePosition.Y - holder.AbsolutePosition.Y
+			targetY = holder.CanvasPosition.Y + relativeY
+		end
 		local maxY = math.max(holder.AbsoluteCanvasSize.Y - holder.AbsoluteWindowSize.Y, 0)
-		holder.CanvasPosition = Vector2.new(holder.CanvasPosition.X, math.clamp(targetY, 0, maxY))
+		if shopScrollTween then
+			shopScrollTween:Cancel()
+			shopScrollTween = nil
+		end
+		shopScrollTween = TweenService:Create(holder, SHOP_SCROLL_TWEEN, {
+			CanvasPosition = Vector2.new(holder.CanvasPosition.X, math.clamp(targetY, 0, maxY)),
+		})
+		local tween = shopScrollTween
+		RuntimeGuard.Connect(tween.Completed, "SeedPackShopController.ShopScrollCompleted", function()
+			if shopScrollTween == tween then
+				shopScrollTween = nil
+			end
+		end)
+		tween:Play()
 	end)
 end
 
-local function showNextReveal()
+function showNextReveal()
 	local nextPayload = table.remove(revealQueue, 1)
 	if not nextPayload then
 		activeReveal = nil
+		awaitingAdvance = false
 		MenuGui.OpenPanel(ROBUX_PANEL_NAME)
-		scrollToSeedPacks()
+		scrollToShopSection(lastRevealSourceSection or SEED_PACKS_NAME)
 		return
 	end
 	activeReveal = nextPayload
+	lastRevealSourceSection = nextPayload.sourceSection or SEED_PACKS_NAME
 	if buildReveal(nextPayload) then
 		MenuGui.OpenPanel(ROLL_PANEL_NAME)
 		task.delay(0.3, startFtueCue)
@@ -944,9 +1116,106 @@ local function enqueueReveal(payload)
 	end
 	ConfettiEffect.Emit()
 	SoundEffects.Play(SoundEffects.Names.RollReveal)
-	revealQueue[#revealQueue + 1] = payload
+	local results = payload.results
+	for batchStart = 1, #results, MAX_REVEAL_BATCH_SIZE do
+		local batch = {}
+		local batchEnd = math.min(batchStart + MAX_REVEAL_BATCH_SIZE - 1, #results)
+		for index = batchStart, batchEnd do
+			batch[#batch + 1] = results[index]
+		end
+		revealQueue[#revealQueue + 1] = {
+			action = payload.action,
+			packId = payload.packId,
+			sourceSection = payload.sourceSection,
+			results = batch,
+		}
+	end
 	if not activeReveal then
 		showNextReveal()
+	end
+end
+
+local function bindHeaderScrollButtons()
+	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
+	local header = panel and findDescendant(panel, "Header", "GuiObject")
+	local bindings = {
+		Featured = FEATURED_SECTION_NAME,
+		Packs = SEED_PACKS_NAME,
+		Cash = CASH_PACKS_NAME,
+	}
+	for buttonName, sectionName in pairs(bindings) do
+		local button = header and findDescendant(header, buttonName, "GuiButton")
+		if button then
+			UiEffects.BindButton(button)
+			RuntimeGuard.Connect(button.Activated, "SeedPackShopController.Header." .. buttonName, function()
+				scrollToShopSection(sectionName)
+			end)
+		else
+			warn("[SeedPackShopController] Missing RobuxShop Header." .. buttonName)
+		end
+	end
+end
+
+local function refreshRainbowGradients()
+	rainbowGradients = {}
+	local frame = nil
+	local _, _, featured = shopFrames()
+	local candidate = featured and featured:FindFirstChild("DurianPack")
+	if candidate and candidate:IsA("GuiObject") then
+		frame = candidate
+	end
+	if not frame then
+		return
+	end
+	for _, descendant in ipairs(frame:GetDescendants()) do
+		if descendant.Name == "RainbowStroke" and descendant:IsA("UIGradient") then
+			rainbowGradients[#rainbowGradients + 1] = descendant
+		end
+	end
+end
+
+local function stopRainbowRotation()
+	if rainbowConnection then
+		rainbowConnection:Disconnect()
+		rainbowConnection = nil
+	end
+end
+
+local function startRainbowRotation()
+	if rainbowConnection then
+		return
+	end
+	refreshRainbowGradients()
+	if #rainbowGradients == 0 then
+		return
+	end
+	rainbowConnection = RuntimeGuard.Connect(RunService.RenderStepped, "SeedPackShopController.DurianRainbow", function()
+		local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
+		if not (panel and panel.Parent and panel.Visible) then
+			stopRainbowRotation()
+			return
+		end
+		local rotation = (os.clock() * RAINBOW_ROTATION_DEGREES_PER_SECOND) % 360
+		for index = #rainbowGradients, 1, -1 do
+			local gradient = rainbowGradients[index]
+			if gradient and gradient.Parent then
+				gradient.Rotation = rotation
+			else
+				table.remove(rainbowGradients, index)
+			end
+		end
+		if #rainbowGradients == 0 then
+			stopRainbowRotation()
+		end
+	end)
+end
+
+local function refreshRainbowRotation()
+	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
+	if panel and panel.Visible then
+		startRainbowRotation()
+	else
+		stopRainbowRotation()
 	end
 end
 
@@ -958,20 +1227,21 @@ function SeedPackShopController.start()
 	end
 
 	applySeedPacksVisibility()
+	bindHeaderScrollButtons()
 
 	local rows = {}
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
 		local row = renderPackCard(pack)
 		if row then
 			rows[#rows + 1] = row
-			if row.buyButton then
-				RuntimeGuard.Connect(row.buyButton.Activated, "SeedPackShopController.BuyOne." .. pack.PackId, function()
-					promptProduct(pack.DevProductId)
-				end)
-			end
-			if row.buyThree then
-				RuntimeGuard.Connect(row.buyThree.Activated, "SeedPackShopController.BuyThree." .. pack.PackId, function()
-					promptProduct(pack.BuyThreeDevProductId)
+			for _, productButton in ipairs(row.productButtons or {}) do
+				local product = productButton.product
+				RuntimeGuard.Connect(productButton.button.Activated, string.format(
+					"SeedPackShopController.Buy.%s.%s",
+					tostring(pack.PackId),
+					tostring(product and product.Quantity)
+				), function()
+					promptProduct(product and product.DevProductId)
 				end)
 			end
 		end
@@ -1006,13 +1276,8 @@ function SeedPackShopController.start()
 
 	local continueButton = rollPanel:FindFirstChild("ContinueButton")
 	if continueButton and continueButton:IsA("GuiButton") then
-		UiEffects.BindButton(continueButton)
-		RuntimeGuard.Connect(continueButton.Activated, "SeedPackShopController.Continue", function()
-			if not allOpened() then
-				return
-			end
-			showNextReveal()
-		end)
+		continueButton.Visible = false
+		continueButton.Active = false
 	end
 
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.SeedPackPurchaseResult).OnClientEvent, "SeedPackShopController.Result", enqueueReveal)
@@ -1021,9 +1286,17 @@ function SeedPackShopController.start()
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.X or input.KeyCode == CONSOLE_OPEN_KEYCODE then
-			openAllWithKeybind()
+			if awaitingAdvance then
+				advanceReveal()
+			else
+				openAllWithKeybind()
+			end
 		elseif isPressInput(input) then
-			beginDrag(input)
+			if awaitingAdvance then
+				advanceReveal()
+			else
+				beginDrag(input)
+			end
 		end
 	end)
 	RuntimeGuard.Connect(UserInputService.InputChanged, "SeedPackShopController.InputChanged", continueDrag)
@@ -1033,6 +1306,8 @@ function SeedPackShopController.start()
 		refreshConsoleHint()
 	end)
 	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "SeedPackShopController.GamepadDisconnected", refreshConsoleHint)
+	RuntimeGuard.Connect(robuxPanel:GetPropertyChangedSignal("Visible"), "SeedPackShopController.RobuxVisible", refreshRainbowRotation)
+	RuntimeGuard.Connect(robuxPanel.Destroying, "SeedPackShopController.RobuxDestroying", stopRainbowRotation)
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
 		renderRows(rows)
@@ -1041,6 +1316,7 @@ function SeedPackShopController.start()
 		renderRows(rows)
 	end)
 	renderRows(rows)
+	refreshRainbowRotation()
 end
 
 return SeedPackShopController

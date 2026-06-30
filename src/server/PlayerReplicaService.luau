@@ -84,6 +84,16 @@ local function copyGamePassOwnership(map)
 	return copy
 end
 
+local function copyStarterPackPurchases(map)
+	local copy = {}
+	for _, pack in ipairs(ShopBalance.AllStarterPacks()) do
+		if type(pack.PackId) == "string" and pack.PackId ~= "" then
+			copy[pack.PackId] = type(map) == "table" and map[pack.PackId] == true or false
+		end
+	end
+	return copy
+end
+
 local function vipOwnedForKey(key)
 	local vipKey = ShopBalance.GamePassKeys.VIP
 	local map = key and gamePassOwnership[key] or nil
@@ -123,6 +133,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.UnlockedGridKeys] = copyStringArray(data.UnlockedGridKeys),
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
+		[PlayerState.Fields.StarterPackPurchases] = copyStarterPackPurchases(data.StarterPackPurchases),
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),
@@ -313,7 +324,13 @@ end
 
 function PlayerReplicaService.PublishStarterPackPurchased(player, profile)
 	local data = profile and profile.Data or {}
-	return PlayerReplicaService.PublishField(player, PlayerState.Fields.StarterPackPurchased, data.StarterPackPurchased == true)
+	local legacySuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.StarterPackPurchased, data.StarterPackPurchased == true)
+	local purchasesSuccess = PlayerReplicaService.PublishField(
+		player,
+		PlayerState.Fields.StarterPackPurchases,
+		copyStarterPackPurchases(data.StarterPackPurchases)
+	)
+	return legacySuccess and purchasesSuccess
 end
 
 function PlayerReplicaService.PublishGamePassOwnership(player, ownership)

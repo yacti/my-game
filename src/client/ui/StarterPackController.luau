@@ -6,7 +6,6 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
-local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -23,7 +22,6 @@ local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 local StarterPackController = {}
 
 local PANEL_NAME = "RobuxShop"
-local CARD_NAME = "StarterPack"
 local PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
 	zoom = 1.8,
@@ -40,8 +38,7 @@ local player = Players.LocalPlayer
 local productPriceById = {}
 local nextRequestId = 0
 local pendingRequestId = nil
-local rarityLabels = {}
-local rarityConnection = nil
+local pendingRequestPackId = nil
 local feedTemplateByType = nil
 
 local function child(parent, name, className)
@@ -80,89 +77,47 @@ local function sortedGuiChildren(parent, name)
 	return children
 end
 
-local function findShopCard()
+local function findShopCards()
 	local panel = MenuGui.GetFrame(PANEL_NAME, "StarterPackController")
 	if not panel then
-		return nil
+		return {}
 	end
 	local sfHolder = panel:FindFirstChild("SFHolder", true)
 	local featured = sfHolder and sfHolder:FindFirstChild("Featured")
-	local card = featured and featured:FindFirstChild(CARD_NAME)
-	if card and card:IsA("GuiObject") then
-		return card
+	if not (featured and featured:IsA("GuiObject")) then
+		warn("[StarterPackController] Missing RobuxShop.SFHolder.Featured")
+		return {}
 	end
-	warn("[StarterPackController] Missing RobuxShop.SFHolder.Featured.StarterPack")
-	return nil
+	local records = {}
+	for _, pack in ipairs(ShopBalance.AllStarterPacks()) do
+		local card = featured:FindFirstChild(pack.PackId)
+		if card and card:IsA("GuiObject") then
+			records[#records + 1] = {
+				pack = pack,
+				card = card,
+				source = "RobuxShop.SFHolder.Featured." .. tostring(pack.PackId),
+			}
+		else
+			warn("[StarterPackController] Missing RobuxShop.SFHolder.Featured." .. tostring(pack.PackId))
+		end
+	end
+	return records
 end
 
 local function setTextStack(root, text)
 	UiEffects.SetTextStack(root, tostring(text or ""))
 end
 
-local function applyColorToLabelStack(root, color)
-	if not (root and color) then
-		return
-	end
-	local function apply(label)
-		if not (label:IsA("TextLabel") or label:IsA("TextButton")) then
-			return
-		end
-		label.TextColor3 = color
-		local gradient = label:FindFirstChildOfClass("UIGradient")
-		if gradient then
-			gradient.Color = ColorSequence.new(color)
-		end
-	end
-	apply(root)
-	for _, item in ipairs(root:GetDescendants()) do
-		apply(item)
-	end
-end
-
-local function refreshRarityLabels()
-	for label, rarity in pairs(rarityLabels) do
-		if not (label and label.Parent) then
-			rarityLabels[label] = nil
-		else
-			local color = Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common)
-			applyColorToLabelStack(label, color)
-		end
-	end
-end
-
-local function registerRarityLabel(label, rarity)
-	if not label then
-		return
-	end
-	local value = type(rarity) == "string" and rarity ~= "" and rarity or Rarities.Common
-	rarityLabels[label] = value
-	refreshRarityLabels()
-	if rarityConnection then
-		return
-	end
-	local definition = Rarities.Get(value)
-	if definition and definition.Animated then
-		rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "StarterPackController.RarityRender", refreshRarityLabels)
-	end
-end
-
-local function disconnectRarityRender()
-	if rarityConnection then
-		rarityConnection:Disconnect()
-		rarityConnection = nil
-	end
-end
-
 local function robuxText(productId, onLoaded)
 	productId = tonumber(productId) or 0
 	if productId <= 0 then
-		return "Robux"
+		return NumberFormatter.Robux(0)
 	end
 	if productPriceById[productId] then
 		return productPriceById[productId]
 	end
 
-	productPriceById[productId] = "Robux"
+	productPriceById[productId] = NumberFormatter.Robux(0)
 	RuntimeGuard.Spawn("StarterPackController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
@@ -226,7 +181,7 @@ local function renderRewardSlot(slot, reward)
 	slot.Visible = reward ~= nil
 	if icon then
 		icon.Visible = not isCash
-		local previewOptions = reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and SEED_PREVIEW_OPTIONS or PREVIEW_OPTIONS
+		local previewOptions = reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and SEED_PREVIEW_OPTIONS or PREVIEW_OPTIONS
 		ViewportPreview.Render(icon, template, previewOptions)
 	end
 	if iconImage then
@@ -234,14 +189,6 @@ local function renderRewardSlot(slot, reward)
 		iconImage.Image = isCash and ShopBalance.CashRewardIcon or ""
 	end
 	setTextStack(nameLabel, displayName)
-	if isCash then
-		if nameLabel then
-			rarityLabels[nameLabel] = nil
-		end
-		applyColorToLabelStack(nameLabel, ShopBalance.CashRewardTextColor)
-	else
-		registerRarityLabel(nameLabel, rarity)
-	end
 	if amountLabel then
 		local showAmount = not isCash and amount > 1
 		amountLabel.Visible = showAmount
@@ -255,17 +202,53 @@ local function renderRewardSlot(slot, reward)
 	end)
 end
 
-local function bindCard(card)
-	local pack = ShopBalance.GetStarterPack()
+local function formatCycleTimer()
+	local cycleSeconds = math.max(math.floor(tonumber(ShopBalance.StarterPackCycleSeconds) or 0), 0)
+	if cycleSeconds <= 0 then
+		return "0h 0m 0s left"
+	end
+	local remaining = cycleSeconds - (os.time() % cycleSeconds)
+	if remaining <= 0 or remaining > cycleSeconds then
+		remaining = cycleSeconds
+	end
+	local hours = math.floor(remaining / 3600)
+	local minutes = math.floor((remaining % 3600) / 60)
+	local seconds = remaining % 60
+	return string.format("%dh %dm %ds left", hours, minutes, seconds)
+end
+
+local function starterPackPurchases()
+	local purchases = PlayerStateStore.Get(PlayerStateStore.Fields.StarterPackPurchases)
+	return type(purchases) == "table" and purchases or {}
+end
+
+local function isPackOwned(pack)
+	local purchases = starterPackPurchases()
+	if purchases[pack.PackId] ~= nil then
+		return purchases[pack.PackId] == true
+	end
+	return pack.PackId == "StarterPack" and PlayerStateStore.Get(PlayerStateStore.Fields.StarterPackPurchased) == true
+end
+
+local function activeStarterPackId()
+	local rebirths = math.max(math.floor(tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Rebirths)) or 0), 0)
+	local pack = ShopBalance.StarterPackForRebirths(rebirths)
+	return pack and pack.PackId or nil
+end
+
+local function bindCard(record, renderAll)
+	local card = record.card
+	local pack = record.pack
 	local rewards = pack and pack.Rewards or {}
 	local buyButton = child(card, "BuyButton", "GuiButton")
 	local priceLabel = buyButton and descendant(buyButton, "Price", "TextLabel")
 	local title = child(card, "Name", "TextLabel")
 	local sold = child(card, "Sold", "GuiObject")
+	local timer = child(card, "Timer", "TextLabel")
 	local items = child(card, "Items", "GuiObject")
 	local slots = sortedGuiChildren(items, "Template")
 	if not (pack and buyButton and priceLabel and sold and items and #slots >= #rewards) then
-		warn("[StarterPackController] StarterPack card is missing required named instances")
+		warn("[StarterPackController] " .. tostring(record.source) .. " is missing required named instances")
 		return nil
 	end
 
@@ -276,70 +259,109 @@ local function bindCard(card)
 	end
 
 	local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
-	local resultRemote = Remotes.get(Remotes.Names.StarterPackPurchaseResult)
 
 	local function render()
-		local owned = PlayerStateStore.Get(PlayerStateStore.Fields.StarterPackPurchased) == true
+		local active = activeStarterPackId() == pack.PackId
+		local owned = isPackOwned(pack)
 		local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true
 		local productId = tonumber(pack.DevProductId) or 0
 
+		card.Visible = active
 		sold.Visible = owned
 		buyButton.Visible = true
+		if timer then
+			setTextStack(timer, formatCycleTimer())
+		end
 		setTextStack(priceLabel, robuxText(productId, render))
-		UiEffects.SetButtonEnabled(buyButton, ready and not owned and productId > 0 and pendingRequestId == nil)
+		UiEffects.SetButtonEnabled(buyButton, active and ready and not owned and productId > 0 and pendingRequestId == nil)
 	end
 
-	RuntimeGuard.Connect(buyButton.Activated, "StarterPackController.Buy", function()
-		local owned = PlayerStateStore.Get(PlayerStateStore.Fields.StarterPackPurchased) == true
-		if pendingRequestId ~= nil or owned or PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) ~= true then
+	RuntimeGuard.Connect(buyButton.Activated, "StarterPackController.Buy." .. tostring(pack.PackId), function()
+		local owned = isPackOwned(pack)
+		if pendingRequestId ~= nil
+			or owned
+			or activeStarterPackId() ~= pack.PackId
+			or PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) ~= true then
 			return
 		end
 		nextRequestId += 1
 		pendingRequestId = nextRequestId
+		pendingRequestPackId = pack.PackId
 		render()
-		requestRemote:FireServer(pendingRequestId)
+		requestRemote:FireServer(pendingRequestId, pack.PackId)
 	end)
+	return render
+end
 
-	RuntimeGuard.Connect(resultRemote.OnClientEvent, "StarterPackController.PurchaseResult", function(payload)
+function StarterPackController.start()
+	local renderers = {}
+	local renderAll
+	renderAll = function()
+		for _, render in ipairs(renderers) do
+			render()
+		end
+	end
+
+	for _, record in ipairs(findShopCards()) do
+		local render = bindCard(record, renderAll)
+		if render then
+			renderers[#renderers + 1] = render
+		end
+	end
+	if #renderers == 0 then
+		return
+	end
+
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.StarterPackPurchaseResult).OnClientEvent, "StarterPackController.PurchaseResult", function(payload)
 		if type(payload) ~= "table" or payload.requestId ~= pendingRequestId then
 			return
 		end
+		local requestPackId = pendingRequestPackId
 		pendingRequestId = nil
-		render()
+		pendingRequestPackId = nil
+		renderAll()
 		local productId = tonumber(payload.productId) or 0
 		if payload.success == true and productId > 0 then
 			RuntimeGuard.Run("StarterPackController.PromptProductPurchase", function()
 				MarketplaceService:PromptProductPurchase(player, productId)
 			end)
+		elseif payload.packId ~= nil and payload.packId ~= requestPackId then
+			renderAll()
 		end
 	end)
 
-	RuntimeGuard.Connect(card.Destroying, "StarterPackController.CardDestroying", function()
-		rarityLabels = {}
-		disconnectRarityRender()
-	end)
-
-	return render
-end
-
-function StarterPackController.start()
-	local card = findShopCard()
-	if not card then
-		return
-	end
-	local render = bindCard(card)
-	if not render then
-		return
-	end
-
-	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, render)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, renderAll)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Rebirths, renderAll)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.StarterPackPurchased, function(purchased, previousPurchased)
 		if purchased == true and previousPurchased == false then
 			ConfettiEffect.Emit()
 		end
-		render()
+		renderAll()
 	end)
-	render()
+	PlayerStateStore.Observe(PlayerStateStore.Fields.StarterPackPurchases, function(purchases, previousPurchases)
+		if type(purchases) == "table" and type(previousPurchases) == "table" then
+			for packId, purchased in pairs(purchases) do
+				local wasPurchased = previousPurchases[packId] == true
+				if packId ~= "StarterPack" and purchased == true and not wasPurchased then
+					ConfettiEffect.Emit()
+					break
+				end
+			end
+		end
+		renderAll()
+	end)
+
+	local lastTimerSecond = -1
+	RuntimeGuard.Connect(RunService.Heartbeat, "StarterPackController.Timer", function()
+		local currentSecond = os.time()
+		if currentSecond == lastTimerSecond then
+			return
+		end
+		lastTimerSecond = currentSecond
+		renderAll()
+	end)
+
+	renderAll()
 end
 
 return StarterPackController

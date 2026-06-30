@@ -15,6 +15,7 @@ local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local GroupReward = require(Shared:WaitForChild("GroupReward"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RebirthBalance = require(Shared:WaitForChild("RebirthBalance"))
@@ -1165,35 +1166,119 @@ local function validateRobuxShopUi(menu, errors)
 	if not panel then return end
 
 	descendant(panel, "CloseButton", "GuiButton", errors)
-	descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local header = descendant(panel, "Header", "GuiObject", errors)
+	if header then
+		descendant(header, "Featured", "GuiButton", errors)
+		descendant(header, "Packs", "GuiButton", errors)
+		descendant(header, "Cash", "GuiButton", errors)
+	end
+	if holder then
+		child(holder, "Featured", "GuiObject", errors)
+		child(holder, "SeedPacks", "GuiObject", errors)
+		child(holder, "CashPacks", "GuiObject", errors)
+	end
 end
 
-local function validateSeedPackCard(card, source, errors)
-	descendant(card, "Title", "TextLabel", errors)
-	descendant(card, "BuyButton", "GuiButton", errors)
-	descendant(card, "BuyThree", "GuiButton", errors)
-	local iconHolder = descendant(card, "IconHolder", "GuiObject", errors)
-	if iconHolder then
-		child(iconHolder, "Icon", "ImageLabel", errors)
+local function seedPackButtonNameCandidates(quantity, featured)
+	if quantity == 1 then
+		return featured and { "Buy1", "BuyOne", "BuyButton" } or { "BuyOne", "BuyButton", "Buy1" }
+	elseif quantity == 3 then
+		return featured and { "Buy3", "BuyThree" } or { "BuyThree", "Buy3" }
+	elseif quantity == 10 then
+		return { "Buy10" }
+	elseif quantity == 50 then
+		return { "Buy50" }
+	end
+	return { "Buy" .. tostring(quantity) }
+end
+
+local function namedDescendant(root, name, className)
+	if not root then
+		return nil
+	end
+	for _, instance in ipairs(root:GetDescendants()) do
+		if instance.Name == name and (not className or instance:IsA(className)) then
+			return instance
+		end
+	end
+	return nil
+end
+
+local function seedPackRewardSlots(items, pack)
+	local templates = {}
+	for _, item in ipairs(items and items:GetChildren() or {}) do
+		if item:IsA("GuiObject") then
+			local valid = item.Name == "Template"
+				or (pack and pack.PackId == "DurianPack" and (item.Name == "MythicalTemplate" or item.Name == "SecretTemplate"))
+			if valid then
+				templates[#templates + 1] = item
+			end
+		end
+	end
+	table.sort(templates, function(left, right)
+		if left.LayoutOrder ~= right.LayoutOrder then
+			return left.LayoutOrder < right.LayoutOrder
+		end
+		if left.Position.X.Scale ~= right.Position.X.Scale then
+			return left.Position.X.Scale < right.Position.X.Scale
+		end
+		return left.Position.X.Offset < right.Position.X.Offset
+	end)
+	return templates
+end
+
+local function validateSeedPackProductButton(card, pack, product, source, errors)
+	local quantity = math.max(math.floor(tonumber(product and product.Quantity) or 0), 0)
+	local found = nil
+	for _, name in ipairs(seedPackButtonNameCandidates(quantity, pack and pack.Featured == true)) do
+		local candidate = card and card:FindFirstChild(name, true)
+		if candidate then
+			if candidate:IsA("GuiButton") then
+				found = candidate
+				break
+			end
+			add(errors, string.format("%s.%s is %s, expected GuiButton", source, name, candidate.ClassName))
+		end
+	end
+	if not found then
+		add(errors, string.format("%s is missing quantity %d buy button", source, quantity))
+		return
+	end
+	descendant(found, "Price", "TextLabel", errors)
+end
+
+local function validateSeedPackCard(card, pack, source, errors)
+	if pack.Featured ~= true then
+		descendant(card, "Title", "TextLabel", errors)
+	end
+	for _, product in ipairs(ShopBalance.AllSeedPackProducts(pack)) do
+		validateSeedPackProductButton(card, pack, product, source, errors)
+	end
+
+	local iconHolder = namedDescendant(card, "IconHolder", "GuiObject")
+	local icon = iconHolder and namedDescendant(iconHolder, "Icon", "ImageLabel") or namedDescendant(card, "Icon", "ImageLabel")
+	local packImage = namedDescendant(card, "Pack", "ImageButton")
+	if not (icon or packImage) then
+		add(errors, source .. " must contain IconHolder.Icon, descendant Icon ImageLabel, or Pack ImageButton")
 	end
 
 	local items = child(card, "Items", "GuiObject", errors)
 	if not items then
 		return
 	end
-	local templates = {}
-	for _, item in ipairs(items:GetChildren()) do
-		if item.Name == "Template" and item:IsA("GuiObject") then
-			templates[#templates + 1] = item
-		end
-	end
-	if #templates ~= 3 then
-		add(errors, source .. ".Items must contain exactly three Template GuiObjects")
+	local templates = seedPackRewardSlots(items, pack)
+	local expectedTemplates = #(pack.Rewards or {})
+	if #templates ~= expectedTemplates then
+		add(errors, string.format("%s.Items must contain exactly %d configured reward GuiObjects", source, expectedTemplates))
 	end
 	for index, template in ipairs(templates) do
-		local templateSource = source .. ".Items.Template[" .. tostring(index) .. "]"
+		local templateSource = source .. ".Items." .. template.Name .. "[" .. tostring(index) .. "]"
 		descendant(template, "Icon", "ViewportFrame", errors)
 		descendant(template, "Chance", "TextLabel", errors)
+		if pack.PackId == "DurianPack" then
+			descendant(template, "Name", "TextLabel", errors)
+		end
 		if not template.Visible then
 			add(errors, templateSource .. " should be visible in the Studio-authored card")
 		end
@@ -1204,13 +1289,16 @@ local function validateSeedPacksUi(menu, errors)
 	local panel = child(menu, "RobuxShop", "GuiObject", errors)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local featured = holder and child(holder, "Featured", "GuiObject", errors)
 	local seedPacks = holder and child(holder, "SeedPacks", "GuiObject", errors)
-	if not seedPacks then return end
+	if not holder then return end
 
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
-		local card = child(seedPacks, pack.PackId, "GuiObject", errors)
+		local section = pack.Featured == true and featured or seedPacks
+		local sectionName = pack.Featured == true and "Featured" or "SeedPacks"
+		local card = child(section, pack.PackId, "GuiObject", errors)
 		if card then
-			validateSeedPackCard(card, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.SeedPacks." .. tostring(pack.PackId), errors)
+			validateSeedPackCard(card, pack, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder." .. sectionName .. "." .. tostring(pack.PackId), errors)
 		end
 	end
 end
@@ -1240,18 +1328,16 @@ local function validateServerLuckShopUi(menu, warnings)
 		descendant(timer, "Timer", "TextLabel", warnings)
 	end
 	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
-	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
-	if price then
-		descendant(price, "Price", "TextLabel", warnings)
+	if buyButton then
+		child(buyButton, "Price", "TextLabel", warnings)
 	end
 end
 
 local function validateCashPackShopCard(card, warnings)
 	descendant(card, "Amount", "TextLabel", warnings)
 	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
-	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
-	if price then
-		descendant(price, "Price", "TextLabel", warnings)
+	if buyButton then
+		child(buyButton, "Price", "TextLabel", warnings)
 	end
 end
 
@@ -1271,65 +1357,69 @@ local function validateCashPacksShopUi(menu, warnings)
 end
 
 local function validateStarterPackShopUi(menu, warnings)
-	local starterPack = ShopBalance.GetStarterPack()
-	local expectedTemplates = #(starterPack and starterPack.Rewards or {})
-	local hasCashReward = false
-	for _, reward in ipairs(starterPack and starterPack.Rewards or {}) do
-		if reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
-			hasCashReward = true
-			break
-		end
-	end
-
 	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
 	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
-	local card = featured and child(featured, "StarterPack", "GuiObject", warnings)
-	if not card then return end
+	if not featured then return end
 
-	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
-	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
-	if price then
-		descendant(price, "Price", "TextLabel", warnings)
-	end
-	child(card, "Sold", "ImageLabel", warnings)
+	for _, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
+		local sourcePrefix = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured." .. tostring(starterPack.PackId)
+		local expectedTemplates = #(starterPack.Rewards or {})
+		local hasCashReward = false
+		for _, reward in ipairs(starterPack.Rewards or {}) do
+			if reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
+				hasCashReward = true
+				break
+			end
+		end
 
-	local items = child(card, "Items", "GuiObject", warnings)
-	if not items then
-		return
-	end
-	local templates = {}
-	for _, item in ipairs(items:GetChildren()) do
-		if item.Name == "Template" and item:IsA("GuiObject") then
-			templates[#templates + 1] = item
-		end
-	end
-	if #templates ~= expectedTemplates then
-		add(warnings, string.format(
-			"ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items must contain exactly %d Template GuiObjects",
-			expectedTemplates
-		))
-	end
-	for index, template in ipairs(templates) do
-		local source = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.StarterPack.Items.Template[" .. tostring(index) .. "]"
-		descendant(template, "Icon", "ViewportFrame", warnings)
-		if hasCashReward then
-			descendant(template, "IconImage", "ImageLabel", warnings)
-		end
-		descendant(template, "Name", "TextLabel", warnings)
-		descendant(template, "Amount", "TextLabel", warnings)
-		if not template.Visible then
-			add(warnings, source .. " should be visible in the Studio-authored card")
+		local card = child(featured, starterPack.PackId, "GuiObject", warnings)
+		if card then
+			local buyButton = child(card, "BuyButton", "GuiButton", warnings)
+			if buyButton then
+				child(buyButton, "Price", "TextLabel", warnings)
+			end
+			child(card, "Sold", "GuiObject", warnings)
+			descendant(card, "Name", "TextLabel", warnings)
+			descendant(card, "Timer", "TextLabel", warnings)
+
+			local items = child(card, "Items", "GuiObject", warnings)
+			if items then
+				local templates = {}
+				for _, item in ipairs(items:GetChildren()) do
+					if item.Name == "Template" and item:IsA("GuiObject") then
+						templates[#templates + 1] = item
+					end
+				end
+				if #templates ~= expectedTemplates then
+					add(warnings, string.format(
+						"%s.Items must contain exactly %d Template GuiObjects",
+						sourcePrefix,
+						expectedTemplates
+					))
+				end
+				for index, template in ipairs(templates) do
+					local source = sourcePrefix .. ".Items.Template[" .. tostring(index) .. "]"
+					descendant(template, "Icon", "ViewportFrame", warnings)
+					if hasCashReward then
+						descendant(template, "IconImage", "ImageLabel", warnings)
+					end
+					descendant(template, "Name", "TextLabel", warnings)
+					descendant(template, "Amount", "TextLabel", warnings)
+					if not template.Visible then
+						add(warnings, source .. " should be visible in the Studio-authored card")
+					end
+				end
+			end
 		end
 	end
 end
 
 local function validateGamePassShopCard(card, warnings)
 	local buyButton = child(card, "BuyButton", "GuiButton", warnings)
-	local price = buyButton and child(buyButton, "Price", "TextLabel", warnings)
-	if price then
-		descendant(price, "Price", "TextLabel", warnings)
+	if buyButton then
+		child(buyButton, "Price", "TextLabel", warnings)
 	end
 	child(card, "Sold", "ImageLabel", warnings)
 end
@@ -1338,20 +1428,36 @@ local function validateGamePassShopUi(menu, warnings)
 	local panel = child(menu, "RobuxShop", "GuiObject", warnings)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", warnings)
-	local featured = holder and child(holder, "Featured", "GuiObject", warnings)
-	local gamepasses = holder and child(holder, "Gamepasses", "GuiObject", warnings)
+	local featured = holder and holder:FindFirstChild("Featured")
+	local gamepasses = holder and holder:FindFirstChild("Gamepasses")
+	if featured and not featured:IsA("GuiObject") then
+		add(warnings, string.format("%s is %s, expected GuiObject", featured:GetFullName(), featured.ClassName))
+		featured = nil
+	end
+	if gamepasses and not gamepasses:IsA("GuiObject") then
+		add(warnings, string.format("%s is %s, expected GuiObject", gamepasses:GetFullName(), gamepasses.ClassName))
+		gamepasses = nil
+	end
 
 	for _, pass in ipairs(ShopBalance.AllGamePasses()) do
 		if type(pass.FeaturedCardName) == "string" and pass.FeaturedCardName ~= "" then
-			local featuredCard = featured and child(featured, pass.FeaturedCardName, "GuiObject", warnings)
+			local featuredCard = featured and featured:FindFirstChild(pass.FeaturedCardName)
 			if featuredCard then
-				validateGamePassShopCard(featuredCard, warnings)
+				if featuredCard:IsA("GuiObject") then
+					validateGamePassShopCard(featuredCard, warnings)
+				else
+					add(warnings, string.format("%s is %s, expected GuiObject", featuredCard:GetFullName(), featuredCard.ClassName))
+				end
 			end
 		end
 
-		local gamepassesCard = gamepasses and child(gamepasses, pass.ShopCardName, "GuiObject", warnings)
+		local gamepassesCard = gamepasses and gamepasses:FindFirstChild(pass.ShopCardName)
 		if gamepassesCard then
-			validateGamePassShopCard(gamepassesCard, warnings)
+			if gamepassesCard:IsA("GuiObject") then
+				validateGamePassShopCard(gamepassesCard, warnings)
+			else
+				add(warnings, string.format("%s is %s, expected GuiObject", gamepassesCard:GetFullName(), gamepassesCard.ClassName))
+			end
 		end
 	end
 end
@@ -1874,10 +1980,9 @@ local function validateShopBalance(errors)
 			end
 		end
 	end
-	local starterPack = ShopBalance.GetStarterPack()
-	if starterPack then
+	for packIndex, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
 		for rewardIndex, reward in ipairs(starterPack.Rewards or {}) do
-			local rewardSource = "ShopBalance.StarterPack.Rewards[" .. tostring(rewardIndex) .. "]"
+			local rewardSource = "ShopBalance.StarterPacks[" .. tostring(packIndex) .. "].Rewards[" .. tostring(rewardIndex) .. "]"
 			if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and not Seeds.GetTemplate(reward.SeedId) then
 				add(errors, rewardSource .. " has unknown SeedId " .. tostring(reward.SeedId))
 			end
@@ -1926,15 +2031,20 @@ local function validateShopProductIds(errors)
 		addProductIdSource(seenProducts, item.DevProductId, "CosmeticShopBalance.Items[" .. tostring(index) .. "].DevProductId", errors)
 	end
 	for index, pack in ipairs(ShopBalance.AllSeedPacks()) do
-		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].DevProductId", errors)
-		addProductIdSource(seenProducts, pack.BuyThreeDevProductId, "ShopBalance.SeedPacks[" .. tostring(index) .. "].BuyThreeDevProductId", errors)
+		for productIndex, product in ipairs(ShopBalance.AllSeedPackProducts(pack)) do
+			addProductIdSource(
+				seenProducts,
+				product.DevProductId,
+				"ShopBalance.SeedPacks[" .. tostring(index) .. "].Products[" .. tostring(productIndex) .. "].DevProductId",
+				errors
+			)
+		end
 	end
 	for index, pack in ipairs(ShopBalance.AllCashPacks()) do
 		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.CashPacks[" .. tostring(index) .. "].DevProductId", errors)
 	end
-	local starterPack = ShopBalance.GetStarterPack()
-	if starterPack then
-		addProductIdSource(seenProducts, starterPack.DevProductId, "ShopBalance.StarterPack.DevProductId", errors)
+	for index, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
+		addProductIdSource(seenProducts, starterPack.DevProductId, "ShopBalance.StarterPacks[" .. tostring(index) .. "].DevProductId", errors)
 	end
 	local foodSteal = ShopBalance.GetFoodSteal()
 	if foodSteal then
@@ -2171,6 +2281,15 @@ local function validateRemotes(errors)
 	if not ok then add(errors, tostring(err)) end
 end
 
+local function validatePlayerStateContract(errors)
+	if PlayerState.Fields.StarterPackPurchased ~= "StarterPackPurchased" then
+		add(errors, "PlayerState.Fields.StarterPackPurchased must remain the legacy starter-pack boolean")
+	end
+	if PlayerState.Fields.StarterPackPurchases ~= "StarterPackPurchases" then
+		add(errors, "PlayerState.Fields.StarterPackPurchases is required for per-pack starter ownership")
+	end
+end
+
 local function validatePlots(errors, warnings)
 	local plotsFolder = Workspace:FindFirstChild("Plots")
 	local foundPlot = false
@@ -2304,12 +2423,17 @@ local function validatePlots(errors, warnings)
 		if signs then
 			local playerSign = child(signs, "PlayerSign", "Model", errors)
 			if playerSign then
-				local surfaceGui = descendant(playerSign, "SurfaceGui", "SurfaceGui", errors)
-				local playerInfo = surfaceGui and child(surfaceGui, "PlayerInfo", "GuiObject", errors)
+				local playerNameGui = descendant(playerSign, "PlayerName", "SurfaceGui", errors)
+				local playerInfo = playerNameGui and child(playerNameGui, "PlayerInfo", "GuiObject", errors)
 				if playerInfo then
-					child(playerInfo, "Icon", "ImageLabel", errors)
 					child(playerInfo, "Name", "TextLabel", errors)
-					child(playerInfo, "PlayerName", "TextLabel", errors)
+					child(playerInfo, "Farm", "TextLabel", errors)
+				end
+
+				local earnRateGui = descendant(playerSign, "EarnRate", "SurfaceGui", errors)
+				local earnRateFrame = earnRateGui and child(earnRateGui, "EarnRate", "GuiObject", errors)
+				if earnRateFrame then
+					child(earnRateFrame, "EarnRate", "TextLabel", errors)
 				end
 			end
 
@@ -2447,6 +2571,7 @@ function AssetValidator.validate()
 	end
 
 	validateRemotes(errors)
+	validatePlayerStateContract(errors)
 	validatePetCatalog(errors)
 	validateFeedTemplates(errors, warnings)
 	validateSeeds(errors)

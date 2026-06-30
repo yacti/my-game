@@ -1,6 +1,7 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -21,6 +22,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
+local ResponsiveHud = require(script.Parent:WaitForChild("ResponsiveHud"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local StationFocus = require(script.Parent:WaitForChild("StationFocus"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -34,10 +36,11 @@ local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
 local MAILBOX_NAME = MailboxConfig.MailboxName
 local DOOR_NAME = MailboxConfig.DoorName
 local EDIT_MODE_ATTR = "EditMode"
-local DOOR_OPEN_ANGLE = math.rad(-78)
+local DOOR_OPEN_ANGLE = math.rad(78)
 local DOOR_OPEN_TWEEN = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local DOOR_CLOSE_TWEEN = TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local PROMPT_TIMEOUT_SECONDS = 20
+local SKIP_30M_GRADIENT_DEGREES_PER_SECOND = 18
 
 local SKIP_IDS = { "Skip5m", "Skip30m" }
 
@@ -72,13 +75,13 @@ end
 local function robuxText(productId, onLoaded)
 	productId = int(productId, 0)
 	if productId <= 0 then
-		return "Robux"
+		return NumberFormatter.Robux(0)
 	end
 	if productPriceById[productId] then
 		return productPriceById[productId]
 	end
 
-	productPriceById[productId] = "Robux"
+	productPriceById[productId] = NumberFormatter.Robux(0)
 	RuntimeGuard.Spawn("SkipTimeButtonsController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
@@ -460,6 +463,39 @@ local function bindCard(frame)
 	}
 end
 
+local function bindSlowGradientRotation(guiObject)
+	local gradients = {}
+	for _, descendant in ipairs(guiObject and guiObject:GetDescendants() or {}) do
+		if descendant:IsA("UIGradient") then
+			gradients[#gradients + 1] = descendant
+		end
+	end
+	if #gradients == 0 then
+		return
+	end
+
+	local rotation = gradients[1].Rotation
+	local connection
+	connection = RuntimeGuard.Connect(RunService.RenderStepped, "SkipTimeButtonsController.Skip30mGradient", function(deltaTime)
+		if not (guiObject and guiObject.Parent) then
+			if connection then
+				connection:Disconnect()
+				connection = nil
+			end
+			return
+		end
+		rotation = (rotation + deltaTime * SKIP_30M_GRADIENT_DEGREES_PER_SECOND) % 360
+		for index = #gradients, 1, -1 do
+			local gradient = gradients[index]
+			if gradient and gradient.Parent then
+				gradient.Rotation = rotation
+			else
+				table.remove(gradients, index)
+			end
+		end
+	end)
+end
+
 local function setError(record, text)
 	if not (record and record.errorLabel) then
 		return
@@ -532,7 +568,7 @@ end
 
 local function targetPivotForDoor(closedPivot, open)
 	if open then
-		return closedPivot * CFrame.Angles(DOOR_OPEN_ANGLE, 0, 0)
+		return closedPivot * CFrame.Angles(0, 0, DOOR_OPEN_ANGLE)
 	end
 	return closedPivot
 end
@@ -600,6 +636,7 @@ function SkipTimeButtonsController.start()
 	end
 
 	local panelState = UiEffects.PreparePanel(skipButtons)
+	ResponsiveHud.RegisterBottomShiftPanel(hud, "SkipTimeButtons", skipButtons, panelState)
 	local records = {}
 	local recordsBySkipId = {}
 	local collectAllRecord = nil
@@ -607,14 +644,9 @@ function SkipTimeButtonsController.start()
 	local transitionToken = 0
 	local lastPreviewAt = -math.huge
 	local collectAllPreviewFrozen = false
-	local cachedHasEligibleGrowth = false
 	local cachedCollectAllCount = 0
 	local cachedSkipXPById = {}
 	local render
-
-	local function isPurchasePromptActive()
-		return pendingProductId ~= nil
-	end
 
 	local function markPreviewDirty()
 		lastPreviewAt = -math.huge
@@ -642,6 +674,7 @@ function SkipTimeButtonsController.start()
 	end
 	if recordsBySkipId.Skip30m then
 		ensureMythicalTextTween(recordsBySkipId.Skip30m.skipAmountLabel)
+		bindSlowGradientRotation(recordsBySkipId.Skip30m.buyButton)
 	end
 
 	do
@@ -705,7 +738,6 @@ function SkipTimeButtonsController.start()
 			return
 		end
 		lastPreviewAt = clock
-		cachedHasEligibleGrowth = plotHasEligibleGrowth(plot)
 		cachedCollectAllCount = readyCollectAllFruitCount(plot)
 		for _, record in ipairs(records) do
 			if record.kind == "skip" then
@@ -715,19 +747,13 @@ function SkipTimeButtonsController.start()
 	end
 
 	render = function()
-		local mailbox = currentMailbox()
 		local plot = ownPlot()
-		local canUse = canUseMailbox(mailbox)
-		local blocked = requestBlocked()
 		refreshPreviewCache(plot)
-		local canSkip = isOpen and canUse and cachedHasEligibleGrowth
 		for _, record in ipairs(records) do
 			if record.priceLabel then
 				UiEffects.SetTextStack(record.priceLabel, robuxText(record.productId, render))
 			end
-			local enabled = isOpen and canUse and not blocked and record.productId > 0
 			if record.kind == "skip" then
-				enabled = enabled and canSkip
 				if isOpen and record.skipAmountLabel then
 					UiEffects.SetTextStack(record.skipAmountLabel, formatAddedXP(cachedSkipXPById[record.skipId] or 0))
 				end
@@ -735,17 +761,22 @@ function SkipTimeButtonsController.start()
 				local suffix = cachedCollectAllCount == 1 and " fruit" or " fruits"
 				UiEffects.SetTextStack(record.fruitsLabel, NumberFormatter.Format(cachedCollectAllCount) .. suffix)
 			end
-			if not isPurchasePromptActive() and pendingRequestId == nil then
-				UiEffects.SetButtonEnabled(record.buyButton, enabled)
-			end
 		end
 	end
 
 	local function requestSkip(skipId)
 		local record = recordsBySkipId[skipId]
 		local mailbox = currentMailbox()
+		local plot = ownPlot()
 		clearErrors(records)
 		if requestBlocked() then
+			setError(record, codeToMessage("pending-purchase"))
+			render()
+			return
+		end
+		if not (record and record.productId > 0) then
+			setError(record, codeToMessage(nil))
+			render()
 			return
 		end
 		if not canUseMailbox(mailbox) then
@@ -753,7 +784,7 @@ function SkipTimeButtonsController.start()
 			render()
 			return
 		end
-		if not plotHasEligibleGrowth(ownPlot()) then
+		if not plotHasEligibleGrowth(plot) then
 			setError(record, codeToMessage("no-growth"))
 			render()
 			return
@@ -766,8 +797,16 @@ function SkipTimeButtonsController.start()
 
 	local function requestCollectAll()
 		local mailbox = currentMailbox()
+		local plot = ownPlot()
 		clearErrors(records)
 		if requestBlocked() then
+			setError(collectAllRecord, codeToMessage("pending-purchase"))
+			render()
+			return
+		end
+		if not (collectAllRecord and collectAllRecord.productId > 0) then
+			setError(collectAllRecord, codeToMessage(nil))
+			render()
 			return
 		end
 		if not canUseMailbox(mailbox) then
@@ -775,6 +814,14 @@ function SkipTimeButtonsController.start()
 			render()
 			return
 		end
+		local readyCount = readyCollectAllFruitCount(plot)
+		if readyCount <= 0 then
+			cachedCollectAllCount = 0
+			setError(collectAllRecord, codeToMessage("no-food"))
+			render()
+			return
+		end
+		cachedCollectAllCount = readyCount
 		pendingRequestId = nextNegativeRequestId()
 		pendingKind = "collect-all"
 		collectAllPreviewFrozen = true

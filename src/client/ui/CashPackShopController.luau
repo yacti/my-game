@@ -46,13 +46,13 @@ end
 local function robuxText(productId, onLoaded)
 	productId = tonumber(productId) or 0
 	if productId <= 0 then
-		return "Robux"
+		return NumberFormatter.Robux(0)
 	end
 	if productPriceById[productId] then
 		return productPriceById[productId]
 	end
 
-	productPriceById[productId] = "Robux"
+	productPriceById[productId] = NumberFormatter.Robux(0)
 	RuntimeGuard.Spawn("CashPackShopController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then

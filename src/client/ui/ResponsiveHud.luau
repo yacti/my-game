@@ -116,6 +116,21 @@ local function positionWithYOffset(position, offsetY)
 	return UDim2.new(position.X.Scale, position.X.Offset, position.Y.Scale, position.Y.Offset + offsetY)
 end
 
+local function setOpenUdim2Attributes(instance, prefix, value)
+	instance:SetAttribute(prefix .. "Scale", value.Scale)
+	instance:SetAttribute(prefix .. "Offset", value.Offset)
+end
+
+local function writeOpenStateAttributes(instance, state)
+	if not (instance and state) then
+		return
+	end
+	setOpenUdim2Attributes(instance, "UiEffectsOpenX", state.openPosition.X)
+	setOpenUdim2Attributes(instance, "UiEffectsOpenY", state.openPosition.Y)
+	setOpenUdim2Attributes(instance, "UiEffectsOpenSizeX", state.openSize.X)
+	setOpenUdim2Attributes(instance, "UiEffectsOpenSizeY", state.openSize.Y)
+end
+
 local function guiBottom(guiObject)
 	return guiObject.AbsolutePosition.Y + guiObject.AbsoluteSize.Y
 end
@@ -172,6 +187,46 @@ local function rollButtonsVisibleBottom(rollButtons)
 	return bottom or guiBottom(rollButtons)
 end
 
+local function copyPanelState(state)
+	if type(state) ~= "table" then
+		return nil
+	end
+	return {
+		openPosition = state.openPosition,
+		openSize = state.openSize,
+		closedPosition = state.closedPosition,
+		closedSize = state.closedSize,
+	}
+end
+
+local function panelContainerRect(panel)
+	local parent = panel and panel.Parent
+	if parent and parent:IsA("GuiObject") then
+		return parent.AbsolutePosition, parent.AbsoluteSize
+	end
+	return Vector2.new(0, 0), viewportSize()
+end
+
+local function panelStateBottom(panel, state)
+	if not (panel and state) then
+		return nil
+	end
+	local parentPosition, parentSize = panelContainerRect(panel)
+	local size = state.openSize
+	local position = state.openPosition
+	local height = parentSize.Y * size.Y.Scale + size.Y.Offset
+	local centerY = parentPosition.Y + parentSize.Y * position.Y.Scale + position.Y.Offset
+	return centerY - panel.AnchorPoint.Y * height + height
+end
+
+local function applyPanelStateShift(panel, state, baseState, offsetY)
+	state.openPosition = positionWithYOffset(baseState.openPosition, offsetY)
+	state.openSize = baseState.openSize
+	state.closedPosition = positionWithYOffset(baseState.closedPosition, offsetY)
+	state.closedSize = baseState.closedSize
+	writeOpenStateAttributes(panel, state)
+end
+
 local function shiftAboveAllowedBottom(record, key, guiObject, allowedBottom, bottomFn)
 	if not (guiObject and guiObject:IsA("GuiObject")) then
 		return
@@ -196,6 +251,24 @@ local function shiftAboveAllowedBottom(record, key, guiObject, allowedBottom, bo
 	guiObject.Position = positionWithYOffset(base, -shift)
 end
 
+local function shiftPanelStateAboveAllowedBottom(record, panelRecord)
+	local panel = panelRecord and panelRecord.panel
+	local state = panelRecord and panelRecord.state
+	local baseState = panelRecord and panelRecord.baseState
+	if not (panel and panel:IsA("GuiObject") and state and baseState) then
+		return
+	end
+
+	local offsetY = 0
+	if record.context.isTouch == true and type(record.context.satchelAllowedBottom) == "number" then
+		local bottom = panelStateBottom(panel, baseState)
+		if bottom and bottom > record.context.satchelAllowedBottom then
+			offsetY = -math.ceil(bottom - record.context.satchelAllowedBottom)
+		end
+	end
+	applyPanelStateShift(panel, state, baseState, offsetY)
+end
+
 local function updateRollButtons(record)
 	local rollButtons = record.hud:FindFirstChild("RollButtons")
 	if not (rollButtons and rollButtons:IsA("GuiObject")) then
@@ -214,9 +287,16 @@ local function updateOnboarding(record)
 	shiftAboveAllowedBottom(record, "Onboarding", onboarding, record.context.satchelAllowedBottom)
 end
 
+local function updateRegisteredPanels(record)
+	for _, panelRecord in pairs(record.bottomShiftPanels) do
+		shiftPanelStateAboveAllowedBottom(record, panelRecord)
+	end
+end
+
 local adjustments = {
 	updateRollButtons,
 	updateOnboarding,
+	updateRegisteredPanels,
 }
 
 local function computeContext(record)
@@ -282,6 +362,9 @@ local function cleanup(record)
 	end
 	disconnect(record.cameraViewportConnection)
 	disconnectHotbar(record)
+	for _, panelRecord in pairs(record.bottomShiftPanels) do
+		disconnect(panelRecord.destroyingConnection)
+	end
 	records[record.hud] = nil
 end
 
@@ -297,6 +380,7 @@ function ResponsiveHud.Bind(hud)
 		hud = hud,
 		playerGui = playerGuiForHud(hud),
 		basePositions = {},
+		bottomShiftPanels = {},
 		connections = {},
 		context = {},
 		updateScheduled = false,
@@ -329,6 +413,42 @@ function ResponsiveHud.Bind(hud)
 
 	bindCamera(record)
 	scheduleUpdate(record)
+end
+
+function ResponsiveHud.RegisterBottomShiftPanel(hud, key, panel, panelState)
+	if not (hud and hud:IsA("ScreenGui") and panel and panel:IsA("GuiObject")) then
+		return
+	end
+	if type(panelState) ~= "table" then
+		return
+	end
+	local record = records[hud]
+	if not record then
+		ResponsiveHud.Bind(hud)
+		record = records[hud]
+	end
+	if not record then
+		return
+	end
+
+	key = tostring(key or panel.Name)
+	local existing = record.bottomShiftPanels[key]
+	if existing then
+		disconnect(existing.destroyingConnection)
+	end
+
+	record.bottomShiftPanels[key] = {
+		panel = panel,
+		state = panelState,
+		baseState = copyPanelState(panelState),
+		destroyingConnection = RuntimeGuard.Connect(panel.Destroying, "ResponsiveHud.BottomShiftPanelDestroying", function()
+			local current = records[hud]
+			if current then
+				current.bottomShiftPanels[key] = nil
+			end
+		end),
+	}
+	RuntimeGuard.Run("ResponsiveHud.RegisterBottomShiftPanel.Update", updateRecord, record)
 end
 
 return ResponsiveHud

@@ -6,6 +6,10 @@ ShopBalance.SeedPacks = {
 		DisplayName = "Seed Pack",
 		DevProductId = 3593513166,
 		BuyThreeDevProductId = 3593513259,
+		Products = {
+			{ Quantity = 1, DevProductId = 3593513166 },
+			{ Quantity = 3, DevProductId = 3593513259 },
+		},
 		Rewards = {
 			{ SeedId = "OrangeTreeSeed", Weight = 60 },
 			{ SeedId = "WatermelonSeed", Weight = 35 },
@@ -17,6 +21,10 @@ ShopBalance.SeedPacks = {
 		DisplayName = "Epic Seed Pack",
 		DevProductId = 3593513368,
 		BuyThreeDevProductId = 3604441419,
+		Products = {
+			{ Quantity = 1, DevProductId = 3593513368 },
+			{ Quantity = 3, DevProductId = 3604441419 },
+		},
 		Rewards = {
 			{ SeedId = "CornSeed", Weight = 50 },
 			{ SeedId = "MushroomSeed", Weight = 45 },
@@ -28,9 +36,30 @@ ShopBalance.SeedPacks = {
 		DisplayName = "Secret Seed Pack",
 		DevProductId = 3604441448,
 		BuyThreeDevProductId = 3604441467,
+		Products = {
+			{ Quantity = 1, DevProductId = 3604441448 },
+			{ Quantity = 3, DevProductId = 3604441467 },
+		},
 		Rewards = {
 			{ SeedId = "FigTreeSeed", Weight = 66 },
 			{ SeedId = "GlowshroomSeed", Weight = 33 },
+			{ SeedId = "DurianTreeSeed", Weight = 1 },
+		},
+	},
+	{
+		PackId = "DurianPack",
+		DisplayName = "Durian Pack",
+		Featured = true,
+		Products = {
+			{ Quantity = 1, DevProductId = 3607448000 },
+			{ Quantity = 3, DevProductId = 3607448072 },
+			{ Quantity = 10, DevProductId = 3607448274 },
+			{ Quantity = 50, DevProductId = 3607448383 },
+		},
+		Rewards = {
+			{ SeedId = "WatermelonSeed", Weight = 60 },
+			{ SeedId = "MushroomSeed", Weight = 35 },
+			{ SeedId = "GlowshroomSeed", Weight = 4 },
 			{ SeedId = "DurianTreeSeed", Weight = 1 },
 		},
 	},
@@ -91,19 +120,49 @@ ShopBalance.StarterPackRewardKinds = {
 	Seed = "Seed",
 }
 
-ShopBalance.CashRewardIcon = "rbxassetid://87193004065802"
+ShopBalance.CashRewardIcon = "rbxassetid://83341129100923"
 ShopBalance.CashRewardTextColor = Color3.fromRGB(76, 217, 100)
+ShopBalance.StarterPackCycleSeconds = 14 * 60 * 60
 
-ShopBalance.StarterPack = {
-	PackId = "StarterPack",
-	DisplayName = "Starter Pack",
-	DevProductId = 3604596908,
-	Rewards = {
-		{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 10000 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "WatermelonSeed", Amount = 1 },
-		{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PlumTreeSeed", Amount = 1 },
+ShopBalance.StarterPacks = {
+	{
+		PackId = "StarterPack",
+		DisplayName = "Starter Pack",
+		DevProductId = 3604596908,
+		MinRebirths = 0,
+		MaxRebirths = 0,
+		Rewards = {
+			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 10000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "WatermelonSeed", Amount = 1 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PlumTreeSeed", Amount = 1 },
+		},
+	},
+	{
+		PackId = "FarmerPack",
+		DisplayName = "Farmer Pack",
+		DevProductId = 3607447742,
+		MinRebirths = 1,
+		MaxRebirths = 2,
+		Rewards = {
+			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 50000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "MushroomSeed", Amount = 1 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "CactusSeed", Amount = 1 },
+		},
+	},
+	{
+		PackId = "LegendaryFarmerPack",
+		DisplayName = "Legendary Farmer Pack",
+		DevProductId = 3607447786,
+		MinRebirths = 3,
+		MaxRebirths = nil,
+		Rewards = {
+			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 1000000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "FigTreeSeed", Amount = 1 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PurpleShroomSeed", Amount = 1 },
+		},
 	},
 }
+ShopBalance.StarterPack = ShopBalance.StarterPacks[1]
 
 ShopBalance.FoodSteal = {
 	DevProductId = 3604630642,
@@ -201,6 +260,43 @@ local function copyReward(reward)
 	}
 end
 
+local function seedPackProducts(pack)
+	local products = {}
+	if type(pack) == "table" and type(pack.Products) == "table" then
+		for _, product in ipairs(pack.Products) do
+			if type(product) == "table" then
+				products[#products + 1] = {
+					Quantity = int(product.Quantity, 0),
+					DevProductId = int(product.DevProductId, 0),
+				}
+			end
+		end
+	end
+	if #products == 0 and type(pack) == "table" then
+		local oneProductId = int(pack.DevProductId, 0)
+		if oneProductId > 0 then
+			products[#products + 1] = {
+				Quantity = 1,
+				DevProductId = oneProductId,
+			}
+		end
+		local threeProductId = int(pack.BuyThreeDevProductId, 0)
+		if threeProductId > 0 then
+			products[#products + 1] = {
+				Quantity = 3,
+				DevProductId = threeProductId,
+			}
+		end
+	end
+	table.sort(products, function(a, b)
+		if a.Quantity ~= b.Quantity then
+			return a.Quantity < b.Quantity
+		end
+		return a.DevProductId < b.DevProductId
+	end)
+	return products
+end
+
 local function copyPack(pack)
 	if type(pack) ~= "table" then
 		return nil
@@ -209,11 +305,23 @@ local function copyPack(pack)
 	for _, reward in ipairs(pack.Rewards or {}) do
 		rewards[#rewards + 1] = copyReward(reward)
 	end
+	local products = seedPackProducts(pack)
+	local oneProduct = products[1]
+	local threeProduct = nil
+	for _, product in ipairs(products) do
+		if product.Quantity == 1 then
+			oneProduct = product
+		elseif product.Quantity == 3 then
+			threeProduct = product
+		end
+	end
 	return {
 		PackId = pack.PackId,
 		DisplayName = pack.DisplayName,
-		DevProductId = pack.DevProductId,
-		BuyThreeDevProductId = pack.BuyThreeDevProductId,
+		DevProductId = int(pack.DevProductId or (oneProduct and oneProduct.DevProductId), 0),
+		BuyThreeDevProductId = int(pack.BuyThreeDevProductId or (threeProduct and threeProduct.DevProductId), 0),
+		Featured = pack.Featured == true,
+		Products = products,
 		Rewards = rewards,
 	}
 end
@@ -239,6 +347,8 @@ local function copyStarterPack(pack)
 		PackId = pack.PackId,
 		DisplayName = pack.DisplayName,
 		DevProductId = pack.DevProductId,
+		MinRebirths = int(pack.MinRebirths, 0),
+		MaxRebirths = pack.MaxRebirths ~= nil and int(pack.MaxRebirths, 0) or nil,
 		Rewards = rewards,
 	}
 end
@@ -366,17 +476,36 @@ function ShopBalance.AllSeedPacks()
 	return packs
 end
 
+function ShopBalance.SeedPackProductForQuantity(pack, quantity)
+	local targetQuantity = int(quantity, 0)
+	if targetQuantity <= 0 then
+		return nil
+	end
+	for _, product in ipairs(seedPackProducts(pack)) do
+		if product.Quantity == targetQuantity and product.DevProductId > 0 then
+			return {
+				Quantity = product.Quantity,
+				DevProductId = product.DevProductId,
+			}
+		end
+	end
+	return nil
+end
+
+function ShopBalance.AllSeedPackProducts(pack)
+	return seedPackProducts(pack)
+end
+
 function ShopBalance.SeedPackForProductId(productIdValue)
 	local target = productId(productIdValue)
 	if target <= 0 then
 		return nil
 	end
 	for _, pack in ipairs(ShopBalance.SeedPacks) do
-		if productId(pack.DevProductId) == target then
-			return copyPack(pack), 1
-		end
-		if productId(pack.BuyThreeDevProductId) == target then
-			return copyPack(pack), 3
+		for _, product in ipairs(seedPackProducts(pack)) do
+			if product.DevProductId == target then
+				return copyPack(pack), product.Quantity
+			end
 		end
 	end
 	return nil
@@ -416,6 +545,37 @@ end
 
 function ShopBalance.GetStarterPack()
 	return copyStarterPack(ShopBalance.StarterPack)
+end
+
+function ShopBalance.AllStarterPacks()
+	local packs = {}
+	for _, pack in ipairs(ShopBalance.StarterPacks or {}) do
+		local copy = copyStarterPack(pack)
+		if copy then
+			packs[#packs + 1] = copy
+		end
+	end
+	table.sort(packs, function(a, b)
+		local minA = tonumber(a.MinRebirths) or 0
+		local minB = tonumber(b.MinRebirths) or 0
+		if minA ~= minB then
+			return minA < minB
+		end
+		return tostring(a.PackId) < tostring(b.PackId)
+	end)
+	return packs
+end
+
+function ShopBalance.StarterPackForPackId(packId)
+	if type(packId) ~= "string" or packId == "" then
+		return nil
+	end
+	for _, pack in ipairs(ShopBalance.StarterPacks or {}) do
+		if pack.PackId == packId then
+			return copyStarterPack(pack)
+		end
+	end
+	return nil
 end
 
 function ShopBalance.GetFoodSteal()
@@ -533,11 +693,31 @@ end
 
 function ShopBalance.StarterPackForProductId(productIdValue)
 	local target = productId(productIdValue)
-	local pack = ShopBalance.StarterPack
-	if target <= 0 or type(pack) ~= "table" or productId(pack.DevProductId) ~= target then
+	if target <= 0 then
 		return nil
 	end
-	return copyStarterPack(pack)
+	for _, pack in ipairs(ShopBalance.StarterPacks or {}) do
+		if productId(pack.DevProductId) == target then
+			return copyStarterPack(pack)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.StarterPackForRebirths(rebirths)
+	local value = int(rebirths, 0)
+	local fallback = nil
+	for _, pack in ipairs(ShopBalance.AllStarterPacks()) do
+		local minRebirths = int(pack.MinRebirths, 0)
+		local maxRebirths = pack.MaxRebirths ~= nil and int(pack.MaxRebirths, 0) or nil
+		if value >= minRebirths and (maxRebirths == nil or value <= maxRebirths) then
+			return pack
+		end
+		if value >= minRebirths then
+			fallback = pack
+		end
+	end
+	return fallback
 end
 
 function ShopBalance.FoodStealForProductId(productIdValue)
@@ -786,11 +966,25 @@ function ShopBalance.Validate(errors)
 			add(source .. " has invalid DisplayName")
 		end
 
-		validateProduct(pack.DevProductId, source .. ".DevProductId")
-		validateProduct(pack.BuyThreeDevProductId, source .. ".BuyThreeDevProductId")
+		local products = seedPackProducts(pack)
+		local seenQuantities = {}
+		if #products == 0 then
+			add(source .. " must define seed pack Products")
+		end
+		for productIndex, product in ipairs(products) do
+			local productSource = source .. ".Products[" .. tostring(productIndex) .. "]"
+			if type(product.Quantity) ~= "number" or product.Quantity <= 0 or product.Quantity % 1 ~= 0 then
+				add(productSource .. " has invalid Quantity")
+			elseif seenQuantities[product.Quantity] then
+				add(source .. " has duplicate product Quantity " .. tostring(product.Quantity))
+			else
+				seenQuantities[product.Quantity] = true
+			end
+			validateProduct(product.DevProductId, productSource .. ".DevProductId")
+		end
 
-		if type(pack.Rewards) ~= "table" or #pack.Rewards ~= 3 then
-			add(source .. " must define exactly three Rewards")
+		if type(pack.Rewards) ~= "table" or #pack.Rewards == 0 then
+			add(source .. " must define Rewards")
 		else
 			for rewardIndex, reward in ipairs(pack.Rewards) do
 				local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
@@ -850,51 +1044,68 @@ function ShopBalance.Validate(errors)
 		end
 	end
 
-	local starterPack = ShopBalance.StarterPack
-	if type(starterPack) ~= "table" then
-		add("ShopBalance.StarterPack must be a table")
+	local starterPacks = ShopBalance.StarterPacks
+	if type(starterPacks) ~= "table" or #starterPacks == 0 then
+		add("ShopBalance.StarterPacks must define starter packs")
 	else
-		local source = "ShopBalance.StarterPack"
-		if type(starterPack.PackId) ~= "string" or starterPack.PackId == "" then
-			add(source .. " has invalid PackId")
-		elseif seenPacks[starterPack.PackId] then
-			add("Duplicate shop PackId " .. tostring(starterPack.PackId))
-		else
-			seenPacks[starterPack.PackId] = true
-		end
-		if type(starterPack.DisplayName) ~= "string" or starterPack.DisplayName == "" then
-			add(source .. " has invalid DisplayName")
-		end
-		validateProduct(starterPack.DevProductId, source .. ".DevProductId")
+		for index, starterPack in ipairs(starterPacks) do
+			local source = "ShopBalance.StarterPacks[" .. tostring(index) .. "]"
+			if type(starterPack) ~= "table" then
+				add(source .. " must be a table")
+				continue
+			end
+			if type(starterPack.PackId) ~= "string" or starterPack.PackId == "" then
+				add(source .. " has invalid PackId")
+			elseif seenPacks[starterPack.PackId] then
+				add("Duplicate shop PackId " .. tostring(starterPack.PackId))
+			else
+				seenPacks[starterPack.PackId] = true
+			end
+			if type(starterPack.DisplayName) ~= "string" or starterPack.DisplayName == "" then
+				add(source .. " has invalid DisplayName")
+			end
+			validateProduct(starterPack.DevProductId, source .. ".DevProductId")
+			local minRebirths = starterPack.MinRebirths
+			if type(minRebirths) ~= "number" or minRebirths < 0 or minRebirths % 1 ~= 0 then
+				add(source .. " has invalid MinRebirths")
+			end
+			local safeMinRebirths = type(minRebirths) == "number" and minRebirths or 0
+			if starterPack.MaxRebirths ~= nil
+				and (type(starterPack.MaxRebirths) ~= "number"
+					or starterPack.MaxRebirths < safeMinRebirths
+					or starterPack.MaxRebirths % 1 ~= 0) then
+				add(source .. " has invalid MaxRebirths")
+			end
 
-		if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards ~= 3 then
-			add(source .. " must define exactly three Rewards")
-		else
-			for rewardIndex, reward in ipairs(starterPack.Rewards) do
-				local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
-				if type(reward) ~= "table" then
-					add(rewardSource .. " must be a table")
-					continue
-				end
-				if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed
-					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine
-					and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
-					add(rewardSource .. " has invalid Kind")
-				end
-				if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed
-					and (type(reward.SeedId) ~= "string" or reward.SeedId == "") then
-					add(rewardSource .. " has invalid SeedId")
-				end
-				if reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine
-					and (type(reward.FeedType) ~= "string" or reward.FeedType == "") then
-					add(rewardSource .. " has invalid FeedType")
-				end
-				if type(reward.Amount) ~= "number"
-					or reward.Amount <= 0
-					or reward.Amount ~= reward.Amount
-					or math.abs(reward.Amount) == math.huge
-					or reward.Amount % 1 ~= 0 then
-					add(rewardSource .. " has invalid Amount")
+			if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards == 0 then
+				add(source .. " must define Rewards")
+			else
+				for rewardIndex, reward in ipairs(starterPack.Rewards) do
+					local rewardSource = source .. ".Rewards[" .. tostring(rewardIndex) .. "]"
+					if type(reward) ~= "table" then
+						add(rewardSource .. " must be a table")
+						continue
+					end
+					if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed
+						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine
+						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
+						add(rewardSource .. " has invalid Kind")
+					end
+					if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed
+						and (type(reward.SeedId) ~= "string" or reward.SeedId == "") then
+						add(rewardSource .. " has invalid SeedId")
+					end
+					if reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine
+						and (type(reward.FeedType) ~= "string" or reward.FeedType == "") then
+						add(rewardSource .. " has invalid FeedType")
+					end
+					if type(reward.Amount) ~= "number"
+						or reward.Amount <= 0
+						or reward.Amount ~= reward.Amount
+						or math.abs(reward.Amount) == math.huge
+						or reward.Amount % 1 ~= 0 then
+						add(rewardSource .. " has invalid Amount")
+					end
 				end
 			end
 		end

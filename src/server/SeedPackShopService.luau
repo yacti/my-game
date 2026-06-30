@@ -108,6 +108,7 @@ local function resultPayload(pack, rewards)
 	return {
 		action = "reveal",
 		packId = pack.PackId,
+		sourceSection = pack.Featured == true and "Featured" or "SeedPacks",
 		results = results,
 	}
 end
@@ -160,6 +161,7 @@ local function grantPrepared(player, profile, prepared)
 
 	local granted, code = ToolGrantService.GrantTools(player, prepared.tools, {
 		autoEquip = false,
+		ignoreInventoryCap = true,
 	})
 	if not granted then
 		destroyPrepared(prepared)
@@ -204,7 +206,7 @@ function SeedPackShopService.ProcessReceipt(receiptInfo)
 	local prepared = nil
 
 	local ok, err = pcall(function()
-		quantity = quantity == 3 and 3 or 1
+		quantity = math.max(int(quantity), 1)
 		rewards, resultCode = rollRewards(pack, quantity)
 		if not rewards then
 			return

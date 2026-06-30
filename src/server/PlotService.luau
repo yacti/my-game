@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
+local NumberFormatter = require(ReplicatedStorage.Shared:WaitForChild("NumberFormatter"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
 local PetGeometry  = require(ReplicatedStorage.Shared:WaitForChild("PetGeometry"))
 local PetNicknames = require(ReplicatedStorage.Shared:WaitForChild("PetNicknames"))
@@ -36,6 +37,9 @@ local OWNER_FARM_LABEL_NAME = "PlayerName"
 local SIGNS_FOLDER_NAME = "Signs"
 local PLAYER_SIGN_NAME = "PlayerSign"
 local PLAYER_SIGN_INFO_NAME = "PlayerInfo"
+local PLAYER_SIGN_PLAYER_NAME_GUI_NAME = "PlayerName"
+local PLAYER_SIGN_EARN_RATE_GUI_NAME = "EarnRate"
+local PLAYER_SIGN_EARN_RATE_LABEL_NAME = "EarnRate"
 local plotOwners
 local petNicknameRandom = Random.new()
 
@@ -96,10 +100,76 @@ local function addPlotOwnerBillboardDisplay(plot, displays)
 	}
 end
 
+local function collectNamedSurfaceGuiLabels(root, surfaceGuiName, labelName)
+	local roots = {}
+	local labels = {}
+	if not root then
+		return roots, labels
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant.Name == surfaceGuiName and descendant:IsA("SurfaceGui") then
+			roots[#roots + 1] = descendant
+			local label = findDescendant(descendant, labelName, "TextLabel")
+			if label then
+				labels[#labels + 1] = label
+			end
+		end
+	end
+	return roots, labels
+end
+
+local function appendArray(target, source)
+	for _, value in ipairs(source or {}) do
+		target[#target + 1] = value
+	end
+end
+
+local function setDisplayRootsEnabled(display, enabled)
+	if display.root and display.root:IsA("LayerCollector") then
+		display.root.Enabled = enabled
+	end
+	for _, root in ipairs(display.roots or {}) do
+		if root and root:IsA("LayerCollector") then
+			root.Enabled = enabled
+		end
+	end
+end
+
+local function setTextLabels(labels, text)
+	for _, label in ipairs(labels or {}) do
+		if label then
+			label.Text = text
+		end
+	end
+end
+
 local function addPlayerSignDisplay(plot, displays)
 	local signs = plot and plot:FindFirstChild(SIGNS_FOLDER_NAME)
 	local sign = signs and signs:FindFirstChild(PLAYER_SIGN_NAME)
 	if not sign then
+		return
+	end
+
+	local playerNameRoots, playerNameLabels = collectNamedSurfaceGuiLabels(
+		sign,
+		PLAYER_SIGN_PLAYER_NAME_GUI_NAME,
+		OWNER_NAME_LABEL_NAME
+	)
+	local earnRateRoots, earnRateLabels = collectNamedSurfaceGuiLabels(
+		sign,
+		PLAYER_SIGN_EARN_RATE_GUI_NAME,
+		PLAYER_SIGN_EARN_RATE_LABEL_NAME
+	)
+	if #playerNameRoots > 0 or #earnRateRoots > 0 then
+		local roots = {}
+		appendArray(roots, playerNameRoots)
+		appendArray(roots, earnRateRoots)
+		displays[#displays + 1] = {
+			roots = roots,
+			nameLabels = playerNameLabels,
+			earnRateLabels = earnRateLabels,
+			sign = sign,
+		}
 		return
 	end
 
@@ -127,15 +197,15 @@ end
 
 local function clearPlotOwnerDisplay(plot)
 	for _, display in ipairs(getPlotOwnerDisplays(plot)) do
-		if display.root and display.root:IsA("LayerCollector") then
-			display.root.Enabled = false
-		end
+		setDisplayRootsEnabled(display, false)
 		if display.icon then
 			display.icon.Image = ""
 		end
 		if display.nameLabel then
 			display.nameLabel.Text = ""
 		end
+		setTextLabels(display.nameLabels, "")
+		setTextLabels(display.earnRateLabels, "")
 		if display.farmLabel then
 			display.farmLabel.Text = ""
 		end
@@ -164,12 +234,12 @@ local function setPlotOwnerDisplay(plot, player, plotIndex)
 
 	local displayName = player.DisplayName ~= "" and player.DisplayName or player.Name
 	for _, display in ipairs(displays) do
-		if display.root and display.root:IsA("LayerCollector") then
-			display.root.Enabled = true
-		end
+		setDisplayRootsEnabled(display, true)
 		if display.nameLabel then
 			display.nameLabel.Text = display.farmLabel and (displayName .. "'s") or displayName
 		end
+		setTextLabels(display.nameLabels, displayName .. "'s")
+		setTextLabels(display.earnRateLabels, NumberFormatter.CurrencyRate(0))
 		if display.farmLabel then
 			display.farmLabel.Text = "Farm"
 		end
@@ -204,6 +274,13 @@ local function setPlotOwnerDisplay(plot, player, plotIndex)
 			end
 		end
 	end)
+end
+
+local function setPlotEarnRateDisplay(plot, perSecond)
+	local text = NumberFormatter.CurrencyRate(perSecond)
+	for _, display in ipairs(getPlotOwnerDisplays(plot)) do
+		setTextLabels(display.earnRateLabels, text)
+	end
 end
 
 local function feedHitboxRootFromPart(plot, part)
@@ -307,6 +384,10 @@ PlotService.NavigationObstacleModes = {
 	IgnorePatches = NAV_OBSTACLE_MODE_IGNORE_PATCHES,
 	IgnoreAll = NAV_OBSTACLE_MODE_IGNORE_ALL,
 }
+
+function PlotService.SetPlotEarnRateDisplay(plot, perSecond)
+	setPlotEarnRateDisplay(plot, perSecond)
+end
 
 local function userKey(player)
 	return player and player.UserId or nil

@@ -70,13 +70,13 @@ end
 local function robuxText(id, onLoaded)
 	id = tonumber(id) or 0
 	if id <= 0 then
-		return "Robux"
+		return NumberFormatter.Robux(0)
 	end
 	if gamePassPriceById[id] then
 		return gamePassPriceById[id]
 	end
 
-	gamePassPriceById[id] = "Robux"
+	gamePassPriceById[id] = NumberFormatter.Robux(0)
 	RuntimeGuard.Spawn("GamePassShopController.GamePassInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, Enum.InfoType.GamePass)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
@@ -96,8 +96,8 @@ local function addCard(cards, pass, card, source)
 			card = card,
 			source = source,
 		}
-	else
-		warn("[GamePassShopController] Missing " .. tostring(source))
+	elseif card then
+		warn("[GamePassShopController] " .. tostring(source) .. " is " .. card.ClassName .. ", expected GuiObject")
 	end
 end
 

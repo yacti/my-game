@@ -48,6 +48,47 @@ local function saveProfile(profile)
 	return ok
 end
 
+local function copyBooleanMap(map)
+	local copy = {}
+	if type(map) ~= "table" then
+		return copy
+	end
+	for key, value in pairs(map) do
+		if type(key) == "string" and value == true then
+			copy[key] = true
+		end
+	end
+	return copy
+end
+
+local function starterPackPurchases(profile)
+	local data = profile and profile.Data
+	if not data then
+		return {}
+	end
+	if type(data.StarterPackPurchases) ~= "table" then
+		data.StarterPackPurchases = {}
+	end
+	if data.StarterPackPurchased == true then
+		data.StarterPackPurchases.StarterPack = true
+	end
+	data.StarterPackPurchased = data.StarterPackPurchases.StarterPack == true
+	return data.StarterPackPurchases
+end
+
+local function starterPackOwned(profile, packId)
+	local purchases = starterPackPurchases(profile)
+	return type(packId) == "string" and purchases[packId] == true
+end
+
+local function markStarterPackOwned(profile, packId)
+	local purchases = starterPackPurchases(profile)
+	if type(packId) == "string" and packId ~= "" then
+		purchases[packId] = true
+	end
+	profile.Data.StarterPackPurchased = purchases.StarterPack == true
+end
+
 local function sendPurchaseResult(player, requestId, success, code, payload)
 	local result = type(payload) == "table" and payload or {}
 	result.requestId = requestId
@@ -211,12 +252,15 @@ function StarterPackShopService.HandlesProductId(productId)
 	return ShopBalance.StarterPackForProductId(productId) ~= nil
 end
 
-local function onPurchaseRequest(player, requestId)
+local function onPurchaseRequest(player, requestId, packId)
 	if type(requestId) ~= "number" then
 		return
 	end
+	if packId == nil then
+		packId = "StarterPack"
+	end
 
-	local pack = ShopBalance.GetStarterPack()
+	local pack = ShopBalance.StarterPackForPackId(packId)
 	local profile = PlayerDataService.GetProfile(player)
 	if not (pack and profile) then
 		sendPurchaseResult(player, requestId, false, "profile-not-ready")
@@ -226,7 +270,12 @@ local function onPurchaseRequest(player, requestId)
 		sendPurchaseResult(player, requestId, false, "offline-progress")
 		return
 	end
-	if profile.Data.StarterPackPurchased == true then
+	local activePack = ShopBalance.StarterPackForRebirths(profile.Data.Rebirths)
+	if not (activePack and activePack.PackId == pack.PackId) then
+		sendPurchaseResult(player, requestId, false, "inactive-pack")
+		return
+	end
+	if starterPackOwned(profile, pack.PackId) then
 		sendPurchaseResult(player, requestId, false, "already-owned")
 		return
 	end
@@ -258,6 +307,7 @@ local function onPurchaseRequest(player, requestId)
 
 	sendPurchaseResult(player, requestId, true, "ok", {
 		productId = int(pack.DevProductId),
+		packId = pack.PackId,
 		requiredSlots = slots,
 	})
 end
@@ -286,7 +336,9 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 	local granted = false
 	local resultCode = "server-error"
 	local prepared = nil
-	local wasPurchased = profile.Data.StarterPackPurchased == true
+	local wasPurchases = copyBooleanMap(profile.Data.StarterPackPurchases)
+	local wasLegacyPurchased = profile.Data.StarterPackPurchased == true
+	local wasPurchased = starterPackOwned(profile, pack.PackId)
 
 	local ok, err = pcall(function()
 		if wasPurchased then
@@ -317,11 +369,12 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 		end
 
 		resultCode = "save-failed"
-		profile.Data.StarterPackPurchased = true
+		markStarterPackOwned(profile, pack.PackId)
 		ReceiptService.MarkProcessed(profile, purchaseId)
 		if not saveProfile(profile) then
 			ReceiptService.ClearProcessed(profile, purchaseId)
-			profile.Data.StarterPackPurchased = wasPurchased
+			profile.Data.StarterPackPurchases = copyBooleanMap(wasPurchases)
+			profile.Data.StarterPackPurchased = wasLegacyPurchased
 			rollbackPrepared(player, profile, prepared)
 			granted = false
 			return
@@ -333,7 +386,8 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 	if not ok then
 		warn("[StarterPackShopService] Receipt grant failed: " .. tostring(err))
 		ReceiptService.ClearProcessed(profile, purchaseId)
-		profile.Data.StarterPackPurchased = wasPurchased
+		profile.Data.StarterPackPurchases = copyBooleanMap(wasPurchases)
+		profile.Data.StarterPackPurchased = wasLegacyPurchased
 		if granted and prepared then
 			rollbackPrepared(player, profile, prepared)
 			granted = false

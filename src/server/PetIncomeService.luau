@@ -12,6 +12,7 @@ local State = require(Shared:WaitForChild("State"))
 local PetIncomeService = {}
 
 local SECONDS_PER_HOUR = 60 * 60
+local PLOT_SIGN_REFRESH_SECONDS = 60
 local LEADERSTATS_FOLDER_NAME = "leaderstats"
 local INCOME_STAT_NAME = "$/second"
 local LEGACY_CASH_STAT_NAMES = {
@@ -160,6 +161,23 @@ function PetIncomeService.Refresh(player)
 	return hourly
 end
 
+local function refreshPlotSign(record)
+	if not record then
+		return
+	end
+	local perSecond = computeForPlot(record.player, record.plot)
+	PlotService.SetPlotEarnRateDisplay(record.plot, perSecond)
+end
+
+local function startPlotSignRefreshLoop(record)
+	RuntimeGuard.Spawn("PetIncomeService.PlotSignRefresh." .. tostring(record.key), function()
+		while recordsByUserId[record.key] == record do
+			RuntimeGuard.Run("PetIncomeService.RefreshPlotSign." .. tostring(record.key), refreshPlotSign, record)
+			task.wait(PLOT_SIGN_REFRESH_SECONDS)
+		end
+	end)
+end
+
 local function scheduleRefresh(record)
 	if not record or record.refreshScheduled then
 		return
@@ -199,6 +217,7 @@ local function untrackKey(key)
 	end
 	syncIncomeLeaderstat(record.player, 0)
 	PlayerReplicaService.PublishHourlyPetIncome(record.player, 0)
+	PlotService.SetPlotEarnRateDisplay(record.plot, 0)
 end
 
 function PetIncomeService.TrackPlayerPlot(player, plot)
@@ -237,6 +256,7 @@ function PetIncomeService.TrackPlayerPlot(player, plot)
 	end)
 
 	PetIncomeService.Refresh(player)
+	startPlotSignRefreshLoop(record)
 	return true
 end
 

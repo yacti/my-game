@@ -9,6 +9,7 @@ local RebirthBalance = require(ReplicatedStorage.Shared:WaitForChild("RebirthBal
 local RollDropAreaBalance = require(ReplicatedStorage.Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(ReplicatedStorage.Shared:WaitForChild("RollLuckBalance"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
+local ShopBalance = require(ReplicatedStorage.Shared:WaitForChild("ShopBalance"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
@@ -18,7 +19,7 @@ local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersis
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 8
+local CURRENT_DATA_VERSION = 9
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -50,6 +51,7 @@ local DATA_TEMPLATE = {
 	PendingCollectAllReservation = nil,
 	PendingRollOffers = {},
 	StarterPackPurchased = false,
+	StarterPackPurchases = {},
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
@@ -141,6 +143,18 @@ end
 
 local function nonemptyString(value)
 	return type(value) == "string" and value ~= "" and value or nil
+end
+
+local function sanitizeStarterPackPurchases(value, legacyPurchased)
+	local clean = {}
+	local source = type(value) == "table" and value or {}
+	for _, pack in ipairs(ShopBalance.AllStarterPacks()) do
+		local packId = type(pack.PackId) == "string" and pack.PackId or nil
+		if packId and (source[packId] == true or (packId == "StarterPack" and legacyPurchased == true)) then
+			clean[packId] = true
+		end
+	end
+	return clean
 end
 
 local function firstMutationIds(...)
@@ -300,6 +314,13 @@ local function migrateData(data)
 		elseif nextVersion == 8 then
 			if type(data.PendingRollOffers) ~= "table" then
 				data.PendingRollOffers = {}
+			end
+		elseif nextVersion == 9 then
+			if type(data.StarterPackPurchases) ~= "table" then
+				data.StarterPackPurchases = {}
+			end
+			if data.StarterPackPurchased == true then
+				data.StarterPackPurchases.StarterPack = true
 			end
 		end
 
@@ -712,7 +733,11 @@ local function ensureValidData(profile)
 	profile.Data.PendingCollectAllReservation = sanitizePendingCollectAllReservation(profile.Data.PendingCollectAllReservation)
 	profile.Data.PendingRollOffers = RollOfferPersistence.SanitizeRecords(profile.Data.PendingRollOffers)
 
-	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true
+	profile.Data.StarterPackPurchases = sanitizeStarterPackPurchases(
+		profile.Data.StarterPackPurchases,
+		profile.Data.StarterPackPurchased == true
+	)
+	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchases.StarterPack == true
 
 	if type(profile.Data.Currency) ~= "number" then
 		profile.Data.Currency = STARTING_CURRENCY

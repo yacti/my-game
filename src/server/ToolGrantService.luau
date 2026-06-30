@@ -52,6 +52,10 @@ local function maxItems(options)
 	return math.max(math.floor(cap), 0)
 end
 
+local function ignoresInventoryCap(options)
+	return type(options) == "table" and options.ignoreInventoryCap == true
+end
+
 local function userKey(player)
 	return player and player.UserId or nil
 end
@@ -152,7 +156,7 @@ function ToolGrantService.GrantTool(player, tool, options)
 		return false, "no-backpack"
 	end
 	local cap = maxItems(options)
-	if Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player, cap) <= 0 then
+	if not ignoresInventoryCap(options) and Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player, cap) <= 0 then
 		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end
@@ -174,7 +178,7 @@ function ToolGrantService.GrantTools(player, tools, options)
 	end
 	local count = countGrantTools(tools)
 	local cap = maxItems(options)
-	if count > Inventory.RemainingSlots(player, cap) then
+	if not ignoresInventoryCap(options) and count > Inventory.RemainingSlots(player, cap) then
 		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end

@@ -18,6 +18,9 @@ local HudController = {}
 local LEFT_BUTTONS_NAME = "LeftButtons"
 local TOP_BAR_NAME = "TopBar"
 local HOME_BUTTON_NAME = "Home"
+local HIDDEN_ON_CLONE = {
+	SkipTimeButtons = true,
+}
 local HOME_TELEPORT_COOLDOWN_SECONDS = 0.75
 
 local HomeTeleportRequest = Remotes.get(Remotes.Names.HomeTeleportRequest)
@@ -65,6 +68,15 @@ local function cloneTemplate()
 	if template and template:IsA("ScreenGui") then return template:Clone() end
 	warn("[HudController] Missing ReplicatedStorage.UI.HUD ScreenGui")
 	return nil
+end
+
+local function hideInitialRuntimePanels(gui)
+	for name in pairs(HIDDEN_ON_CLONE) do
+		local object = gui:FindFirstChild(name)
+		if object and object:IsA("GuiObject") then
+			object.Visible = false
+		end
+	end
 end
 
 local function hiddenDuringTutorialObjects(gui)
@@ -168,6 +180,7 @@ function HudController.start()
 
 	local gui = cloneTemplate()
 	if not gui then return end
+	hideInitialRuntimePanels(gui)
 	gui.Parent = PlayerGui
 	ResponsiveUi.BindRoot(gui)
 	ResponsiveHud.Bind(gui)
