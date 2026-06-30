@@ -144,7 +144,7 @@ ShopBalance.StarterPacks = {
 		MinRebirths = 1,
 		MaxRebirths = 2,
 		Rewards = {
-			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 50000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 100000 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "MushroomSeed", Amount = 1 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "CactusSeed", Amount = 1 },
 		},
@@ -156,7 +156,7 @@ ShopBalance.StarterPacks = {
 		MinRebirths = 3,
 		MaxRebirths = nil,
 		Rewards = {
-			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 1000000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 2500000 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "FigTreeSeed", Amount = 1 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PurpleShroomSeed", Amount = 1 },
 		},
