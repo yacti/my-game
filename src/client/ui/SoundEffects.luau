@@ -26,6 +26,8 @@ SoundEffects.Names = {
 	RollButtonClick = "RollButtonClick",
 	CrateBreak = "CrateBreak",
 	RollReveal = "RollReveal",
+	MailboxOpen = "MailboxOpen",
+	MailboxClose = "MailboxClose",
 	Wind = "Wind",
 	ThunderStrike = "ThunderStrike",
 }

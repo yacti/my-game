@@ -125,7 +125,7 @@ function NumberFormatter.CurrencyExact(amount)
 end
 
 function NumberFormatter.Robux(amount)
-	return tostring(math.max(math.floor(finiteNumber(amount)), 0))
+	return "\u{E002} " .. tostring(math.max(math.floor(finiteNumber(amount)), 0))
 end
 
 function NumberFormatter.CurrencyRate(amount)

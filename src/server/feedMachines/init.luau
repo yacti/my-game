@@ -195,6 +195,27 @@ function FeedMachines.ApplyOfflineProgress(machine, context)
 	return true
 end
 
+function FeedMachines.HasGrowthCreditTarget(machine)
+	local mod = impl(machine)
+	if mod and mod.HasGrowthCreditTarget then
+		local ok, result = RuntimeGuard.Run("FeedMachines.HasGrowthCreditTarget", mod.HasGrowthCreditTarget, machine)
+		return ok == true and result == true
+	end
+	return false
+end
+
+function FeedMachines.CreditGrowthSeconds(machine, seconds)
+	local mod = impl(machine)
+	if mod and mod.CreditGrowthSeconds then
+		local results = table.pack(RuntimeGuard.Run("FeedMachines.CreditGrowthSeconds", mod.CreditGrowthSeconds, machine, seconds))
+		if results[1] ~= true then
+			return false, "credit-failed"
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return false, "unsupported"
+end
+
 -- Re-syncs server-side visual geometry (e.g. patch slot fruit scale) so a
 -- subsequent pivot replicates a consistent snapshot. Optional per class.
 function FeedMachines.ResyncVisualScales(machine)
@@ -225,6 +246,47 @@ function FeedMachines.ApplyMutation(machine, targetKey, mutationId)
 		return table.unpack(results, 2, results.n)
 	end
 	return false, "unsupported"
+end
+
+function FeedMachines.ReserveCollectAll(machine, player, reservationId, expiresAt, limit)
+	local mod = impl(machine)
+	if mod and mod.ReserveCollectAll then
+		local results = table.pack(RuntimeGuard.Run(
+			"FeedMachines.ReserveCollectAll",
+			mod.ReserveCollectAll,
+			machine,
+			player,
+			reservationId,
+			expiresAt,
+			limit
+		))
+		if results[1] ~= true then
+			return false, "reserve-failed"
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return false, "unsupported"
+end
+
+function FeedMachines.ReleaseCollectAll(machine, item, reservationId)
+	local mod = impl(machine)
+	if mod and mod.ReleaseCollectAll then
+		local ok, released = RuntimeGuard.Run("FeedMachines.ReleaseCollectAll", mod.ReleaseCollectAll, machine, item, reservationId)
+		return ok == true and released == true
+	end
+	return false
+end
+
+function FeedMachines.CommitCollectAll(machine, item, reservationId)
+	local mod = impl(machine)
+	if mod and mod.CommitCollectAll then
+		local results = table.pack(RuntimeGuard.Run("FeedMachines.CommitCollectAll", mod.CommitCollectAll, machine, item, reservationId))
+		if results[1] ~= true then
+			return nil
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return nil
 end
 
 function FeedMachines.BlocksPetNavigation(machine, now)

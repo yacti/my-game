@@ -66,6 +66,8 @@ local REQUIRED_CLIENT_SOUNDS = {
 	"RollButtonClick",
 	"CrateBreak",
 	"RollReveal",
+	"MailboxOpen",
+	"MailboxClose",
 	"BirdBackingTrack",
 	"Wind",
 }
@@ -1628,6 +1630,34 @@ local function validateAutoRollHud(rollButtons, errors)
 	descendant(frame, "TitleLabel", "TextLabel", errors)
 end
 
+local function validateSkipTimeButtonCard(skipButtons, cardName, errors, options)
+	options = type(options) == "table" and options or {}
+	local card = child(skipButtons, cardName, "GuiObject", errors)
+	if not card then return end
+
+	descendant(card, "TitleLabel", "TextLabel", errors)
+	if options.skipAmount == true then
+		descendant(card, "SkipAmount", "TextLabel", errors)
+	end
+	if options.fruitsLabel == true then
+		descendant(card, "FruitsLabel", "TextLabel", errors)
+	end
+	descendant(card, "ErrorLabel", "TextLabel", errors)
+	local buyButton = descendant(card, "BuyButton", "GuiButton", errors)
+	if buyButton then
+		descendant(buyButton, "Price", "TextLabel", errors)
+	end
+end
+
+local function validateSkipTimeButtonsHud(hud, errors)
+	local skipButtons = child(hud, "SkipTimeButtons", "GuiObject", errors)
+	if not skipButtons then return end
+
+	validateSkipTimeButtonCard(skipButtons, "Skip5m", errors, { skipAmount = true })
+	validateSkipTimeButtonCard(skipButtons, "Skip30m", errors, { skipAmount = true })
+	validateSkipTimeButtonCard(skipButtons, "CollectAll", errors, { fruitsLabel = true })
+end
+
 local function validateAutoRollSettingsUi(menu, errors)
 	local panel = child(menu, "AutoRollSettings", "GuiObject", errors)
 	if not panel then return end
@@ -1910,9 +1940,12 @@ local function validateShopProductIds(errors)
 	if foodSteal then
 		addProductIdSource(seenProducts, foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId", errors)
 	end
-	local growSkip = ShopBalance.GetGrowSkip()
-	if growSkip then
-		addProductIdSource(seenProducts, growSkip.DevProductId, "ShopBalance.GrowSkip.DevProductId", errors)
+	local collectAll = ShopBalance.GetCollectAll()
+	if collectAll then
+		addProductIdSource(seenProducts, collectAll.DevProductId, "ShopBalance.CollectAll.DevProductId", errors)
+	end
+	for _, product in ipairs(ShopBalance.AllGrowSkipProducts()) do
+		addProductIdSource(seenProducts, product.DevProductId, "ShopBalance.GrowSkip." .. tostring(product.SkipId) .. ".DevProductId", errors)
 	end
 	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
 		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
@@ -2041,6 +2074,7 @@ local function validateUi(errors, warnings)
 			validateRollDropAreaHud(rollButtons, errors)
 			validateAutoRollHud(rollButtons, errors)
 		end
+		validateSkipTimeButtonsHud(hud, errors)
 		local leftButtons = child(hud, "LeftButtons", "GuiObject", errors)
 		if leftButtons then
 			child(leftButtons, "RebirthButton", "GuiButton", errors)
@@ -2262,6 +2296,36 @@ local function validatePlots(errors, warnings)
 				local dropArea = child(buttonFolder, "DropArea" .. tostring(index), "Model", errors)
 				if dropArea then
 					child(dropArea, "CrateFloor", "BasePart", errors)
+				end
+			end
+		end
+
+		local signs = child(plot, "Signs", "Folder", errors)
+		if signs then
+			local playerSign = child(signs, "PlayerSign", "Model", errors)
+			if playerSign then
+				local surfaceGui = descendant(playerSign, "SurfaceGui", "SurfaceGui", errors)
+				local playerInfo = surfaceGui and child(surfaceGui, "PlayerInfo", "GuiObject", errors)
+				if playerInfo then
+					child(playerInfo, "Icon", "ImageLabel", errors)
+					child(playerInfo, "Name", "TextLabel", errors)
+					child(playerInfo, "PlayerName", "TextLabel", errors)
+				end
+			end
+
+			local mailbox = child(signs, "Mailbox", "Model", errors)
+			if mailbox then
+				child(mailbox, "Door", "BasePart", errors)
+			end
+
+			local skipSign = signs:FindFirstChild("SkipGrowTime")
+			if skipSign then
+				if not skipSign:IsA("Model") then
+					add(errors, string.format("%s is %s, expected Model", skipSign:GetFullName(), skipSign.ClassName))
+					return
+				end
+				if not skipSign:FindFirstChildWhichIsA("BasePart", true) then
+					add(errors, skipSign:GetFullName() .. " needs at least one BasePart")
 				end
 			end
 		end

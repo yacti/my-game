@@ -98,9 +98,19 @@ local function publishSlotGrowth(slot)
 	if not food then return end
 	food:SetAttribute(State.Food.XP, slot.baseXP or 0)
 	food:SetAttribute(State.Food.GrowthStart, slot.growthStart)
+	food:SetAttribute(State.Food.RespawnAt, nil)
 	Mutations.ApplyAttribute(food, slot.mutationIds, slot.primaryMutationId)
 	food:SetAttribute(State.Food.StealReservationId, slot.stealReservationId)
 	food:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
+end
+
+local function publishSlotRespawn(slot)
+	if slot.anchor then
+		slot.anchor:SetAttribute(State.Food.RespawnAt, slot.respawnAt)
+	end
+	if slot.foodPart then
+		slot.foodPart:SetAttribute(State.Food.RespawnAt, nil)
+	end
 end
 
 local function clearSlotStealReservation(slot)
@@ -126,6 +136,24 @@ local function clearExpiredSlotStealReservation(slot)
 	end
 	clearSlotStealReservation(slot)
 	return true
+end
+
+local function addSlotReservationRecord(record, slot)
+	if type(slot.stealReservationId) == "string" and slot.stealReservationId ~= "" then
+		record.stealReservationId = slot.stealReservationId
+		record.stealReservationExpiresAt = slot.stealReservationExpiresAt
+	end
+	return record
+end
+
+local function restoreSlotReservation(slot, savedSlot)
+	slot.stealReservationId = nil
+	slot.stealReservationExpiresAt = nil
+	local reservationId = type(savedSlot.stealReservationId) == "string" and savedSlot.stealReservationId or nil
+	if reservationId and reservationId ~= "" then
+		slot.stealReservationId = reservationId
+		slot.stealReservationExpiresAt = tonumber(savedSlot.stealReservationExpiresAt) or os.time()
+	end
 end
 
 -- Banks `effectiveSeconds` of growth into baseXP and re-anchors growthStart
@@ -166,6 +194,7 @@ local function spawnFoodAtSlot(slot)
 	clone:SetAttribute(State.Food.Type, Food.TypeFor(foodId))
 	clone:SetAttribute(State.Food.XP, slot.baseXP or 0)
 	clone:SetAttribute(State.Food.GrowthStart, slot.growthStart)
+	clone:SetAttribute(State.Food.RespawnAt, nil)
 	Mutations.ApplyAttribute(clone, slot.mutationIds, slot.primaryMutationId)
 	clone:SetAttribute(State.Food.StealReservationId, slot.stealReservationId)
 	clone:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
@@ -198,6 +227,7 @@ local function materializeSlot(machine, s, slot)
 	slot.respawnAt = nil
 	slot.baseXP = 0
 	slot.growthStart = serverNow()
+	publishSlotRespawn(slot)
 	if slot.foodPart then slot.foodPart:Destroy() end
 	slot.foodPart = spawnFoodAtSlot(slot)
 end
@@ -231,6 +261,7 @@ local function emptySlot(slot, respawnAt)
 	slot.pendingOfflineGrowthElapsed = nil
 	slot.respawnAt = respawnAt
 	clearSlotStealReservation(slot)
+	publishSlotRespawn(slot)
 end
 
 local function scaleToolToXP(tool, xp, patchXP)
@@ -372,13 +403,13 @@ function Patches.Serialize(machine)
 	if s.awaitingOfflineProgress then
 		local slots = table.create(#s.slots)
 		for _, slot in ipairs(s.slots) do
-			slots[#slots + 1] = {
+			slots[#slots + 1] = addSlotReservationRecord({
 				xp = slot.baseXP or 0,
 				growthElapsed = slot.pendingOfflineGrowthElapsed or 0,
 				respawnAt = slot.respawnAt,
 				mutationIds = slot.mutationIds,
 				primaryMutationId = slot.primaryMutationId,
-			}
+			}, slot)
 		end
 		return { slots = slots, lastTick = s.lastTick }
 	end
@@ -388,20 +419,24 @@ function Patches.Serialize(machine)
 	local slots = table.create(#s.slots)
 	for _, slot in ipairs(s.slots) do
 		if slot.respawnAt then
-			slots[#slots + 1] = { xp = 0, growthElapsed = 0, respawnAt = slot.respawnAt }
+			slots[#slots + 1] = addSlotReservationRecord({
+				xp = 0,
+				growthElapsed = 0,
+				respawnAt = slot.respawnAt,
+			}, slot)
 		else
 			local elapsed = 0
 			if type(slot.growthStart) == "number" then
 				elapsed = math.max(now - slot.growthStart, 0)
 			end
 			local intervals = math.floor(elapsed / growRate)
-			slots[#slots + 1] = {
+			slots[#slots + 1] = addSlotReservationRecord({
 				xp = (slot.baseXP or 0) + intervals * slot.patchXP,
 				growthElapsed = elapsed - intervals * growRate,
 				respawnAt = nil,
 				mutationIds = slot.mutationIds,
 				primaryMutationId = slot.primaryMutationId,
-			}
+			}, slot)
 		end
 	end
 	return { slots = slots, lastTick = os.time() }
@@ -435,7 +470,9 @@ function Patches.Apply(machine, placement, options)
 			else
 				local savedXP = math.max(tonumber(savedSlot.xp) or 0, 0)
 				local savedElapsed = math.max(tonumber(savedSlot.growthElapsed) or 0, 0)
+				restoreSlotReservation(slot, savedSlot)
 				slot.respawnAt = nil
+				publishSlotRespawn(slot)
 				slot.pendingMaterialize = nil
 				slot.baseXP = savedXP
 				slot.mutationIds = Mutations.SanitizeList(savedSlot.mutationIds or savedSlot.mutations)
@@ -479,6 +516,7 @@ function Patches.ApplyOfflineProgress(machine, context)
 			if slot.respawnAt > joinTime then
 				slot.respawnAt += pendingDuration
 			end
+			publishSlotRespawn(slot)
 			scheduleSlotRespawn(machine, s, slot, slot.respawnAt - os.time())
 		else
 			creditSlotGrowth(machine, slot, offlineSeconds, now)
@@ -497,6 +535,94 @@ function Patches.HarvestAnchor(anchor, player)
 	local s = state[entry.machine]
 	if not s or not entry.machine.Parent then return false end
 	return harvest(entry.machine, s, entry.slotIndex, player)
+end
+
+local function reserveSlotForCollectAll(machine, slot, slotIndex, reservationId, expiresAt)
+	if not slot or slot.respawnAt or not slot.foodPart then
+		return nil
+	end
+	clearExpiredSlotStealReservation(slot)
+	if slot.stealReservationId ~= nil then
+		return nil
+	end
+	local foodId = slot.foodId
+	if type(foodId) ~= "string" or foodId == "" then
+		return nil
+	end
+
+	local xp = slotXPNow(machine, slot, serverNow())
+	slot.stealReservationId = reservationId
+	slot.stealReservationExpiresAt = tonumber(expiresAt) or os.time()
+	if slot.anchor then
+		slot.anchor:SetAttribute(State.Food.StealReservationId, reservationId)
+		slot.anchor:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
+	end
+	if slot.foodPart then
+		slot.foodPart:SetAttribute(State.Food.StealReservationId, reservationId)
+		slot.foodPart:SetAttribute(State.Food.StealReservationExpiresAt, slot.stealReservationExpiresAt)
+	end
+
+	return {
+		sourceKind = "Patch",
+		sourceFeedIndex = machine:GetAttribute(State.Feed.Index),
+		sourceSlotIndex = slotIndex,
+		foodId = foodId,
+		xp = xp,
+		scale = PatchScale.ComputeScale(xp, slot.patchXP),
+		mutationIds = slot.mutationIds,
+		primaryMutationId = slot.primaryMutationId,
+	}
+end
+
+function Patches.ReserveCollectAll(machine, player, reservationId, expiresAt, limit)
+	local s = state[machine]
+	if not (s and machine.Parent) then return false, "not-ready" end
+	if player ~= s.owner then return false, "not-owner" end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then return false, "edit-mode" end
+	if type(reservationId) ~= "string" or reservationId == "" then return false, "invalid-reservation" end
+
+	limit = math.max(math.floor(tonumber(limit) or 0), 0)
+	local items = {}
+	for slotIndex, slot in ipairs(s.slots) do
+		if limit > 0 and #items >= limit then
+			break
+		end
+		local item = reserveSlotForCollectAll(machine, slot, slotIndex, reservationId, expiresAt)
+		if item then
+			items[#items + 1] = item
+		end
+	end
+	return true, {
+		items = items,
+	}
+end
+
+local function slotForCollectAllItem(machine, item)
+	local s = machine and state[machine]
+	if not s then
+		return nil, nil
+	end
+	local slotIndex = math.max(math.floor(tonumber(item and item.sourceSlotIndex) or 0), 0)
+	return s.slots[slotIndex], s
+end
+
+function Patches.ReleaseCollectAll(machine, item, reservationId)
+	local slot = slotForCollectAllItem(machine, item)
+	if not slot or slot.stealReservationId ~= reservationId then
+		return false
+	end
+	clearSlotStealReservation(slot)
+	return true
+end
+
+function Patches.CommitCollectAll(machine, item, reservationId)
+	local slot, s = slotForCollectAllItem(machine, item)
+	if not slot or not s or slot.stealReservationId ~= reservationId then
+		return false
+	end
+	emptySlot(slot, os.time() + HARVEST_RESPAWN_DELAY)
+	scheduleSlotRespawn(machine, s, slot, HARVEST_RESPAWN_DELAY)
+	return true, machine
 end
 
 function Patches.ReserveStealTarget(anchor, player, reservationId, expiresAt)
@@ -630,6 +756,55 @@ function Patches.CommitSteal(machine, reservation, reservationId)
 	emptySlot(slot, os.time() + HARVEST_RESPAWN_DELAY)
 	scheduleSlotRespawn(machine, s, slot, HARVEST_RESPAWN_DELAY)
 	return true, machine
+end
+
+function Patches.HasGrowthCreditTarget(machine)
+	local s = state[machine]
+	return s ~= nil and machine.Parent ~= nil and type(s.slots) == "table" and #s.slots > 0
+end
+
+function Patches.CreditGrowthSeconds(machine, seconds)
+	local s = state[machine]
+	seconds = math.max(tonumber(seconds) or 0, 0)
+	if not (s and machine.Parent and seconds > 0) then
+		return false, "not-ready"
+	end
+
+	local nowWall = os.time()
+	local nowServer = serverNow()
+	local changedSlots = 0
+
+	for _, slot in ipairs(s.slots) do
+		if type(slot.respawnAt) == "number" then
+			local remainingRespawn = math.max(slot.respawnAt - nowWall, 0)
+			if seconds < remainingRespawn then
+				slot.respawnAt -= seconds
+				publishSlotRespawn(slot)
+				scheduleSlotRespawn(machine, s, slot, slot.respawnAt - nowWall)
+				changedSlots += 1
+			else
+				local leftoverSeconds = seconds - remainingRespawn
+				materializeSlot(machine, s, slot)
+				if not slot.respawnAt and slot.foodPart and leftoverSeconds > 0 then
+					creditSlotGrowth(machine, slot, leftoverSeconds, nowServer)
+					publishSlotGrowth(slot)
+				end
+				changedSlots += 1
+			end
+		elseif slot.foodPart then
+			creditSlotGrowth(machine, slot, seconds, nowServer)
+			publishSlotGrowth(slot)
+			changedSlots += 1
+		end
+	end
+
+	if changedSlots <= 0 then
+		return false, "no-slots"
+	end
+	s.lastTick = os.time()
+	return true, {
+		changedSlots = changedSlots,
+	}
 end
 
 function Patches.BlocksPetNavigation(machine, now)

@@ -59,6 +59,7 @@ Onboarding.CurrencySupplements = {
 local HIDDEN_DURING_ACTIVE_TUTORIAL = {
 	Hud = {
 		"RollButtons",
+		"SkipTimeButtons",
 		"RebirthButton",
 		"TopBar",
 	},

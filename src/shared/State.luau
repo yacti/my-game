@@ -117,6 +117,8 @@ State.Food = {
 	-- Slot XP is derived: XP + floor((now - GrowthStart) / GrowRate) * patchXP.
 	-- Absent while a slot is frozen (offline progress pending) or respawning.
 	GrowthStart = "FoodGrowthStart",
+	-- Patch slot respawn anchor (wall clock, os.time()) published on SlotAnchor.
+	RespawnAt = "FoodRespawnAt",
 	JamProducerFeedType = "JamProducerFeedType",
 	JamSourceFoodId = "JamSourceFoodId",
 }

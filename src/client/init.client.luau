@@ -51,6 +51,7 @@ local CONTROLLERS = {
 	"RollLuckController",
 	"RollDropAreaController",
 	"AutoRollController",
+	"SkipTimeButtonsController",
 	"AFKRejoinController",
 	"Notifications",
 	"ServerLuckController",

@@ -5,6 +5,7 @@ local Shovel = require(ReplicatedStorage.Shared:WaitForChild("Shovel"))
 local Inventory = {}
 
 Inventory.MAX_ITEMS = 250
+Inventory.COLLECT_ALL_MAX_ITEMS = 1500
 
 function Inventory.IsCountableTool(tool)
 	return tool ~= nil
@@ -37,8 +38,13 @@ function Inventory.CountTools(player)
 	return total
 end
 
-function Inventory.RemainingSlots(player)
-	return math.max(Inventory.MAX_ITEMS - Inventory.CountTools(player), 0)
+function Inventory.RemainingSlots(player, maxItems)
+	maxItems = tonumber(maxItems) or Inventory.MAX_ITEMS
+	if type(maxItems) ~= "number" or maxItems ~= maxItems or math.abs(maxItems) == math.huge then
+		maxItems = Inventory.MAX_ITEMS
+	end
+	maxItems = math.max(math.floor(maxItems), 0)
+	return math.max(maxItems - Inventory.CountTools(player), 0)
 end
 
 return Inventory

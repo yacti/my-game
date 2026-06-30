@@ -310,6 +310,28 @@ local function clearExpiredGroundStealReservation(slot)
 	return true
 end
 
+local function setGroundStealReservation(slot, reservationId, expiresAt)
+	if not slot or not slot.ground then
+		return
+	end
+	if type(reservationId) == "string" and reservationId ~= "" then
+		slot.ground.stealReservationId = reservationId
+		slot.ground.stealReservationExpiresAt = tonumber(expiresAt) or os.time()
+		slot.ground.marker:SetAttribute(State.Food.StealReservationId, slot.ground.stealReservationId)
+		slot.ground.marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground.stealReservationExpiresAt)
+	else
+		clearGroundStealReservation(slot)
+	end
+end
+
+local function addGroundReservationRecord(record, ground)
+	if type(ground.stealReservationId) == "string" and ground.stealReservationId ~= "" then
+		record.stealReservationId = ground.stealReservationId
+		record.stealReservationExpiresAt = ground.stealReservationExpiresAt
+	end
+	return record
+end
+
 -- forward decl so handlers can call each other
 local pickupSlotGround
 local function spawnSlotGround(machine, s, slot, foodId, xp, mutationIds, primaryMutationId)
@@ -674,12 +696,12 @@ function TreeClicker.Serialize(machine)
 	local any = false
 	for _, slot in ipairs(s.slots) do
 		if slot.ground then
-			piles[tostring(slot.n)] = {
+			piles[tostring(slot.n)] = addGroundReservationRecord({
 				foodId = slot.ground.foodId,
 				xp = slot.ground.xp,
 				mutationIds = slot.ground.mutationIds,
 				primaryMutationId = slot.ground.primaryMutationId,
-			}
+			}, slot.ground)
 			any = true
 		end
 	end
@@ -700,6 +722,7 @@ function TreeClicker.Apply(machine, placement)
 			destroySlotGround(slot)
 			local foodId = Food.GetTemplate(entry.foodId) and entry.foodId or s.foodDrop
 			spawnSlotGround(machine, s, slot, foodId, xp, entry.mutationIds or entry.mutations, entry.primaryMutationId or entry.primaryMutation)
+			setGroundStealReservation(slot, entry.stealReservationId, entry.stealReservationExpiresAt)
 		end
 	end
 end
@@ -715,6 +738,85 @@ function TreeClicker.PickupGround(ground, player)
 		current = current.Parent
 	end
 	return false
+end
+
+local function reserveSlotGroundForCollectAll(machine, slot, reservationId, expiresAt)
+	if not (slot and slot.ground) then
+		return nil
+	end
+	clearExpiredGroundStealReservation(slot)
+	if slot.ground.stealReservationId ~= nil then
+		return nil
+	end
+
+	slot.ground.stealReservationId = reservationId
+	slot.ground.stealReservationExpiresAt = tonumber(expiresAt) or os.time()
+	slot.ground.marker:SetAttribute(State.Food.StealReservationId, reservationId)
+	slot.ground.marker:SetAttribute(State.Food.StealReservationExpiresAt, slot.ground.stealReservationExpiresAt)
+	return {
+		sourceKind = "Tree",
+		sourceFeedIndex = machine:GetAttribute(State.Feed.Index),
+		sourceSlotIndex = slot.n,
+		foodId = slot.ground.foodId,
+		xp = slot.ground.xp,
+		mutationIds = slot.ground.mutationIds,
+		primaryMutationId = slot.ground.primaryMutationId,
+	}
+end
+
+function TreeClicker.ReserveCollectAll(machine, player, reservationId, expiresAt, limit)
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then return false, "not-ready" end
+	if player ~= s.owner then return false, "not-owner" end
+	if s.owner:GetAttribute("EditMode") == true then return false, "edit-mode" end
+	if type(reservationId) ~= "string" or reservationId == "" then return false, "invalid-reservation" end
+
+	limit = math.max(math.floor(tonumber(limit) or 0), 0)
+	local items = {}
+	for _, slot in ipairs(s.slots) do
+		if limit > 0 and #items >= limit then
+			break
+		end
+		local item = reserveSlotGroundForCollectAll(machine, slot, reservationId, expiresAt)
+		if item then
+			items[#items + 1] = item
+		end
+	end
+	return true, {
+		items = items,
+	}
+end
+
+local function slotForCollectAllItem(machine, item)
+	local s = machine and state[machine]
+	if not s then
+		return nil
+	end
+	local slotIndex = tonumber(item and item.sourceSlotIndex)
+	for _, slot in ipairs(s.slots) do
+		if slot.n == slotIndex then
+			return slot
+		end
+	end
+	return nil
+end
+
+function TreeClicker.ReleaseCollectAll(machine, item, reservationId)
+	local slot = slotForCollectAllItem(machine, item)
+	if not slot or not slot.ground or slot.ground.stealReservationId ~= reservationId then
+		return false
+	end
+	clearGroundStealReservation(slot)
+	return true
+end
+
+function TreeClicker.CommitCollectAll(machine, item, reservationId)
+	local slot = slotForCollectAllItem(machine, item)
+	if not slot or not slot.ground or slot.ground.stealReservationId ~= reservationId then
+		return false
+	end
+	destroySlotGround(slot)
+	return true, machine
 end
 
 local function recordForGround(ground)

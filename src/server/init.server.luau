@@ -32,6 +32,7 @@ local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
 local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
 local CosmeticShopService = require(Server:WaitForChild("CosmeticShopService"))
+local CollectAllService = require(Server:WaitForChild("CollectAllService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -210,6 +211,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		serverLuckService = ServerLuckService,
 		foodStealService = FoodStealService,
 		growSkipService = GrowSkipService,
+		collectAllService = CollectAllService,
 	})
 end)
 RuntimeGuard.Run("RollService.Start", RollService.Start)
@@ -1127,9 +1129,9 @@ local function handlePlayerAdded(player)
 			if not toolsRestored then
 				toolsRestored = true
 				task.wait(0.5)
-				-- Materialize at most the global cap; hoarded profiles beyond it
-				-- would otherwise burst thousands of replicated instances on join.
-				local remainingSlots = Inventory.RemainingSlots(player)
+				-- Materialize at most the hard cap; collect-all purchases can
+				-- intentionally leave a profile above the normal 250 item cap.
+				local remainingSlots = Inventory.RemainingSlots(player, Inventory.COLLECT_ALL_MAX_ITEMS)
 				local function sortedKeys(map)
 					local keys = {}
 					if type(map) == "table" then
@@ -1349,7 +1351,17 @@ RuntimeGuard.Run("FoodStealService.Start", function()
 	})
 end)
 
-RuntimeGuard.Run("GrowSkipService.Start", GrowSkipService.Start)
+RuntimeGuard.Run("GrowSkipService.Start", function()
+	GrowSkipService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
+
+RuntimeGuard.Run("CollectAllService.Start", function()
+	CollectAllService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
 
 RuntimeGuard.Run("FeedPlacementService.Start", function()
 	FeedPlacementService.Start({

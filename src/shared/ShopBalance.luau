@@ -110,7 +110,28 @@ ShopBalance.FoodSteal = {
 }
 
 ShopBalance.GrowSkip = {
-	DevProductId = 3604690049,
+	DevProductId = 3604690049, -- Targeted growing tree skip prompt.
+	Skips = {
+		{
+			SkipId = "Skip5m",
+			DisplayName = "Skip 5m",
+			DevProductId = 3607255791,
+			DurationSeconds = 5 * 60,
+			Order = 1,
+		},
+		{
+			SkipId = "Skip30m",
+			DisplayName = "Skip 30m",
+			DevProductId = 3607255816,
+			DurationSeconds = 30 * 60,
+			Order = 2,
+		},
+	},
+}
+
+ShopBalance.CollectAll = {
+	DevProductId = 3607271856,
+	DisplayName = "Collect All",
 }
 
 ShopBalance.GamePassKeys = {
@@ -249,8 +270,52 @@ local function copyGrowSkip(config)
 	if type(config) ~= "table" then
 		return nil
 	end
+	local skips = {}
+	for _, skip in ipairs(config.Skips or {}) do
+		if type(skip) == "table" then
+			skips[#skips + 1] = {
+				SkipId = skip.SkipId,
+				DisplayName = skip.DisplayName,
+				DevProductId = int(skip.DevProductId, 0),
+				DurationSeconds = int(skip.DurationSeconds, 0),
+				Order = int(skip.Order, 0),
+			}
+		end
+	end
+	table.sort(skips, function(a, b)
+		local orderA = tonumber(a.Order) or 0
+		local orderB = tonumber(b.Order) or 0
+		if orderA ~= orderB then
+			return orderA < orderB
+		end
+		return tostring(a.SkipId) < tostring(b.SkipId)
+	end)
 	return {
 		DevProductId = int(config.DevProductId, 0),
+		Skips = skips,
+	}
+end
+
+local function copyGrowSkipProduct(skip)
+	if type(skip) ~= "table" then
+		return nil
+	end
+	return {
+		SkipId = skip.SkipId,
+		DisplayName = skip.DisplayName,
+		DevProductId = int(skip.DevProductId, 0),
+		DurationSeconds = int(skip.DurationSeconds, 0),
+		Order = int(skip.Order, 0),
+	}
+end
+
+local function copyCollectAll(config)
+	if type(config) ~= "table" then
+		return nil
+	end
+	return {
+		DevProductId = int(config.DevProductId, 0),
+		DisplayName = config.DisplayName,
 	}
 end
 
@@ -361,6 +426,56 @@ function ShopBalance.GetGrowSkip()
 	return copyGrowSkip(ShopBalance.GrowSkip)
 end
 
+function ShopBalance.GetCollectAll()
+	return copyCollectAll(ShopBalance.CollectAll)
+end
+
+function ShopBalance.GrowSkipForSkipId(skipId)
+	if type(skipId) ~= "string" or skipId == "" then
+		return nil
+	end
+	local config = ShopBalance.GrowSkip
+	for _, skip in ipairs(type(config) == "table" and config.Skips or {}) do
+		if skip.SkipId == skipId then
+			return copyGrowSkipProduct(skip)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.AllGrowSkipProducts()
+	local products = {}
+	local config = ShopBalance.GrowSkip
+	if type(config) ~= "table" then
+		return products
+	end
+	local targetedProductId = productId(config.DevProductId)
+	if targetedProductId > 0 then
+		products[#products + 1] = {
+			SkipId = "TargetedSapling",
+			DisplayName = "Targeted Sapling Skip",
+			DevProductId = targetedProductId,
+			DurationSeconds = 0,
+			Order = 0,
+		}
+	end
+	for _, skip in ipairs(config.Skips or {}) do
+		local copy = copyGrowSkipProduct(skip)
+		if copy then
+			products[#products + 1] = copy
+		end
+	end
+	table.sort(products, function(a, b)
+		local orderA = tonumber(a.Order) or 0
+		local orderB = tonumber(b.Order) or 0
+		if orderA ~= orderB then
+			return orderA < orderB
+		end
+		return tostring(a.SkipId) < tostring(b.SkipId)
+	end)
+	return products
+end
+
 function ShopBalance.GetVIP()
 	return ShopBalance.GamePassForKey(ShopBalance.GamePassKeys.VIP)
 end
@@ -434,13 +549,36 @@ function ShopBalance.FoodStealForProductId(productIdValue)
 	return copyFoodSteal(config)
 end
 
-function ShopBalance.GrowSkipForProductId(productIdValue)
+function ShopBalance.CollectAllForProductId(productIdValue)
 	local target = productId(productIdValue)
-	local config = ShopBalance.GrowSkip
+	local config = ShopBalance.CollectAll
 	if target <= 0 or type(config) ~= "table" or productId(config.DevProductId) ~= target then
 		return nil
 	end
-	return copyGrowSkip(config)
+	return copyCollectAll(config)
+end
+
+function ShopBalance.GrowSkipForProductId(productIdValue)
+	local target = productId(productIdValue)
+	local config = ShopBalance.GrowSkip
+	if target <= 0 or type(config) ~= "table" then
+		return nil
+	end
+	if productId(config.DevProductId) == target then
+		return {
+			SkipId = "TargetedSapling",
+			DisplayName = "Targeted Sapling Skip",
+			DevProductId = productId(config.DevProductId),
+			DurationSeconds = 0,
+			Order = 0,
+		}
+	end
+	for _, skip in ipairs(config.Skips or {}) do
+		if productId(skip.DevProductId) == target then
+			return copyGrowSkipProduct(skip)
+		end
+	end
+	return nil
 end
 
 function ShopBalance.StarterPackTotalAmount(pack)
@@ -769,11 +907,55 @@ function ShopBalance.Validate(errors)
 		validateProduct(foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId")
 	end
 
+	local collectAll = ShopBalance.CollectAll
+	if type(collectAll) ~= "table" then
+		add("ShopBalance.CollectAll must be a table")
+	else
+		if type(collectAll.DisplayName) ~= "string" or collectAll.DisplayName == "" then
+			add("ShopBalance.CollectAll has invalid DisplayName")
+		end
+		validateProduct(collectAll.DevProductId, "ShopBalance.CollectAll.DevProductId")
+	end
+
 	local growSkip = ShopBalance.GrowSkip
 	if type(growSkip) ~= "table" then
 		add("ShopBalance.GrowSkip must be a table")
 	else
 		validateProduct(growSkip.DevProductId, "ShopBalance.GrowSkip.DevProductId")
+		local skips = growSkip.Skips
+		if type(skips) ~= "table" or #skips == 0 then
+			add("ShopBalance.GrowSkip.Skips must define plot time skip products")
+		else
+			local seenSkipIds = {}
+			for index, skip in ipairs(skips) do
+				local source = "ShopBalance.GrowSkip.Skips[" .. tostring(index) .. "]"
+				if type(skip) ~= "table" then
+					add(source .. " must be a table")
+					continue
+				end
+				if type(skip.SkipId) ~= "string" or skip.SkipId == "" then
+					add(source .. " has invalid SkipId")
+				elseif seenSkipIds[skip.SkipId] then
+					add("Duplicate grow skip SkipId " .. tostring(skip.SkipId))
+				else
+					seenSkipIds[skip.SkipId] = true
+				end
+				if type(skip.DisplayName) ~= "string" or skip.DisplayName == "" then
+					add(source .. " has invalid DisplayName")
+				end
+				validateProduct(skip.DevProductId, source .. ".DevProductId")
+				if type(skip.DurationSeconds) ~= "number"
+					or skip.DurationSeconds <= 0
+					or skip.DurationSeconds ~= skip.DurationSeconds
+					or math.abs(skip.DurationSeconds) == math.huge
+					or skip.DurationSeconds % 1 ~= 0 then
+					add(source .. " has invalid DurationSeconds")
+				end
+				if type(skip.Order) ~= "number" or skip.Order <= 0 or skip.Order % 1 ~= 0 then
+					add(source .. " has invalid Order")
+				end
+			end
+		end
 	end
 
 	local serverLuck = ShopBalance.ServerLuck

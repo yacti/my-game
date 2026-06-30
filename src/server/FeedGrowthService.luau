@@ -48,6 +48,12 @@ local function clearGrowingAttributes(instance)
 	instance:SetAttribute(State.Seed.TargetDisplayName, nil)
 end
 
+local function notifyMature(owner, plot, mature)
+	if mature and onMatureCallback then
+		RuntimeGuard.Run("FeedGrowthService.OnMature", onMatureCallback, owner, plot, mature)
+	end
+end
+
 local function register(instance, data)
 	state[instance] = data
 	RuntimeGuard.Connect(instance.Destroying, "FeedGrowthService.Destroying", function()
@@ -158,8 +164,8 @@ local function matureInstance(instance, notify)
 	instance:Destroy()
 
 	local mature = placeMature(plot, feedType, feedIndex, lx, lz, lry, owner)
-	if mature and notify ~= false and onMatureCallback then
-		RuntimeGuard.Run("FeedGrowthService.OnMature", onMatureCallback, owner, plot, mature)
+	if notify ~= false then
+		notifyMature(owner, plot, mature)
 	end
 	return mature
 end
@@ -254,6 +260,84 @@ function FeedGrowthService.ApplyOfflineProgress(context)
 	end
 
 	return true, matured
+end
+
+function FeedGrowthService.HasOwnedGrowth(player, plot)
+	if not (player and plot) then
+		return false
+	end
+	for instance, data in pairs(state) do
+		if instance.Parent
+			and data.owner == player
+			and data.plot == plot
+			and data.offlineProgressPending ~= true then
+			return true
+		end
+	end
+	return false
+end
+
+function FeedGrowthService.AdvanceOwnedGrowth(player, plot, seconds)
+	seconds = math.max(tonumber(seconds) or 0, 0)
+	if not (player and plot and seconds > 0) then
+		return {
+			advanced = 0,
+			matured = 0,
+			patchCreditSlots = 0,
+		}
+	end
+
+	local entries = {}
+	for instance, data in pairs(state) do
+		if instance.Parent
+			and data.owner == player
+			and data.plot == plot
+			and data.offlineProgressPending ~= true then
+			entries[#entries + 1] = {
+				instance = instance,
+				data = data,
+			}
+		end
+	end
+
+	local currentTime = now()
+	local advanced = 0
+	local matured = 0
+	local patchCreditSlots = 0
+
+	for _, entry in ipairs(entries) do
+		local instance = entry.instance
+		local data = entry.data
+		if state[instance] == data and instance.Parent then
+			local growEndAt = data.plantedAt + data.growTime
+			local remaining = math.max(growEndAt - currentTime, 0)
+			if seconds < remaining then
+				data.plantedAt -= seconds
+				setGrowingAttributes(instance, data.seedId, data.feedType, data.plantedAt + data.growTime)
+				advanced += 1
+			else
+				local leftoverSeconds = seconds - remaining
+				local feedClass = FeedMachines.GetClass(data.feedType)
+				local mature = matureInstance(instance, false)
+				if mature then
+					matured += 1
+					if feedClass == "Patch" and leftoverSeconds > 0 then
+						local ok, result = FeedMachines.CreditGrowthSeconds(mature, leftoverSeconds)
+						if ok and type(result) == "table" then
+							patchCreditSlots += math.max(math.floor(tonumber(result.changedSlots) or 0), 0)
+						end
+					end
+					notifyMature(data.owner, data.plot, mature)
+				end
+			end
+		end
+	end
+
+	return {
+		advanced = advanced,
+		matured = matured,
+		patchCreditSlots = patchCreditSlots,
+	}
 end
 
 function FeedGrowthService.ForceMature(instance)

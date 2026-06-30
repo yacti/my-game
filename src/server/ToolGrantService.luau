@@ -41,6 +41,17 @@ local function autoEquipBurstGap(options)
 	return gap
 end
 
+local function maxItems(options)
+	if type(options) ~= "table" then
+		return Inventory.MAX_ITEMS
+	end
+	local cap = tonumber(options.maxItems)
+	if type(cap) ~= "number" or cap ~= cap or math.abs(cap) == math.huge then
+		return Inventory.MAX_ITEMS
+	end
+	return math.max(math.floor(cap), 0)
+end
+
 local function userKey(player)
 	return player and player.UserId or nil
 end
@@ -107,7 +118,7 @@ end
 
 -- Rate-limited so cap-blocked pickup spam (trees allow 5 clicks/s) does not
 -- flood the notification feed.
-local function notifyInventoryCapReached(player)
+local function notifyInventoryCapReached(player, cap)
 	local key = userKey(player)
 	if key == nil then
 		return
@@ -118,7 +129,8 @@ local function notifyInventoryCapReached(player)
 		return
 	end
 	inventoryCapNotifiedAtByUserId[key] = now
-	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
+	cap = math.max(math.floor(tonumber(cap) or Inventory.MAX_ITEMS), 0)
+	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", cap))
 end
 
 local function countGrantTools(tools)
@@ -139,8 +151,9 @@ function ToolGrantService.GrantTool(player, tool, options)
 	if not backpack then
 		return false, "no-backpack"
 	end
-	if Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player) <= 0 then
-		notifyInventoryCapReached(player)
+	local cap = maxItems(options)
+	if Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player, cap) <= 0 then
+		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end
 
@@ -160,8 +173,9 @@ function ToolGrantService.GrantTools(player, tools, options)
 		return false, "no-backpack"
 	end
 	local count = countGrantTools(tools)
-	if count > Inventory.RemainingSlots(player) then
-		notifyInventoryCapReached(player)
+	local cap = maxItems(options)
+	if count > Inventory.RemainingSlots(player, cap) then
+		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end
 

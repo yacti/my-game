@@ -43,12 +43,15 @@ Run this checklist before publishing a live build.
   inventory, currency, and patch/processor/tree machine state.
 - Tree ground piles restore as invisible authoritative marker state, not replicated
   visible fruit model geometry.
-- Countable inventory tools cap at 250 (`Inventory.MAX_ITEMS`, Backpack + equipped).
+- Countable inventory tools normally cap at 250 (`Inventory.MAX_ITEMS`,
+  Backpack + equipped); collect-all is the only over-cap path and hard-caps at
+  1500 (`Inventory.COLLECT_ALL_MAX_ITEMS`).
   The utility shovel does not count. At the cap, pickups/harvests/processor/jam
   output, seed/feed/cosmetic grants, and shop grants are refused with a rate-limited
   "inventory full" notification; food-producing sources stay recoverable (ground
-  pile, patch slot, or machine queue retained). A profile hoarding more than 250
-  countable tools materializes at most 250 on join.
+  pile, patch slot, or machine queue retained). A profile above 250 countable
+  tools materializes up to the 1500 hard cap on join so collect-all inventory
+  survives rejoin without allowing unlimited restoration.
 
 ## Gameplay Security
 
@@ -135,6 +138,26 @@ Run this checklist before publishing a live build.
   `3604620596`) from `RobuxShop.SFHolder.CashPacks`, verify each purchase can
   be repeated, grants the rounded displayed cash amount once per receipt, and
   does not double-grant on receipt retry.
+- Buy mailbox grow skips (`Skip5m` dev product `3607255791`, `Skip30m` dev
+  product `3607255816`) from `HUD.SkipTimeButtons` within 6 studs of
+  `PlotTemplate.Signs.Mailbox`, verify mailbox open/close sounds
+  (`9116436970`, `9116437310`), Robux icon price labels, `UiEffects` button
+  press/disabled states, no-growth preflight refusal, repeat purchase support,
+  receipt retry idempotency, `Skip5m` reducing a `30m` growing tree timer to
+  about `25m`, `Skip30m` maturing seeds under `30m` remaining once, mature patch
+  XP crediting by skipped time, `SkipAmount` showing added patch XP (`0xp` when
+  none), `Skip30m.SkipAmount` using the Mythical text color tween, and patch
+  seeds that mature during a skip receiving only leftover patch XP.
+- Buy mailbox collect-all dev product `3607271856`, verify it collects ready tree
+  ground piles and ready patch food only, `CollectAll.FruitsLabel` shows the
+  grantable ready fruit count under the 1500 cap, can exceed the normal 250 item
+  cap, stops at the 1500 hard cap with leftover food still in-world, blocks
+  normal pickups while above 250, and does not double-grant on receipt retry.
+- Stand between the roll button and mailbox, verify only the closest station's
+  HUD is visible and exact-distance ties show `RollButtons`. Verify active
+  tutorial stages locally hide the mailbox and keep `SkipTimeButtons` closed.
+- Verify `PlotTemplate.Signs.PlayerSign` shows the same plot owner thumbnail/name
+  as the existing plot owner display and clears when the plot is vacant.
 - Evolve a pet, rebirth, and buy VIP/x2 Cash, then verify Robux cash pack amounts
   update from the live hourly pet income cache and use online pet income rather
   than the offline earning fraction.

@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
+local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local FeedGrowthService = require(Server:WaitForChild("FeedGrowthService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -12,6 +13,7 @@ local PlotService = require(Server:WaitForChild("PlotService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local MailboxConfig = require(Shared:WaitForChild("MailboxConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -20,11 +22,18 @@ local State = require(Shared:WaitForChild("State"))
 local GrowSkipService = {}
 
 local APPLE_TREE_SEED_ID = "AppleTreeSeed"
+local SAPLING_RESERVATION_KIND = "SaplingMature"
+local PLOT_TIME_RESERVATION_KIND = "PlotTime"
+local TARGETED_SAPLING_SKIP_ID = "TargetedSapling"
 local REQUEST_RATE_SECONDS = 0.5
 local RESERVATION_SECONDS = 5 * 60
-local SKIP_DISTANCE = 10
+local SKIP_DISTANCE = MailboxConfig.InteractionDistance
+local EDIT_MODE_ATTR = "EditMode"
+local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
+local MAILBOX_NAME = MailboxConfig.MailboxName
 
 local started = false
+local snapshotProfileState = nil
 local locks = {}
 local lastRequest = {}
 
@@ -47,9 +56,17 @@ local function now()
 	return os.time()
 end
 
-local function productId()
+local function saplingProductId()
 	local config = ShopBalance.GetGrowSkip()
 	return int(config and config.DevProductId, 0)
+end
+
+local function productConfig(productIdValue)
+	return ShopBalance.GrowSkipForProductId(productIdValue)
+end
+
+local function skipConfig(skipId)
+	return ShopBalance.GrowSkipForSkipId(skipId)
 end
 
 local function saveProfile(profile)
@@ -73,15 +90,23 @@ local function clearReservation(profile)
 	end
 end
 
-local function pendingReservation(profile)
+local function pendingReservation(profile, expectedProductId)
 	local reservation = profile and profile.Data and profile.Data.PendingGrowSkipReservation
 	if type(reservation) ~= "table" then
 		return nil
 	end
-	if int(reservation.productId, 0) ~= productId() then
+	local reservationProductId = int(reservation.productId, 0)
+	if expectedProductId ~= nil and reservationProductId ~= int(expectedProductId, 0) then
+		return nil
+	end
+	if not productConfig(reservationProductId) then
 		return nil
 	end
 	return reservation
+end
+
+local function reservationExpired(reservation)
+	return int(reservation and reservation.expiresAt, 0) < now()
 end
 
 local function clearExpiredReservation(profile)
@@ -89,7 +114,7 @@ local function clearExpiredReservation(profile)
 	if not reservation then
 		return true
 	end
-	if int(reservation.expiresAt, 0) >= now() then
+	if not reservationExpired(reservation) then
 		return false
 	end
 	clearReservation(profile)
@@ -136,6 +161,37 @@ local function feedByIndex(plot, feedIndex)
 	return nil
 end
 
+local function mailboxForTarget(plot, target)
+	if not (plot and target and target:IsDescendantOf(plot)) then
+		return nil
+	end
+	local signs = plot:FindFirstChild(SIGNS_FOLDER_NAME)
+	local mailbox = signs and signs:FindFirstChild(MAILBOX_NAME)
+	if mailbox and (target == mailbox or target:IsDescendantOf(mailbox)) then
+		return mailbox
+	end
+	return nil
+end
+
+local function isMaturePatch(feed)
+	return feed ~= nil
+		and feed:GetAttribute(State.Feed.Class) == "Patch"
+		and FeedGrowthService.IsGrowing(feed) ~= true
+end
+
+local function hasMaturePatchGrowth(plot)
+	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+		if isMaturePatch(feed) and FeedMachines.HasGrowthCreditTarget(feed) then
+			return true
+		end
+	end
+	return false
+end
+
+local function hasEligiblePlotGrowth(player, plot)
+	return FeedGrowthService.HasOwnedGrowth(player, plot) or hasMaturePatchGrowth(plot)
+end
+
 local function resolveSkippableSapling(player, plot, target)
 	if not (plot and target and target:IsDescendantOf(plot)) then
 		return nil, nil, nil, "invalid-target"
@@ -167,11 +223,12 @@ local function resolveSkippableSapling(player, plot, target)
 	return feed, info, feedIndex, "ok"
 end
 
-local function normalizeReservation(feedIndex, seedId)
+local function normalizeSaplingReservation(feedIndex, seedId)
 	local createdAt = now()
 	return {
+		kind = SAPLING_RESERVATION_KIND,
 		reservationId = HttpService:GenerateGUID(false),
-		productId = productId(),
+		productId = saplingProductId(),
 		feedIndex = feedIndex,
 		seedId = seedId,
 		createdAt = createdAt,
@@ -179,7 +236,62 @@ local function normalizeReservation(feedIndex, seedId)
 	}
 end
 
-local function onSkipRequest(player, requestId, target)
+local function normalizePlotTimeReservation(config)
+	local createdAt = now()
+	return {
+		kind = PLOT_TIME_RESERVATION_KIND,
+		reservationId = HttpService:GenerateGUID(false),
+		productId = int(config and config.DevProductId, 0),
+		skipId = config and config.SkipId or nil,
+		durationSeconds = int(config and config.DurationSeconds, 0),
+		createdAt = createdAt,
+		expiresAt = createdAt + RESERVATION_SECONDS,
+	}
+end
+
+local function reserveSaplingSkip(player, plot, profile, target)
+	local _, info, feedIndex, resolveCode = resolveSkippableSapling(player, plot, target)
+	if resolveCode ~= "ok" then
+		return nil, false, resolveCode
+	end
+	local reservation = normalizeSaplingReservation(feedIndex, info.seedId)
+	profile.Data.PendingGrowSkipReservation = reservation
+	if not saveProfile(profile) then
+		clearReservation(profile)
+		return nil, false, "save-failed"
+	end
+	return reservation, true, "ok"
+end
+
+local function reservePlotTimeSkip(player, plot, profile, target, skipId)
+	local config = skipConfig(skipId)
+	if not config or int(config.DevProductId, 0) <= 0 or int(config.DurationSeconds, 0) <= 0 then
+		return nil, false, "invalid-product"
+	end
+	local mailbox = mailboxForTarget(plot, target)
+	if not mailbox then
+		return nil, false, "invalid-target"
+	end
+	if not isPlayerNearInstance(player, mailbox) then
+		return nil, false, "too-far"
+	end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then
+		return nil, false, "edit-mode"
+	end
+	if not hasEligiblePlotGrowth(player, plot) then
+		return nil, false, "no-growth"
+	end
+
+	local reservation = normalizePlotTimeReservation(config)
+	profile.Data.PendingGrowSkipReservation = reservation
+	if not saveProfile(profile) then
+		clearReservation(profile)
+		return nil, false, "save-failed"
+	end
+	return reservation, true, "ok"
+end
+
+local function onSkipRequest(player, requestId, target, skipId)
 	if type(requestId) ~= "number" then
 		return
 	end
@@ -187,13 +299,15 @@ local function onSkipRequest(player, requestId, target)
 		sendResult(player, requestId, false, "invalid-target")
 		return
 	end
-	local configProductId = productId()
+	local isPlotTimeRequest = type(skipId) == "string" and skipId ~= ""
+	local requestedConfig = isPlotTimeRequest and skipConfig(skipId) or ShopBalance.GrowSkipForProductId(saplingProductId())
+	local configProductId = int(requestedConfig and requestedConfig.DevProductId, 0)
+	local profile = PlayerDataService.GetProfile(player)
+	local plot = PlotService.GetPlayerPlot(player)
 	if configProductId <= 0 then
 		sendResult(player, requestId, false, "invalid-product")
 		return
 	end
-	local profile = PlayerDataService.GetProfile(player)
-	local plot = PlotService.GetPlayerPlot(player)
 	if not (profile and plot) then
 		sendResult(player, requestId, false, "profile-not-ready")
 		return
@@ -217,7 +331,7 @@ local function onSkipRequest(player, requestId, target)
 		sendResult(player, requestId, false, "busy")
 		return
 	end
-	if not isPlayerNearInstance(player, target) then
+	if not isPlotTimeRequest and not isPlayerNearInstance(player, target) then
 		sendResult(player, requestId, false, "too-far")
 		return
 	end
@@ -227,24 +341,18 @@ local function onSkipRequest(player, requestId, target)
 	end
 
 	locks[key] = true
-	local saved = false
 	local reservation = nil
 	local resultCode = "server-error"
 	local ok, err = pcall(function()
-		local _, info, feedIndex, resolveCode = resolveSkippableSapling(player, plot, target)
-		if resolveCode ~= "ok" then
-			resultCode = resolveCode
-			return
+		local saved = false
+		if isPlotTimeRequest then
+			reservation, saved, resultCode = reservePlotTimeSkip(player, plot, profile, target, skipId)
+		else
+			reservation, saved, resultCode = reserveSaplingSkip(player, plot, profile, target)
 		end
-		reservation = normalizeReservation(feedIndex, info.seedId)
-		profile.Data.PendingGrowSkipReservation = reservation
-		saved = saveProfile(profile)
 		if not saved then
-			clearReservation(profile)
-			resultCode = "save-failed"
-			return
+			reservation = nil
 		end
-		resultCode = "ok"
 	end)
 	locks[key] = nil
 
@@ -254,7 +362,7 @@ local function onSkipRequest(player, requestId, target)
 		sendResult(player, requestId, false, "server-error")
 		return
 	end
-	if not (saved and reservation) then
+	if not reservation then
 		sendResult(player, requestId, false, resultCode)
 		return
 	end
@@ -263,12 +371,24 @@ local function onSkipRequest(player, requestId, target)
 		productId = configProductId,
 		reservationId = reservation.reservationId,
 		expiresAt = reservation.expiresAt,
+		skipId = isPlotTimeRequest and skipId or nil,
 	})
 end
 
-local function finishNoOp(profile, purchaseId)
+local function snapshotIfPossible(player, plot, profile)
+	if type(snapshotProfileState) ~= "function" then
+		return true
+	end
+	return snapshotProfileState(player, plot, profile) == true
+end
+
+local function finishNoOp(profile, purchaseId, player, plot)
 	clearReservation(profile)
 	ReceiptService.MarkProcessed(profile, purchaseId)
+	if player and plot and not snapshotIfPossible(player, plot, profile) then
+		ReceiptService.ClearProcessed(profile, purchaseId)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 	if saveProfile(profile) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
@@ -276,13 +396,90 @@ local function finishNoOp(profile, purchaseId)
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end
 
-local function cancelReservation(player)
+local function cancelReservation(player, productIdValue)
 	local profile = PlayerDataService.GetProfile(player)
-	if not pendingReservation(profile) then
+	if not pendingReservation(profile, productIdValue) then
 		return
 	end
 	clearReservation(profile)
 	saveProfile(profile)
+end
+
+local function creditMaturePatches(plot, seconds)
+	local creditedSlots = 0
+	for _, feed in ipairs(PlotService.GetSortedFeeds(plot)) do
+		if isMaturePatch(feed) and FeedMachines.HasGrowthCreditTarget(feed) then
+			local ok, result = FeedMachines.CreditGrowthSeconds(feed, seconds)
+			if ok and type(result) == "table" then
+				creditedSlots += int(result.changedSlots, 0)
+			end
+		end
+	end
+	return creditedSlots
+end
+
+local function applyPlotTimeSkip(player, plot, seconds)
+	seconds = int(seconds, 0)
+	if seconds <= 0 then
+		return nil, "invalid-duration"
+	end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then
+		return nil, "edit-mode"
+	end
+	if not hasEligiblePlotGrowth(player, plot) then
+		return nil, "no-growth"
+	end
+
+	local creditedSlots = creditMaturePatches(plot, seconds)
+	local seedResult = FeedGrowthService.AdvanceOwnedGrowth(player, plot, seconds)
+	local advanced = int(seedResult and seedResult.advanced, 0)
+	local matured = int(seedResult and seedResult.matured, 0)
+	local leftoverPatchCreditSlots = int(seedResult and seedResult.patchCreditSlots, 0)
+	if creditedSlots + advanced + matured + leftoverPatchCreditSlots <= 0 then
+		return nil, "no-growth"
+	end
+
+	return {
+		creditedSlots = creditedSlots + leftoverPatchCreditSlots,
+		advanced = advanced,
+		matured = matured,
+	}, "ok"
+end
+
+local function commitPlotTimeReservation(player, plot, profile, reservation, purchaseId)
+	if type(reservation) ~= "table" then
+		return false, "missing-reservation"
+	end
+	if reservation.sourceCommitted == true then
+		local appliedPurchaseId = reservation.appliedPurchaseId
+		if type(appliedPurchaseId) == "string" and appliedPurchaseId ~= "" and appliedPurchaseId ~= purchaseId then
+			return false, "receipt-mismatch"
+		end
+		if type(appliedPurchaseId) ~= "string" or appliedPurchaseId == "" then
+			reservation.appliedPurchaseId = purchaseId
+			profile.Data.PendingGrowSkipReservation = reservation
+			if not saveProfile(profile) then
+				return false, "source-commit-save-failed"
+			end
+		end
+		return true, "ok"
+	end
+
+	local _, applyCode = applyPlotTimeSkip(player, plot, int(reservation.durationSeconds, 0))
+	if applyCode ~= "ok" then
+		return false, applyCode
+	end
+
+	reservation.sourceCommitted = true
+	reservation.appliedPurchaseId = purchaseId
+	profile.Data.PendingGrowSkipReservation = reservation
+	if not snapshotIfPossible(player, plot, profile) then
+		return false, "source-commit-snapshot-failed"
+	end
+	if not saveProfile(profile) then
+		return false, "source-commit-save-failed"
+	end
+	return true, "ok"
 end
 
 function GrowSkipService.HandlesProductId(productIdValue)
@@ -313,52 +510,89 @@ function GrowSkipService.ProcessReceipt(receiptInfo)
 	local granted = false
 	local noOp = false
 	local resultCode = "server-error"
-	local reservation = pendingReservation(profile)
+	local plot = nil
+	local reservation = pendingReservation(profile, receiptInfo.ProductId)
 	local ok, err = pcall(function()
+		plot = PlotService.GetPlayerPlot(player)
+		if not plot then
+			resultCode = "missing-plot"
+			return
+		end
 		if not reservation then
 			noOp = true
 			resultCode = "missing-reservation"
 			return
 		end
-		local plot = PlotService.GetPlayerPlot(player)
-		if not plot then
-			resultCode = "missing-plot"
-			return
-		end
-		local feed = feedByIndex(plot, int(reservation.feedIndex, 0))
-		if not feed then
+		if reservationExpired(reservation) then
 			noOp = true
-			resultCode = "missing-feed"
-			return
-		end
-		local info = FeedGrowthService.GetGrowingInfo(feed)
-		if not info then
-			noOp = true
-			resultCode = "not-growing"
-			return
-		end
-		if info.offlineProgressPending == true then
-			resultCode = "offline-progress"
-			return
-		end
-		if info.seedId ~= reservation.seedId or info.feedClass ~= "Tree" or info.seedId == APPLE_TREE_SEED_ID then
-			noOp = true
-			resultCode = "target-changed"
-			return
-		end
-		if info.owner ~= nil and info.owner ~= player then
-			noOp = true
-			resultCode = "not-owner"
+			resultCode = "reservation-expired"
 			return
 		end
 
-		resultCode = "mature-failed"
-		local mature = FeedGrowthService.ForceMature(feed)
-		if not mature then
-			return
+		local reservationKind = reservation.kind
+		if reservationKind == nil then
+			reservationKind = SAPLING_RESERVATION_KIND
+		end
+		if reservationKind == PLOT_TIME_RESERVATION_KIND then
+			if config.SkipId ~= reservation.skipId or int(config.DurationSeconds, 0) ~= int(reservation.durationSeconds, 0) then
+				noOp = true
+				resultCode = "target-changed"
+				return
+			end
+			local committed, commitCode = commitPlotTimeReservation(player, plot, profile, reservation, purchaseId)
+			if not committed then
+				if commitCode == "no-growth" then
+					noOp = true
+				end
+				resultCode = commitCode
+				return
+			end
+		else
+			if config.SkipId ~= TARGETED_SAPLING_SKIP_ID then
+				noOp = true
+				resultCode = "target-changed"
+				return
+			end
+			local feed = feedByIndex(plot, int(reservation.feedIndex, 0))
+			if not feed then
+				noOp = true
+				resultCode = "missing-feed"
+				return
+			end
+			local info = FeedGrowthService.GetGrowingInfo(feed)
+			if not info then
+				noOp = true
+				resultCode = "not-growing"
+				return
+			end
+			if info.offlineProgressPending == true then
+				resultCode = "offline-progress"
+				return
+			end
+			if info.seedId ~= reservation.seedId or info.feedClass ~= "Tree" or info.seedId == APPLE_TREE_SEED_ID then
+				noOp = true
+				resultCode = "target-changed"
+				return
+			end
+			if info.owner ~= nil and info.owner ~= player then
+				noOp = true
+				resultCode = "not-owner"
+				return
+			end
+
+			resultCode = "mature-failed"
+			local mature = FeedGrowthService.ForceMature(feed)
+			if not mature then
+				return
+			end
 		end
 		clearReservation(profile)
 		ReceiptService.MarkProcessed(profile, purchaseId)
+		resultCode = "snapshot-failed"
+		if not snapshotIfPossible(player, plot, profile) then
+			ReceiptService.ClearProcessed(profile, purchaseId)
+			return
+		end
 		resultCode = "save-failed"
 		if not saveProfile(profile) then
 			ReceiptService.ClearProcessed(profile, purchaseId)
@@ -376,23 +610,34 @@ function GrowSkipService.ProcessReceipt(receiptInfo)
 	end
 
 	if granted then
+		if reservation and reservation.kind == PLOT_TIME_RESERVATION_KIND then
+			NotificationService.Success(player, string.format("%s applied to your plot!", config.DisplayName or "Growth skip"))
+		end
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 
 	if noOp then
-		NotificationService.Error(player, "Could not find that growing tree to skip")
-		return finishNoOp(profile, purchaseId)
+		if resultCode == "reservation-expired" then
+			NotificationService.Error(player, "That skip purchase expired before it could be applied")
+		elseif (reservation and reservation.kind == PLOT_TIME_RESERVATION_KIND) or (config and config.SkipId ~= TARGETED_SAPLING_SKIP_ID) then
+			warn("[GrowSkipService] Plot time skip no-op: " .. tostring(resultCode))
+		else
+			NotificationService.Error(player, "Could not find that growing tree to skip")
+		end
+		return finishNoOp(profile, purchaseId, player, plot)
 	end
 
 	warn("[GrowSkipService] Receipt grant failed: " .. tostring(resultCode))
 	return Enum.ProductPurchaseDecision.NotProcessedYet
 end
 
-function GrowSkipService.Start()
+function GrowSkipService.Start(config)
 	if started then
 		return
 	end
 	started = true
+	config = type(config) == "table" and config or nil
+	snapshotProfileState = config and config.snapshotProfileState or nil
 
 	RuntimeGuard.Connect(requestRemote.OnServerEvent, "GrowSkipService.Request", onSkipRequest)
 	RuntimeGuard.Connect(Players.PlayerRemoving, "GrowSkipService.PlayerRemoving", function(player)
@@ -405,8 +650,8 @@ function GrowSkipService.Start()
 	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "GrowSkipService.PromptFinished", function(playerOrUserId, finishedProductId, wasPurchased)
 		local userId = typeof(playerOrUserId) == "Instance" and playerOrUserId.UserId or playerOrUserId
 		local player = Players:GetPlayerByUserId(userId)
-		if player and int(finishedProductId, 0) == productId() and wasPurchased ~= true then
-			cancelReservation(player)
+		if player and productConfig(finishedProductId) and wasPurchased ~= true then
+			cancelReservation(player, finishedProductId)
 		end
 	end)
 end

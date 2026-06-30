@@ -105,6 +105,15 @@
         "GrowSkipResult": {
           "$className": "RemoteEvent"
         },
+        "CollectAllRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
+        "CollectAllResult": {
+          "$className": "RemoteEvent"
+        },
         "ServerLuckPurchaseRequest": {
           "$className": "RemoteEvent"
         },
@@ -259,6 +268,18 @@
           "$className": "Sound",
           "$properties": {
             "SoundId": "rbxassetid://8807795651"
+          }
+        },
+        "MailboxOpen": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://9116436970"
+          }
+        },
+        "MailboxClose": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://9116437310"
           }
         },
         "BirdBackingTrack": {

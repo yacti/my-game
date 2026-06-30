@@ -47,6 +47,7 @@ local DATA_TEMPLATE = {
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
 	PendingGrowSkipReservation = nil,
+	PendingCollectAllReservation = nil,
 	PendingRollOffers = {},
 	StarterPackPurchased = false,
 	Currency = STARTING_CURRENCY,
@@ -163,6 +164,19 @@ local function copyMutationPayload(clean, mutationIdsValue, primaryMutationIdVal
 	if primaryMutationId then
 		clean[primaryKey or "primaryMutationId"] = primaryMutationId
 	end
+end
+
+local function copyFoodReservationPayload(clean, source)
+	if type(clean) ~= "table" or type(source) ~= "table" then
+		return
+	end
+	local reservationId = nonemptyString(source.stealReservationId)
+	local expiresAt = math.floor(tonumber(source.stealReservationExpiresAt) or 0)
+	if not reservationId or expiresAt <= 0 then
+		return
+	end
+	clean.stealReservationId = reservationId
+	clean.stealReservationExpiresAt = expiresAt
 end
 
 local function sanitizeFeedQueueItem(item)
@@ -353,20 +367,91 @@ local function sanitizePendingGrowSkipReservation(value)
 		return nil
 	end
 	local productId = math.max(math.floor(tonumber(value.productId) or 0), 0)
-	local feedIndex = math.max(math.floor(tonumber(value.feedIndex) or 0), 0)
-	local seedId = value.seedId
 	local createdAt = math.floor(tonumber(value.createdAt) or os.time())
 	local expiresAt = math.floor(tonumber(value.expiresAt) or 0)
-	if productId <= 0 or feedIndex <= 0 or type(seedId) ~= "string" or seedId == "" or expiresAt <= 0 then
+	if productId <= 0 or expiresAt <= 0 then
+		return nil
+	end
+	local kind = value.kind
+	if kind ~= "PlotTime" then
+		kind = "SaplingMature"
+	end
+	local clean = {
+		kind = kind,
+		reservationId = reservationId,
+		productId = productId,
+		createdAt = createdAt,
+		expiresAt = expiresAt,
+	}
+	if kind == "PlotTime" then
+		local skipId = value.skipId
+		local durationSeconds = math.max(math.floor(tonumber(value.durationSeconds) or 0), 0)
+		if type(skipId) ~= "string" or skipId == "" or durationSeconds <= 0 then
+			return nil
+		end
+		clean.skipId = skipId
+		clean.durationSeconds = durationSeconds
+		clean.sourceCommitted = value.sourceCommitted == true
+		local appliedPurchaseId = nonemptyString(value.appliedPurchaseId)
+		if appliedPurchaseId then
+			clean.appliedPurchaseId = appliedPurchaseId
+		end
+		return clean
+	end
+
+	local feedIndex = math.max(math.floor(tonumber(value.feedIndex) or 0), 0)
+	local seedId = value.seedId
+	if feedIndex <= 0 or type(seedId) ~= "string" or seedId == "" then
+		return nil
+	end
+	clean.feedIndex = feedIndex
+	clean.seedId = seedId
+	return clean
+end
+
+local function sanitizePendingCollectAllReservation(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	local reservationId = value.reservationId
+	if type(reservationId) ~= "string" or reservationId == "" then
+		return nil
+	end
+	local productId = math.max(math.floor(tonumber(value.productId) or 0), 0)
+	local createdAt = math.floor(tonumber(value.createdAt) or os.time())
+	local expiresAt = math.floor(tonumber(value.expiresAt) or 0)
+	if productId <= 0 or expiresAt <= 0 then
+		return nil
+	end
+	local items = {}
+	if type(value.items) == "table" then
+		for _, item in ipairs(value.items) do
+			local cleanItem = FoodInventoryService.SanitizeRecord(item)
+			if cleanItem then
+				local sourceKind = item.sourceKind
+				local sourceFeedIndex = math.max(math.floor(tonumber(item.sourceFeedIndex) or 0), 0)
+				local sourceSlotIndex = math.max(math.floor(tonumber(item.sourceSlotIndex) or 0), 0)
+				if (sourceKind == "Patch" or sourceKind == "Tree") and sourceFeedIndex > 0 and sourceSlotIndex > 0 then
+					cleanItem.sourceKind = sourceKind
+					cleanItem.sourceFeedIndex = sourceFeedIndex
+					cleanItem.sourceSlotIndex = sourceSlotIndex
+					cleanItem.sourceCommitted = item.sourceCommitted == true
+					cleanItem.sourceUnavailable = item.sourceUnavailable == true
+					items[#items + 1] = cleanItem
+				end
+			end
+		end
+	end
+	if #items == 0 then
 		return nil
 	end
 	return {
 		reservationId = reservationId,
 		productId = productId,
-		feedIndex = feedIndex,
-		seedId = seedId,
 		createdAt = createdAt,
 		expiresAt = expiresAt,
+		items = items,
+		appliedPurchaseId = nonemptyString(value.appliedPurchaseId),
 	}
 end
 
@@ -520,6 +605,7 @@ local function ensureValidData(profile)
 								firstMutationIds(slot.mutationIds, slot.mutations),
 								slot.primaryMutationId or slot.primaryMutation
 							)
+							copyFoodReservationPayload(cleanSlot, slot)
 							clean.slots[#clean.slots + 1] = cleanSlot
 						end
 					end
@@ -538,6 +624,7 @@ local function ensureValidData(profile)
 								firstMutationIds(pile.mutationIds, pile.mutations),
 								pile.primaryMutationId or pile.primaryMutation
 							)
+							copyFoodReservationPayload(cleanPile, pile)
 							clean.piles[slotKey] = cleanPile
 						end
 					end
@@ -622,6 +709,7 @@ local function ensureValidData(profile)
 	profile.Data.ProcessedReceipts = processedReceipts
 	profile.Data.PendingFoodStealReservation = sanitizePendingFoodStealReservation(profile.Data.PendingFoodStealReservation)
 	profile.Data.PendingGrowSkipReservation = sanitizePendingGrowSkipReservation(profile.Data.PendingGrowSkipReservation)
+	profile.Data.PendingCollectAllReservation = sanitizePendingCollectAllReservation(profile.Data.PendingCollectAllReservation)
 	profile.Data.PendingRollOffers = RollOfferPersistence.SanitizeRecords(profile.Data.PendingRollOffers)
 
 	profile.Data.StarterPackPurchased = profile.Data.StarterPackPurchased == true

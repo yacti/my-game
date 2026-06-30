@@ -7,17 +7,15 @@ local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
-local RollConfig = require(Shared:WaitForChild("RollConfig"))
 
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
-local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local StationFocus = require(script.Parent:WaitForChild("StationFocus"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local AutoRollController = {}
 
 local HUD_WAIT_SECONDS = 10
-local PROXIMITY_DISTANCE = RollConfig.Button.InteractionDistance
 local PROXIMITY_CHECK_SECONDS = 0.1
 local SETTINGS_SAVE_DEBOUNCE_SECONDS = AutoRollConfig.RequestRateSeconds + 0.05
 local PANEL_NAME = "AutoRollSettings"
@@ -87,29 +85,6 @@ end
 local function autoRollUnlocked()
 	local rebirths = tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.Rebirths)) or 0
 	return rebirths >= AutoRollConfig.UnlockRebirths
-end
-
-local function getAssignedPlot(player)
-	return PlotResolver.ResolveForPlayer(player)
-end
-
-local function rollButtonForPlot(plot)
-	local rollArea = plot and plot:FindFirstChild("RollArea")
-	local buttonFolder = rollArea and rollArea:FindFirstChild("Button")
-	local button = buttonFolder and buttonFolder:FindFirstChild("Button")
-	return button and button:IsA("BasePart") and button or nil
-end
-
-local function rootPart(player)
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	return root and root:IsA("BasePart") and root or nil
-end
-
-local function isNearRollButton(player)
-	local root = rootPart(player)
-	local button = rollButtonForPlot(getAssignedPlot(player))
-	return root ~= nil and button ~= nil and (root.Position - button.Position).Magnitude <= PROXIMITY_DISTANCE
 end
 
 local function request(action)
@@ -481,7 +456,7 @@ function AutoRollController.start()
 	RuntimeGuard.Spawn("AutoRollController.ProximityLoop", function()
 		while hudFrame.Parent do
 			RuntimeGuard.Run("AutoRollController.ProximityTick", function()
-				if autoRollUnlocked() and isNearRollButton(player) then
+				if autoRollUnlocked() and StationFocus.IsRollActive() then
 					openHudPanel()
 				else
 					closeHudPanel()

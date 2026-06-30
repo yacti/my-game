@@ -19,6 +19,7 @@ local PROMPT_KIND = "GrowSkip"
 local PROMPT_DISTANCE = 10
 local PROMPT_ATTACHMENT_NAME = "__LocalPrompt_GrowSkipAttachment"
 local PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM = 5
+local EDIT_MODE_ATTR = "EditMode"
 
 local player = Players.LocalPlayer
 local requestRemote = Remotes.get(Remotes.Names.GrowSkipRequest)
@@ -60,6 +61,9 @@ local function isAvailable(target)
 		return false
 	end
 	if player:GetAttribute(State.Player.OfflineProgressPending) == true then
+		return false
+	end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then
 		return false
 	end
 	local plot = ownPlot()

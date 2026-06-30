@@ -32,6 +32,10 @@ local OWNER_BILLBOARD_NAME = "PlayerName"
 local OWNER_BILLBOARD_FRAME_NAME = "Frame"
 local OWNER_ICON_NAME = "Icon"
 local OWNER_NAME_LABEL_NAME = "Name"
+local OWNER_FARM_LABEL_NAME = "PlayerName"
+local SIGNS_FOLDER_NAME = "Signs"
+local PLAYER_SIGN_NAME = "PlayerSign"
+local PLAYER_SIGN_INFO_NAME = "PlayerInfo"
 local plotOwners
 local petNicknameRandom = Random.new()
 
@@ -60,36 +64,81 @@ local function restoreRollAreaPresentation(plot)
 	InstanceVisibility.SetTreeActive(rollArea, true, ROLL_AREA_VISIBILITY_OPTIONS)
 end
 
-local function getPlotOwnerDisplay(plot)
+local function findDescendant(root, name, className)
+	if not root then
+		return nil
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant.Name == name and (not className or descendant:IsA(className)) then
+			return descendant
+		end
+	end
+	return nil
+end
+
+local function addPlotOwnerBillboardDisplay(plot, displays)
 	local starterArea = plot and plot:FindFirstChild(STARTER_AREA_NAME)
 	local gridPart = starterArea and starterArea:FindFirstChild(STARTER_GRID_PART_NAME)
 	local holder = gridPart and gridPart:FindFirstChild(PLOT_HOLDER_NAME)
 	local billboard = holder and holder:FindFirstChild(OWNER_BILLBOARD_NAME)
 	if not (billboard and billboard:IsA("BillboardGui")) then
-		return nil, nil, nil
+		return
 	end
 
 	local frame = billboard:FindFirstChild(OWNER_BILLBOARD_FRAME_NAME)
 	local icon = frame and frame:FindFirstChild(OWNER_ICON_NAME)
 	local nameLabel = frame and frame:FindFirstChild(OWNER_NAME_LABEL_NAME)
 
-	return billboard,
-		icon and icon:IsA("ImageLabel") and icon or nil,
-		nameLabel and nameLabel:IsA("TextLabel") and nameLabel or nil
+	displays[#displays + 1] = {
+		root = billboard,
+		icon = icon and icon:IsA("ImageLabel") and icon or nil,
+		nameLabel = nameLabel and nameLabel:IsA("TextLabel") and nameLabel or nil,
+	}
 end
 
-local function clearPlotOwnerDisplay(plot)
-	local billboard, icon, nameLabel = getPlotOwnerDisplay(plot)
-	if not billboard then
+local function addPlayerSignDisplay(plot, displays)
+	local signs = plot and plot:FindFirstChild(SIGNS_FOLDER_NAME)
+	local sign = signs and signs:FindFirstChild(PLAYER_SIGN_NAME)
+	if not sign then
 		return
 	end
 
-	billboard.Enabled = false
-	if icon then
-		icon.Image = ""
-	end
-	if nameLabel then
-		nameLabel.Text = ""
+	local surfaceGui = findDescendant(sign, "SurfaceGui", "SurfaceGui")
+	local info = surfaceGui and surfaceGui:FindFirstChild(PLAYER_SIGN_INFO_NAME)
+	local icon = info and info:FindFirstChild(OWNER_ICON_NAME)
+	local nameLabel = info and info:FindFirstChild(OWNER_NAME_LABEL_NAME)
+	local farmLabel = info and info:FindFirstChild(OWNER_FARM_LABEL_NAME)
+
+	displays[#displays + 1] = {
+		root = surfaceGui,
+		icon = icon and icon:IsA("ImageLabel") and icon or nil,
+		nameLabel = nameLabel and nameLabel:IsA("TextLabel") and nameLabel or nil,
+		farmLabel = farmLabel and farmLabel:IsA("TextLabel") and farmLabel or nil,
+		sign = sign,
+	}
+end
+
+local function getPlotOwnerDisplays(plot)
+	local displays = {}
+	addPlotOwnerBillboardDisplay(plot, displays)
+	addPlayerSignDisplay(plot, displays)
+	return displays
+end
+
+local function clearPlotOwnerDisplay(plot)
+	for _, display in ipairs(getPlotOwnerDisplays(plot)) do
+		if display.root and display.root:IsA("LayerCollector") then
+			display.root.Enabled = false
+		end
+		if display.icon then
+			display.icon.Image = ""
+		end
+		if display.nameLabel then
+			display.nameLabel.Text = ""
+		end
+		if display.farmLabel then
+			display.farmLabel.Text = ""
+		end
 	end
 end
 
@@ -108,20 +157,26 @@ local function setPlotVacantPresentation(plot, vacant)
 end
 
 local function setPlotOwnerDisplay(plot, player, plotIndex)
-	local billboard, icon, nameLabel = getPlotOwnerDisplay(plot)
-	if not billboard then
+	local displays = getPlotOwnerDisplays(plot)
+	if #displays == 0 then
 		return
 	end
 
-	billboard.Enabled = true
-	if nameLabel then
-		nameLabel.Text = player.DisplayName ~= "" and player.DisplayName or player.Name
+	local displayName = player.DisplayName ~= "" and player.DisplayName or player.Name
+	for _, display in ipairs(displays) do
+		if display.root and display.root:IsA("LayerCollector") then
+			display.root.Enabled = true
+		end
+		if display.nameLabel then
+			display.nameLabel.Text = display.farmLabel and (displayName .. "'s") or displayName
+		end
+		if display.farmLabel then
+			display.farmLabel.Text = "Farm"
+		end
+		if display.icon then
+			display.icon.Image = ""
+		end
 	end
-	if not icon then
-		return
-	end
-
-	icon.Image = ""
 	local userId = player.UserId
 	if userId <= 0 then
 		return
@@ -139,8 +194,14 @@ local function setPlotOwnerDisplay(plot, player, plotIndex)
 			warn(string.format("[PlotService] Could not load owner thumbnail for user %d", userId))
 			return
 		end
-		if plotOwners[plotIndex] == userId and icon:IsDescendantOf(plot) then
-			icon.Image = content
+		if plotOwners[plotIndex] ~= userId then
+			return
+		end
+		for _, display in ipairs(displays) do
+			local icon = display.icon
+			if icon and icon:IsDescendantOf(plot) then
+				icon.Image = content
+			end
 		end
 	end)
 end
