@@ -841,7 +841,7 @@ function TreeClicker.CollectMutationTargets(machine, mutationId)
 		clearExpiredGroundStealReservation(slot)
 		if slot.ground
 			and slot.ground.stealReservationId == nil
-			and not Mutations.Contains(slot.ground.mutationIds, mutationId) then
+			and #Mutations.SanitizeList(slot.ground.mutationIds) == 0 then
 			targets[#targets + 1] = {
 				kind = "Tree",
 				machine = machine,
@@ -873,6 +873,9 @@ function TreeClicker.ApplyMutation(machine, targetKey, mutationId)
 	clearExpiredGroundStealReservation(slot)
 	if slot.ground.stealReservationId ~= nil then
 		return false, "reserved"
+	end
+	if #Mutations.SanitizeList(slot.ground.mutationIds) > 0 then
+		return false, "already-mutated"
 	end
 	local nextMutationIds, added = Mutations.Add(slot.ground.mutationIds, mutationId)
 	if not added then

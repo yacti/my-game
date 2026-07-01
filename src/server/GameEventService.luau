@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
+local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotWindService = require(Server:WaitForChild("PlotWindService"))
 
@@ -192,6 +193,12 @@ local handlers = {
 		stop = PlotThunderstormService.StopStorm,
 		preNotice = PlotThunderstormService.NotifyStormApproaching,
 	},
+	[GameEvents.Ids.Alien] = {
+		start = function(record, callbacks)
+			PlotAlienEventService.StartAlien(record, callbacks)
+		end,
+		stop = PlotAlienEventService.StopAlien,
+	},
 }
 
 local function clearActiveFolder(folder)
@@ -344,15 +351,20 @@ function GameEventService.CompleteInstance(instanceId, options)
 	end
 	options = type(options) == "table" and options or {}
 	local keepHandlerRunning = options.keepHandlerRunning == true
+	local releaseIdempotency = options.releaseIdempotency == true
 	local now = serverNow()
-	completedInstanceIds[instanceId] = now
+	if releaseIdempotency then
+		completedInstanceIds[instanceId] = nil
+	else
+		completedInstanceIds[instanceId] = now
+	end
 	manualRecordsByInstanceId[instanceId] = nil
 	for eventId, activeInstanceId in pairs(activeInstanceIdsByEventId) do
 		if activeInstanceId == instanceId then
 			local handler = handlers[eventId]
 			local record = activeRecordsByEventId[eventId]
 			local blockUntil = tonumber(options.blockLowerPriorityUntil)
-			if record and blockUntil and blockUntil > now then
+			if record and blockUntil and blockUntil > now and not releaseIdempotency then
 				completionBlocksByLayer[record.layer] = {
 					instanceId = instanceId,
 					priority = tonumber(record.priority) or 0,

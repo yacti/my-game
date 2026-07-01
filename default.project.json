@@ -15,6 +15,9 @@
         "ThunderstormEffect": {
           "$className": "RemoteEvent"
         },
+        "AlienEventEffect": {
+          "$className": "RemoteEvent"
+        },
         "TreeClickerRequest": {
           "$className": "RemoteEvent"
         },

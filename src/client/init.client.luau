@@ -75,6 +75,7 @@ local CONTROLLERS = {
 	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",
+	"AlienEventController",
 	"FeedPlacement",
 	"TreeClickController",
 	"RebirthController",

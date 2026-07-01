@@ -17,7 +17,6 @@ local FADE_SECONDS = 10
 local MIN_SCALE = 1
 local MAX_SCALE = 2
 local DEFAULT_UPDATE_HZ = 10
-local FADE_TWEEN = TweenInfo.new(FADE_SECONDS, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
 local LANE_NAMES = { "Clouds", "Clouds0", "Clouds1" }
 
 local rng = Random.new()
@@ -26,6 +25,8 @@ local heartbeatConnection = nil
 local updateAccumulator = 0
 local speedMultiplier = 1
 local updateHz = DEFAULT_UPDATE_HZ
+local transparencyOverride = nil
+local activeLanes = nil
 
 local function warnCloud(message)
 	warn("[CloudController] " .. message)
@@ -95,8 +96,48 @@ local function prepareCloud(part)
 	part.CastShadow = false
 end
 
-local function tweenTransparency(part, transparency)
-	TweenService:Create(part, FADE_TWEEN, { Transparency = transparency }):Play()
+local function targetTransparency(cloud)
+	if type(transparencyOverride) == "number" then
+		return transparencyOverride
+	end
+	if cloud.fadingOut then
+		return 1
+	end
+	return cloud.defaultTransparency or 0
+end
+
+local function tweenCloudTransparency(cloud, transparency, seconds)
+	if cloud.transparencyTween then
+		cloud.transparencyTween:Cancel()
+		cloud.transparencyTween = nil
+	end
+	seconds = math.max(tonumber(seconds) or FADE_SECONDS, 0)
+	if seconds <= 0 then
+		cloud.part.Transparency = transparency
+		return
+	end
+	local tween = TweenService:Create(
+		cloud.part,
+		TweenInfo.new(seconds, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ Transparency = transparency }
+	)
+	cloud.transparencyTween = tween
+	tween.Completed:Connect(function()
+		if cloud.transparencyTween == tween then
+			cloud.transparencyTween = nil
+		end
+	end)
+	tween:Play()
+end
+
+local function retargetActiveClouds(seconds)
+	for _, lane in ipairs(activeLanes or {}) do
+		for _, cloud in ipairs(lane.active) do
+			if cloud.part and cloud.part.Parent then
+				tweenCloudTransparency(cloud, targetTransparency(cloud), seconds)
+			end
+		end
+	end
 end
 
 local function sampleHorizontal(part)
@@ -136,22 +177,25 @@ local function spawnCloud(assets, lane, seeded)
 	cloud.Size *= rng:NextNumber(MIN_SCALE, MAX_SCALE)
 	cloud.CFrame = CFrame.new(position) * rotation
 	cloud.Parent = getCloudFolder()
-	if seeded then
-		cloud.Transparency = defaultTransparency
-	else
-		cloud.Transparency = 1
-		tweenTransparency(cloud, defaultTransparency)
-	end
-
-	lane.active[#lane.active + 1] = {
+	local record = {
 		part = cloud,
+		defaultTransparency = defaultTransparency,
 		startPosition = startPosition,
 		endPosition = endPosition,
 		rotation = rotation,
 		duration = duration,
 		elapsed = duration * progress,
 		fadingOut = false,
+		transparencyTween = nil,
 	}
+	if seeded then
+		cloud.Transparency = targetTransparency(record)
+	else
+		cloud.Transparency = 1
+		tweenCloudTransparency(record, targetTransparency(record), FADE_SECONDS)
+	end
+
+	lane.active[#lane.active + 1] = record
 	return true
 end
 
@@ -170,7 +214,7 @@ local function updateLane(assets, lane, deltaTime)
 
 		if not cloud.fadingOut and cloud.duration - cloud.elapsed <= FADE_SECONDS then
 			cloud.fadingOut = true
-			tweenTransparency(cloud.part, 1)
+			tweenCloudTransparency(cloud, targetTransparency(cloud), FADE_SECONDS)
 		end
 		if progress >= 1 then
 			cloud.part:Destroy()
@@ -201,6 +245,15 @@ function CloudController.SetUpdateHz(hz)
 	updateHz = math.max(tonumber(hz) or DEFAULT_UPDATE_HZ, 1)
 end
 
+function CloudController.SetTransparencyOverride(transparency, seconds)
+	if transparency == nil or transparency == false then
+		transparencyOverride = nil
+	else
+		transparencyOverride = math.clamp(tonumber(transparency) or 0, 0, 1)
+	end
+	retargetActiveClouds(seconds)
+end
+
 function CloudController.start()
 	if heartbeatConnection then
 		return
@@ -213,6 +266,7 @@ function CloudController.start()
 		end
 
 		getCloudFolder()
+		activeLanes = assets.lanes
 		for _, lane in ipairs(assets.lanes) do
 			for _ = 1, CLOUDS_PER_LANE do
 				spawnCloud(assets, lane, true)

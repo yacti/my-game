@@ -18,6 +18,7 @@ GameEvents.Ids = {
 	Sunny = "Sunny",
 	Windy = "Windy",
 	Stormy = "Stormy",
+	Alien = "Alien",
 }
 
 GameEvents.LayerConfigs = {
@@ -86,6 +87,29 @@ GameEvents.EventConfigs = {
 			cloudTravelSeconds = 6,
 		},
 	},
+	[GameEvents.Ids.Alien] = {
+		eventId = GameEvents.Ids.Alien,
+		layer = GameEvents.Layers.Chaos,
+		source = GameEvents.Sources.AdminCommand,
+		displayFrame = "Alien",
+		priority = 100,
+		displayPriority = 100,
+		appliedMutationId = "Alien",
+		alien = {
+			windUpSeconds = 10,
+			plotVisitSeconds = 14,
+			maxVisitsPerPlayer = 3,
+			maxTotalVisits = 24,
+			windDownSeconds = 6,
+			minZapsPerVisit = 1,
+			maxZapsPerVisit = 5,
+			zapAppearSeconds = 0.25,
+			zapFadeSeconds = 1.2,
+			ufoMaxTiltDegrees = 15,
+			ufoTravelSeconds = 4,
+			zapSoundRange = 500,
+		},
+	},
 }
 
 local function numeric(value, fallback)
@@ -110,6 +134,9 @@ function GameEvents.TotalDuration(config)
 	if type(config.storm) == "table" then
 		return select(4, GameEvents.StormTimings(config))
 	end
+	if type(config.alien) == "table" then
+		return select(4, GameEvents.AlienTimings(config))
+	end
 	return math.max(numeric(config.durationSeconds, 0), 0)
 end
 
@@ -132,6 +159,17 @@ function GameEvents.StormTimings(config)
 	local maxTurns = math.max(math.floor(numeric(storm.maxPlotTurns, 8)), 0)
 	local windDown = math.max(numeric(storm.windDownSeconds, 5), 0)
 	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
+end
+
+function GameEvents.AlienTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Alien)
+	local alien = type(config) == "table" and config.alien or nil
+	alien = type(alien) == "table" and alien or {}
+	local windUp = math.max(numeric(alien.windUpSeconds, 10), 0)
+	local visit = math.max(numeric(alien.plotVisitSeconds, 8), 0)
+	local maxVisits = math.max(math.floor(numeric(alien.maxTotalVisits, 24)), 0)
+	local windDown = math.max(numeric(alien.windDownSeconds, 6), 0)
+	return windUp, visit * maxVisits, windDown, windUp + (visit * maxVisits) + windDown
 end
 
 local function compareLayerRecords(left, right)

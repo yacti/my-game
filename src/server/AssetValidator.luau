@@ -318,6 +318,57 @@ local function validateThunderstormAssets(errors, warnings)
 	end
 end
 
+local function validateAlienEventAssets(errors)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Alien", errors)
+	end
+
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
+	local ufo = child(misc, "UFOEvent", "Model", errors)
+	if ufo then
+		local beam = child(ufo, "Beam", "BasePart", errors)
+		if beam and not hasDescendantOfClass(beam, "ParticleEmitter") then
+			add(errors, beam:GetFullName() .. " must contain a ParticleEmitter for alien zap VFX")
+		end
+	end
+
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", errors)
+	local eventVfx = assetRoot and child(assetRoot, "EventVFX", "Folder", errors)
+	local alienEvent = eventVfx and child(eventVfx, "AlienEvent", "Folder", errors)
+	if alienEvent then
+		local alienBeamCount = 0
+		for _, instance in ipairs(alienEvent:GetChildren()) do
+			if instance.Name == "AlienBeam" and (instance:IsA("Model") or instance:IsA("BasePart")) then
+				alienBeamCount += 1
+			end
+		end
+		if alienBeamCount == 0 then
+			add(errors, alienEvent:GetFullName() .. " must contain at least one AlienBeam Model or BasePart")
+		end
+		local starBlock = child(alienEvent, "StarBlock", "BasePart", errors)
+		if starBlock and not hasDescendantOfClass(starBlock, "ParticleEmitter") then
+			add(errors, starBlock:GetFullName() .. " must contain a ParticleEmitter")
+		end
+		local ufoProps = child(alienEvent, "UFOProps", "Model", errors)
+		if ufoProps and not hasDescendantOfClass(ufoProps, "BasePart") then
+			add(errors, ufoProps:GetFullName() .. " must contain a BasePart")
+		end
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local alien = child(mutations, "Alien", nil, errors)
+	if alien then
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Alien)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid configured %s %q", alien:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(alien, "ParticleEmitter") then
+			add(errors, alien:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+end
+
 local function validateMusicPlaylist(errors)
 	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
 	if not soundRoot then
@@ -1644,6 +1695,7 @@ local function validateTopBarEventHud(hud, warnings)
 		child(currentEvent, "Sunny", "GuiObject", warnings)
 		child(currentEvent, "Windy", "GuiObject", warnings)
 		child(currentEvent, "Stormy", "GuiObject", warnings)
+		child(currentEvent, "Alien", "GuiObject", warnings)
 	end
 
 	local eventTimer = child(topBar, "EventTimer", "GuiObject", warnings)
@@ -2562,6 +2614,7 @@ function AssetValidator.validate()
 	validateMusicPlaylist(errors)
 	validateAnimalAmbientSounds(errors)
 	validateThunderstormAssets(errors, warnings)
+	validateAlienEventAssets(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)

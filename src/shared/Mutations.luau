@@ -7,14 +7,17 @@ local Mutations = {}
 
 Mutations.Ids = {
 	Lightning = "Lightning",
+	Alien = "Alien",
 }
 
 Mutations.DisplayColors = {
 	[Mutations.Ids.Lightning] = Color3.fromRGB(107, 206, 255),
+	[Mutations.Ids.Alien] = Color3.fromRGB(107, 255, 137),
 }
 
 Mutations.XPMultipliers = {
 	[Mutations.Ids.Lightning] = 5,
+	[Mutations.Ids.Alien] = 5,
 }
 
 local function mutationRoot()
