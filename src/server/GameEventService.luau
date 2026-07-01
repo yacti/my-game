@@ -25,9 +25,37 @@ local completedInstanceIds = {}
 local completionBlocksByLayer = {}
 local notifiedInstanceIds = {}
 local serviceConfig = {}
+local manualRecordsByInstanceId = {}
+local manualSequence = 0
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
+end
+
+local function finiteNumber(value)
+	local numberValue = tonumber(value)
+	if numberValue == nil or numberValue ~= numberValue or math.abs(numberValue) == math.huge then
+		return nil
+	end
+	return numberValue
+end
+
+local function optionNumber(options, name, fallback)
+	if options[name] == nil then
+		return fallback
+	end
+	return finiteNumber(options[name])
+end
+
+local function copyRecord(record)
+	if type(record) ~= "table" then
+		return nil
+	end
+	local copy = {}
+	for key, value in pairs(record) do
+		copy[key] = value
+	end
+	return copy
 end
 
 local function logEvent(action, recordOrInstanceId)
@@ -110,6 +138,45 @@ local function signatureFor(records, nextWeather)
 		parts[#parts + 1] = "next:" .. tostring(nextWeather.eventId) .. ":" .. tostring(nextWeather.startsAt)
 	end
 	return table.concat(parts, "|")
+end
+
+local function generatedManualInstanceId(eventId, layer, startsAt)
+	repeat
+		manualSequence += 1
+		local instanceId = string.format(
+			"Manual_%s_%s_%d_%d",
+			tostring(layer),
+			tostring(eventId),
+			math.floor(tonumber(startsAt) or serverNow()),
+			manualSequence
+		)
+		if not manualRecordsByInstanceId[instanceId] then
+			return instanceId
+		end
+	until false
+	return nil
+end
+
+local function pruneManualRecords(now)
+	for instanceId, record in pairs(manualRecordsByInstanceId) do
+		local endsAt = tonumber(record.endsAt) or 0
+		if completedInstanceIds[instanceId] or endsAt <= now then
+			manualRecordsByInstanceId[instanceId] = nil
+		end
+	end
+end
+
+local function activeManualRecords(now)
+	pruneManualRecords(now)
+	local records = {}
+	for _, record in pairs(manualRecordsByInstanceId) do
+		local startsAt = tonumber(record.startsAt) or 0
+		local endsAt = tonumber(record.endsAt) or 0
+		if now >= startsAt and now < endsAt then
+			records[#records + 1] = record
+		end
+	end
+	return records
 end
 
 local handlers = {
@@ -251,7 +318,14 @@ local function update()
 		end
 	end
 	local snapshot = GameEvents.WeatherSnapshot(now, completedInstanceIds, completionBlocksByLayer)
-	local records = snapshot.activeRecords or {}
+	local records = {}
+	for _, record in ipairs(snapshot.activeRecords or {}) do
+		records[#records + 1] = record
+	end
+	for _, record in ipairs(activeManualRecords(now)) do
+		records[#records + 1] = record
+	end
+	records = GameEvents.ApplyLayerConfigs(records)
 	local nextWeather = snapshot.nextWeather
 
 	local signature = signatureFor(records, nextWeather)
@@ -272,6 +346,7 @@ function GameEventService.CompleteInstance(instanceId, options)
 	local keepHandlerRunning = options.keepHandlerRunning == true
 	local now = serverNow()
 	completedInstanceIds[instanceId] = now
+	manualRecordsByInstanceId[instanceId] = nil
 	for eventId, activeInstanceId in pairs(activeInstanceIdsByEventId) do
 		if activeInstanceId == instanceId then
 			local handler = handlers[eventId]
@@ -293,6 +368,126 @@ function GameEventService.CompleteInstance(instanceId, options)
 	end
 	lastSignature = nil
 	update()
+end
+
+function GameEventService.StartManualEvent(eventId, options)
+	local config = GameEvents.GetEvent(eventId)
+	if not config then
+		return false, "unknown-event"
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+
+	local layer = config.layer
+	if type(layer) ~= "string" or not GameEvents.LayerConfigs[layer] then
+		return false, "invalid-layer"
+	end
+
+	local now = serverNow()
+	local startsAt = optionNumber(options, "startsAt", now)
+	if startsAt == nil then
+		return false, "invalid-options"
+	end
+
+	local durationSeconds = optionNumber(options, "durationSeconds", GameEvents.TotalDuration(config))
+	if durationSeconds == nil or durationSeconds <= 0 then
+		return false, "invalid-duration"
+	end
+
+	local instanceId = options.instanceId
+	if instanceId ~= nil then
+		if type(instanceId) ~= "string" or instanceId == "" then
+			return false, "invalid-options"
+		end
+	else
+		instanceId = generatedManualInstanceId(eventId, layer, startsAt)
+	end
+	if manualRecordsByInstanceId[instanceId] or completedInstanceIds[instanceId] then
+		return false, "duplicate-instance"
+	end
+
+	local priority = optionNumber(options, "priority", tonumber(config.priority) or 0)
+	local displayPriority = optionNumber(options, "displayPriority", tonumber(config.displayPriority) or priority)
+	if priority == nil or displayPriority == nil then
+		return false, "invalid-options"
+	end
+
+	local displayFrame = options.displayFrame
+	if displayFrame ~= nil then
+		if type(displayFrame) ~= "string" or displayFrame == "" then
+			return false, "invalid-options"
+		end
+	else
+		displayFrame = config.displayFrame or eventId
+	end
+
+	local record = {
+		instanceId = instanceId,
+		eventId = eventId,
+		layer = layer,
+		source = GameEvents.Sources.AdminCommand,
+		startsAt = startsAt,
+		endsAt = startsAt + durationSeconds,
+		priority = priority,
+		displayPriority = displayPriority,
+		displayFrame = displayFrame,
+	}
+	manualRecordsByInstanceId[instanceId] = record
+	lastSignature = nil
+	update()
+	return true, copyRecord(record)
+end
+
+function GameEventService.StopManualEvent(instanceId)
+	if type(instanceId) ~= "string" or instanceId == "" then
+		return false, "invalid-options"
+	end
+	if not manualRecordsByInstanceId[instanceId] then
+		return false, "unknown-instance"
+	end
+	manualRecordsByInstanceId[instanceId] = nil
+	lastSignature = nil
+	update()
+	return true
+end
+
+function GameEventService.StopManualEventsByEventId(eventId)
+	if type(eventId) ~= "string" or eventId == "" then
+		return 0
+	end
+	local stoppedCount = 0
+	for instanceId, record in pairs(manualRecordsByInstanceId) do
+		if record.eventId == eventId then
+			manualRecordsByInstanceId[instanceId] = nil
+			stoppedCount += 1
+		end
+	end
+	if stoppedCount > 0 then
+		lastSignature = nil
+		update()
+	end
+	return stoppedCount
+end
+
+function GameEventService.StopManualEventsByLayer(layer)
+	if type(layer) ~= "string" or layer == "" then
+		return 0
+	end
+	local stoppedCount = 0
+	for instanceId, record in pairs(manualRecordsByInstanceId) do
+		if record.layer == layer then
+			manualRecordsByInstanceId[instanceId] = nil
+			stoppedCount += 1
+		end
+	end
+	if stoppedCount > 0 then
+		lastSignature = nil
+		update()
+	end
+	return stoppedCount
 end
 
 function GameEventService.Configure(config)

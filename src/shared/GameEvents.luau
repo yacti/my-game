@@ -134,6 +134,54 @@ function GameEvents.StormTimings(config)
 	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
 end
 
+local function compareLayerRecords(left, right)
+	local leftPriority = numeric(left.priority, 0)
+	local rightPriority = numeric(right.priority, 0)
+	if leftPriority ~= rightPriority then
+		return leftPriority > rightPriority
+	end
+	local leftStartsAt = numeric(left.startsAt, 0)
+	local rightStartsAt = numeric(right.startsAt, 0)
+	if leftStartsAt ~= rightStartsAt then
+		return leftStartsAt < rightStartsAt
+	end
+	return tostring(left.instanceId or "") < tostring(right.instanceId or "")
+end
+
+function GameEvents.ApplyLayerConfigs(records)
+	if type(records) ~= "table" then
+		return {}
+	end
+
+	local recordsByLayer = {}
+	for _, record in ipairs(records) do
+		if type(record) == "table" and type(record.layer) == "string" then
+			local layerRecords = recordsByLayer[record.layer]
+			if not layerRecords then
+				layerRecords = {}
+				recordsByLayer[record.layer] = layerRecords
+			end
+			layerRecords[#layerRecords + 1] = record
+		end
+	end
+
+	local selected = {}
+	for layer, layerRecords in pairs(recordsByLayer) do
+		table.sort(layerRecords, compareLayerRecords)
+		local layerConfig = GameEvents.LayerConfigs[layer] or {}
+		local maxActive = math.max(math.floor(numeric(layerConfig.maxActive, 1)), 0)
+		if layerConfig.stacking == "Single" then
+			maxActive = math.min(maxActive, 1)
+		end
+		for index = 1, math.min(#layerRecords, maxActive) do
+			selected[#selected + 1] = layerRecords[index]
+		end
+	end
+
+	table.sort(selected, compareLayerRecords)
+	return selected
+end
+
 local function scheduledStartAt(config, now)
 	local cadence = math.max(numeric(config.cadenceSeconds, 0), 1)
 	local offset = numeric(config.offsetSeconds, 0)
