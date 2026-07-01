@@ -293,9 +293,6 @@ local function validateThunderstormAssets(errors, warnings)
 		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
 			add(errors, string.format("%s has invalid configured %s %q", lightning:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
 		end
-		if not hasDescendantOfClass(lightning, "Highlight") then
-			add(errors, lightning:GetFullName() .. " must contain a Highlight for mutation visuals")
-		end
 		if not hasDescendantOfClass(lightning, "ParticleEmitter") then
 			add(errors, lightning:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
 		end

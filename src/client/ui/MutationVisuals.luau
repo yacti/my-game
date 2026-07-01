@@ -15,6 +15,10 @@ local PlotScope = require(script.Parent:WaitForChild("PlotScope"))
 local MutationVisuals = {}
 
 local FOLDER_NAME = "__MutationVisuals"
+local OVERLAY_NAME = "ForceFieldOverlay"
+local OVERLAY_SCALE = 1.1
+local OVERLAY_COLOR = Color3.fromRGB(107, 206, 255)
+local OVERLAY_TRANSPARENCY = 0.25
 local MAX_VISUAL_DISTANCE = 80
 local SCOPE_RANGE = MAX_VISUAL_DISTANCE
 local REFRESH_SECONDS = 0.3
@@ -22,6 +26,7 @@ local DEFAULT_EFFECT_REFERENCE_EXTENT = 4
 local MIN_EFFECT_SCALE = 0.2
 local MAX_EFFECT_SCALE = 1.5
 local EFFECT_EXTENT_EPSILON = 0.01
+local VISIBLE_TRANSPARENCY_CUTOFF = 0.98
 
 local player = Players.LocalPlayer
 local tracked = {}
@@ -61,7 +66,7 @@ end
 
 local function hostFor(target)
 	if target:IsA("Tool") then
-		return firstBasePart(target) or target
+		return target
 	end
 	if target:GetAttribute(State.TreeClicker.GroundPile) == true then
 		return AppleTreeSlotVisuals.GroundVisualForMarker(target) or target
@@ -213,6 +218,230 @@ local function templateReferenceExtent(template)
 	return visualExtent(template) or DEFAULT_EFFECT_REFERENCE_EXTENT
 end
 
+local function isUnderVisualFolder(instance)
+	local current = instance
+	while current do
+		if current.Name == FOLDER_NAME then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+local function sourcePartsForOverlay(source)
+	if source:IsA("BasePart") then
+		return source.Transparency < VISIBLE_TRANSPARENCY_CUTOFF and { source } or {}
+	end
+
+	local parts = {}
+	for _, descendant in ipairs(source:GetDescendants()) do
+		if descendant:IsA("BasePart")
+			and descendant.Transparency < VISIBLE_TRANSPARENCY_CUTOFF
+			and not isUnderVisualFolder(descendant) then
+			parts[#parts + 1] = descendant
+		end
+	end
+	return parts
+end
+
+local function overlayGeometrySignature(source)
+	local parts = sourcePartsForOverlay(source)
+	local extent = 0
+	for _, part in ipairs(parts) do
+		extent = math.max(extent, maxDimension(part.Size))
+	end
+	return string.format("%d:%.3f", #parts, extent)
+end
+
+local function setLocalMutationVisual(instance)
+	instance:SetAttribute(State.TreeClicker.LocalVisual, true)
+	instance:SetAttribute(State.Food.Id, nil)
+	instance:SetAttribute(State.Food.Type, nil)
+	instance:SetAttribute(State.Food.XP, nil)
+	instance:SetAttribute(State.Food.MutationIds, nil)
+	instance:SetAttribute(State.Food.PrimaryMutationId, nil)
+	instance:SetAttribute(State.TreeClicker.GroundPile, nil)
+end
+
+local function stripOverlayPartDescendant(descendant)
+	if descendant:IsA("SpecialMesh") then
+		descendant.TextureId = ""
+		return
+	end
+	if descendant:IsA("Decal")
+		or descendant:IsA("Texture")
+		or descendant:IsA("SurfaceAppearance")
+		or descendant:IsA("ParticleEmitter")
+		or descendant:IsA("Beam")
+		or descendant:IsA("Trail")
+		or descendant:IsA("Fire")
+		or descendant:IsA("Smoke")
+		or descendant:IsA("Sparkles")
+		or descendant:IsA("PointLight")
+		or descendant:IsA("SpotLight")
+		or descendant:IsA("SurfaceLight")
+		or descendant:IsA("Highlight")
+		or descendant:IsA("ClickDetector")
+		or descendant:IsA("ProximityPrompt")
+		or descendant:IsA("Attachment")
+		or descendant:IsA("WeldConstraint")
+		or descendant:IsA("Constraint")
+		or descendant:IsA("JointInstance")
+		or descendant:IsA("Script")
+		or descendant:IsA("LocalScript")
+		or descendant:IsA("ModuleScript") then
+		descendant:Destroy()
+	end
+end
+
+local function configureOverlayPart(part, color)
+	setLocalMutationVisual(part)
+	part.Material = Enum.Material.ForceField
+	part.Color = color
+	part.Transparency = OVERLAY_TRANSPARENCY
+	part.CastShadow = false
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Massless = true
+	part.Anchored = false
+
+	if part:IsA("MeshPart") then
+		part.TextureID = ""
+	end
+
+	for _, descendant in ipairs(part:GetDescendants()) do
+		stripOverlayPartDescendant(descendant)
+	end
+end
+
+local function cloneForOverlay(source)
+	local ok, clone = pcall(function()
+		return source:Clone()
+	end)
+	if not ok or not clone then
+		return nil
+	end
+
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant.Name == FOLDER_NAME then
+			descendant:Destroy()
+		end
+	end
+	return clone
+end
+
+local function scaleOverlayClone(clone)
+	local ok, currentScale = pcall(function()
+		return clone:GetScale()
+	end)
+	if ok and finitePositiveNumber(currentScale) then
+		local scaled = pcall(function()
+			clone:ScaleTo(currentScale * OVERLAY_SCALE)
+		end)
+		if scaled then
+			return true
+		end
+	end
+	return false
+end
+
+local function pivotForOverlay(source)
+	if source:IsA("BasePart") then
+		return source.CFrame
+	end
+
+	local ok, pivot = pcall(function()
+		return source:GetPivot()
+	end)
+	if ok and typeof(pivot) == "CFrame" then
+		return pivot
+	end
+
+	local boundsOk, boundsCF = pcall(function()
+		return source:GetBoundingBox()
+	end)
+	if boundsOk and typeof(boundsCF) == "CFrame" then
+		return boundsCF
+	end
+
+	return CFrame.new()
+end
+
+local function manuallyScaleOverlayPart(sourcePart, clonePart, pivot)
+	local relative = pivot:ToObjectSpace(sourcePart.CFrame)
+	clonePart.CFrame = pivot * CFrame.new(relative.Position * OVERLAY_SCALE) * (relative - relative.Position)
+	clonePart.Size = sourcePart.Size * OVERLAY_SCALE
+
+	for _, descendant in ipairs(clonePart:GetDescendants()) do
+		if descendant:IsA("SpecialMesh") then
+			descendant.Scale *= OVERLAY_SCALE
+		end
+	end
+end
+
+local function overlayColorFor(primaryMutationId)
+	local color = Mutations.DisplayColors and Mutations.DisplayColors[primaryMutationId]
+	if typeof(color) == "Color3" then
+		return color
+	end
+
+	color = Mutations.DisplayColor(primaryMutationId)
+	if typeof(color) == "Color3" then
+		return color
+	end
+
+	return OVERLAY_COLOR
+end
+
+local function createForceFieldOverlay(source, folder, primaryMutationId)
+	local sourceParts = sourcePartsForOverlay(source)
+	if #sourceParts == 0 then
+		return nil
+	end
+
+	local clone = cloneForOverlay(source)
+	if not clone then
+		return nil
+	end
+
+	local scaledWithInstance = scaleOverlayClone(clone)
+	local cloneParts = sourcePartsForOverlay(clone)
+	if #cloneParts ~= #sourceParts then
+		clone:Destroy()
+		return nil
+	end
+
+	local overlay = Instance.new("Model")
+	overlay.Name = OVERLAY_NAME
+	setLocalMutationVisual(overlay)
+	overlay.Parent = folder
+
+	local color = overlayColorFor(primaryMutationId)
+	local pivot = scaledWithInstance and nil or pivotForOverlay(source)
+	for index, clonePart in ipairs(cloneParts) do
+		local sourcePart = sourceParts[index]
+		if not scaledWithInstance then
+			manuallyScaleOverlayPart(sourcePart, clonePart, pivot)
+		end
+		configureOverlayPart(clonePart, color)
+		clonePart.Name = sourcePart.Name .. "_MutationOverlay"
+		clonePart.Parent = overlay
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "MutationOverlayWeld"
+		weld.Part0 = sourcePart
+		weld.Part1 = clonePart
+		weld.Parent = clonePart
+	end
+
+	if not clone:IsA("BasePart") then
+		clone:Destroy()
+	end
+	return overlay
+end
+
 local function registerScalableEmitters(record, root, referenceExtent)
 	referenceExtent = finitePositiveNumber(referenceExtent) and referenceExtent or DEFAULT_EFFECT_REFERENCE_EXTENT
 	if root:IsA("ParticleEmitter") then
@@ -270,12 +499,6 @@ local function enablePersistentParticles(root)
 end
 
 local function cloneVisualDescendant(descendant, host, folder, targetPart)
-	if descendant:IsA("Highlight") then
-		local highlight = descendant:Clone()
-		highlight.Adornee = host
-		highlight.Parent = folder
-		return highlight
-	end
 	if descendant:IsA("Attachment") and targetPart then
 		local attachment = descendant:Clone()
 		attachment.Parent = targetPart
@@ -298,9 +521,18 @@ local function render(record)
 	end
 
 	local mutationIds = Mutations.FromInstance(target)
+	local primaryMutationId = Mutations.PrimaryFromInstance(target)
 	local host = hostFor(target)
 	local targetPart = firstBasePart(host)
-	local key = table.concat(mutationIds, ",") .. "|" .. tostring(host)
+	local key = table.concat(mutationIds, ",")
+		.. "|"
+		.. tostring(primaryMutationId)
+		.. "|"
+		.. tostring(host)
+		.. "|"
+		.. tostring(targetPart)
+		.. "|"
+		.. overlayGeometrySignature(host)
 	if not target:IsDescendantOf(Workspace) then
 		clearRecord(record)
 		record.renderKey = "not-in-world|" .. tostring(host)
@@ -327,6 +559,7 @@ local function render(record)
 	clearRecord(record)
 
 	local folder = visualFolder(record, host)
+	createForceFieldOverlay(host, folder, primaryMutationId)
 	for _, mutationId in ipairs(mutationIds) do
 		local template = Mutations.Template(mutationId)
 		if template then
@@ -335,9 +568,7 @@ local function render(record)
 				local clone = cloneVisualDescendant(descendant, host, folder, targetPart)
 				if clone then
 					clone.Name = mutationId .. "_" .. clone.Name
-					if not clone:IsA("Highlight") then
-						record.extras[#record.extras + 1] = clone
-					end
+					record.extras[#record.extras + 1] = clone
 					registerScalableEmitters(record, clone, referenceExtent)
 					enablePersistentParticles(clone)
 				end

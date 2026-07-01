@@ -10,7 +10,7 @@ Mutations.Ids = {
 }
 
 Mutations.DisplayColors = {
-	[Mutations.Ids.Lightning] = Color3.fromRGB(35, 221, 255),
+	[Mutations.Ids.Lightning] = Color3.fromRGB(107, 206, 255),
 }
 
 Mutations.XPMultipliers = {
