@@ -1311,11 +1311,11 @@ local function validateSeedPackCard(card, pack, source, errors)
 		validateSeedPackProductButton(card, pack, product, source, errors)
 	end
 
-	local iconHolder = namedDescendant(card, "IconHolder", "GuiObject")
-	local icon = iconHolder and namedDescendant(iconHolder, "Icon", "ImageLabel") or namedDescendant(card, "Icon", "ImageLabel")
-	local packImage = namedDescendant(card, "Pack", "ImageButton")
-	if not (icon or packImage) then
-		add(errors, source .. " must contain IconHolder.Icon, descendant Icon ImageLabel, or Pack ImageButton")
+	-- Pack icons are 3D viewports rendered from Assets.Misc.SeedPacks models
+	-- (directly on the card or inside IconHolder).
+	local packIcon = namedDescendant(card, "PackIcon", "ViewportFrame")
+	if not packIcon then
+		add(errors, source .. " must contain a PackIcon ViewportFrame")
 	end
 
 	local items = child(card, "Items", "GuiObject", errors)
@@ -1536,7 +1536,10 @@ local function validatePackRollFrameUi(menu, errors)
 	child(packHolder, "ItemName", "TextLabel", errors)
 	child(packHolder, "Rarity", "TextLabel", errors)
 	child(packHolder, "Chance", "TextLabel", errors)
-	child(packHolder, "Pack", "ImageButton", errors)
+	local packButton = child(packHolder, "Pack", "ImageButton", errors)
+	if packButton then
+		child(packButton, "PackIcon", "ViewportFrame", errors)
+	end
 	child(packHolder, "FTUEDrag", "ImageLabel", errors)
 end
 

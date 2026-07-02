@@ -199,13 +199,22 @@ function ViewportPreview.Render(viewport, template, options)
 	local radius = math.max(size.X, size.Y, size.Z, 1)
 	local zoom = math.max(tonumber(options.zoom) or 1, 0.01)
 	local distance = (radius * 1.25 + 2.5) / zoom
-	camera.CFrame = CFrame.new(Vector3.new(distance, distance * 0.45, distance), Vector3.new())
+	-- cameraHeightFactor: camera elevation as a fraction of its distance
+	-- (default looks slightly down; 0 = level with the model).
+	local heightFactor = tonumber(options.cameraHeightFactor) or 0.45
+	camera.CFrame = CFrame.new(Vector3.new(distance, distance * heightFactor, distance), Vector3.new())
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
 	viewport.Ambient = typeof(options.ambient) == "Color3" and options.ambient or VIEWPORT_AMBIENT
 	viewport.LightColor = typeof(options.lightColor) == "Color3" and options.lightColor or VIEWPORT_LIGHT_COLOR
 	viewport.LightDirection = typeof(options.lightDirection) == "Vector3" and options.lightDirection or VIEWPORT_LIGHT_DIRECTION
-	startRotation(viewport, rig)
+	if options.rotate == false then
+		-- Static preview: hold a fixed orientation (yawDegrees) instead of the
+		-- default turntable spin.
+		pivotPreview(rig, CFrame.Angles(0, math.rad(tonumber(options.yawDegrees) or 0), 0))
+	else
+		startRotation(viewport, rig)
+	end
 	return true
 end
 

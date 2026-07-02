@@ -7,6 +7,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Assets = require(Shared:WaitForChild("Assets"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -48,6 +49,31 @@ local PACK_REWARD_PREVIEW_OPTIONS = {
 	colorSaturation = 2.5,
 	colorBrightness = 1.55,
 	lightColor = Color3.fromRGB(255, 255, 255),
+}
+-- 3D pack icons: static, dead-on front, no turntable spin.
+local PACK_ICON_NAME = "PackIcon"
+local SEED_PACKS_FOLDER_NAME = "SeedPacks"
+local PACK_ICON_PREVIEW_OPTIONS = {
+	rotate = false,
+	yawDegrees = -135,
+	zoom = 2.43,
+	cameraHeightFactor = 0,
+	colorSaturation = 1.2,
+	colorBrightness = 1.55,
+	lightColor = Color3.fromRGB(255, 255, 255),
+}
+-- Main/Highlight rarity colour animation (SeedPack stays authored/static).
+-- Epic/Secret: Highlight tracks Main's colour a beat behind, darkened to keep
+-- the authored shading relationship (Highlight is ~61% of Main's brightness).
+-- Durian's rainbow runs synced on both parts (shading only, no time offset).
+local PACK_COLOR_PERIOD_SECONDS = 4
+local PACK_HIGHLIGHT_PHASE_SECONDS = 0.75
+local PACK_HIGHLIGHT_SHADE = 100 / 163
+local PACK_ANIMATION_BRIGHTNESS = 1.55
+local PACK_COLOR_ANIMATIONS = {
+	EpicSeedPack = { from = Color3.fromRGB(197, 47, 216), to = Color3.fromRGB(56, 0, 198) },
+	SecretSeedPack = { from = Color3.fromRGB(255, 255, 255), to = Color3.fromRGB(0, 0, 0) },
+	DurianPack = { rainbow = true },
 }
 local REVEAL_PREVIEW_OPTIONS = {
 	targetMaxDimension = 4,
@@ -267,30 +293,104 @@ local function packFrameForPack(pack)
 	return frame and frame:IsA("GuiObject") and frame or nil
 end
 
-local function packImage(packId)
-	local frame = nil
-	local _, _, featured, seedPacks = shopFrames()
-	for _, section in ipairs({ featured, seedPacks }) do
-		local candidate = section and section:FindFirstChild(packId)
-		if candidate and candidate:IsA("GuiObject") then
-			frame = candidate
-			break
+local function packModelFor(packId)
+	local misc = Assets.Find("Misc")
+	local packsFolder = misc and misc:FindFirstChild(SEED_PACKS_FOLDER_NAME)
+	local model = packsFolder and type(packId) == "string" and packsFolder:FindFirstChild(packId) or nil
+	if model and model:IsA("Model") then
+		return model
+	end
+	return nil
+end
+
+-- One shared heartbeat animates Main/Highlight in every live pack-icon
+-- viewport clone; it exists only while animated entries do, and prunes
+-- entries whose clones were destroyed (viewport re-render or UI teardown).
+local animatedPackEntries = {}
+local packAnimationConnection = nil
+
+local function stopPackAnimationIfIdle()
+	if packAnimationConnection and next(animatedPackEntries) == nil then
+		packAnimationConnection:Disconnect()
+		packAnimationConnection = nil
+	end
+end
+
+local function packAnimationColor(animation, timeSeconds)
+	local color
+	if animation.rainbow then
+		color = Rarities.RainbowColorAt(timeSeconds)
+	else
+		local alpha = 0.5 + 0.5 * math.sin(timeSeconds * math.pi * 2 / PACK_COLOR_PERIOD_SECONDS)
+		color = animation.from:Lerp(animation.to, alpha)
+	end
+	local h, s, v = color:ToHSV()
+	return Color3.fromHSV(h, s, math.clamp(v * PACK_ANIMATION_BRIGHTNESS, 0, 1))
+end
+
+local function shadedColor(color)
+	return Color3.new(
+		color.R * PACK_HIGHLIGHT_SHADE,
+		color.G * PACK_HIGHLIGHT_SHADE,
+		color.B * PACK_HIGHLIGHT_SHADE
+	)
+end
+
+local function ensurePackAnimationLoop()
+	if packAnimationConnection then
+		return
+	end
+	packAnimationConnection = RuntimeGuard.Connect(RunService.Heartbeat, "SeedPackShopController.PackColors", function()
+		local now = os.clock()
+		for entry in pairs(animatedPackEntries) do
+			if not (entry.main.Parent and (not entry.highlight or entry.highlight.Parent)) then
+				animatedPackEntries[entry] = nil
+			else
+				entry.main.Color = packAnimationColor(entry.animation, now)
+				if entry.highlight then
+					-- Rainbow packs run both parts in sync; the others trail
+					-- the Highlight a beat behind. Shading applies to both.
+					local highlightTime = entry.animation.rainbow and now or now - PACK_HIGHLIGHT_PHASE_SECONDS
+					entry.highlight.Color = shadedColor(packAnimationColor(entry.animation, highlightTime))
+				end
+			end
 		end
+		stopPackAnimationIfIdle()
+	end)
+end
+
+local function registerPackAnimation(viewport, packId)
+	local animation = PACK_COLOR_ANIMATIONS[packId]
+	if not animation then
+		return
 	end
-	local iconHolder = frame and frame:FindFirstChild("IconHolder")
-	local icon = iconHolder and iconHolder:FindFirstChild("Icon")
-	if icon and icon:IsA("ImageLabel") then
-		return icon.Image
+	local world = viewport:FindFirstChildOfClass("WorldModel")
+	local main = world and world:FindFirstChild("Main", true)
+	local highlight = world and world:FindFirstChild("Highlight", true)
+	if not (main and main:IsA("BasePart")) then
+		return
 	end
-	local descendantIcon = findDescendant(frame, "Icon", "ImageLabel")
-	if descendantIcon then
-		return descendantIcon.Image
+	animatedPackEntries[{
+		main = main,
+		highlight = highlight and highlight:IsA("BasePart") and highlight or nil,
+		animation = animation,
+	}] = true
+	ensurePackAnimationLoop()
+end
+
+local function renderPackIcon(container, packId)
+	local icon = findDescendant(container, PACK_ICON_NAME, "ViewportFrame")
+	if not icon then
+		warn("[SeedPackShopController] Missing " .. PACK_ICON_NAME .. " ViewportFrame for pack " .. tostring(packId))
+		return
 	end
-	local packButton = frame and frame:FindFirstChild("Pack")
-	if packButton and packButton:IsA("ImageButton") then
-		return packButton.Image
+	icon.ImageTransparency = 0
+	local rendered = ViewportPreview.Render(icon, packModelFor(packId), PACK_ICON_PREVIEW_OPTIONS)
+	if rendered then
+		registerPackAnimation(icon, packId)
+	else
+		warn("[SeedPackShopController] Missing SeedPacks model for pack " .. tostring(packId))
 	end
-	return ""
 end
 
 local function renderRewardSlot(slot, reward, pack)
@@ -397,6 +497,8 @@ local function renderPackCard(pack)
 	if nameLabel and nameLabel:IsA("TextLabel") then
 		setTextStack(nameLabel, pack.DisplayName)
 	end
+
+	renderPackIcon(frame, pack.PackId)
 
 	local items = frame:FindFirstChild("Items")
 	local slots = rewardSlots(pack, items)
@@ -553,8 +655,8 @@ local function configureHolder(holder, payload, result)
 	if packButton and packButton:IsA("ImageButton") then
 		packButton.Visible = true
 		packButton.Active = false
-		packButton.Image = packImage(payload.packId)
 		packButton.ImageTransparency = 0
+		renderPackIcon(packButton, payload.packId)
 	end
 
 	setRewardVisible(holder, false)
@@ -708,6 +810,14 @@ local function openHolder(state)
 	end
 
 	if pack and pack:IsA("ImageButton") then
+		-- Fade the 3D pack icon with the button: ViewportFrame content does
+		-- not follow the parent ImageButton's ImageTransparency.
+		local icon = pack:FindFirstChild(PACK_ICON_NAME)
+		if icon and icon:IsA("ViewportFrame") then
+			TweenService:Create(icon, PACK_FADE_TWEEN, {
+				ImageTransparency = 1,
+			}):Play()
+		end
 		local tween = TweenService:Create(pack, PACK_FADE_TWEEN, {
 			ImageTransparency = 1,
 		})
