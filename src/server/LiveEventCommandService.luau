@@ -17,6 +17,8 @@
 --   LiveEvents.StopGlobalEventsByEventId("Alien")
 --   LiveEvents.StopGlobalEventsByLayer("Chaos")
 --   LiveEvents.StopAllGlobalEvents()
+--   LiveEvents.SendGlobalMessage("We are coming...", { preset = "Alien" })
+--   LiveEvents.ClearGlobalMessages()
 --   LiveEvents.ReconcileNow()
 --
 -- Command writes fail closed: if the DataStore write does not succeed, nothing
@@ -32,8 +34,10 @@ local Server = script.Parent
 local GameEventService = require(Server:WaitForChild("GameEventService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AdminMessagePresets = require(Shared:WaitForChild("AdminMessagePresets"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local State = require(Shared:WaitForChild("State"))
 
 local LiveEventCommandService = {}
 
@@ -68,6 +72,18 @@ local BUDGET_WAIT_TIMEOUT_SECONDS = 10
 -- reconciles just ignore them.
 local EXPIRED_PRUNE_GRACE_SECONDS = 120
 
+-- Global admin messages (HUD AdminText). durationSeconds is the receivable
+-- window (late joiners within it still see the message); on-screen display
+-- time is client-side (AdminMessagePresets.DisplaySeconds).
+local MAX_GLOBAL_MESSAGES = 8
+local DEFAULT_MESSAGE_SECONDS = 30
+local MAX_MESSAGE_SECONDS = 300
+-- Byte cap keeps the full message delta safely under the ~1KB payload limit.
+local MAX_MESSAGE_TEXT_BYTES = 180
+-- Replicated children outlive endsAt by this buffer so a message shown right
+-- before expiry still finishes its client display before removal.
+local MESSAGE_REMOVE_BUFFER_SECONDS = 15
+
 local rng = Random.new()
 
 local started = false
@@ -76,6 +92,8 @@ local getOptions = nil
 local subscription = nil
 local localRevision = 0
 local localActive = {}
+local localMessages = {}
+local messagesFolder = nil
 local commandBusy = false
 local lastWriteClock = -math.huge
 local reconcilePending = false
@@ -110,6 +128,7 @@ local function freshState()
 		revision = 0,
 		updatedAt = 0,
 		active = {},
+		messages = {},
 		processedCommands = {},
 		audit = {},
 	}
@@ -146,6 +165,37 @@ local function sanitizeRecord(record)
 		priority = finiteNumber(record.priority),
 		displayPriority = finiteNumber(record.displayPriority),
 		displayFrame = type(record.displayFrame) == "string" and record.displayFrame or nil,
+		commandId = type(record.commandId) == "string" and record.commandId or nil,
+		createdAt = finiteNumber(record.createdAt),
+		sourceJobId = type(record.sourceJobId) == "string" and record.sourceJobId or nil,
+		placeId = finiteNumber(record.placeId),
+	}
+end
+
+local function sanitizeMessageRecord(record)
+	if type(record) ~= "table" then
+		return nil
+	end
+	if type(record.messageId) ~= "string" or record.messageId == "" then
+		return nil
+	end
+	if not AdminMessagePresets.Get(record.presetId) then
+		return nil
+	end
+	if type(record.text) ~= "string" or record.text == "" or #record.text > MAX_MESSAGE_TEXT_BYTES or utf8.len(record.text) == nil then
+		return nil
+	end
+	local startsAt = finiteNumber(record.startsAt)
+	local endsAt = finiteNumber(record.endsAt)
+	if not startsAt or not endsAt or endsAt <= startsAt then
+		return nil
+	end
+	return {
+		messageId = record.messageId,
+		presetId = record.presetId,
+		text = record.text,
+		startsAt = startsAt,
+		endsAt = math.min(endsAt, startsAt + MAX_MESSAGE_SECONDS),
 		commandId = type(record.commandId) == "string" and record.commandId or nil,
 		createdAt = finiteNumber(record.createdAt),
 		sourceJobId = type(record.sourceJobId) == "string" and record.sourceJobId or nil,
@@ -206,6 +256,14 @@ local function sanitizeState(raw)
 			end
 		end
 	end
+	if type(raw.messages) == "table" then
+		for messageId, record in pairs(raw.messages) do
+			local sanitized = sanitizeMessageRecord(record)
+			if type(messageId) == "string" and sanitized and sanitized.messageId == messageId then
+				state.messages[messageId] = sanitized
+			end
+		end
+	end
 	-- Read only the newest capped window so a corrupt/bloated durable state
 	-- cannot stall transforms (which may run multiple times per write).
 	if type(raw.processedCommands) == "table" then
@@ -256,6 +314,11 @@ local function pruneExpired(state, now)
 			state.active[instanceId] = nil
 		end
 	end
+	for messageId, record in pairs(state.messages) do
+		if (finiteNumber(record.endsAt) or 0) + EXPIRED_PRUNE_GRACE_SECONDS <= now then
+			state.messages[messageId] = nil
+		end
+	end
 end
 
 local function compareRecords(left, right)
@@ -294,6 +357,49 @@ local function pushToGameEventService()
 	end)
 end
 
+local function getMessagesFolder()
+	if not (messagesFolder and messagesFolder.Parent) then
+		messagesFolder = ReplicatedStorage:FindFirstChild(AdminMessagePresets.FolderName)
+	end
+	if not messagesFolder then
+		messagesFolder = Instance.new("Folder")
+		messagesFolder.Name = AdminMessagePresets.FolderName
+		messagesFolder.Parent = ReplicatedStorage
+	end
+	return messagesFolder
+end
+
+-- Mirrors localMessages into the replicated AdminMessages folder for clients.
+-- Idempotent; also serves as the expiry sweep (children outlive endsAt by the
+-- remove buffer so in-flight client displays are never cut short by expiry --
+-- only ClearGlobalMessages removes a message early).
+local function publishAdminMessages()
+	local folder = getMessagesFolder()
+	local now = serverNow()
+	local wanted = {}
+	for messageId, record in pairs(localMessages) do
+		if record.endsAt + MESSAGE_REMOVE_BUFFER_SECONDS > now then
+			wanted[messageId] = record
+		end
+	end
+	for _, child in ipairs(folder:GetChildren()) do
+		if not wanted[child.Name] then
+			child:Destroy()
+		end
+	end
+	for messageId, record in pairs(wanted) do
+		if not folder:FindFirstChild(messageId) then
+			local child = Instance.new("Folder")
+			child.Name = messageId
+			child:SetAttribute(State.AdminMessage.PresetId, record.presetId)
+			child:SetAttribute(State.AdminMessage.Text, record.text)
+			child:SetAttribute(State.AdminMessage.StartsAt, record.startsAt)
+			child:SetAttribute(State.AdminMessage.EndsAt, record.endsAt)
+			child.Parent = folder
+		end
+	end
+end
+
 local function applyState(state, force)
 	if not state then
 		return false
@@ -306,7 +412,12 @@ local function applyState(state, force)
 	for instanceId, record in pairs(state.active) do
 		localActive[instanceId] = record
 	end
+	localMessages = {}
+	for messageId, record in pairs(state.messages or {}) do
+		localMessages[messageId] = record
+	end
 	pushToGameEventService()
+	publishAdminMessages()
 	return true
 end
 
@@ -360,6 +471,22 @@ local function onMessage(message)
 				localActive[instanceId] = nil
 			end
 		end
+	elseif data.action == "message" then
+		local record = sanitizeMessageRecord(data.message)
+		if not record then
+			scheduleReconcile("invalid-message-delta")
+			return
+		end
+		if type(data.removedMessageIds) == "table" then
+			for _, messageId in ipairs(data.removedMessageIds) do
+				if type(messageId) == "string" then
+					localMessages[messageId] = nil
+				end
+			end
+		end
+		localMessages[record.messageId] = record
+	elseif data.action == "clearMessages" then
+		localMessages = {}
 	else
 		scheduleReconcile("unknown-delta-action")
 		return
@@ -367,6 +494,7 @@ local function onMessage(message)
 
 	localRevision = messageRevision
 	pushToGameEventService()
+	publishAdminMessages()
 	if hadGap then
 		scheduleReconcile("revision-gap")
 	end
@@ -777,6 +905,182 @@ function LiveEventCommandService.StopAllGlobalEvents()
 	end)
 end
 
+function LiveEventCommandService.SendGlobalMessage(text, options)
+	if type(text) ~= "string" then
+		return false, "invalid-text"
+	end
+	text = string.match(text, "^%s*(.-)%s*$")
+	if text == "" or utf8.len(text) == nil then
+		return false, "invalid-text"
+	end
+	if #text > MAX_MESSAGE_TEXT_BYTES then
+		return false, "text-too-long", MAX_MESSAGE_TEXT_BYTES
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+
+	local presetId = options.preset
+	if presetId == nil then
+		presetId = AdminMessagePresets.Ids.Owner
+	end
+	local preset = AdminMessagePresets.Get(presetId)
+	if not preset then
+		return false, "unknown-preset"
+	end
+
+	local durationSeconds
+	if options.durationSeconds == nil then
+		durationSeconds = DEFAULT_MESSAGE_SECONDS
+	else
+		durationSeconds = finiteNumber(options.durationSeconds)
+	end
+	if not durationSeconds or durationSeconds <= 0 then
+		return false, "invalid-duration"
+	end
+	if durationSeconds > MAX_MESSAGE_SECONDS then
+		return false, "duration-too-long", MAX_MESSAGE_SECONDS
+	end
+
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	-- startsAt/endsAt are restamped at commit time (prepare below).
+	local startsAt = serverNow()
+	local record = {
+		messageId = string.format("Msg_%s_%s", presetId, HttpService:GenerateGUID(false)),
+		presetId = presetId,
+		text = text,
+		startsAt = startsAt,
+		endsAt = startsAt + durationSeconds,
+		commandId = commandId,
+		createdAt = os.time(),
+		sourceJobId = game.JobId,
+		placeId = game.PlaceId,
+	}
+	local commandHash = table.concat({ "message", presetId, tostring(durationSeconds), text }, ":")
+	local auditEntry = baseAuditEntry(commandId, "message", note)
+	auditEntry.presetId = presetId
+	auditEntry.messageId = record.messageId
+	auditEntry.text = text
+
+	local ok, result = runCommandWrite(commandId, commandHash, auditEntry, function(state)
+		local removedMessageIds = {}
+		state.messages[record.messageId] = record
+
+		-- Cap durable messages; displace the oldest by startsAt.
+		local messageRecords = {}
+		for _, messageRecord in pairs(state.messages) do
+			messageRecords[#messageRecords + 1] = messageRecord
+		end
+		if #messageRecords > MAX_GLOBAL_MESSAGES then
+			table.sort(messageRecords, function(left, right)
+				if left.startsAt ~= right.startsAt then
+					return left.startsAt < right.startsAt
+				end
+				return tostring(left.messageId) < tostring(right.messageId)
+			end)
+			for index = 1, #messageRecords - MAX_GLOBAL_MESSAGES do
+				local displaced = messageRecords[index]
+				if displaced.messageId ~= record.messageId then
+					state.messages[displaced.messageId] = nil
+					removedMessageIds[#removedMessageIds + 1] = displaced.messageId
+				end
+			end
+		end
+
+		return true, {
+			action = "message",
+			message = record,
+			removedMessageIds = removedMessageIds,
+		}
+	end, function(commitNow)
+		record.startsAt = commitNow
+		record.endsAt = commitNow + durationSeconds
+	end)
+
+	if not ok then
+		return false, result
+	end
+	if result == "idempotent" then
+		local idempotentNow = serverNow()
+		for _, messageRecord in pairs(localMessages) do
+			if messageRecord.commandId == commandId
+				and (finiteNumber(messageRecord.endsAt) or 0) > idempotentNow then
+				return true, copyRecord(messageRecord)
+			end
+		end
+		return true, "already-processed-not-active"
+	end
+	print(string.format(
+		"[LiveEventCommandService] Sent global message as %s (%s, %ds window, command %s)",
+		presetId,
+		record.messageId,
+		math.floor(durationSeconds),
+		commandId
+	))
+	return true, copyRecord(record)
+end
+
+function LiveEventCommandService.ClearGlobalMessages()
+	local commandId = HttpService:GenerateGUID(false)
+	local auditEntry = baseAuditEntry(commandId, "clear-messages", nil)
+
+	local clearedCount = nil
+	local ok, result = runCommandWrite(commandId, "clearMessages", auditEntry, function(state)
+		local removed = 0
+		for messageId in pairs(state.messages) do
+			state.messages[messageId] = nil
+			removed += 1
+		end
+		if removed == 0 then
+			return false, "no-match"
+		end
+		clearedCount = removed
+		auditEntry.clearedCount = removed
+		return true, {
+			action = "clearMessages",
+		}
+	end)
+
+	if not ok then
+		if result == "no-match" then
+			return true, 0
+		end
+		return false, result
+	end
+	if type(clearedCount) ~= "number" then
+		return true, 0
+	end
+	print(string.format("[LiveEventCommandService] Cleared %d global message(s)", clearedCount))
+	return true, clearedCount
+end
+
+function LiveEventCommandService.ListGlobalMessages()
+	local now = serverNow()
+	local records = {}
+	for _, record in pairs(localMessages) do
+		if (finiteNumber(record.endsAt) or 0) > now then
+			records[#records + 1] = copyRecord(record)
+		end
+	end
+	table.sort(records, function(left, right)
+		if left.startsAt ~= right.startsAt then
+			return left.startsAt < right.startsAt
+		end
+		return tostring(left.messageId) < tostring(right.messageId)
+	end)
+	return records, localRevision
+end
+
 function LiveEventCommandService.ListGlobalEvents()
 	-- Expired records linger in durable state until the next command write
 	-- prunes them; hide them here so operators see what is actually running.
@@ -856,6 +1160,10 @@ function LiveEventCommandService.Start()
 	end
 	started = true
 
+	-- Always create the replicated messages folder so clients can bind to it
+	-- even when the DataStore is unavailable and the control plane is disabled.
+	getMessagesFolder()
+
 	local ok, storeOrError = pcall(function()
 		return DataStoreService:GetDataStore(STORE_NAME)
 	end)
@@ -882,6 +1190,10 @@ function LiveEventCommandService.Start()
 		while started do
 			task.wait(RECONCILE_BASE_SECONDS + rng:NextNumber(0, RECONCILE_JITTER_SECONDS))
 			LiveEventCommandService.ReconcileNow()
+			-- Sweep: drops replicated message children that outlived their
+			-- remove buffer (reconcile alone cannot, since expired records are
+			-- only pruned from durable state on command writes).
+			RuntimeGuard.Run("LiveEventCommandService.MessageSweep", publishAdminMessages)
 		end
 	end)
 end

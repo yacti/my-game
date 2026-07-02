@@ -62,6 +62,13 @@ State.GameEvent = {
 	DisplayFrame = "DisplayFrame",
 }
 
+State.AdminMessage = {
+	PresetId = "PresetId",
+	Text = "Text",
+	StartsAt = "StartsAt",
+	EndsAt = "EndsAt",
+}
+
 State.UpdateLog = {
 	Id = "UpdateLogId",
 }

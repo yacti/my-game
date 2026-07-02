@@ -29,6 +29,7 @@ local CONTROLLERS = {
 	"LocalPrompts",
 	"HudController",
 	"EventHudController",
+	"AdminMessageController",
 	"UpdateTimerController",
 	"UpdateLogController",
 	"HoverOver",

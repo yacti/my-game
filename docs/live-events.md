@@ -35,6 +35,12 @@ print(_G.LE.StopGlobalEventsByEventId("Alien"))
 print(_G.LE.StopGlobalEventsByLayer("Chaos"))
 print(_G.LE.StopAllGlobalEvents())   -- the "abort everything" button
 
+-- Global admin messages (HUD AdminText banner, all servers).
+local ok, m = _G.LE.SendGlobalMessage("We are coming for your crops...", { preset = "Alien" }) print(ok, typeof(m) == "table" and m.messageId or m)
+local ok, m = _G.LE.SendGlobalMessage("Everyone to your plots!", { preset = "Owner" }) print(ok, typeof(m) == "table" and m.messageId or m)
+for _, m in ipairs(_G.LE.ListGlobalMessages()) do print(m.presetId, m.messageId, m.text) end
+print(_G.LE.ClearGlobalMessages())   -- wipe the banner everywhere
+
 -- Force an immediate DataStore reconcile on this server.
 print(_G.LE.ReconcileNow())
 ```
@@ -57,6 +63,7 @@ local ok, r = require(game.ServerScriptService.Server.LiveEventCommandService).S
 - **Idempotency.** A `commandId` identifies **one occurrence** of an event. The ledger survives stops and server restarts (this is what makes retries safe) and holds the newest 64 commands — an old id is only forgotten after 64 newer commands evict it; never plan around reuse. Same `commandId` + same parameters → idempotent success: returns the running record, or `true, "already-processed-not-active"` if that run has since stopped/expired (nothing starts). Same `commandId` + different parameters → `command-conflict`. **Liveops rule: new run = new commandId** (e.g. bump `alien-2026-07-02-1` → `-2`); only reuse an id to retry a command that failed.
 - **Same-key write cooldown.** DataStore throttles same-key writes to one per 6s **experience-wide**; commands are serialized and spaced automatically — rapid-fire commands queue for a few seconds each. Event times are stamped at commit, so queue wait never eats into a queued event's duration.
 - **Mixing local + global.** A local `GameEventService.StartManualEvent("Alien")` record and a global Alien can coexist under Chaos (max 3), but only one drives the handler on a given server — earliest `startsAt` wins; the other takes over when it completes. Avoid local Alien tests during a live global run.
+- **Admin messages.** `SendGlobalMessage(text, { preset, durationSeconds, commandId, operatorNote })` — presets live in `src/shared/AdminMessagePresets.luau` (`Owner`, `Alien`; each sets template frame, display name, photo, colours). Text max 180 bytes. `durationSeconds` (default 30, max 300) is the **receivable window**: players/servers arriving within it still get the message; on-screen time is fixed at 11s per client (queue of max 3, newest at bottom, oldest forced out, typewriter reveal). Hidden during the tutorial, shown after if the window is still open. Each client shows a message once. `ClearGlobalMessages()` also hides messages currently on screen everywhere.
 
 ## Error codes
 
