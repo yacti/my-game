@@ -1,8 +1,10 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
@@ -21,6 +23,10 @@ local started = false
 local container = nil
 local template = nil
 local active = {}
+-- Mythical-kind notifications animate their text colour with the Mythical
+-- rarity rainbow. One shared heartbeat runs only while any are on screen.
+local rainbowEntries = {}
+local rainbowConnection = nil
 
 local function findContainer(hud)
 	local found = hud:FindFirstChild(CONTAINER_NAME, true)
@@ -58,6 +64,30 @@ local function applyItemStyle(label, payload)
 	label.Visible = true
 end
 
+local function stopRainbowIfIdle()
+	if rainbowConnection and next(rainbowEntries) == nil then
+		rainbowConnection:Disconnect()
+		rainbowConnection = nil
+	end
+end
+
+local function ensureRainbowLoop()
+	if rainbowConnection then
+		return
+	end
+	rainbowConnection = RuntimeGuard.Connect(RunService.Heartbeat, "Notifications.MythicalRainbow", function()
+		local color = Rarities.ColorFor(Rarities.Mythical, os.clock())
+		for entry in pairs(rainbowEntries) do
+			if entry.removing or not entry.label.Parent then
+				rainbowEntries[entry] = nil
+			else
+				entry.label.TextColor3 = color
+			end
+		end
+		stopRainbowIfIdle()
+	end)
+end
+
 local function reflow()
 	for index, entry in ipairs(active) do
 		if entry.label.Parent then
@@ -79,6 +109,8 @@ end
 local function destroyEntry(entry, animate)
 	if entry.removing then return end
 	entry.removing = true
+	rainbowEntries[entry] = nil
+	stopRainbowIfIdle()
 	forget(entry)
 
 	local label = entry.label
@@ -132,6 +164,11 @@ function Notifications.show(payload)
 	reflow()
 	trimToMaxVisible()
 
+	if normalized.kind == NotificationConfig.Kinds.Mythical then
+		rainbowEntries[entry] = true
+		ensureRainbowLoop()
+	end
+
 	TweenService:Create(label, SHOW_TWEEN, { TextTransparency = 0 }):Play()
 
 	task.delay(normalized.lifetime, function()
@@ -153,6 +190,12 @@ function Notifications.start()
 
 	container = findContainer(hud)
 	if not container then return end
+	-- The container is pure layout; force it visible so an accidentally
+	-- authored Visible=false cannot silently disable every notification.
+	if not container.Visible then
+		warn("[Notifications] Notifications container was authored invisible; forcing Visible")
+		container.Visible = true
+	end
 	template = findItemTemplate(container)
 	if not template then return end
 	template.Visible = false

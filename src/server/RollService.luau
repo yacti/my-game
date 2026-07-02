@@ -17,6 +17,7 @@ local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -2015,6 +2016,11 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 		if not rolled then
 			return false, rollCode or "reward-roll-failed"
 		end
+		-- Display the seed's original rarity odds, matching regular seed roll
+		-- reveals; the boosted luck only decides WHAT drops, not the shown text.
+		if rolled.chanceN then
+			rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
+		end
 
 		nextOfferId += 1
 		local offerId = nextOfferId
@@ -2111,6 +2117,7 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 	end)
 	RuntimeGuard.Run("RollService.NotifyAdminDrop", function()
 		NotificationService.Notify(player, {
+			kind = NotificationConfig.Kinds.Mythical,
 			text = ADMIN_DROP_NOTICE,
 			lifetime = 5,
 		})

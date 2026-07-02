@@ -9,6 +9,9 @@ Notifications.Kinds = {
 	Success = "success",
 	Error = "error",
 	Rebirth = "rebirth",
+	-- Text colour animates with the Mythical rarity rainbow (see Rarities)
+	-- while the notification is on screen.
+	Mythical = "mythical",
 }
 
 Notifications.TextColors = {
@@ -16,6 +19,7 @@ Notifications.TextColors = {
 	[Notifications.Kinds.Success] = Color3.fromRGB(110, 255, 135),
 	[Notifications.Kinds.Error] = Color3.fromRGB(255, 105, 105),
 	[Notifications.Kinds.Rebirth] = Color3.fromRGB(210, 80, 255),
+	[Notifications.Kinds.Mythical] = Color3.fromRGB(255, 0, 255),
 }
 
 local DEFAULT_KIND = Notifications.Kinds.Info
