@@ -230,9 +230,11 @@ local function renderHud()
 		UiEffects.SetButtonEnabled(hudSettings, unlocked)
 		hudSettings.Selectable = unlocked
 	end
-	if not unlocked and serverEnabled then
-		request(AutoRollConfig.Actions.Stop)
-	end
+	-- No client-side corrective stop here: the server owns the rebirth gate
+	-- (validateAutoRollState runs at start, at AFK resume, and twice per
+	-- auto-roll loop iteration). A previous corrective Stop fired on the
+	-- replica race at AFK rejoin (nil Rebirths read as 0) and killed freshly
+	-- resumed sessions; render functions stay side-effect free.
 	renderSettings()
 end
 
