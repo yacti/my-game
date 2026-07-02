@@ -46,6 +46,12 @@ local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_RESTORE_OFFERS = "restoreOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
+
+-- Admin party drops are a separate offer track: they never displace normal
+-- offers (or vice versa), and clients scope roll tokens and owner-wide visual
+-- wipes per track. A nil track on clearOwnerOffers means "both".
+local TRACK_NORMAL = "normal"
+local TRACK_ADMIN = "admin"
 local RARE_TEASE_RARITIES = {
 	Rarities.Legendary,
 	Rarities.Mythical,
@@ -85,6 +91,7 @@ local lastAutoRollRequest = {}
 local lastLuckRequest = {}
 local lastDropAreaRequest = {}
 local pendingOffers = {}
+local adminPendingOffers = {}
 local autoRollSessions = {}
 local nextOfferId = 0
 local nextRollBatchId = 0
@@ -558,26 +565,29 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	return rolled
 end
 
-local function sendRollEffect(player, buttonPart, rollBatchId, offers)
+local function sendRollEffect(player, buttonPart, rollBatchId, offers, track)
 	CrateRollEffect:FireClient(player, {
 		action = ACTION_ROLL,
 		rollBatchId = rollBatchId,
 		ownerUserId = player.UserId,
 		button = buttonPart,
 		offers = offers,
+		track = track or TRACK_NORMAL,
 	})
 end
 
-local function sendClearOwnerOffers(player)
+local function sendClearOwnerOffers(player, track)
 	CrateRollEffect:FireAllClients({
 		action = ACTION_CLEAR_OWNER_OFFERS,
 		ownerUserId = player.UserId,
+		track = track,
 	})
 end
 
-local function sendPublicRollOffers(player, rollBatchId, offers)
+local function sendPublicRollOffers(player, rollBatchId, offers, track)
 	local key = userKey(player)
-	local currentOffers = key and pendingOffers[key] or nil
+	local map = track == TRACK_ADMIN and adminPendingOffers or pendingOffers
+	local currentOffers = key and map[key] or nil
 	if not currentOffers then
 		return
 	end
@@ -597,6 +607,7 @@ local function sendPublicRollOffers(player, rollBatchId, offers)
 		rollBatchId = rollBatchId,
 		ownerUserId = player.UserId,
 		offers = activeOffers,
+		track = track or TRACK_NORMAL,
 	})
 end
 
@@ -606,6 +617,7 @@ local function sendRestoreRollOffers(player, rollBatchId, offers)
 		rollBatchId = rollBatchId,
 		ownerUserId = player.UserId,
 		offers = offers,
+		track = TRACK_NORMAL,
 	})
 end
 
@@ -650,20 +662,34 @@ end
 
 local function removePendingOffer(player, offerId)
 	local key = userKey(player)
-	local offers = key and pendingOffers[key] or nil
-	if not offers then
+	if key == nil then
 		return
 	end
-	offers[offerId] = nil
-	if next(offers) == nil then
-		pendingOffers[key] = nil
+	for _, map in ipairs({ pendingOffers, adminPendingOffers }) do
+		local offers = map[key]
+		if offers and offers[offerId] then
+			offers[offerId] = nil
+			if next(offers) == nil then
+				map[key] = nil
+			end
+			return
+		end
 	end
 end
 
+-- offerIds are globally unique across both tracks (shared nextOfferId), so
+-- the offerId-only purchase remote can resolve either map unambiguously.
 local function activeOffer(player, offerId)
 	local key = userKey(player)
-	local offers = key and pendingOffers[key] or nil
+	if key == nil then
+		return nil, "offer-unavailable"
+	end
+	local offers = pendingOffers[key]
 	local offer = offers and offers[offerId]
+	if not offer then
+		local adminOffers = adminPendingOffers[key]
+		offer = adminOffers and adminOffers[offerId]
+	end
 	if not offer then
 		return nil, "offer-unavailable"
 	end
@@ -959,10 +985,10 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 	if tutorialSeedIdOrNil then
 		OnboardingService.OnRollCreated(player, profile, tutorialSeedIdOrNil)
 	end
-	sendClearOwnerOffers(player)
-	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers)
+	sendClearOwnerOffers(player, TRACK_NORMAL)
+	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers, TRACK_NORMAL)
 	task.delay(visualDuration, function()
-		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {})
+		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {}, TRACK_NORMAL)
 	end)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
 		batchId = batchIdOrNil,
@@ -1178,7 +1204,11 @@ local function purchaseOffer(player, offerId, profile, options)
 		end
 
 		removePendingOffer(player, offerId)
-		removePersistedOffer(profile, offer)
+		-- Admin offers never persist (and dropAreaIndex 0 never serializes);
+		-- skip explicitly rather than rely on the serializer detail.
+		if offer.adminParty ~= true then
+			removePersistedOffer(profile, offer)
+		end
 		spentAmount = 0
 		return true, "ok", profile.Data.Currency
 	end)
@@ -1993,21 +2023,16 @@ end
 
 local function clearAdminPendingOffers()
 	local clearedCount = 0
-	for key, offerMap in pairs(pendingOffers) do
-		for offerId, offer in pairs(offerMap) do
-			if offer.adminParty == true then
-				offerMap[offerId] = nil
-				clearedCount += 1
-				CrateRollEffect:FireAllClients({
-					action = ACTION_CLEAR_OFFER,
-					ownerUserId = key,
-					offerId = offerId,
-				})
-			end
+	for key, offerMap in pairs(adminPendingOffers) do
+		for offerId in pairs(offerMap) do
+			clearedCount += 1
+			CrateRollEffect:FireAllClients({
+				action = ACTION_CLEAR_OFFER,
+				ownerUserId = key,
+				offerId = offerId,
+			})
 		end
-		if next(offerMap) == nil then
-			pendingOffers[key] = nil
-		end
+		adminPendingOffers[key] = nil
 	end
 	return clearedCount
 end
@@ -2081,10 +2106,10 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 		local rollBatchId = nextRollBatchId
 		local previewSeeds = buildSeedPreviewSeeds(rolled, rollPool, crateId, player, profile)
 
-		-- Latest-batch-wins, same as a normal roll: this replaces any pending
-		-- offers, and a later normal roll replaces the admin crate.
-		clearPendingOffers(player)
-		pendingOffers[key] = {
+		-- Separate track: normal offers are untouched. Whole-map replace is
+		-- the "refresh" — a newer admin drop displaces the previous one, and
+		-- only purchase, party-off, or leave clears it otherwise.
+		adminPendingOffers[key] = {
 			[offerId] = {
 				offerId = offerId,
 				rollBatchId = rollBatchId,
@@ -2145,8 +2170,9 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 			tutorialGuaranteed = false,
 		}
 
+		-- No rollCooldownUntil write: the admin fall must not block normal
+		-- rolling; the duration only paces the delayed public send.
 		local visualDuration = RollConfig.RollVisualDurationForOffers({ effectOffer })
-		rollCooldownUntil[key] = os.clock() + visualDuration
 		return true, effectOffer, publicOffer, visualDuration
 	end)
 	locks[key] = nil
@@ -2163,10 +2189,10 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 	local visualDuration = visualDurationOrNil or RollConfig.RollVisualDurationForOffers({ effectOffer })
 	-- Intentionally NOT persisted: admin drops are one-shot for present
 	-- players and do not survive rejoin (profile keeps its pre-drop offers).
-	sendClearOwnerOffers(player)
-	sendRollEffect(player, nil, effectOffer.rollBatchId, { effectOffer })
+	sendClearOwnerOffers(player, TRACK_ADMIN)
+	sendRollEffect(player, nil, effectOffer.rollBatchId, { effectOffer }, TRACK_ADMIN)
 	task.delay(visualDuration, function()
-		RuntimeGuard.Run("RollService.SendPublicAdminOffer", sendPublicRollOffers, player, effectOffer.rollBatchId, { publicOfferOrNil })
+		RuntimeGuard.Run("RollService.SendPublicAdminOffer", sendPublicRollOffers, player, effectOffer.rollBatchId, { publicOfferOrNil }, TRACK_ADMIN)
 	end)
 	RuntimeGuard.Run("RollService.NotifyAdminDrop", function()
 		NotificationService.Notify(player, {
@@ -2276,6 +2302,7 @@ function RollService.Start()
 		lastLuckRequest[key] = nil
 		lastDropAreaRequest[key] = nil
 		pendingOffers[key] = nil
+		adminPendingOffers[key] = nil
 		if autoRollSessions[key] then
 			autoRollSessions[key].enabled = false
 			autoRollSessions[key] = nil

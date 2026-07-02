@@ -75,10 +75,14 @@ local PRICE_UNAFFORDABLE_COLOR = Color3.fromRGB(236, 95, 95)
 
 local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
 
-local activeRollToken = 0
+-- Rolls run on two independent tracks ("normal" and "admin" party drops):
+-- each has its own token so one track's roll never aborts the other's
+-- in-flight animations, and owner-wide clears are scoped per track.
+local activeRollTokens = { normal = 0, admin = 0 }
 local activeReveals = {}
 local activeRevealInfoByOfferId = {}
 local activeRevealOwnerByOfferId = {}
+local activeRevealTrackByOfferId = {}
 local activeOfferIdsByOwner = {}
 local activeRollEffectsByOfferId = {}
 local activeRainbowParticles = {}
@@ -92,7 +96,11 @@ local rng = Random.new()
 local started = false
 
 local function isCurrentRoll(token)
-	return token == activeRollToken
+	return type(token) == "table" and token.value == activeRollTokens[token.track]
+end
+
+local function trackOf(payload)
+	return type(payload) == "table" and payload.track == "admin" and "admin" or "normal"
 end
 
 local function trackRollEffect(instance, offerId)
@@ -132,6 +140,7 @@ local function trackActiveReveal(instance, offerId, ownerUserId, payload)
 	end
 
 	activeReveals[offerId] = instance
+	activeRevealTrackByOfferId[offerId] = trackOf(payload)
 	if type(payload) == "table" then
 		activeRevealInfoByOfferId[offerId] = {
 			category = payload.category,
@@ -564,6 +573,7 @@ local function clearActiveReveal(offerId)
 			activeRevealOwnerByOfferId[offerId] = nil
 		end
 		activeRevealInfoByOfferId[offerId] = nil
+		activeRevealTrackByOfferId[offerId] = nil
 
 		local reveal = activeReveals[offerId]
 		if reveal then
@@ -590,10 +600,13 @@ local function clearActiveReveal(offerId)
 	end
 	activeRevealOwnerByOfferId = {}
 	activeRevealInfoByOfferId = {}
+	activeRevealTrackByOfferId = {}
 	activeOfferIdsByOwner = {}
 end
 
-local function clearOwnerReveals(ownerUserId)
+-- track filters which reveals to clear ("normal"/"admin"); nil clears both
+-- (player-leave and legacy untracked clears).
+local function clearOwnerReveals(ownerUserId, track)
 	if type(ownerUserId) ~= "number" then
 		return
 	end
@@ -605,7 +618,9 @@ local function clearOwnerReveals(ownerUserId)
 
 	local offerIds = {}
 	for offerId in pairs(ownerOffers) do
-		offerIds[#offerIds + 1] = offerId
+		if track == nil or (activeRevealTrackByOfferId[offerId] or "normal") == track then
+			offerIds[#offerIds + 1] = offerId
+		end
 	end
 	for _, offerId in ipairs(offerIds) do
 		clearActiveReveal(offerId)
@@ -1512,7 +1527,8 @@ function RollController.start()
 			return
 		end
 		if action == ACTION_CLEAR_OWNER_OFFERS then
-			clearOwnerReveals(payload.ownerUserId)
+			-- payload.track passed raw: nil clears both tracks (player leave).
+			clearOwnerReveals(payload.ownerUserId, payload.track)
 			return
 		end
 		if action == ACTION_SHOW_OFFERS then
@@ -1520,10 +1536,12 @@ function RollController.start()
 			if ownerUserId == player.UserId then
 				return
 			end
-			clearOwnerReveals(ownerUserId)
+			local track = trackOf(payload)
+			clearOwnerReveals(ownerUserId, track)
 			for _, offer in ipairs(collectPayloadOffers(payload)) do
 				offer.ownerUserId = ownerUserId
 				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
+				offer.track = track
 				RuntimeGuard.Spawn("RollController.ShowPublicOffer", showPublicOffer, offer)
 			end
 			return
@@ -1533,10 +1551,12 @@ function RollController.start()
 			if type(ownerUserId) ~= "number" then
 				return
 			end
-			clearOwnerReveals(ownerUserId)
+			local track = trackOf(payload)
+			clearOwnerReveals(ownerUserId, track)
 			for _, offer in ipairs(collectPayloadOffers(payload)) do
 				offer.ownerUserId = ownerUserId
 				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
+				offer.track = track
 				RuntimeGuard.Spawn("RollController.RestoreOffer", showPublicOffer, offer, {
 					addPurchasePromptForOwner = true,
 				})
@@ -1552,13 +1572,15 @@ function RollController.start()
 			return
 		end
 
-		activeRollToken += 1
-		local token = activeRollToken
+		local track = trackOf(payload)
+		activeRollTokens[track] += 1
+		local token = { track = track, value = activeRollTokens[track] }
 		local ownerUserId = ownerUserIdFromPayload(payload)
-		clearOwnerReveals(ownerUserId)
+		clearOwnerReveals(ownerUserId, track)
 		markButtonUnavailableForRoll(payload.button, offers)
 		for _, offer in ipairs(offers) do
 			offer.ownerUserId = ownerUserId
+			offer.track = track
 			if offer.button == nil then
 				offer.button = payload.button
 			end
