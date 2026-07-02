@@ -17,6 +17,16 @@ local OnboardingService = {}
 local STARTER_AREA_EPSILON = 0.05
 local FINAL_NOTE_TOTAL_SECONDS = Onboarding.FinalNoteDisplaySeconds + Onboarding.FinalNoteFadeSeconds
 local finalNoteTokensByUserId = {}
+local completionCallbacks = {}
+
+-- Registered callbacks fire once per player when a stage transition reaches
+-- Complete (onboarding-gated presentation like the admin party pad reacts
+-- immediately instead of waiting for a periodic reapply).
+function OnboardingService.OnCompleted(callback)
+	if type(callback) == "function" then
+		completionCallbacks[#completionCallbacks + 1] = callback
+	end
+end
 
 local function profileState(profile)
 	if not (profile and profile.Data) then
@@ -219,6 +229,11 @@ setStage = function(player, profile, nextStage)
 	applyCurrencySupplement(player, profile, nextStage)
 	if nextStage == Onboarding.Stages.ExpandFarm then
 		maybeCompleteExpandFarm(player, profile)
+	end
+	if nextStage == Onboarding.Stages.Complete then
+		for _, callback in ipairs(completionCallbacks) do
+			RuntimeGuard.Run("OnboardingService.CompletionCallback", callback, player, profile)
+		end
 	end
 	return true
 end

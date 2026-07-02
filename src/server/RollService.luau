@@ -219,10 +219,26 @@ local function allPlots()
 	return plotsFolder and plotsFolder:GetChildren() or {}
 end
 
+-- The pad hides from players still in onboarding (drops already exclude them
+-- via EventEligibility). Fail-closed: an occupied plot whose profile isn't
+-- readable yet counts as onboarding. Reveal paths after that: the post-load
+-- ApplyDropAreaVisibility call in the join flow, and the OnCompleted callback
+-- when the tutorial finishes mid-party (reconcile is revision-gated and does
+-- NOT reapply unchanged state).
+local function plotOwnerReadyForAdminPad(plot)
+	local userId = plot:GetAttribute(PLOT_OWNER_ATTRIBUTE)
+	if userId == nil then
+		return false
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	local profile = player and PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil
+	return profile ~= nil and not OnboardingService.IsActive(profile)
+end
+
 local function applyAdminPadVisibility(plot)
 	local area = adminPartyPadFor(plot)
 	if area then
-		local shouldShow = adminPadActive and plot:GetAttribute(PLOT_OWNER_ATTRIBUTE) ~= nil
+		local shouldShow = adminPadActive and plotOwnerReadyForAdminPad(plot)
 		InstanceVisibility.SetTreeActive(area, shouldShow, ADMIN_PAD_VISIBILITY_OPTIONS)
 		area:SetAttribute(ADMIN_PAD_ACTIVE_ATTRIBUTE, shouldShow)
 	end
@@ -795,6 +811,10 @@ function RollService.ApplyDropAreaVisibility(plot, profileOrLevel)
 	for _, dropArea in ipairs(dropAreas) do
 		InstanceVisibility.SetTreeActive(dropArea.area, dropArea.index <= unlockedCount, DROP_AREA_VISIBILITY_OPTIONS)
 	end
+	-- Reapply the admin pad on the same lifecycle: the occupancy listener
+	-- fires before the profile loads (fail-closed hidden), so the post-load
+	-- call here is what reveals the pad for returning players mid-party.
+	RuntimeGuard.Run("RollService.ApplyAdminPadVisibility", applyAdminPadVisibility, plot)
 	return true, "ok"
 end
 
@@ -2051,10 +2071,10 @@ function RollService.SetAdminPartyPadActive(active)
 		if changed and active then
 			-- Bump the entrance counter before unhiding so clients start the
 			-- drop-in the moment the pad appears. Only on the off->on
-			-- transition: reconcile reapplies and mid-party plot claims must
-			-- show the pad in place with no entrance.
+			-- transition: reconcile reapplies, mid-party plot claims, and
+			-- onboarding completions show the pad in place with no entrance.
 			local area = adminPartyPadFor(plot)
-			if area and plot:GetAttribute(PLOT_OWNER_ATTRIBUTE) ~= nil then
+			if area and plotOwnerReadyForAdminPad(plot) then
 				area:SetAttribute(
 					ADMIN_PAD_ENTRANCE_ATTRIBUTE,
 					(tonumber(area:GetAttribute(ADMIN_PAD_ENTRANCE_ATTRIBUTE)) or 0) + 1
@@ -2261,6 +2281,15 @@ function RollService.Start()
 			end
 		)
 	end
+
+	-- Finishing the tutorial mid-party reveals the pad immediately (in place,
+	-- no entrance) instead of waiting for the next reconcile reapply.
+	OnboardingService.OnCompleted(function(player)
+		local plot = PlotService.GetPlayerPlot(player)
+		if plot then
+			applyAdminPadVisibility(plot)
+		end
+	end)
 
 	scanRollButtons(PlotService, PlayerDataService)
 	local rollButtonRoot = workspace:FindFirstChild("Plots") or workspace
