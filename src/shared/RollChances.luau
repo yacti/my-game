@@ -85,13 +85,13 @@ RollChances.AdminCrates = {
 	},
 	SaturnCrate = {
 		DisplayName = "Saturn Crate",
-		LuckMultiplier = 150,
+		LuckMultiplier = 250,
 		TemplateName = "SaturnCrate",
 		FallDurationMultiplier = 3,
 	},
 	UFOCrate = {
 		DisplayName = "UFO Crate",
-		LuckMultiplier = 250,
+		LuckMultiplier = 1000,
 		TemplateName = "UFOCrate",
 		FallDurationMultiplier = 4,
 	},
