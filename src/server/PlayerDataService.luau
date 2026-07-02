@@ -19,7 +19,7 @@ local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersis
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 9
+local CURRENT_DATA_VERSION = 10
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -64,6 +64,14 @@ local DATA_TEMPLATE = {
 	},
 	Rebirths = 0,
 	UnlockedGridKeys = {},
+	-- Lifetime count of crates spawned by this player's rolls (one per drop
+	-- pad per roll). Admin party drops do not count.
+	LifetimeCrateRolls = 0,
+	-- New-player hook: the Nth lifetime crate is a guaranteed
+	-- PurpleAngelLuckyBlock. 0 = no guarantee (consumed, or an existing
+	-- profile migrated in). Never set nil: Reconcile would refill it from
+	-- this template and re-arm the guarantee.
+	PurpleAngelCrateGuaranteeAt = 12,
 	Onboarding = Onboarding.DefaultState(),
 	JoinGroupRewardCollected = false,
 	LastSeenUpdateLogId = "",
@@ -325,6 +333,14 @@ local function migrateData(data)
 			if data.StarterPackPurchased == true then
 				data.StarterPackPurchases.StarterPack = true
 			end
+		elseif nextVersion == 10 then
+			-- Existing profiles never receive the new-player guaranteed crate;
+			-- fresh v10 profiles get PurpleAngelCrateGuaranteeAt = 12 from
+			-- DATA_TEMPLATE. Explicit 0 (not nil) so Reconcile cannot re-arm it.
+			data.PurpleAngelCrateGuaranteeAt = 0
+			if type(data.LifetimeCrateRolls) ~= "number" then
+				data.LifetimeCrateRolls = 0
+			end
 		end
 
 		version = nextVersion
@@ -579,6 +595,8 @@ local function ensureValidData(profile)
 	end
 
 	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
+	profile.Data.LifetimeCrateRolls = math.max(math.floor(tonumber(profile.Data.LifetimeCrateRolls) or 0), 0)
+	profile.Data.PurpleAngelCrateGuaranteeAt = math.max(math.floor(tonumber(profile.Data.PurpleAngelCrateGuaranteeAt) or 0), 0)
 	profile.Data.Pets = sanitizePets(profile.Data.Pets, profile.Data.Rebirths)
 
 	local placements = {}

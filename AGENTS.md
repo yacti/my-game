@@ -306,7 +306,7 @@ Do not conflate a profile snapshot with a DataStore save. Snapshotting mutates `
 
 Profile data is server-only. Clients receive derived durable player state through the per-player `PlayerState` Replica, world/visual state through attributes, and one-shot events/results through remotes.
 
-New player defaults include one `Pet1`, 50 currency, zero rebirths, empty feed/seed/food inventories, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`. The shovel is a non-persisted utility tool granted by `ShovelTools`, not saved inventory.
+New player defaults include one `Pet1`, 50 currency, zero rebirths, empty feed/seed/food inventories, empty placements, processed receipt ids, `UnlockedGridKeys`, and `LastSeen`. Fresh profiles also carry `PurpleAngelCrateGuaranteeAt = 12`: their 12th lifetime crate (`LifetimeCrateRolls`, one per drop pad per roll; admin party drops excluded) is a guaranteed `PurpleAngelLuckyBlock`, consumed one-shot by setting the field to 0 (never nil — `Reconcile` would re-arm it from the template). Existing profiles are migrated to 0 at data version 10 and never see the guarantee. The shovel is a non-persisted utility tool granted by `ShovelTools`, not saved inventory.
 
 Plot expansion is saved as coordinate-key strings in `profile.Data.UnlockedGridKeys`. `PlotGridService` also migrates old `UnlockedGridIds`/`PlotSize` data, but new code should use coordinate keys.
 

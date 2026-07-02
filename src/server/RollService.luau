@@ -63,6 +63,10 @@ local ADMIN_PARTY_DROP_AREA_NAME = "AdminPartyDropArea"
 local ADMIN_DROP_AREA_INDEX = 0
 local ADMIN_DROP_NOTICE = "yacti has dropped a crate on your farm!"
 
+-- New-player hook: profile.Data.PurpleAngelCrateGuaranteeAt marks which
+-- lifetime crate is a guaranteed PurpleAngelLuckyBlock (0 = none/consumed).
+local GUARANTEED_NEW_PLAYER_CRATE_ID = "PurpleAngelLuckyBlock"
+
 local locks = {}
 local rollCooldownUntil = {}
 local lastPurchaseRequest = {}
@@ -801,7 +805,21 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 		local rollPool = collectRollPool()
 
 		for _, dropArea in ipairs(dropAreas) do
-			local crateId = RollChances.RollCrate(rng)
+			-- Count every crate this player's rolls spawn (one per pad).
+			-- Admin party drops intentionally do not pass through here.
+			local crateCount = math.max(math.floor(tonumber(profile.Data.LifetimeCrateRolls) or 0), 0) + 1
+			profile.Data.LifetimeCrateRolls = crateCount
+
+			local crateId
+			local guaranteeAt = math.floor(tonumber(profile.Data.PurpleAngelCrateGuaranteeAt) or 0)
+			if guaranteeAt > 0 and crateCount >= guaranteeAt then
+				-- One-shot: consume by setting 0, never nil (Reconcile would
+				-- re-arm nil from the profile template).
+				profile.Data.PurpleAngelCrateGuaranteeAt = 0
+				crateId = GUARANTEED_NEW_PLAYER_CRATE_ID
+			else
+				crateId = RollChances.RollCrate(rng)
+			end
 			if not crateId then
 				return false, "crate-roll-failed"
 			end
