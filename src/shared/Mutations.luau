@@ -17,7 +17,7 @@ Mutations.DisplayColors = {
 
 Mutations.XPMultipliers = {
 	[Mutations.Ids.Lightning] = 5,
-	[Mutations.Ids.Alien] = 5,
+	[Mutations.Ids.Alien] = 6,
 }
 
 local function mutationRoot()

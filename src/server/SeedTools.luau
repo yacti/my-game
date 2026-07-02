@@ -175,7 +175,7 @@ function SeedTools.PrepareGrant(seedId, amount)
 	}
 end
 
-function SeedTools.ApplyPrepared(player, profile, prepared)
+function SeedTools.ApplyPrepared(player, profile, prepared, grantOptions)
 	if not (player and profile and type(prepared) == "table") then
 		return false, "invalid-grant"
 	end
@@ -192,7 +192,9 @@ function SeedTools.ApplyPrepared(player, profile, prepared)
 		return false, "no-backpack"
 	end
 
-	local granted, code = ToolGrantService.GrantTools(player, prepared.tools)
+	-- grantOptions is an optional ToolGrantService option bag (e.g. { autoEquip =
+	-- false } so auto-roll purchases stack in inventory without being equipped).
+	local granted, code = ToolGrantService.GrantTools(player, prepared.tools, grantOptions)
 	if not granted then
 		destroyPrepared(prepared)
 		return false, code

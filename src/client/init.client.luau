@@ -84,6 +84,7 @@ local CONTROLLERS = {
 	"AdminPartyPadController",
 	"RollController",
 	"OnboardingController",
+	"WorksOfflineController",
 }
 
 local function startController(name)

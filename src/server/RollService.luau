@@ -723,13 +723,20 @@ local function consumePurchaseRate(player)
 	return consumeRateLimit(lastPurchaseRequest, player, PURCHASE_REQUEST_RATE_SECONDS)
 end
 
-local function applySeedReward(player, profile, offer)
+local function applySeedReward(player, profile, offer, options)
 	local prepared, prepareCode = SeedTools.PrepareGrant(offer.seedId, 1)
 	if not prepared then
 		return false, prepareCode or "grant-failed"
 	end
 
-	local granted, grantCode = SeedTools.ApplyPrepared(player, profile, prepared)
+	-- Auto-roll purchases pass autoEquip = false so a background roll never yanks
+	-- the tool out of the player's hands; manual buys still auto-equip as before.
+	local grantOptions = nil
+	if type(options) == "table" and options.autoEquip == false then
+		grantOptions = { autoEquip = false }
+	end
+
+	local granted, grantCode = SeedTools.ApplyPrepared(player, profile, prepared, grantOptions)
 	if not granted then
 		SeedTools.DestroyPrepared(prepared)
 		return false, grantCode or "grant-failed"
@@ -1163,7 +1170,7 @@ local function purchaseOffer(player, offerId, profile, options)
 			return false, "unsupported-reward", currency
 		end
 
-		local granted, grantCode = handler(player, profile, offer)
+		local granted, grantCode = handler(player, profile, offer, options)
 		if not granted then
 			CurrencyService.Add(player, profile, offer.price, true)
 			spentAmount = 0
@@ -1250,6 +1257,8 @@ local function autoPurchaseOffer(player, offerId, profile, rollBatchId)
 		consumeRate = false,
 		skipDistance = true,
 		requiredRollBatchId = rollBatchId,
+		-- Background auto-purchases go straight to inventory; don't force-equip.
+		autoEquip = false,
 	})
 end
 

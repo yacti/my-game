@@ -421,6 +421,11 @@ local function runPlotVisit(session, entry)
 		+ 0.1
 		+ session.settings.zapFadeSeconds
 		+ 0.05
+	-- Spread the visit's zaps across the remaining hover window so a longer
+	-- plotVisitSeconds gives more breathing room between zaps, never tighter
+	-- than a single zap VFX cycle.
+	local zapWindow = math.max(visitEndsAt - serverNow(), 0)
+	local zapInterval = math.max(zapWindow / math.max(zapCount, 1), zapCycleSeconds)
 	for zapIndex = 1, zapCount do
 		if not sessionActive(session) or serverNow() >= visitEndsAt then
 			break
@@ -459,7 +464,7 @@ local function runPlotVisit(session, entry)
 				zapSoundRange = session.settings.zapSoundRange,
 				settings = session.publicSettings,
 			})
-			if not cancellableWait(session, math.min(zapCycleSeconds, math.max(visitEndsAt - serverNow(), 0))) then
+			if not cancellableWait(session, math.min(zapInterval, math.max(visitEndsAt - serverNow(), 0))) then
 				break
 			end
 		end
