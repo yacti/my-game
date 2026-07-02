@@ -18,9 +18,9 @@ local FLASH_NAME = "JoinBackFlash"
 local TOP_BAR_NAME = "TopBar"
 local NOTIFICATIONS_NAME = "Notifications"
 
-local PRE_SEQUENCE_DELAY = 2
+local PRE_SEQUENCE_DELAY = 1
 local BEFORE_MESSAGE_SECONDS = 3
-local POST_MESSAGE_SECONDS = 5
+local POST_MESSAGE_SECONDS = 3
 local APPLIED_WAIT_TIMEOUT = 2
 
 local TEXT_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -30,7 +30,6 @@ local FLASH_OUT_TWEEN = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDi
 local MESSAGES = {
 	before = "Last time you played, your farm looked like this...",
 	now = "Now your farm looks like this!",
-	remember = "Remember, your farm grows offline!",
 }
 
 local STARTABLE_PHASES = {
@@ -90,15 +89,6 @@ local function setText(textFrame, textLabel, text)
 	textLabel.Text = text
 	textLabel.TextTransparency = 1
 	textFrame.Visible = true
-	playTween(textLabel, TEXT_TWEEN, { TextTransparency = 0 })
-end
-
-local function switchText(textLabel, text)
-	if not textLabel then
-		return
-	end
-	playTween(textLabel, TEXT_TWEEN, { TextTransparency = 1 })
-	textLabel.Text = text
 	playTween(textLabel, TEXT_TWEEN, { TextTransparency = 0 })
 end
 
@@ -221,8 +211,6 @@ local function runSequence(playerGui, requestRemote, payload)
 			fadeFlashOut(flashFrame)
 		end
 		setText(textFrame, textLabel, MESSAGES.now)
-		task.wait(POST_MESSAGE_SECONDS)
-		switchText(textLabel, MESSAGES.remember)
 		task.wait(POST_MESSAGE_SECONDS)
 		requestRemote:FireServer("clientComplete", seq)
 	end)
