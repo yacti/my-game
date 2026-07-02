@@ -25,6 +25,7 @@ local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local PlotWindService   = require(Server:WaitForChild("PlotWindService"))
 local GameEventService  = require(Server:WaitForChild("GameEventService"))
+local LiveEventCommandService = require(Server:WaitForChild("LiveEventCommandService"))
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local PetIncomeService  = require(Server:WaitForChild("PetIncomeService"))
@@ -183,7 +184,8 @@ RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
-RuntimeGuard.Run("GameEventService.Start", GameEventService.Start)
+-- GameEventService.Start runs later, once snapshotProfileState is defined, so
+-- no event handler can start with a nil snapshot callback.
 RuntimeGuard.Run("UpdateEventConfigService.Start", UpdateEventConfigService.Start)
 RuntimeGuard.Run("UpdateLogService.Start", UpdateLogService.Start)
 RuntimeGuard.Run("HomeTeleportService.Start", HomeTeleportService.Start)
@@ -464,9 +466,12 @@ local function snapshotFoodInventory(player, profile, context)
 	return true
 end
 
-GameEventService.Configure({
-	snapshotProfileState = snapshotProfileState,
-})
+RuntimeGuard.Run("GameEventService.Start", function()
+	GameEventService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
+RuntimeGuard.Run("LiveEventCommandService.Start", LiveEventCommandService.Start)
 
 local function clearPendingPetFeedSnapshot(player)
 	local key = userKey(player)

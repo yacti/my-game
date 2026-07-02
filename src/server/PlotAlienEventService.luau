@@ -501,9 +501,12 @@ local function runAlien(session)
 	session.phase = "windDown"
 	session.currentPlotCenter = nil
 	session.currentVisitEndsAt = nil
+	-- One shot per server: an early wind-down suppresses this instance locally
+	-- until endsAt whether or not any zaps landed, so a still-active global
+	-- record cannot restart the alien on this server.
 	local earlyWindDown = serverNow() < session.endsAt - session.settings.windDownSeconds - 0.1
 	if earlyWindDown then
-		session.suppressActiveRecord(not ranAnyVisit)
+		session.suppressActiveRecord()
 	end
 	fireViewers(session, "windDown", {
 		instanceId = session.instanceId,
@@ -589,21 +592,16 @@ function PlotAlienEventService.StartAlien(eventRecord, callbacks)
 		suppressedActiveRecord = false,
 		phase = "idle",
 	}
-	session.suppressActiveRecord = function(releaseIdempotency)
+	session.suppressActiveRecord = function()
 		if session.suppressedActiveRecord then
 			return
 		end
 		session.suppressedActiveRecord = true
 		if type(callbacks.complete) == "function" then
-			local completeOptions = {
+			callbacks.complete(session.instanceId, {
 				blockLowerPriorityUntil = session.endsAt,
 				keepHandlerRunning = true,
-			}
-			if releaseIdempotency == true then
-				completeOptions.blockLowerPriorityUntil = nil
-				completeOptions.releaseIdempotency = true
-			end
-			callbacks.complete(session.instanceId, completeOptions)
+			})
 		end
 	end
 	session.complete = function()

@@ -14,6 +14,10 @@ local State = require(Shared:WaitForChild("State"))
 local GameEventService = {}
 
 local UPDATE_SECONDS = 0.5
+-- Completed instances stay suppressed until record endsAt plus this buffer, so
+-- long-lived external/global records cannot restart locally after early completion.
+local SUPPRESS_AFTER_ENDS_SECONDS = 60
+local SUPPRESS_FALLBACK_SECONDS = 3600
 
 local runtimeFolder = nil
 local activeFolder = nil
@@ -28,6 +32,7 @@ local notifiedInstanceIds = {}
 local serviceConfig = {}
 local manualRecordsByInstanceId = {}
 local manualSequence = 0
+local externalRecordsBySource = {}
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
@@ -180,6 +185,86 @@ local function activeManualRecords(now)
 	return records
 end
 
+local function recordEndsAtFor(instanceId)
+	local record = manualRecordsByInstanceId[instanceId]
+	if record then
+		return finiteNumber(record.endsAt)
+	end
+	for _, activeRecord in pairs(activeRecordsByEventId) do
+		if activeRecord.instanceId == instanceId then
+			return finiteNumber(activeRecord.endsAt)
+		end
+	end
+	for _, bucket in pairs(externalRecordsBySource) do
+		local externalRecord = bucket[instanceId]
+		if externalRecord then
+			return finiteNumber(externalRecord.endsAt)
+		end
+	end
+	return nil
+end
+
+local function suppressionUntilFor(instanceId, now)
+	local endsAt = recordEndsAtFor(instanceId)
+	if endsAt then
+		return math.max(endsAt, now) + SUPPRESS_AFTER_ENDS_SECONDS
+	end
+	return now + SUPPRESS_FALLBACK_SECONDS
+end
+
+local function sanitizeExternalRecord(record)
+	if type(record) ~= "table" then
+		return nil
+	end
+	local instanceId = record.instanceId
+	if type(instanceId) ~= "string" or instanceId == "" then
+		return nil
+	end
+	local eventId = record.eventId
+	local config = type(eventId) == "string" and GameEvents.GetEvent(eventId) or nil
+	if not config then
+		return nil
+	end
+	local layer = record.layer
+	if type(layer) ~= "string" or not GameEvents.LayerConfigs[layer] then
+		return nil
+	end
+	local startsAt = finiteNumber(record.startsAt)
+	local endsAt = finiteNumber(record.endsAt)
+	if not startsAt or not endsAt or endsAt <= startsAt then
+		return nil
+	end
+	local displayFrame = record.displayFrame
+	if type(displayFrame) ~= "string" or displayFrame == "" then
+		displayFrame = config.displayFrame or eventId
+	end
+	return {
+		instanceId = instanceId,
+		eventId = eventId,
+		layer = layer,
+		source = type(record.source) == "string" and record.source or GameEvents.Sources.AdminCommand,
+		startsAt = startsAt,
+		endsAt = endsAt,
+		priority = finiteNumber(record.priority) or tonumber(config.priority) or 0,
+		displayPriority = finiteNumber(record.displayPriority) or tonumber(config.displayPriority) or 0,
+		displayFrame = displayFrame,
+	}
+end
+
+local function activeExternalRecords(now)
+	local records = {}
+	for _, bucket in pairs(externalRecordsBySource) do
+		for instanceId, record in pairs(bucket) do
+			if not completedInstanceIds[instanceId]
+				and now >= record.startsAt
+				and now < record.endsAt then
+				records[#records + 1] = record
+			end
+		end
+	end
+	return records
+end
+
 local handlers = {
 	[GameEvents.Ids.Windy] = {
 		start = PlotWindService.StartWind,
@@ -314,8 +399,8 @@ end
 
 local function update()
 	local now = serverNow()
-	for instanceId, completedAt in pairs(completedInstanceIds) do
-		if tonumber(completedAt) and completedAt < now - 3600 then
+	for instanceId, suppressedUntil in pairs(completedInstanceIds) do
+		if (tonumber(suppressedUntil) or 0) <= now then
 			completedInstanceIds[instanceId] = nil
 		end
 	end
@@ -330,6 +415,9 @@ local function update()
 		records[#records + 1] = record
 	end
 	for _, record in ipairs(activeManualRecords(now)) do
+		records[#records + 1] = record
+	end
+	for _, record in ipairs(activeExternalRecords(now)) do
 		records[#records + 1] = record
 	end
 	records = GameEvents.ApplyLayerConfigs(records)
@@ -351,20 +439,15 @@ function GameEventService.CompleteInstance(instanceId, options)
 	end
 	options = type(options) == "table" and options or {}
 	local keepHandlerRunning = options.keepHandlerRunning == true
-	local releaseIdempotency = options.releaseIdempotency == true
 	local now = serverNow()
-	if releaseIdempotency then
-		completedInstanceIds[instanceId] = nil
-	else
-		completedInstanceIds[instanceId] = now
-	end
+	completedInstanceIds[instanceId] = suppressionUntilFor(instanceId, now)
 	manualRecordsByInstanceId[instanceId] = nil
 	for eventId, activeInstanceId in pairs(activeInstanceIdsByEventId) do
 		if activeInstanceId == instanceId then
 			local handler = handlers[eventId]
 			local record = activeRecordsByEventId[eventId]
 			local blockUntil = tonumber(options.blockLowerPriorityUntil)
-			if record and blockUntil and blockUntil > now and not releaseIdempotency then
+			if record and blockUntil and blockUntil > now then
 				completionBlocksByLayer[record.layer] = {
 					instanceId = instanceId,
 					priority = tonumber(record.priority) or 0,
@@ -380,6 +463,44 @@ function GameEventService.CompleteInstance(instanceId, options)
 	end
 	lastSignature = nil
 	update()
+end
+
+-- Replaces the entire external record bucket for one source (e.g. the global
+-- live-events control plane). Records are sanitized copies; invalid entries are
+-- dropped with a warning count. Locally completed/suppressed instance IDs are
+-- filtered at merge time in update(), not here, so suppression survives
+-- repeated reconciles.
+function GameEventService.SetExternalManualRecords(sourceKey, records)
+	if type(sourceKey) ~= "string" or sourceKey == "" then
+		return false, "invalid-source"
+	end
+	if records ~= nil and type(records) ~= "table" then
+		return false, "invalid-records"
+	end
+
+	local bucket = {}
+	local dropped = 0
+	for _, record in ipairs(records or {}) do
+		local sanitized = sanitizeExternalRecord(record)
+		if sanitized then
+			bucket[sanitized.instanceId] = sanitized
+		else
+			dropped += 1
+		end
+	end
+	if dropped > 0 then
+		warn(string.format(
+			"[GameEventService] Dropped %d invalid external record(s) from source %s",
+			dropped,
+			sourceKey
+		))
+	end
+	externalRecordsBySource[sourceKey] = next(bucket) ~= nil and bucket or nil
+
+	if started then
+		update()
+	end
+	return true
 end
 
 function GameEventService.StartManualEvent(eventId, options)

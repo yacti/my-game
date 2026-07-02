@@ -94,6 +94,7 @@ GameEvents.EventConfigs = {
 		displayFrame = "Alien",
 		priority = 100,
 		displayPriority = 100,
+		maxGlobalDurationSeconds = 10 * 60,
 		appliedMutationId = "Alien",
 		alien = {
 			windUpSeconds = 10,
