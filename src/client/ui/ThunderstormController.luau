@@ -1,5 +1,4 @@
 local Debris = game:GetService("Debris")
-local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -8,14 +7,20 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
+local EventLighting = require(script.Parent:WaitForChild("EventLighting"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
 local ThunderstormController = {}
+
+-- Lighting is claimed through EventLighting with the event's configured
+-- priority, so higher-priority concurrent events (Alien) keep the sky.
+local STORM_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.Stormy) or {}).priority) or 0
 
 local LOCAL_FOLDER_NAME = "__LocalThunderstorm"
 local RAIN_BACKING_TRACK_SOUND_ID = "rbxassetid://5911952995"
@@ -26,13 +31,6 @@ local MAX_ACTIVE_STRIKES = 12
 local STRIKE_LIFETIME = 0.35
 local WAIT_SECONDS = 10
 local CLOUD_TRAVEL_SECONDS = 2
-
-local LIGHTING_CHILD_PROPERTIES = {
-	Atmosphere = { "Density", "Offset", "Color", "Decay", "Glare", "Haze" },
-	BloomEffect = { "Intensity", "Size", "Threshold" },
-	ColorCorrectionEffect = { "Brightness", "Contrast", "Saturation", "TintColor" },
-	SunRaysEffect = { "Intensity" },
-}
 
 local player = Players.LocalPlayer
 local started = false
@@ -161,163 +159,6 @@ local function setPivot(instance, cframe)
 		instance.CFrame = cframe
 	elseif instance:IsA("Model") then
 		instance:PivotTo(cframe)
-	end
-end
-
-local function lightingPreset(name)
-	local lightingFolder = ReplicatedStorage:FindFirstChild("Lighting")
-	local preset = lightingFolder and lightingFolder:FindFirstChild(name)
-	return preset and preset:IsA("Folder") and preset or nil
-end
-
-local function lightingSettings(preset)
-	local module = preset and preset:FindFirstChild("LightingSettings")
-	if module and module:IsA("ModuleScript") then
-		local ok, result = pcall(require, module)
-		if ok and type(result) == "table" then
-			return type(result.Lighting) == "table" and result.Lighting or {}
-		end
-	end
-	return {}
-end
-
-local function isLightingChild(instance)
-	return instance:IsA("Atmosphere")
-		or instance:IsA("Sky")
-		or instance:IsA("BloomEffect")
-		or instance:IsA("ColorCorrectionEffect")
-		or instance:IsA("SunRaysEffect")
-end
-
-local function lightingChildKey(instance)
-	return instance.ClassName .. ":" .. instance.Name
-end
-
-local function tweenProperties(instance, source, properties, seconds, token)
-	local tweenable = {}
-	for _, property in ipairs(properties or {}) do
-		local ok, value = pcall(function()
-			return source[property]
-		end)
-		if ok and (typeof(value) == "Color3" or type(value) == "number") then
-			tweenable[property] = value
-		elseif ok then
-			pcall(function()
-				instance[property] = value
-			end)
-		end
-	end
-	if next(tweenable) then
-		trackTween(token, TweenService:Create(instance, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
-	end
-end
-
-local function fadeOutLightingChild(child, seconds, token)
-	local properties = LIGHTING_CHILD_PROPERTIES[child.ClassName]
-	local tweenable = {}
-	if child:IsA("SunRaysEffect") then
-		tweenable.Intensity = 0
-	elseif child:IsA("BloomEffect") then
-		tweenable.Intensity = 0
-	elseif child:IsA("Atmosphere") then
-		tweenable.Density = 0
-		tweenable.Haze = 0
-		tweenable.Glare = 0
-	elseif child:IsA("ColorCorrectionEffect") then
-		tweenable.Brightness = 0
-		tweenable.Contrast = 0
-		tweenable.Saturation = 0
-	end
-	if next(tweenable) and properties then
-		trackTween(token, TweenService:Create(child, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
-	end
-	task.delay(math.max(seconds, 0), function()
-		if child.Parent == Lighting then
-			child:Destroy()
-		end
-	end)
-end
-
-local function copyTweenableProperties(destination, source)
-	for _, property in ipairs(LIGHTING_CHILD_PROPERTIES[source.ClassName] or {}) do
-		local ok, value = pcall(function()
-			return source[property]
-		end)
-		if ok then
-			pcall(function()
-				destination[property] = value
-			end)
-		end
-	end
-end
-
-local function applyLightingChildren(preset, seconds, token)
-	local currentByKey = {}
-	local currentByClass = {}
-	for _, child in ipairs(Lighting:GetChildren()) do
-		if isLightingChild(child) then
-			currentByKey[lightingChildKey(child)] = child
-			currentByClass[child.ClassName] = currentByClass[child.ClassName] or child
-		end
-	end
-	local targetKeys = {}
-	for _, child in ipairs(preset:GetChildren()) do
-		if isLightingChild(child) then
-			local key = lightingChildKey(child)
-			targetKeys[key] = true
-			if child:IsA("Sky") then
-				local existing = currentByClass.Sky
-				if existing then
-					existing:Destroy()
-				end
-				child:Clone().Parent = Lighting
-			else
-				local existing = currentByKey[key]
-				if not existing then
-					existing = child:Clone()
-					local sameClass = currentByClass[child.ClassName]
-					if sameClass then
-						copyTweenableProperties(existing, sameClass)
-					end
-					existing.Parent = Lighting
-				end
-				tweenProperties(existing, child, LIGHTING_CHILD_PROPERTIES[child.ClassName], seconds, token)
-				pcall(function()
-					existing.Enabled = child.Enabled
-				end)
-			end
-		end
-	end
-	for key, child in pairs(currentByKey) do
-		if not targetKeys[key] then
-			if child:IsA("Sky") then
-				child:Destroy()
-			else
-				fadeOutLightingChild(child, seconds, token)
-			end
-		end
-	end
-end
-
-local function tweenLightingTo(name, seconds, token)
-	local preset = lightingPreset(name)
-	if not preset then
-		warnStorm("Missing ReplicatedStorage.Lighting." .. name)
-		return
-	end
-	applyLightingChildren(preset, seconds, token)
-	local tweenable = {}
-	for property, value in pairs(lightingSettings(preset)) do
-		if typeof(value) == "Color3" or type(value) == "number" then
-			tweenable[property] = value
-		else
-			pcall(function()
-				Lighting[property] = value
-			end)
-		end
-	end
-	if next(tweenable) then
-		trackTween(token, TweenService:Create(Lighting, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
 	end
 end
 
@@ -601,7 +442,7 @@ local function cleanupToken(token)
 		end
 	end
 	table.clear(activeStrikes)
-	tweenLightingTo("Default", 0.35)
+	EventLighting.Release(GameEvents.Ids.Stormy, 0.35)
 	if activeToken == token then
 		activeToken = nil
 	end
@@ -620,7 +461,7 @@ local function beginStorm(payload)
 	activeToken = token
 	local origin = payload and payload.cloudOrigin or payload and payload.mapCenter
 	local windUpSeconds = tonumber(token.settings.windUpSeconds) or 0
-	tweenLightingTo("Storm", windUpSeconds, token)
+	EventLighting.Claim(GameEvents.Ids.Stormy, "Storm", STORM_LIGHTING_PRIORITY, windUpSeconds)
 	startRainBackingTrack(token, windUpSeconds)
 	startRain(token, origin)
 	ensureCloud(token, origin)
@@ -660,7 +501,7 @@ local function handleWindDown(payload)
 	end
 	local endsAt = type(payload) == "table" and tonumber(payload.endsAt) or nil
 	local seconds = math.max(endsAt and (endsAt - serverNow()) or 0, 0)
-	tweenLightingTo("Default", seconds, activeToken)
+	EventLighting.Release(GameEvents.Ids.Stormy, seconds)
 	stopRainBackingTrack(activeToken, seconds)
 	stopRain(activeToken)
 	if activeToken.cloud then

@@ -1,5 +1,4 @@
 local Debris = game:GetService("Debris")
-local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -8,14 +7,21 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local CloudController = require(script.Parent:WaitForChild("CloudController"))
+local EventLighting = require(script.Parent:WaitForChild("EventLighting"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local AlienEventController = {}
+
+-- Lighting is claimed through EventLighting with the event's configured
+-- priority (Alien = 100), so a concurrent lower-priority storm ending cannot
+-- reset the alien sky.
+local ALIEN_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.Alien) or {}).priority) or 0
 
 local LOCAL_FOLDER_NAME = "__LocalAlienEvent"
 local BACKING_TRACK_SOUND_ID = "rbxassetid://1841164614"
@@ -25,13 +31,6 @@ local DEFAULT_SOUND_RANGE = 500
 local WAIT_SECONDS = 10
 local LEVEL_SECONDS = 0.25
 local PROP_ROTATION_RADIANS_PER_SECOND = math.rad(18)
-
-local LIGHTING_CHILD_PROPERTIES = {
-	Atmosphere = { "Density", "Offset", "Color", "Decay", "Glare", "Haze" },
-	BloomEffect = { "Intensity", "Size", "Threshold" },
-	ColorCorrectionEffect = { "Brightness", "Contrast", "Saturation", "TintColor" },
-	SunRaysEffect = { "Intensity" },
-}
 
 local player = Players.LocalPlayer
 local started = false
@@ -412,163 +411,6 @@ local function emitBurst(instance)
 	end
 end
 
-local function lightingPreset(name)
-	local lightingFolder = ReplicatedStorage:FindFirstChild("Lighting")
-	local preset = lightingFolder and lightingFolder:FindFirstChild(name)
-	return preset and preset:IsA("Folder") and preset or nil
-end
-
-local function lightingSettings(preset)
-	local module = preset and preset:FindFirstChild("LightingSettings")
-	if module and module:IsA("ModuleScript") then
-		local ok, result = pcall(require, module)
-		if ok and type(result) == "table" then
-			return type(result.Lighting) == "table" and result.Lighting or {}
-		end
-	end
-	return {}
-end
-
-local function isLightingChild(instance)
-	return instance:IsA("Atmosphere")
-		or instance:IsA("Sky")
-		or instance:IsA("BloomEffect")
-		or instance:IsA("ColorCorrectionEffect")
-		or instance:IsA("SunRaysEffect")
-end
-
-local function lightingChildKey(instance)
-	return instance.ClassName .. ":" .. instance.Name
-end
-
-local function tweenProperties(instance, source, properties, seconds, token)
-	local tweenable = {}
-	for _, property in ipairs(properties or {}) do
-		local ok, value = pcall(function()
-			return source[property]
-		end)
-		if ok and (typeof(value) == "Color3" or type(value) == "number") then
-			tweenable[property] = value
-		elseif ok then
-			pcall(function()
-				instance[property] = value
-			end)
-		end
-	end
-	if next(tweenable) then
-		trackTween(token, TweenService:Create(instance, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
-	end
-end
-
-local function fadeOutLightingChild(child, seconds, token)
-	local properties = LIGHTING_CHILD_PROPERTIES[child.ClassName]
-	local tweenable = {}
-	if child:IsA("SunRaysEffect") then
-		tweenable.Intensity = 0
-	elseif child:IsA("BloomEffect") then
-		tweenable.Intensity = 0
-	elseif child:IsA("Atmosphere") then
-		tweenable.Density = 0
-		tweenable.Haze = 0
-		tweenable.Glare = 0
-	elseif child:IsA("ColorCorrectionEffect") then
-		tweenable.Brightness = 0
-		tweenable.Contrast = 0
-		tweenable.Saturation = 0
-	end
-	if next(tweenable) and properties then
-		trackTween(token, TweenService:Create(child, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
-	end
-	task.delay(math.max(seconds, 0), function()
-		if child.Parent == Lighting then
-			child:Destroy()
-		end
-	end)
-end
-
-local function copyTweenableProperties(destination, source)
-	for _, property in ipairs(LIGHTING_CHILD_PROPERTIES[source.ClassName] or {}) do
-		local ok, value = pcall(function()
-			return source[property]
-		end)
-		if ok then
-			pcall(function()
-				destination[property] = value
-			end)
-		end
-	end
-end
-
-local function applyLightingChildren(preset, seconds, token)
-	local currentByKey = {}
-	local currentByClass = {}
-	for _, child in ipairs(Lighting:GetChildren()) do
-		if isLightingChild(child) then
-			currentByKey[lightingChildKey(child)] = child
-			currentByClass[child.ClassName] = currentByClass[child.ClassName] or child
-		end
-	end
-	local targetKeys = {}
-	for _, child in ipairs(preset:GetChildren()) do
-		if isLightingChild(child) then
-			local key = lightingChildKey(child)
-			targetKeys[key] = true
-			if child:IsA("Sky") then
-				local existing = currentByClass.Sky
-				if existing then
-					existing:Destroy()
-				end
-				child:Clone().Parent = Lighting
-			else
-				local existing = currentByKey[key]
-				if not existing then
-					existing = child:Clone()
-					local sameClass = currentByClass[child.ClassName]
-					if sameClass then
-						copyTweenableProperties(existing, sameClass)
-					end
-					existing.Parent = Lighting
-				end
-				tweenProperties(existing, child, LIGHTING_CHILD_PROPERTIES[child.ClassName], seconds, token)
-				pcall(function()
-					existing.Enabled = child.Enabled
-				end)
-			end
-		end
-	end
-	for key, child in pairs(currentByKey) do
-		if not targetKeys[key] then
-			if child:IsA("Sky") then
-				child:Destroy()
-			else
-				fadeOutLightingChild(child, seconds, token)
-			end
-		end
-	end
-end
-
-local function tweenLightingTo(name, seconds, token)
-	local preset = lightingPreset(name)
-	if not preset then
-		warnAlien("Missing ReplicatedStorage.Lighting." .. name)
-		return
-	end
-	applyLightingChildren(preset, seconds, token)
-	local tweenable = {}
-	for property, value in pairs(lightingSettings(preset)) do
-		if typeof(value) == "Color3" or type(value) == "number" then
-			tweenable[property] = value
-		else
-			pcall(function()
-				Lighting[property] = value
-			end)
-		end
-	end
-	if next(tweenable) then
-		trackTween(token, TweenService:Create(Lighting, TweenInfo.new(math.max(seconds, 0), Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), tweenable)):Play()
-	end
-end
-
 local function stopBackingTrack(token, seconds)
 	local sound = token and token.backingTrack
 	if not sound then
@@ -865,7 +707,7 @@ local function fadeOutToken(token, seconds)
 	seconds = math.max(tonumber(seconds) or 0, 0)
 	stopBackingTrack(token, seconds)
 	CloudController.SetTransparencyOverride(nil, seconds)
-	tweenLightingTo("Default", seconds, token)
+	EventLighting.Release(GameEvents.Ids.Alien, seconds)
 	for _, alienBeam in ipairs(token.alienBeams) do
 		setEmittersEnabled(alienBeam, false)
 		tweenInstanceHidden(token, alienBeam, true, seconds)
@@ -902,7 +744,7 @@ local function cleanupToken(token)
 	end
 	stopBackingTrack(token, 0)
 	CloudController.SetTransparencyOverride(nil, 0.35)
-	tweenLightingTo("Default", 0.35)
+	EventLighting.Release(GameEvents.Ids.Alien, 0.35)
 	clearLocalFolder()
 	if activeToken == token then
 		activeToken = nil
@@ -937,7 +779,7 @@ local function beginAlien(payload)
 	activeToken = token
 	local origin = payload and payload.mapCenter or Vector3.zero
 	local windUpSeconds = tonumber(token.settings.windUpSeconds) or 0
-	tweenLightingTo("Alien", windUpSeconds, token)
+	EventLighting.Claim(GameEvents.Ids.Alien, "Alien", ALIEN_LIGHTING_PRIORITY, windUpSeconds)
 	startBackingTrack(token, windUpSeconds)
 	CloudController.SetTransparencyOverride(1, windUpSeconds)
 	cloneAlienVfx(token)
