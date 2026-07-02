@@ -52,6 +52,7 @@ local activeAutoCandidate = nil
 local activeMobileAutoCandidate = nil
 local autoHoldMode = nil
 local autoHoldNextActionAt = 0
+local autoHoldStartedAt = 0
 local autoHoldInputKeyCode = nil
 local autoHoldInputUserInputType = nil
 local autoHoldLockedTarget = nil
@@ -77,7 +78,8 @@ local AUTO_ACTION_INTERVAL = PromptActionConfig.ActionIntervalSeconds
 local AUTO_RETRY_INTERVAL = PromptActionConfig.RetryIntervalSeconds
 local PASSIVE_TREE_PICKUP_INTERVAL = AUTO_ACTION_INTERVAL
 local PASSIVE_TREE_PICKUP_DISTANCE = 4.5
-local PROMPT_AUTO_FIRST_REPEAT_DELAY = AUTO_ACTION_INTERVAL
+-- First repeat after the initial press matches the hold ramp's starting rate.
+local PROMPT_AUTO_FIRST_REPEAT_DELAY = PromptActionConfig.HoldIntervalSeconds(0)
 local FEED_INTENT_GRACE_SECONDS = 2
 local COLLECT_AFTER_FEED_SUPPRESS_SECONDS = 0.5
 local PET_FEED_HIGHLIGHT_LOCK_SECONDS = 0.5
@@ -410,12 +412,14 @@ local function shouldSelectPrompt(currentKind, currentDistance, nextKind, nextDi
 	return nextDistance < currentDistance
 end
 
-local function takePromptActionBudget()
+local function takePromptActionBudget(intervalOverride)
 	local now = os.clock()
 	if now < nextPromptActionAt then
 		return false
 	end
-	nextPromptActionAt = now + AUTO_ACTION_INTERVAL
+	-- Ramped holds may outpace the flat tap interval at peak; the min keeps a
+	-- slow ramp start from starving other prompt kinds of budget.
+	nextPromptActionAt = now + math.min(tonumber(intervalOverride) or AUTO_ACTION_INTERVAL, AUTO_ACTION_INTERVAL)
 	return true
 end
 
@@ -1007,7 +1011,7 @@ local function firePromptAction(kind, action, target, options)
 	if isPlacementPromptBlocked() then
 		return false
 	end
-	if not takePromptActionBudget() then
+	if not takePromptActionBudget(options.budgetInterval) then
 		return false
 	end
 	playPromptSound(kind)
@@ -1023,12 +1027,13 @@ local function firePromptAction(kind, action, target, options)
 	return true
 end
 
-function LocalPrompts.TriggerAutoPrompt(candidate)
+function LocalPrompts.TriggerAutoPrompt(candidate, budgetInterval)
 	if type(candidate) ~= "table" then
 		return false
 	end
 	if not firePromptAction(candidate.kind, candidate.action, candidate.target, {
 		isAutoHold = true,
+		budgetInterval = budgetInterval,
 	}) then
 		return false
 	end
@@ -1054,13 +1059,15 @@ function LocalPrompts.BeginPromptActionHold(mode, options)
 		lockedTarget = nil
 	end
 
-	local firstDelay = AUTO_ACTION_INTERVAL
+	local rampStartInterval = PromptActionConfig.HoldIntervalSeconds(0)
+	local firstDelay = rampStartInterval
 	if options.immediate == true then
-		firstDelay = LocalPrompts.TriggerAutoPrompt(candidate) and AUTO_ACTION_INTERVAL or AUTO_RETRY_INTERVAL
+		firstDelay = LocalPrompts.TriggerAutoPrompt(candidate, rampStartInterval) and rampStartInterval or AUTO_RETRY_INTERVAL
 	elseif type(options.firstDelay) == "number" then
 		firstDelay = math.max(options.firstDelay, 0)
 	end
 	autoHoldMode = candidate.mode
+	autoHoldStartedAt = os.clock()
 	autoHoldNextActionAt = os.clock() + firstDelay
 	autoHoldLockedTarget = lockedTarget
 	autoHoldInputUserInputType = options.inputUserInputType
@@ -1071,6 +1078,7 @@ end
 function LocalPrompts.EndPromptActionHold()
 	autoHoldMode = nil
 	autoHoldNextActionAt = 0
+	autoHoldStartedAt = 0
 	autoHoldInputKeyCode = nil
 	autoHoldInputUserInputType = nil
 	autoHoldLockedTarget = nil
@@ -1105,8 +1113,9 @@ local function stepAutoHold()
 			skipRefresh = true,
 		})
 	end
-	if candidate and LocalPrompts.TriggerAutoPrompt(candidate) then
-		autoHoldNextActionAt = now + AUTO_ACTION_INTERVAL
+	local holdInterval = PromptActionConfig.HoldIntervalSeconds(now - autoHoldStartedAt)
+	if candidate and LocalPrompts.TriggerAutoPrompt(candidate, holdInterval) then
+		autoHoldNextActionAt = now + holdInterval
 	else
 		autoHoldNextActionAt = now + AUTO_RETRY_INTERVAL
 	end

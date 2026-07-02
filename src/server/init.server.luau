@@ -93,8 +93,10 @@ if RunService:IsStudio() then
 	end
 end
 
-local PROMPT_RATE_SECONDS = 1 / 10
-local PROMPT_ACTION_RATE_SECONDS = PromptActionConfig.ActionIntervalSeconds
+-- Both windows must admit the hold ramp's peak rate (with jitter tolerance),
+-- or held feeding gets randomly rejected at full speed.
+local PROMPT_RATE_SECONDS = PromptActionConfig.FamilyRateWindowSeconds
+local PROMPT_ACTION_RATE_SECONDS = PromptActionConfig.FamilyRateWindowSeconds
 local PLACE_RATE_SECONDS = 0.25
 local PET_COLLECTION_DISTANCE = 5
 local PET_COLLECTION_INTERVAL = 0.25
