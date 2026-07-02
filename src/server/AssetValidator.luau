@@ -1139,6 +1139,13 @@ local function validateCrates(errors)
 		local template = child(crates, config.TemplateName, nil, errors)
 		validateCrateTemplate(template, errors)
 	end
+
+	local adminFolder = child(crates, "AdminParty", "Folder", errors)
+	for _, crateId in ipairs(RollChances.AdminCrateIds()) do
+		local config = RollChances.GetAdminCrate(crateId)
+		local template = adminFolder and child(adminFolder, config.TemplateName, nil, errors)
+		validateCrateTemplate(template, errors)
+	end
 end
 
 local function validateRebirthUi(menu, errors)
@@ -2466,6 +2473,12 @@ local function validatePlots(errors, warnings)
 					child(dropArea, "CrateFloor", "BasePart", errors)
 				end
 			end
+		end
+
+		local adminParty = child(plot, "AdminParty", "Folder", errors)
+		local adminDropArea = adminParty and child(adminParty, "AdminPartyDropArea", "Model", errors)
+		if adminDropArea then
+			child(adminDropArea, "CrateFloor", "BasePart", errors)
 		end
 
 		local signs = child(plot, "Signs", "Folder", errors)

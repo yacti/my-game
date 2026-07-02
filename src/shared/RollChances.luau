@@ -72,6 +72,31 @@ RollChances.Crates = {
 	},
 }
 
+-- Admin-only crates dropped through the live-events control plane
+-- (LiveEvents.DropAdminCrate). They have no DropWeight on purpose: they must
+-- never enter the normal RollCrate pool. Templates live under the
+-- Assets.Crates.AdminParty subfolder.
+RollChances.AdminCrates = {
+	InfernoCrate = {
+		DisplayName = "Inferno Crate",
+		LuckMultiplier = 75,
+		TemplateName = "InfernoCrate",
+		FallDurationMultiplier = 3,
+	},
+	SaturnCrate = {
+		DisplayName = "Saturn Crate",
+		LuckMultiplier = 150,
+		TemplateName = "SaturnCrate",
+		FallDurationMultiplier = 3,
+	},
+	UFOCrate = {
+		DisplayName = "UFO Crate",
+		LuckMultiplier = 250,
+		TemplateName = "UFOCrate",
+		FallDurationMultiplier = 4,
+	},
+}
+
 local function totalWeight(weights, keys)
 	local total = 0
 	if keys then
@@ -440,7 +465,25 @@ local function buildFinalSeedWeights(sortedEntries, baseWeights, visibleBaseWeig
 end
 
 function RollChances.GetCrate(crateId)
-	return RollChances.Crates[crateId]
+	-- Admin crates resolve here too so reward-weight math works for them, but
+	-- RollCrate only ever draws from RollChances.Crates.
+	return RollChances.Crates[crateId] or RollChances.AdminCrates[crateId]
+end
+
+function RollChances.GetAdminCrate(crateId)
+	if type(crateId) ~= "string" then
+		return nil
+	end
+	return RollChances.AdminCrates[crateId]
+end
+
+function RollChances.AdminCrateIds()
+	local ids = {}
+	for crateId in pairs(RollChances.AdminCrates) do
+		ids[#ids + 1] = crateId
+	end
+	table.sort(ids)
+	return ids
 end
 
 function RollChances.CrateIds()
@@ -612,6 +655,24 @@ function RollChances.Validate(errors)
 		end
 		if crate.FallDurationMultiplier ~= nil and (type(crate.FallDurationMultiplier) ~= "number" or crate.FallDurationMultiplier <= 0) then
 			errors[#errors + 1] = string.format("RollChances crate %s has invalid FallDurationMultiplier", tostring(crateId))
+		end
+	end
+
+	for crateId, crate in pairs(RollChances.AdminCrates) do
+		if RollChances.Crates[crateId] ~= nil then
+			errors[#errors + 1] = string.format("RollChances admin crate %s collides with a pool crate id", tostring(crateId))
+		end
+		if type(crate.TemplateName) ~= "string" or crate.TemplateName == "" then
+			errors[#errors + 1] = string.format("RollChances admin crate %s missing TemplateName", tostring(crateId))
+		end
+		if crate.DropWeight ~= nil then
+			errors[#errors + 1] = string.format("RollChances admin crate %s must not define DropWeight", tostring(crateId))
+		end
+		if type(crate.LuckMultiplier) ~= "number" or crate.LuckMultiplier < 1 then
+			errors[#errors + 1] = string.format("RollChances admin crate %s has invalid LuckMultiplier", tostring(crateId))
+		end
+		if crate.FallDurationMultiplier ~= nil and (type(crate.FallDurationMultiplier) ~= "number" or crate.FallDurationMultiplier <= 0) then
+			errors[#errors + 1] = string.format("RollChances admin crate %s has invalid FallDurationMultiplier", tostring(crateId))
 		end
 	end
 

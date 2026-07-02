@@ -190,7 +190,8 @@ end
 
 local function crateTemplate(name)
 	local crates = Assets.Find(Assets.Names.Crates)
-	local template = crates and crates:FindFirstChild(name)
+	-- Recursive fallback: admin party crates live in the AdminParty subfolder.
+	local template = crates and (crates:FindFirstChild(name) or crates:FindFirstChild(name, true))
 	if template and (template:IsA("Model") or template:IsA("BasePart")) then
 		return template
 	end

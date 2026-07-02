@@ -41,6 +41,11 @@ local ok, m = _G.LE.SendGlobalMessage("Everyone to your plots!", { preset = "Own
 for _, m in ipairs(_G.LE.ListGlobalMessages()) do print(m.presetId, m.messageId, m.text) end
 print(_G.LE.ClearGlobalMessages())   -- wipe the banner everywhere
 
+-- Admin party: bonus roll pad + admin-only high-luck crate drops.
+print(_G.LE.SetAdminPartyPad(true))    -- pad appears on every plot, every server (durable)
+print(_G.LE.DropAdminCrate("UFOCrate"))     -- x250 luck; also "SaturnCrate" (x150), "InfernoCrate" (x75)
+print(_G.LE.SetAdminPartyPad(false))   -- pad hidden everywhere; unresolved admin offers cleared
+
 -- Force an immediate DataStore reconcile on this server.
 print(_G.LE.ReconcileNow())
 ```
@@ -63,6 +68,7 @@ local ok, r = require(game.ServerScriptService.Server.LiveEventCommandService).S
 - **Idempotency.** A `commandId` identifies **one occurrence** of an event. The ledger survives stops and server restarts (this is what makes retries safe) and holds the newest 64 commands — an old id is only forgotten after 64 newer commands evict it; never plan around reuse. Same `commandId` + same parameters → idempotent success: returns the running record, or `true, "already-processed-not-active"` if that run has since stopped/expired (nothing starts). Same `commandId` + different parameters → `command-conflict`. **Liveops rule: new run = new commandId** (e.g. bump `alien-2026-07-02-1` → `-2`); only reuse an id to retry a command that failed.
 - **Same-key write cooldown.** DataStore throttles same-key writes to one per 6s **experience-wide**; commands are serialized and spaced automatically — rapid-fire commands queue for a few seconds each. Event times are stamped at commit, so queue wait never eats into a queued event's duration.
 - **Mixing local + global.** A local `GameEventService.StartManualEvent("Alien")` record and a global Alien can coexist under Chaos (max 3), but only one drives the handler on a given server — earliest `startsAt` wins; the other takes over when it completes. Avoid local Alien tests during a live global run.
+- **Admin party.** `SetAdminPartyPad(true/false)` is durable — servers booting mid-party reconcile the pad on. `DropAdminCrate(crateId)` is **one-shot for players present at that moment** (tutorial/offline-pending players excluded); drop again to cover late joiners; a server that misses the broadcast skips that drop (rare — repeat the command). The dropped crate reveals a normal **purchasable** offer rolled with the crate's luck (Inferno x75 / Saturn x150 / UFO x250, sharing the usual crate+player+server luck formula), plus the toast "yacti has dropped a crate on your farm!". Latest-batch-wins like all rolls: the drop replaces the player's pending offers, and a later normal roll replaces the admin crate. Admin offers do not survive rejoin. Toggling the pad off clears unresolved admin offers everywhere.
 - **Admin messages.** `SendGlobalMessage(text, { preset, durationSeconds, commandId, operatorNote })` — presets live in `src/shared/AdminMessagePresets.luau` (`Owner`, `Alien`; each sets template frame, display name, photo, colours). Text max 180 bytes. `durationSeconds` (default 30, max 300) is the **receivable window**: players/servers arriving within it still get the message; on-screen time is fixed at 11s per client (queue of max 3, newest at bottom, oldest forced out, typewriter reveal). Hidden during the tutorial, shown after if the window is still open. Each client shows a message once. `ClearGlobalMessages()` also hides messages currently on screen everywhere.
 
 ## Error codes

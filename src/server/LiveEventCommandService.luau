@@ -19,6 +19,9 @@
 --   LiveEvents.StopAllGlobalEvents()
 --   LiveEvents.SendGlobalMessage("We are coming...", { preset = "Alien" })
 --   LiveEvents.ClearGlobalMessages()
+--   LiveEvents.SetAdminPartyPad(true)
+--   LiveEvents.DropAdminCrate("UFOCrate")   -- also InfernoCrate | SaturnCrate
+--   LiveEvents.SetAdminPartyPad(false)
 --   LiveEvents.ReconcileNow()
 --
 -- Command writes fail closed: if the DataStore write does not succeed, nothing
@@ -32,10 +35,12 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local GameEventService = require(Server:WaitForChild("GameEventService"))
+local RollService = require(Server:WaitForChild("RollService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminMessagePresets = require(Shared:WaitForChild("AdminMessagePresets"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
+local RollChances = require(Shared:WaitForChild("RollChances"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -129,6 +134,7 @@ local function freshState()
 		updatedAt = 0,
 		active = {},
 		messages = {},
+		adminParty = { padActive = false },
 		processedCommands = {},
 		audit = {},
 	}
@@ -263,6 +269,9 @@ local function sanitizeState(raw)
 				state.messages[messageId] = sanitized
 			end
 		end
+	end
+	if type(raw.adminParty) == "table" then
+		state.adminParty.padActive = raw.adminParty.padActive == true
 	end
 	-- Read only the newest capped window so a corrupt/bloated durable state
 	-- cannot stall transforms (which may run multiple times per write).
@@ -400,6 +409,15 @@ local function publishAdminMessages()
 	end
 end
 
+local localAdminPadActive = false
+
+local function applyAdminPartyPad(padActive)
+	localAdminPadActive = padActive == true
+	RuntimeGuard.Run("LiveEventCommandService.ApplyAdminPartyPad", function()
+		RollService.SetAdminPartyPadActive(localAdminPadActive)
+	end)
+end
+
 local function applyState(state, force)
 	if not state then
 		return false
@@ -418,6 +436,7 @@ local function applyState(state, force)
 	end
 	pushToGameEventService()
 	publishAdminMessages()
+	applyAdminPartyPad(type(state.adminParty) == "table" and state.adminParty.padActive)
 	return true
 end
 
@@ -487,6 +506,17 @@ local function onMessage(message)
 		localMessages[record.messageId] = record
 	elseif data.action == "clearMessages" then
 		localMessages = {}
+	elseif data.action == "adminParty" then
+		applyAdminPartyPad(data.padActive == true)
+	elseif data.action == "adminDrop" then
+		-- One-shot for players present right now: applied on delta receipt
+		-- only, never replayed from reconcile. A server that misses this
+		-- message skips the drop (drop again to cover it).
+		if RollChances.GetAdminCrate(data.crateId) then
+			RuntimeGuard.Run("LiveEventCommandService.ApplyAdminDrop", function()
+				RollService.DropAdminCrate(data.crateId)
+			end)
+		end
 	else
 		scheduleReconcile("unknown-delta-action")
 		return
@@ -1079,6 +1109,101 @@ function LiveEventCommandService.ListGlobalMessages()
 		return tostring(left.messageId) < tostring(right.messageId)
 	end)
 	return records, localRevision
+end
+
+-- Toggles the admin party drop pad on every plot on every server (durable:
+-- new servers reconcile the pad state at boot).
+function LiveEventCommandService.SetAdminPartyPad(active, options)
+	if type(active) ~= "boolean" then
+		return false, "invalid-active"
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "admin-party-pad", note)
+	auditEntry.padActive = active
+
+	local ok, result = runCommandWrite(commandId, "adminPartyPad:" .. tostring(active), auditEntry, function(state)
+		if state.adminParty.padActive == active then
+			return false, "no-change"
+		end
+		state.adminParty.padActive = active
+		return true, {
+			action = "adminParty",
+			padActive = active,
+		}
+	end)
+
+	if not ok then
+		if result == "no-change" then
+			return true, "no-change"
+		end
+		return false, result
+	end
+	print(string.format("[LiveEventCommandService] Admin party pad %s globally", active and "ENABLED" or "DISABLED"))
+	return true, active
+end
+
+-- Drops one admin crate (InfernoCrate/SaturnCrate/UFOCrate) on every eligible
+-- player's admin pad, on every server. One-shot: players present right now.
+function LiveEventCommandService.DropAdminCrate(crateId, options)
+	local crate = RollChances.GetAdminCrate(crateId)
+	if not crate then
+		return false, "unknown-admin-crate"
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "admin-drop", note)
+	auditEntry.crateId = crateId
+
+	local ok, result = runCommandWrite(commandId, "adminDrop:" .. crateId, auditEntry, function(state)
+		if not state.adminParty.padActive then
+			return false, "pad-inactive"
+		end
+		-- No durable mutation: the drop itself is a one-shot broadcast. The
+		-- write still bumps revision and records idempotency + audit.
+		return true, {
+			action = "adminDrop",
+			crateId = crateId,
+		}
+	end)
+
+	if not ok then
+		return false, result
+	end
+	if result == "idempotent" then
+		return true, "already-processed"
+	end
+	-- Apply locally for this server's players; other servers apply on delta.
+	local dropOk, droppedOrCode, skipped = RollService.DropAdminCrate(crateId)
+	if not dropOk then
+		warn("[LiveEventCommandService] Local admin drop skipped: " .. tostring(droppedOrCode))
+		return true, 0, 0
+	end
+	return true, droppedOrCode, skipped
 end
 
 function LiveEventCommandService.ListGlobalEvents()

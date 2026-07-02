@@ -56,6 +56,12 @@ local DROP_AREA_VISIBILITY_OPTIONS = {
 	RuntimeHiddenVisualAsVisible = true,
 }
 
+-- Admin party: control-plane-toggled bonus pad plus admin-only crate drops.
+local ADMIN_PARTY_FOLDER_NAME = "AdminParty"
+local ADMIN_PARTY_DROP_AREA_NAME = "AdminPartyDropArea"
+local ADMIN_DROP_AREA_INDEX = 0
+local ADMIN_DROP_NOTICE = "yacti has dropped a crate on your farm!"
+
 local locks = {}
 local rollCooldownUntil = {}
 local lastPurchaseRequest = {}
@@ -71,6 +77,8 @@ local boundRollButtons = setmetatable({}, { __mode = "k" })
 local rng = Random.new()
 local PlayerDataServiceRef = nil
 local PlotServiceRef = nil
+local EventEligibilityRef = nil
+local adminPadActive = false
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -171,6 +179,28 @@ local function unlockedDropAreas(profile, plot)
 	end
 
 	return unlocked, nil
+end
+
+local function adminPartyPadFor(plot)
+	local folder = plot and plot:FindFirstChild(ADMIN_PARTY_FOLDER_NAME)
+	local area = folder and folder:FindFirstChild(ADMIN_PARTY_DROP_AREA_NAME)
+	local crateFloor = area and area:FindFirstChild("CrateFloor")
+	if area and crateFloor and crateFloor:IsA("BasePart") then
+		return area, crateFloor
+	end
+	return nil, nil
+end
+
+local function allPlots()
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	return plotsFolder and plotsFolder:GetChildren() or {}
+end
+
+local function applyAdminPadVisibility(plot)
+	local area = adminPartyPadFor(plot)
+	if area then
+		InstanceVisibility.SetTreeActive(area, adminPadActive, DROP_AREA_VISIBILITY_OPTIONS)
+	end
 end
 
 local function rollButtonForPlot(plot)
@@ -1918,11 +1948,225 @@ local function scanRollButtons(PlotService, PlayerDataService)
 	end
 end
 
+-- ── Admin party (control-plane driven) ────────────────────────────────────────
+
+local function clearAdminPendingOffers()
+	local clearedCount = 0
+	for key, offerMap in pairs(pendingOffers) do
+		for offerId, offer in pairs(offerMap) do
+			if offer.adminParty == true then
+				offerMap[offerId] = nil
+				clearedCount += 1
+				CrateRollEffect:FireAllClients({
+					action = ACTION_CLEAR_OFFER,
+					ownerUserId = key,
+					offerId = offerId,
+				})
+			end
+		end
+		if next(offerMap) == nil then
+			pendingOffers[key] = nil
+		end
+	end
+	return clearedCount
+end
+
+function RollService.IsAdminPartyPadActive()
+	return adminPadActive
+end
+
+-- Idempotent: safe to reapply on every control-plane reconcile. Turning the
+-- pad off also clears any unresolved admin offers everywhere on this server.
+function RollService.SetAdminPartyPadActive(active)
+	active = active == true
+	local changed = active ~= adminPadActive
+	adminPadActive = active
+	for _, plot in ipairs(allPlots()) do
+		RuntimeGuard.Run("RollService.ApplyAdminPadVisibility", applyAdminPadVisibility, plot)
+	end
+	if changed and not active then
+		clearAdminPendingOffers()
+	end
+	return changed
+end
+
+local function dropAdminCrateForPlayer(player, crateId, crate)
+	local key = userKey(player)
+	if key == nil then
+		return false
+	end
+	local eligible, _, context = EventEligibilityRef.IsEligible(player)
+	if not (eligible and context) then
+		return false
+	end
+	local _, crateFloor = adminPartyPadFor(context.plot)
+	if not crateFloor then
+		return false
+	end
+	if locks[key] then
+		return false
+	end
+	local profile = context.profile
+
+	locks[key] = true
+	local ok, success, codeOrEffect, publicOfferOrNil, visualDurationOrNil = pcall(function()
+		local rollPool = collectRollPool()
+		local rolled, rollCode = rollRewardForCrate(crateId, player, profile, rollPool)
+		if not rolled then
+			return false, rollCode or "reward-roll-failed"
+		end
+
+		nextOfferId += 1
+		local offerId = nextOfferId
+		nextRollBatchId += 1
+		local rollBatchId = nextRollBatchId
+		local previewSeeds = buildSeedPreviewSeeds(rolled, rollPool, crateId, player, profile)
+
+		-- Latest-batch-wins, same as a normal roll: this replaces any pending
+		-- offers, and a later normal roll replaces the admin crate.
+		clearPendingOffers(player)
+		pendingOffers[key] = {
+			[offerId] = {
+				offerId = offerId,
+				rollBatchId = rollBatchId,
+				category = rolled.category,
+				rewardId = rolled.rewardId,
+				seedId = rolled.seedId,
+				feedType = rolled.feedType,
+				miscId = rolled.miscId,
+				displayName = rolled.displayName,
+				rarity = rolled.rarity,
+				price = rolled.price,
+				chanceN = rolled.chanceN,
+				rngChanceText = rolled.rngChanceText,
+				crateFloor = crateFloor,
+				dropAreaIndex = ADMIN_DROP_AREA_INDEX,
+				adminParty = true,
+			},
+		}
+
+		local effectOffer = {
+			offerId = offerId,
+			rollBatchId = rollBatchId,
+			ownerUserId = player.UserId,
+			dropAreaIndex = ADMIN_DROP_AREA_INDEX,
+			crateId = crateId,
+			crateTemplateName = crate.TemplateName or crateId,
+			fallDurationMultiplier = crate.FallDurationMultiplier or 1,
+			crateFloor = crateFloor,
+			category = rolled.category,
+			rewardId = rolled.rewardId,
+			seedId = rolled.seedId,
+			feedType = rolled.feedType,
+			miscId = rolled.miscId,
+			displayName = rolled.displayName,
+			rarity = rolled.rarity,
+			price = rolled.price,
+			chanceN = rolled.chanceN,
+			rngChanceText = rolled.rngChanceText,
+			previewSeeds = previewSeeds,
+			tutorialGuaranteed = false,
+		}
+		local publicOffer = {
+			offerId = offerId,
+			rollBatchId = rollBatchId,
+			ownerUserId = player.UserId,
+			dropAreaIndex = ADMIN_DROP_AREA_INDEX,
+			crateFloor = crateFloor,
+			category = rolled.category,
+			rewardId = rolled.rewardId,
+			seedId = rolled.seedId,
+			feedType = rolled.feedType,
+			miscId = rolled.miscId,
+			displayName = rolled.displayName,
+			rarity = rolled.rarity,
+			price = rolled.price,
+			chanceN = rolled.chanceN,
+			rngChanceText = rolled.rngChanceText,
+			tutorialGuaranteed = false,
+		}
+
+		local visualDuration = RollConfig.RollVisualDurationForOffers({ effectOffer })
+		rollCooldownUntil[key] = os.clock() + visualDuration
+		return true, effectOffer, publicOffer, visualDuration
+	end)
+	locks[key] = nil
+
+	if not ok then
+		warn("[RollService] Admin crate drop failed for user " .. tostring(key) .. ": " .. tostring(success))
+		return false
+	end
+	if not success then
+		return false
+	end
+
+	local effectOffer = codeOrEffect
+	local visualDuration = visualDurationOrNil or RollConfig.RollVisualDurationForOffers({ effectOffer })
+	-- Intentionally NOT persisted: admin drops are one-shot for present
+	-- players and do not survive rejoin (profile keeps its pre-drop offers).
+	sendClearOwnerOffers(player)
+	sendRollEffect(player, nil, effectOffer.rollBatchId, { effectOffer })
+	task.delay(visualDuration, function()
+		RuntimeGuard.Run("RollService.SendPublicAdminOffer", sendPublicRollOffers, player, effectOffer.rollBatchId, { publicOfferOrNil })
+	end)
+	RuntimeGuard.Run("RollService.NotifyAdminDrop", function()
+		NotificationService.Notify(player, {
+			text = ADMIN_DROP_NOTICE,
+			lifetime = 5,
+		})
+	end)
+	TelemetryService.Record("admin_crate_dropped", TelemetryService.ForPlayer(player, {
+		crateId = crateId,
+		rewardId = effectOffer.rewardId,
+		rarity = effectOffer.rarity,
+	}))
+	return true
+end
+
+-- Drops one admin crate on every eligible present player's admin pad.
+-- Present players only: joiners after the command do not receive it.
+function RollService.DropAdminCrate(crateId)
+	local crate = RollChances.GetAdminCrate(crateId)
+	if not crate then
+		return false, "unknown-admin-crate"
+	end
+	if not adminPadActive then
+		return false, "pad-inactive"
+	end
+	if not EventEligibilityRef then
+		return false, "not-started"
+	end
+
+	local droppedCount, skippedCount = 0, 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		local dropOk, dropped = RuntimeGuard.Run("RollService.DropAdminCrateFor." .. tostring(player.UserId), dropAdminCrateForPlayer, player, crateId, crate)
+		if dropOk and dropped == true then
+			droppedCount += 1
+		else
+			skippedCount += 1
+		end
+	end
+	print(string.format(
+		"[RollService] Admin crate %s dropped for %d player(s), skipped %d",
+		tostring(crateId),
+		droppedCount,
+		skippedCount
+	))
+	return true, droppedCount, skippedCount
+end
+
 function RollService.Start()
 	local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 	local PlotService = require(Server:WaitForChild("PlotService"))
 	PlayerDataServiceRef = PlayerDataService
 	PlotServiceRef = PlotService
+	EventEligibilityRef = require(Server:WaitForChild("EventEligibility"))
+
+	-- Admin party pads default hidden; the control plane re-enables them from
+	-- durable state (its reconcile runs after RollService.Start in init).
+	for _, plot in ipairs(allPlots()) do
+		RuntimeGuard.Run("RollService.HideAdminPadAtBoot", applyAdminPadVisibility, plot)
+	end
 
 	scanRollButtons(PlotService, PlayerDataService)
 	local rollButtonRoot = workspace:FindFirstChild("Plots") or workspace
