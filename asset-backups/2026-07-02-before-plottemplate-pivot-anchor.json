@@ -1,0 +1,19 @@
+{
+	"date": "2026-07-02",
+	"reason": "PlotLoader placed plots via the offset between Plot1's pad and the template's authored world position; the convention broke when the pad ring was re-authored (plots spawned ~300 studs off their pads). New contract: PlotTemplate's custom pivot is the pad-alignment anchor (footprint centre sans AdminParty, at pad-plane height, facing the plot front / -Z), and PlotLoader pivots each clone directly onto its pad CFrame.",
+	"before": {
+		"PlotTemplate.WorldPivot": {
+			"position": [128.96995544433594, 4.200000762939453, -233.4457244873047],
+			"rotation": "identity"
+		},
+		"PlotLoader": "plot:PivotTo(marker.CFrame * referenceMarker.CFrame:ToObjectSpace(template:GetPivot()))"
+	},
+	"after": {
+		"PlotTemplate.WorldPivot": {
+			"position": [128.97, 2.25, -209.97],
+			"rotation": "identity (front = -Z)",
+			"notes": "X/Z = footprint centre (box sans AdminParty). Y = 2.25 so the farm dirt plane (GridPart tops, authored 1.95) lands 0.2 proud of the island ground (1.00) - visible fields, no coplanar z-fighting, foundations buried in the solid island Union. Earlier attempts: Y=1.5 (pad plane) left plots standing 2.7 studs proud; Y=4.2 (authored walk plane) buried the dirt fields; Y=2.35 gave a 0.1 lip before settling on 0.2."
+		},
+		"PlotLoader": "plot:PivotTo(marker.CFrame)"
+	}
+}

@@ -97,9 +97,17 @@ function PlotLoader.Load()
 	local template = expectChild(misc, PLOT_TEMPLATE_NAME, "Model")
 	local markerFolder = expectChild(Workspace, MARKERS_FOLDER_NAME, "Folder")
 	local markers = collectMarkers(markerFolder)
-	local referenceMarker = markers[1].marker
 
-	local markerToTemplatePivot = referenceMarker.CFrame:ToObjectSpace(template:GetPivot())
+	-- Placement contract: the template's custom pivot is the pad-alignment
+	-- anchor -- plot footprint centre (X/Z), facing the plot front, with Y
+	-- chosen so the farm dirt plane lands just proud of the island ground
+	-- (foundations bury into the solid island). Each clone pivots directly
+	-- onto its plot-sized loading pad, so the pad's CFrame alone defines
+	-- where a plot sits and which way it faces. The template's authored
+	-- world position in ReplicatedStorage is irrelevant; only its pivot
+	-- matters. Previously the offset between Plot1's pad and the template's
+	-- authored position was inferred at boot, which silently broke whenever
+	-- the template or pads were re-authored.
 	local plotsFolder = runtimePlotsFolder()
 
 	for _, record in ipairs(markers) do
@@ -112,7 +120,7 @@ function PlotLoader.Load()
 
 		local plot = template:Clone()
 		plot.Name = "Plot" .. tostring(record.number)
-		plot:PivotTo(record.marker.CFrame * markerToTemplatePivot)
+		plot:PivotTo(record.marker.CFrame)
 		plot.Parent = plotsFolder
 	end
 

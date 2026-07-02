@@ -1,0 +1,22 @@
+{
+	"date": "2026-07-02",
+	"reason": "Plot6/7/8 loading pads (Workspace.PlotTemplates) kept northern yaws after the 8-plot ring was authored; plots spawned facing away from the ring centre. Rotating to radial yaws.",
+	"center": { "x": 21, "z": -122 },
+	"before": {
+		"Plot6": { "position": [159, 2, -259], "yawDeg": 45 },
+		"Plot7": { "position": [-117, 2, -260], "yawDeg": -45 },
+		"Plot8": { "position": [21, 2, -317], "yawDeg": 0 }
+	},
+	"after": {
+		"Plot6": { "yawDeg": 135 },
+		"Plot7": { "yawDeg": -135 },
+		"Plot8": { "yawDeg": 180 }
+	},
+	"unchangedReference": {
+		"Plot1": { "position": [21, 2, 73], "yawDeg": 0 },
+		"Plot2": { "position": [-117, 2, 16], "yawDeg": -45 },
+		"Plot3": { "position": [159, 2, 16], "yawDeg": 45 },
+		"Plot4": { "position": [216, 2, -122], "yawDeg": 90 },
+		"Plot5": { "position": [-175, 2, -122], "yawDeg": -90 }
+	}
+}
