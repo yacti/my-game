@@ -81,12 +81,19 @@ local CONTROLLERS = {
 	"TreeClickController",
 	"RebirthController",
 	"GridUnlockEffects",
+	"AdminPartyPadController",
 	"RollController",
 	"OnboardingController",
 }
 
 local function startController(name)
-	local moduleScript = ui:WaitForChild(name)
+	-- Bounded wait: an unresolvable module must not stall the sequential boot
+	-- loop and silently kill every controller after it.
+	local moduleScript = ui:WaitForChild(name, 10)
+	if not moduleScript then
+		warn("[Client] Controller module missing: " .. name)
+		return
+	end
 	RuntimeGuard.Run("Client.StartController." .. name, function()
 		local controller = require(moduleScript)
 		if type(controller.start) == "function" then

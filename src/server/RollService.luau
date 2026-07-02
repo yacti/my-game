@@ -60,6 +60,17 @@ local DROP_AREA_VISIBILITY_OPTIONS = {
 -- Admin party: control-plane-toggled bonus pad plus admin-only crate drops.
 local ADMIN_PARTY_FOLDER_NAME = "AdminParty"
 local ADMIN_PARTY_DROP_AREA_NAME = "AdminPartyDropArea"
+-- Pads only show on occupied plots (PlotService's OwnerUserId attribute).
+-- Emitters stay replicated-off; AdminPartyPadController enables them locally
+-- for the plot owner and plays the entrance drop when the counter bumps.
+local ADMIN_PAD_VISIBILITY_OPTIONS = {
+	RuntimeHiddenAsVisible = true,
+	RuntimeHiddenVisualAsVisible = true,
+	ParticleEmittersAlwaysOff = true,
+}
+local ADMIN_PAD_ACTIVE_ATTRIBUTE = "AdminPartyActive"
+local ADMIN_PAD_ENTRANCE_ATTRIBUTE = "AdminPartyEntrance"
+local PLOT_OWNER_ATTRIBUTE = "OwnerUserId"
 local ADMIN_DROP_AREA_INDEX = 0
 local ADMIN_DROP_NOTICE = "yacti has dropped a crate on your farm!"
 
@@ -204,7 +215,9 @@ end
 local function applyAdminPadVisibility(plot)
 	local area = adminPartyPadFor(plot)
 	if area then
-		InstanceVisibility.SetTreeActive(area, adminPadActive, DROP_AREA_VISIBILITY_OPTIONS)
+		local shouldShow = adminPadActive and plot:GetAttribute(PLOT_OWNER_ATTRIBUTE) ~= nil
+		InstanceVisibility.SetTreeActive(area, shouldShow, ADMIN_PAD_VISIBILITY_OPTIONS)
+		area:SetAttribute(ADMIN_PAD_ACTIVE_ATTRIBUTE, shouldShow)
 	end
 end
 
@@ -2001,6 +2014,19 @@ function RollService.SetAdminPartyPadActive(active)
 	local changed = active ~= adminPadActive
 	adminPadActive = active
 	for _, plot in ipairs(allPlots()) do
+		if changed and active then
+			-- Bump the entrance counter before unhiding so clients start the
+			-- drop-in the moment the pad appears. Only on the off->on
+			-- transition: reconcile reapplies and mid-party plot claims must
+			-- show the pad in place with no entrance.
+			local area = adminPartyPadFor(plot)
+			if area and plot:GetAttribute(PLOT_OWNER_ATTRIBUTE) ~= nil then
+				area:SetAttribute(
+					ADMIN_PAD_ENTRANCE_ATTRIBUTE,
+					(tonumber(area:GetAttribute(ADMIN_PAD_ENTRANCE_ATTRIBUTE)) or 0) + 1
+				)
+			end
+		end
 		RuntimeGuard.Run("RollService.ApplyAdminPadVisibility", applyAdminPadVisibility, plot)
 	end
 	if changed and not active then
@@ -2189,8 +2215,16 @@ function RollService.Start()
 
 	-- Admin party pads default hidden; the control plane re-enables them from
 	-- durable state (its reconcile runs after RollService.Start in init).
+	-- Occupancy changes mid-party (claim/vacate) reapply that plot's pad.
 	for _, plot in ipairs(allPlots()) do
 		RuntimeGuard.Run("RollService.HideAdminPadAtBoot", applyAdminPadVisibility, plot)
+		RuntimeGuard.Connect(
+			plot:GetAttributeChangedSignal(PLOT_OWNER_ATTRIBUTE),
+			"RollService.AdminPadOccupancy." .. plot.Name,
+			function()
+				applyAdminPadVisibility(plot)
+			end
+		)
 	end
 
 	scanRollButtons(PlotService, PlayerDataService)

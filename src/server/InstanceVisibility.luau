@@ -81,8 +81,14 @@ function InstanceVisibility.SetActive(instance, active, options)
 		instance.Transparency = active and state.Transparency or 1
 	elseif instance:IsA("LayerCollector") or instance:IsA("ProximityPrompt") or instance:IsA("ParticleEmitter")
 		or instance:IsA("Beam") or instance:IsA("Trail") then
-		local state = rememberEnabledState(instance)
-		instance.Enabled = active and state or false
+		if options and options.ParticleEmittersAlwaysOff and instance:IsA("ParticleEmitter") then
+			-- Replicated-off so clients can own emitter visibility locally
+			-- (e.g. admin pad particles that only the plot owner sees).
+			instance.Enabled = false
+		else
+			local state = rememberEnabledState(instance)
+			instance.Enabled = active and state or false
+		end
 	end
 end
 

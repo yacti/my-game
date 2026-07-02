@@ -539,6 +539,9 @@ function PlotService.AssignPlot(player)
 			playerPlots[key] = i
 			setPlotVacantPresentation(plot, false)
 			setPlotOwnerDisplay(plot, player, i)
+			-- Replicated occupancy contract: clients read this for "is this my
+			-- plot" checks; RollService keys admin pad visibility off it.
+			plot:SetAttribute("OwnerUserId", key)
 			return plot, i
 		end
 	end
@@ -565,6 +568,7 @@ function PlotService.FreePlot(player)
 		playerPlots[key] = nil
 		clearPlacementRecord(plot)
 		setPlotVacantPresentation(plot, true)
+		plot:SetAttribute("OwnerUserId", nil)
 	end
 end
 
