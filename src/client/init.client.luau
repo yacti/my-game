@@ -1,4 +1,4 @@
--- Hide Roblox's default backpack so Satchel is the only inventory UI.
+-- Hide Roblox core UI that conflicts with custom gameplay systems.
 local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -17,6 +17,20 @@ local Replica = requireReplicaClient()
 
 RuntimeGuard.Run("Client.DisableBackpackCoreGui", function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+end)
+
+RuntimeGuard.Spawn("Client.DisableResetButtonCoreGui", function()
+	for _ = 1, 20 do
+		local ok = pcall(function()
+			StarterGui:SetCore("ResetButtonCallback", false)
+		end)
+		if ok then
+			return
+		end
+		task.wait(0.25)
+	end
+
+	warn("[Client] Reset button CoreGui callback was not available in time")
 end)
 
 local ui = script:WaitForChild("ui")
