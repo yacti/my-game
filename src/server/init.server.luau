@@ -44,6 +44,7 @@ local FoodStealService = require(Server:WaitForChild("FoodStealService"))
 local FriendBoostService = require(Server:WaitForChild("FriendBoostService"))
 local GamePassService = require(Server:WaitForChild("GamePassService"))
 local GearShopService = require(Server:WaitForChild("GearShopService"))
+local GiftService = require(Server:WaitForChild("GiftService"))
 local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
 local AFKRejoinService = require(Server:WaitForChild("AFKRejoinService"))
 local HomeTeleportService = require(Server:WaitForChild("HomeTeleportService"))
@@ -1472,6 +1473,13 @@ end)
 RuntimeGuard.Run("FoodStealService.Start", function()
 	FoodStealService.Start({
 		snapshotProfileState = snapshotProfileState,
+	})
+end)
+
+RuntimeGuard.Run("GiftService.Start", function()
+	GiftService.Start({
+		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 

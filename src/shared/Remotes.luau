@@ -64,6 +64,8 @@ Remotes.Names = {
 	PromptInteractEffect = "PromptInteractEffect",
 	RebirthRequest = "RebirthRequest",
 	RebirthResult = "RebirthResult",
+	GiftRequest = "GiftRequest",
+	GiftResult = "GiftResult",
 }
 
 local Definitions = {
@@ -122,6 +124,8 @@ local Definitions = {
 	[Remotes.Names.PromptInteractEffect] = "RemoteEvent",
 	[Remotes.Names.RebirthRequest] = "RemoteEvent",
 	[Remotes.Names.RebirthResult] = "RemoteEvent",
+	[Remotes.Names.GiftRequest] = "RemoteEvent",
+	[Remotes.Names.GiftResult] = "RemoteEvent",
 }
 
 local function getFolder()

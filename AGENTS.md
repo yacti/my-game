@@ -277,6 +277,7 @@ Groups:
 - Interactions: `PromptInteract`
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
 - Rebirth: `RebirthRequest`, `RebirthResult`
+- Gifting: `GiftRequest`, `GiftResult`
 
 When adding a remote, update both `default.project.json` and `src/shared/Remotes.luau`, then intentionally wire server and client behavior.
 

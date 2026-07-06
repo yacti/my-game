@@ -67,6 +67,7 @@ local CONTROLLERS = {
 	"ToolStatsBillboard",
 	"SlotXPBillboard",
 	"FoodStealController",
+	"GiftController",
 	"GrowSkipController",
 	"PatchSlotVisuals",
 	"AppleTreeSlotVisuals",

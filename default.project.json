@@ -185,6 +185,12 @@
         },
         "RebirthResult": {
           "$className": "RemoteEvent"
+        },
+        "GiftRequest": {
+          "$className": "RemoteEvent"
+        },
+        "GiftResult": {
+          "$className": "RemoteEvent"
         }
       },
       "Sounds": {

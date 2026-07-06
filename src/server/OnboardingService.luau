@@ -47,6 +47,9 @@ local function stageFor(profile)
 end
 
 local function publishOnboarding(player, profile)
+	if player then
+		player:SetAttribute(State.Player.OnboardingActive, Onboarding.IsActive(stageFor(profile)) or nil)
+	end
 	PlayerReplicaService.PublishOnboarding(player, profile)
 end
 
@@ -313,6 +316,9 @@ end
 
 function OnboardingService.ApplyCurrentStageEntry(player, profile)
 	local currentStage = stageFor(profile)
+	if player then
+		player:SetAttribute(State.Player.OnboardingActive, Onboarding.IsActive(currentStage) or nil)
+	end
 	if Onboarding.IsActive(currentStage) then
 		OnboardingAnalyticsService.LogStage(player, currentStage)
 	end

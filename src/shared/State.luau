@@ -41,6 +41,10 @@ State.Player = {
 	-- backpack is not (session start / death, until re-materialization
 	-- completes). Inventory-serializing writers must not run while set.
 	InventoryRestorePending = "InventoryRestorePending",
+	-- Client-visible mirror of profile onboarding (true while active, nil
+	-- when complete) so other clients can hide cross-player interactions;
+	-- never authority, the server re-resolves the profile.
+	OnboardingActive = "OnboardingActive",
 }
 
 State.ServerLuck = {
