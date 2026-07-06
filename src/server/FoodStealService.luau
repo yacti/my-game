@@ -478,6 +478,11 @@ function FoodStealService.ProcessReceipt(receiptInfo)
 	if OfflineProgressService.IsPending(player) then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	-- Serializing the backpack while dead/mid-restore would persist the wiped
+	-- backpack over the profile's inventory; retry once the restore completes.
+	if player:GetAttribute(State.Player.InventoryRestorePending) == true then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 
 	local key = userKey(player)
 	if not key or locks[key] then

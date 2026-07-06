@@ -19,20 +19,6 @@ RuntimeGuard.Run("Client.DisableBackpackCoreGui", function()
 	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 end)
 
-RuntimeGuard.Spawn("Client.DisableResetButtonCoreGui", function()
-	for _ = 1, 20 do
-		local ok = pcall(function()
-			StarterGui:SetCore("ResetButtonCallback", false)
-		end)
-		if ok then
-			return
-		end
-		task.wait(0.25)
-	end
-
-	warn("[Client] Reset button CoreGui callback was not available in time")
-end)
-
 local ui = script:WaitForChild("ui")
 
 local CONTROLLERS = {

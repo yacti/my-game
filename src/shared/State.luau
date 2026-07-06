@@ -37,6 +37,10 @@ State.Player = {
 	OfflineProgressPending = "OfflineProgressPending",
 	AFKRejoinPending = "AFKRejoinPending",
 	SeedPacksAllowed = "SeedPacksAllowed",
+	-- true while the profile's inventory is authoritative and the live
+	-- backpack is not (session start / death, until re-materialization
+	-- completes). Inventory-serializing writers must not run while set.
+	InventoryRestorePending = "InventoryRestorePending",
 }
 
 State.ServerLuck = {

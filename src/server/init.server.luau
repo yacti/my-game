@@ -120,6 +120,25 @@ local function userKey(player)
 	return player and player.UserId or nil
 end
 
+-- Player attribute (State.Player.InventoryRestorePending): true while the
+-- profile's inventory fields are authoritative and the live backpack is not
+-- (session start / death, until re-materialization completes). Kept as an
+-- attribute so services outside this file (receipts, deletes, prompt
+-- dispatch) can consult it before serializing or mutating the backpack.
+local function isInventoryRestorePending(player)
+	return player ~= nil and player:GetAttribute(State.Player.InventoryRestorePending) == true
+end
+
+local function setInventoryRestorePending(player, pending)
+	if player and player:IsDescendantOf(Players) then
+		player:SetAttribute(State.Player.InventoryRestorePending, pending == true or nil)
+	end
+end
+
+local function isInventoryGameplayBlocked(player)
+	return OfflineProgressService.IsPending(player) or isInventoryRestorePending(player)
+end
+
 local function minimumPetCountForRebirths(rebirths)
 	local count = 1
 	rebirths = math.max(math.floor(tonumber(rebirths) or 0), 0)
@@ -394,6 +413,9 @@ end
 
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return false end
+	if isInventoryRestorePending(player) then
+		return false
+	end
 	if OfflineProgressService.IsPending(player) then
 		local applied = OfflineProgressService.ApplyPendingBeforeSnapshot(player)
 		if applied ~= true then
@@ -424,6 +446,9 @@ end
 
 local function snapshotFoodCollection(player, plot, profile, feed)
 	if not plot or not profile then return false end
+	if isInventoryRestorePending(player) then
+		return false
+	end
 	if OfflineProgressService.IsPending(player) then
 		return false
 	end
@@ -452,6 +477,9 @@ end
 
 local function snapshotFoodInventory(player, profile, context)
 	if not profile then return false end
+	if isInventoryRestorePending(player) then
+		return false
+	end
 	profile.Data.FoodInventoryItems = FoodInventoryService.SerializeTools(player)
 	profile.Data.FoodInventory = FoodInventoryService.CountRecords(profile.Data.FoodInventoryItems)
 	profile.Data.LastSeen = os.time()
@@ -998,6 +1026,11 @@ local function handlePlayerAdded(player)
 
 	local label = userLabel(player)
 	local setupOk = RuntimeGuard.Run("PlayerAdded.Setup." .. label, function()
+		-- The profile's inventory is authoritative until the first character
+		-- restore materializes it; keep snapshots from clobbering it with an
+		-- empty backpack in the meantime.
+		setInventoryRestorePending(player, true)
+
 		local offlineSession = nil
 		if afkRejoinData then
 			RuntimeGuard.Run("PlayerAdded.ClearOfflineForAFKRejoin." .. label, OfflineProgressService.Clear, player)
@@ -1099,8 +1132,113 @@ local function handlePlayerAdded(player)
 		startProfileSnapshotLoop(player, plot, profile)
 		RuntimeGuard.Run("PlotWindService.StartForPlayer." .. label, PlotWindService.StartForPlayer, player, plot)
 
-		local toolsRestored = false
 		local afkRejoinRestored = false
+
+		local function restoreBackpackTools(character)
+			task.wait(0.5)
+			-- The character may have died/respawned or the session ended during
+			-- the wait; leave the pending flag set so the next spawn restores.
+			-- The alive check matters: restoring against a corpse would clear
+			-- the flag while the respawn backpack wipe is still ahead.
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if player.Character ~= character
+				or not player:IsDescendantOf(Players)
+				or PlayerDataService.GetProfile(player) ~= profile
+				or not humanoid
+				or humanoid.Health <= 0 then
+				return
+			end
+			local backpack = player:FindFirstChildOfClass("Backpack") or player:WaitForChild("Backpack", 5)
+			if not backpack or player.Character ~= character then
+				return
+			end
+			-- Deficit-based restore: a grant can land between respawn and this
+			-- run (profile count bumped + tool already in the fresh backpack),
+			-- so materialize only what the profile holds beyond the live tools;
+			-- a full rebuild would duplicate that grant.
+			local liveFoodGuids = {}
+			local liveFeedCounts = {}
+			local function captureLiveTool(item)
+				if not (item and item:IsA("Tool")) then
+					return
+				end
+				local foodRecord = FoodInventoryService.SerializeTool(item)
+				if foodRecord and foodRecord.guid then
+					liveFoodGuids[foodRecord.guid] = true
+				end
+				if FeedMachineTools.IsFeedTool(item) then
+					local feedType = item:GetAttribute(State.Feed.Type)
+					liveFeedCounts[feedType] = (liveFeedCounts[feedType] or 0) + 1
+				end
+			end
+			for _, item in ipairs(backpack:GetChildren()) do
+				captureLiveTool(item)
+			end
+			captureLiveTool(character:FindFirstChildWhichIsA("Tool"))
+			local liveSeedCounts = SeedTools.CountBySeed(player)
+			local liveCosmeticCounts = CosmeticTools.CountByCosmetic(player)
+			-- Materialize at most the hard cap; collect-all purchases can
+			-- intentionally leave a profile above the normal 250 item cap.
+			local remainingSlots = Inventory.RemainingSlots(player, Inventory.COLLECT_ALL_MAX_ITEMS)
+			local function sortedKeys(map)
+				local keys = {}
+				if type(map) == "table" then
+					for key in pairs(map) do
+						keys[#keys + 1] = key
+					end
+				end
+				table.sort(keys, function(left, right)
+					return tostring(left) < tostring(right)
+				end)
+				return keys
+			end
+			local function restoreCountedTool(makeTool)
+				if remainingSlots <= 0 then
+					return false
+				end
+				local tool = makeTool()
+				if not tool then
+					return remainingSlots > 0
+				end
+				if Inventory.IsCountableTool(tool) then
+					remainingSlots -= 1
+				end
+				-- Parent into this spawn's backpack specifically: if a respawn
+				-- interleaves mid-loop, these tools die with the old backpack
+				-- instead of duplicating into the new one.
+				tool.Parent = backpack
+				return remainingSlots > 0
+			end
+			local function restoreMap(map, makeTool, liveCounts)
+				for _, itemId in ipairs(sortedKeys(map)) do
+					local count = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
+						- math.max(math.floor(tonumber(liveCounts[itemId]) or 0), 0)
+					for _ = 1, count do
+						if not restoreCountedTool(function()
+							return makeTool(itemId)
+						end) then
+							return
+						end
+					end
+				end
+			end
+			for _, record in ipairs(FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)) do
+				if not (record.guid and liveFoodGuids[record.guid]) then
+					if not restoreCountedTool(function()
+						return FoodInventoryService.MakeTool(record)
+					end) then
+						break
+					end
+				end
+			end
+			restoreMap(profile.Data.FeedInventory, FeedMachineTools.MakeFeedTool, liveFeedCounts)
+			restoreMap(profile.Data.SeedInventory, SeedTools.MakeSeedTool, liveSeedCounts)
+			restoreMap(profile.Data.CosmeticInventory, CosmeticTools.MakeCosmeticTool, liveCosmeticCounts)
+			if player.Character == character then
+				setInventoryRestorePending(player, false)
+			end
+		end
+
 		local function onCharacterAdded(character)
 			if afkRejoinData and not afkRejoinRestored then
 				local restoreOk, restored = RuntimeGuard.Run(
@@ -1133,67 +1271,40 @@ local function handlePlayerAdded(player)
 			end
 
 			ShovelTools.EnsureUtilityTool(player)
-			if not toolsRestored then
-				toolsRestored = true
-				task.wait(0.5)
-				-- Materialize at most the hard cap; collect-all purchases can
-				-- intentionally leave a profile above the normal 250 item cap.
-				local remainingSlots = Inventory.RemainingSlots(player, Inventory.COLLECT_ALL_MAX_ITEMS)
-				local function sortedKeys(map)
-					local keys = {}
-					if type(map) == "table" then
-						for key in pairs(map) do
-							keys[#keys + 1] = key
-						end
-					end
-					table.sort(keys, function(left, right)
-						return tostring(left) < tostring(right)
+
+			-- Spawned so onCharacterAdded returns immediately: the initial
+			-- character's run must not delay connecting CharacterAdded /
+			-- CharacterRemoving below, or a death inside the restore's 0.5s
+			-- wait would go unobserved.
+			RuntimeGuard.Spawn("CharacterSpawnRestore." .. label, function()
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+					or character:WaitForChild("Humanoid", 5)
+				if humanoid then
+					RuntimeGuard.Connect(humanoid.Died, "HumanoidDied." .. label, function()
+						-- Roblox wipes the backpack on respawn; from death until
+						-- the next restore completes, the profile is the only truth.
+						setInventoryRestorePending(player, true)
 					end)
-					return keys
 				end
-				local function restoreCountedTool(makeTool)
-					if remainingSlots <= 0 then
-						return false
-					end
-					local tool = makeTool()
-					if not tool then
-						return remainingSlots > 0
-					end
-					if Inventory.IsCountableTool(tool) then
-						remainingSlots -= 1
-					end
-					tool.Parent = player.Backpack
-					return remainingSlots > 0
-				end
-				local function restoreMap(map, makeTool)
-					for _, itemId in ipairs(sortedKeys(map)) do
-						local count = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
-						for _ = 1, count do
-							if not restoreCountedTool(function()
-								return makeTool(itemId)
-							end) then
-								return
-							end
-						end
-					end
-				end
-				for _, record in ipairs(FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)) do
-					if not restoreCountedTool(function()
-						return FoodInventoryService.MakeTool(record)
-					end) then
-						break
-					end
-				end
-				restoreMap(profile.Data.FeedInventory, FeedMachineTools.MakeFeedTool)
-				restoreMap(profile.Data.SeedInventory, SeedTools.MakeSeedTool)
-				restoreMap(profile.Data.CosmeticInventory, CosmeticTools.MakeCosmeticTool)
-			end
+				restoreBackpackTools(character)
+			end)
 		end
 
 		if player.Character then
 			RuntimeGuard.Run("CharacterAdded.Initial." .. label, onCharacterAdded, player.Character)
 		end
 		RuntimeGuard.Connect(player.CharacterAdded, "CharacterAdded." .. label, onCharacterAdded)
+		RuntimeGuard.Connect(player.CharacterRemoving, "CharacterRemoving." .. label, function(removingCharacter)
+			-- Backstop for deaths where Died may not fire (e.g. void falls
+			-- destroying the humanoid). A live character is deliberately left
+			-- alone so a healthy leaver's final teardown snapshot still runs.
+			-- Any future server-side LoadCharacter caller must call
+			-- setInventoryRestorePending(player, true) first.
+			local humanoid = removingCharacter:FindFirstChildOfClass("Humanoid")
+			if not humanoid or humanoid.Health <= 0 then
+				setInventoryRestorePending(player, true)
+			end
+		end)
 	end)
 
 	if not setupOk then
@@ -1239,6 +1350,12 @@ RuntimeGuard.Run("PromptInteractionService.Start", function()
 		familyActions = PromptActionConfig.FeedCollectActions,
 		getContext = function(player)
 			if OfflineProgressService.IsPending(player) then
+				return nil, nil
+			end
+			-- Blocks all prompt handlers while dead/mid-restore: a handler that
+			-- consumes a tool then couldn't persist the consumption, so the
+			-- respawn restore would re-mint the consumed item.
+			if isInventoryRestorePending(player) then
 				return nil, nil
 			end
 			return PlotService.GetPlayerPlot(player), PlayerDataService.GetProfile(player)
@@ -1334,21 +1451,21 @@ end)
 RuntimeGuard.Run("FeedEditService.Start", function()
 	FeedEditService.Start({
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = OfflineProgressService.IsPending,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 
 RuntimeGuard.Run("ShovelService.Start", function()
 	ShovelService.Start({
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = OfflineProgressService.IsPending,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 
 RuntimeGuard.Run("InventoryDeleteService.Start", function()
 	InventoryDeleteService.Start({
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = OfflineProgressService.IsPending,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 
@@ -1374,7 +1491,7 @@ RuntimeGuard.Run("FeedPlacementService.Start", function()
 	FeedPlacementService.Start({
 		rateSeconds = PLACE_RATE_SECONDS,
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = OfflineProgressService.IsPending,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 
@@ -1382,7 +1499,7 @@ RuntimeGuard.Run("CosmeticPlacementService.Start", function()
 	CosmeticPlacementService.Start({
 		rateSeconds = PLACE_RATE_SECONDS,
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = OfflineProgressService.IsPending,
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 

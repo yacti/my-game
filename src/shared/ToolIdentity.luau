@@ -22,6 +22,10 @@ function ToolIdentity.AssignGuid(tool)
 		return nil
 	end
 
+	-- Inventory tools must never leave the player: blocks the engine's
+	-- Backspace drop and the throw-on-death behavior.
+	tool.CanBeDropped = false
+
 	local guid = HttpService:GenerateGUID(false)
 	tool:SetAttribute(State.Tool.Guid, guid)
 	return guid
