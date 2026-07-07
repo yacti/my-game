@@ -46,6 +46,7 @@ local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_RESTORE_OFFERS = "restoreOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
+local ACTION_ADMIN_GHOST_ROLL = "adminGhostRoll"
 
 -- Admin party drops are a separate offer track: they never displace normal
 -- offers (or vice versa), and clients scope roll tokens and owner-wide visual
@@ -597,6 +598,24 @@ local function sendClearOwnerOffers(player, track)
 		action = ACTION_CLEAR_OWNER_OFFERS,
 		ownerUserId = player.UserId,
 		track = track,
+	})
+end
+
+-- Admin party only: broadcast a reward-free ghost of the falling crate so
+-- non-owners see it semi-transparent on the owner's pad. Reward internals
+-- (rewardId, price, previewSeeds) are deliberately omitted until the public
+-- reveal; offerId/rollBatchId already go out via the clear/show broadcasts.
+local function sendAdminGhostRollEffect(player, effectOffer)
+	CrateRollEffect:FireAllClients({
+		action = ACTION_ADMIN_GHOST_ROLL,
+		track = TRACK_ADMIN,
+		ownerUserId = player.UserId,
+		offerId = effectOffer.offerId,
+		rollBatchId = effectOffer.rollBatchId,
+		crateId = effectOffer.crateId,
+		crateTemplateName = effectOffer.crateTemplateName,
+		fallDurationMultiplier = effectOffer.fallDurationMultiplier,
+		crateFloor = effectOffer.crateFloor,
 	})
 end
 
@@ -2211,6 +2230,7 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 	-- players and do not survive rejoin (profile keeps its pre-drop offers).
 	sendClearOwnerOffers(player, TRACK_ADMIN)
 	sendRollEffect(player, nil, effectOffer.rollBatchId, { effectOffer }, TRACK_ADMIN)
+	sendAdminGhostRollEffect(player, effectOffer)
 	task.delay(visualDuration, function()
 		RuntimeGuard.Run("RollService.SendPublicAdminOffer", sendPublicRollOffers, player, effectOffer.rollBatchId, { publicOfferOrNil }, TRACK_ADMIN)
 	end)

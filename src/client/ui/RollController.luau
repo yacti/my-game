@@ -68,6 +68,9 @@ local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_RESTORE_OFFERS = "restoreOffers"
 local ACTION_CLEAR_OFFER = "clearOffer"
 local ACTION_CLEAR_OWNER_OFFERS = "clearOwnerOffers"
+local ACTION_ADMIN_GHOST_ROLL = "adminGhostRoll"
+
+local GHOST_CRATE_TRANSPARENCY = 0.5
 local ROLL_BILLBOARD_CARD_NAME = "Card"
 local PREVIEW_RARITY_SPEED_MULTIPLIER = 3
 local PRICE_AFFORDABLE_COLOR = Color3.fromRGB(120, 255, 120)
@@ -78,7 +81,10 @@ local CRATE_FALL_TWEEN = TweenInfo.new(CRATE_FALL_DURATION, Enum.EasingStyle.Lin
 -- Rolls run on two independent tracks ("normal" and "admin" party drops):
 -- each has its own token so one track's roll never aborts the other's
 -- in-flight animations, and owner-wide clears are scoped per track.
-local activeRollTokens = { normal = 0, admin = 0 }
+local activeRollTokens = { normal = 0, admin = 0, ghost = 0 }
+-- Never bumped: ghost falls are cancelled by destroying the crate instance
+-- (playSwayFallTween no-ops on nil Parent), not by token supersession.
+local GHOST_FALL_TOKEN = { track = "ghost", value = 0 }
 local activeReveals = {}
 local activeRevealInfoByOfferId = {}
 local activeRevealOwnerByOfferId = {}
@@ -235,6 +241,41 @@ local function prepareEffect(root)
 		part.CanCollide = false
 		part.CanTouch = false
 		part.CanQuery = false
+	end
+end
+
+-- Another player's admin crate: semi-transparent, shadowless, and inert.
+-- math.max keeps parts that are already more transparent as-authored, and
+-- fully invisible parts stay invisible. Must run before fadeIn, which
+-- captures each part's current Transparency as its tween target.
+local function applyGhostAppearance(root)
+	for _, part in ipairs(effectParts(root)) do
+		if part.Transparency < 1 then
+			part.Transparency = math.max(GHOST_CRATE_TRANSPARENCY, part.Transparency)
+		end
+		part.CastShadow = false
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("Decal") or descendant:IsA("Texture") then
+			if descendant.Transparency < 1 then
+				descendant.Transparency = math.max(GHOST_CRATE_TRANSPARENCY, descendant.Transparency)
+			end
+		elseif descendant:IsA("ParticleEmitter") then
+			descendant.Enabled = false
+			descendant:Clear()
+		elseif descendant:IsA("Trail") or descendant:IsA("Beam") then
+			descendant.Enabled = false
+		elseif descendant:IsA("Light")
+			or descendant:IsA("Highlight")
+			or descendant:IsA("SurfaceGui")
+			or descendant:IsA("BillboardGui")
+		then
+			descendant.Enabled = false
+		elseif descendant:IsA("Sound") then
+			descendant:Stop()
+			descendant.Playing = false
+			descendant.PlayOnRemove = false
+		end
 	end
 end
 
@@ -1477,6 +1518,45 @@ local function playCrateFall(payload, token)
 	end
 end
 
+-- Another player's admin crate: same fall, but semi-transparent and silent —
+-- no break sound/impact chunks, no billboard, no Buy prompt, no reveal (the
+-- public reveal arrives later via ACTION_SHOW_OFFERS). Uses the static ghost
+-- token, so playSwayFallTween's return value is meaningless here; destruction
+-- (via ACTION_CLEAR_OFFER on purchase/party-off) is the cancellation signal.
+local function playGhostCrateFall(payload)
+	local crateFloor = payload.crateFloor
+	if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
+		return
+	end
+
+	local template = crateTemplate(payload.crateTemplateName or payload.crateId)
+	if not template then
+		warn("[RollController] Missing ghost crate template " .. tostring(payload.crateTemplateName or payload.crateId))
+		return
+	end
+
+	local crate = template:Clone()
+	crate.Name = "RollGhostCrate_" .. tostring(payload.crateId or template.Name)
+	prepareEffect(crate)
+	applyGhostAppearance(crate)
+	crate.Parent = Workspace
+	trackRollEffect(crate, payload.offerId)
+	playCrateAnimation(crate)
+
+	local endCFrame = floorLandingCFrame(crate, crateFloor, 0)
+	local startCFrame = endCFrame + Vector3.new(0, CRATE_START_HEIGHT, 0)
+	pivotTo(crate, startCFrame)
+	fadeIn(crate)
+	playSwayFallTween(crate, startCFrame, endCFrame, GHOST_FALL_TOKEN, payload.fallDurationMultiplier)
+	if crate.Parent then
+		fadeOut(crate, CRATE_BREAK_FADE_DURATION)
+	end
+	if crate.Parent then
+		crate:Destroy()
+	end
+	untrackRollEffect(crate, payload.offerId)
+end
+
 local function collectPayloadOffers(payload)
 	local offers = {}
 	if type(payload.offers) == "table" then
@@ -1561,6 +1641,16 @@ function RollController.start()
 					addPurchasePromptForOwner = true,
 				})
 			end
+			return
+		end
+		if action == ACTION_ADMIN_GHOST_ROLL then
+			-- FireAllClients also reaches the owner, whose opaque crate is
+			-- already falling from the owner-only ACTION_ROLL. Equality only:
+			-- Studio local-server test clients have negative UserIds.
+			if payload.ownerUserId == player.UserId then
+				return
+			end
+			RuntimeGuard.Spawn("RollController.PlayGhostCrateFall", playGhostCrateFall, payload)
 			return
 		end
 		if action ~= ACTION_ROLL then
