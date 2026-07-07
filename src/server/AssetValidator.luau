@@ -704,6 +704,13 @@ local function validateFeedTemplateIdentity(root, errors, warnings)
 			if (feedClass == "Processor" or feedClass == "JamBarrel") and xpMultiplier == nil then
 				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XPMultiplier))
 			end
+			if feedClass == "JamBarrel" and template:GetAttribute(State.Feed.FoodType) ~= nil then
+				add(errors, string.format(
+					"%s has %s attribute; jam barrels are hard-coded to accept any food",
+					template:GetFullName(),
+					State.Feed.FoodType
+				))
+			end
 			if feedClass == "Patch" then
 				validatePatchEditSelectionHitbox(template, errors)
 			elseif feedClass == "Tree" then
@@ -738,11 +745,6 @@ local function validateFeedTemplates(errors, warnings)
 		local feedClass = FeedMachines.GetClass(JAM_BARREL_FEED_TYPE)
 		if feedClass ~= "JamBarrel" then
 			add(errors, string.format("%s must use %s=%q", jamBarrel:GetFullName(), State.Feed.Class, "JamBarrel"))
-		end
-
-		local foodType = jamBarrel:GetAttribute(State.Feed.FoodType)
-		if type(foodType) ~= "string" or foodType == "" then
-			add(errors, string.format("%s missing valid %s", jamBarrel:GetFullName(), State.Feed.FoodType))
 		end
 
 		local duration = jamBarrel:GetAttribute(State.Feed.ProcessDuration)

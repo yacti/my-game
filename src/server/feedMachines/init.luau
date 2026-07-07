@@ -5,7 +5,7 @@
 --   FeedClass  (string, broad behavior class, e.g. "Patch", "Processor", "JamBarrel", or "Tree")
 --   FeedType   (string, stable gameplay id; template/model Name is visual only)
 --   Rarity     (string, display rarity; see Shared.Rarities)
---   FoodType   (string, accepted food category, see Shared.Food)
+--   FoodType   (string, accepted food category, Processor only; JamBarrel accepts any food)
 --   FoodDrop   (string, exact produced food id, see Shared.Food)
 --   plus class- or type-specific tunables (see Shared.State.Feed)
 --

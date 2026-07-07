@@ -1,0 +1,23 @@
+[
+  {
+    "path": "ReplicatedStorage.Assets.FeedMachines.Processor.Jam Barrel",
+    "feedType": "JamBarrel",
+    "attributes": {
+      "FoodType": "Fruit"
+    }
+  },
+  {
+    "path": "ReplicatedStorage.Assets.FeedMachines.Processor.Upgraded Jam Barrel",
+    "feedType": "UpgradedJamBarrel",
+    "attributes": {
+      "FoodType": "Fruit"
+    }
+  },
+  {
+    "path": "ReplicatedStorage.Assets.FeedMachines.Processor.Golden Jam Barrel",
+    "feedType": "GoldenJamBarrel",
+    "attributes": {
+      "FoodType": "Fruit"
+    }
+  }
+]

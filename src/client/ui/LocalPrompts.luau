@@ -661,6 +661,9 @@ local function feedMachineActionText(machine, defaultDepositText, defaultTakeTex
 end
 
 local function acceptedFoodType(machine)
+	-- Jam barrels are hard-coded to accept any food; only Processors
+	-- restrict by the FoodType attribute.
+	if feedMachineClass(machine) == "JamBarrel" then return nil end
 	local foodType = machine:GetAttribute(State.Feed.FoodType)
 	if foodType == "Any" then return nil end
 	if type(foodType) ~= "string" or foodType == "" then return "Fruit" end

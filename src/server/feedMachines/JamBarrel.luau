@@ -1,6 +1,7 @@
--- Jam Barrel FeedMachine: held fruit goes in, generated jam food comes out.
--- The queue processes sequentially using absolute readyAt timestamps, so work
--- continues while the player is offline and restores through placement state.
+-- Jam Barrel FeedMachine: any held food goes in (jam itself excluded),
+-- generated jam food comes out. The queue processes sequentially using
+-- absolute readyAt timestamps, so work continues while the player is offline
+-- and restores through placement state.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -28,17 +29,6 @@ local function feedTypeOf(machine)
 		return feedType
 	end
 	return "JamBarrel"
-end
-
-local function acceptedFoodType(machine)
-	local foodType = machine:GetAttribute(State.Feed.FoodType)
-	if foodType == "Any" then
-		return nil
-	end
-	if type(foodType) ~= "string" or foodType == "" then
-		return "Fruit"
-	end
-	return foodType
 end
 
 local function durationFor(machine)
@@ -95,14 +85,6 @@ RuntimeGuard.Spawn("JamBarrel.RefreshLoop", function()
 		end
 	end
 end)
-
-local function notifyWrongFoodType(machine, player, accepted)
-	NotificationService.Error(player, string.format(
-		"This won't work, you can only place \"%s\" inside the \"%s\"!",
-		tostring(accepted or "Food"),
-		tostring(machine.Name)
-	))
-end
 
 local function notifyJamInput(player)
 	NotificationService.Error(player, "This won't work, you can't process jam again!")
@@ -219,12 +201,6 @@ function JamBarrel.Interact(machine, player)
 		local sourceFoodId = Food.IdOf(equippedFood)
 		if Food.IsJamFoodId(sourceFoodId) then
 			notifyJamInput(player)
-			return
-		end
-
-		local accepted = acceptedFoodType(machine)
-		if accepted ~= nil and Food.TypeOf(equippedFood) ~= accepted then
-			notifyWrongFoodType(machine, player, accepted)
 			return
 		end
 
