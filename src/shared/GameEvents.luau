@@ -18,6 +18,7 @@ GameEvents.Ids = {
 	Sunny = "Sunny",
 	Windy = "Windy",
 	Stormy = "Stormy",
+	Tornado = "Tornado",
 	Alien = "Alien",
 }
 
@@ -87,6 +88,33 @@ GameEvents.EventConfigs = {
 			cloudTravelSeconds = 6,
 		},
 	},
+	[GameEvents.Ids.Tornado] = {
+		eventId = GameEvents.Ids.Tornado,
+		layer = GameEvents.Layers.Weather,
+		source = GameEvents.Sources.Schedule,
+		displayFrame = "Tornado",
+		cadenceSeconds = 60 * 60,
+		offsetSeconds = 0,
+		priority = 3,
+		displayPriority = 3,
+		preNoticeSeconds = 5,
+		preNoticeText = "A tornado is forming...",
+		appliedMutationId = "Twisted",
+		tornado = {
+			windUpSeconds = 10,
+			plotTurnSeconds = 15,
+			maxPlotTurns = 8,
+			windDownSeconds = 10,
+			minMutationsPerPlot = 2,
+			maxMutationsPerPlot = 5,
+			targetRetrySeconds = 2,
+			tornadoSoundRange = 500,
+			funnelTouchdownSeconds = 1,
+			funnelFadeSeconds = 0.75,
+			wanderWaypointSeconds = 2.5,
+			spinRevolutionsPerSecond = 1.5,
+		},
+	},
 	[GameEvents.Ids.Alien] = {
 		eventId = GameEvents.Ids.Alien,
 		layer = GameEvents.Layers.Chaos,
@@ -135,6 +163,9 @@ function GameEvents.TotalDuration(config)
 	if type(config.storm) == "table" then
 		return select(4, GameEvents.StormTimings(config))
 	end
+	if type(config.tornado) == "table" then
+		return select(4, GameEvents.TornadoTimings(config))
+	end
 	if type(config.alien) == "table" then
 		return select(4, GameEvents.AlienTimings(config))
 	end
@@ -159,6 +190,17 @@ function GameEvents.StormTimings(config)
 	local turn = math.max(numeric(storm.plotTurnSeconds, 30), 0)
 	local maxTurns = math.max(math.floor(numeric(storm.maxPlotTurns, 8)), 0)
 	local windDown = math.max(numeric(storm.windDownSeconds, 5), 0)
+	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
+end
+
+function GameEvents.TornadoTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Tornado)
+	local tornado = type(config) == "table" and config.tornado or nil
+	tornado = type(tornado) == "table" and tornado or {}
+	local windUp = math.max(numeric(tornado.windUpSeconds, 10), 0)
+	local turn = math.max(numeric(tornado.plotTurnSeconds, 15), 0)
+	local maxTurns = math.max(math.floor(numeric(tornado.maxPlotTurns, 8)), 0)
+	local windDown = math.max(numeric(tornado.windDownSeconds, 10), 0)
 	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
 end
 

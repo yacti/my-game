@@ -15,6 +15,9 @@
         "ThunderstormEffect": {
           "$className": "RemoteEvent"
         },
+        "TornadoEffect": {
+          "$className": "RemoteEvent"
+        },
         "AlienEventEffect": {
           "$className": "RemoteEvent"
         },

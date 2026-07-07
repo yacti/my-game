@@ -369,6 +369,38 @@ local function validateAlienEventAssets(errors)
 	end
 end
 
+local function validateTornadoAssets(errors)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Tornado", errors)
+	end
+
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
+	local funnel = child(misc, "Tornado", "Model", errors)
+	if funnel and not hasDescendantOfClass(funnel, "BasePart") then
+		add(errors, funnel:GetFullName() .. " must contain a BasePart")
+	end
+	local cloud = child(misc, "TornadoCloud", "Model", errors)
+	if cloud and not hasDescendantOfClass(cloud, "BasePart") then
+		add(errors, cloud:GetFullName() .. " must contain a BasePart")
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local twisted = child(mutations, "Twisted", nil, errors)
+	if twisted then
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Twisted)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid configured %s %q", twisted:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(twisted, "ParticleEmitter") then
+			add(errors, twisted:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+
+	-- ReplicatedStorage.Sounds.Wind (tornado audio) is already enforced via
+	-- REQUIRED_CLIENT_SOUNDS.
+end
+
 local function validateMusicPlaylist(errors)
 	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
 	if not soundRoot then
@@ -1707,6 +1739,7 @@ local function validateTopBarEventHud(hud, warnings)
 		child(currentEvent, "Sunny", "GuiObject", warnings)
 		child(currentEvent, "Windy", "GuiObject", warnings)
 		child(currentEvent, "Stormy", "GuiObject", warnings)
+		child(currentEvent, "Tornado", "GuiObject", warnings)
 		child(currentEvent, "Alien", "GuiObject", warnings)
 	end
 
@@ -2633,6 +2666,7 @@ function AssetValidator.validate()
 	validateAnimalAmbientSounds(errors)
 	validateThunderstormAssets(errors, warnings)
 	validateAlienEventAssets(errors)
+	validateTornadoAssets(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)

@@ -28,6 +28,7 @@ local RUNTIME_WAIT_SECONDS = 15
 local EVENT_TIMER_NAMES = {
 	[GameEvents.Ids.Windy] = "Wind",
 	[GameEvents.Ids.Stormy] = "Storm",
+	[GameEvents.Ids.Tornado] = "Tornado",
 	[GameEvents.Ids.Alien] = "Alien",
 }
 
