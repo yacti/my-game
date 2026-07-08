@@ -240,6 +240,48 @@ local function ensureCloud(token)
 	return cloud
 end
 
+-- Beams and ParticleEmitters (the "3" effects rig inside the Tornado model)
+-- ignore BasePart transparency, so they fade via scaled transparency
+-- sequences and emission rates instead.
+local function scaledSequence(sequence, visibility)
+	local keypoints = {}
+	for index, keypoint in ipairs(sequence.Keypoints) do
+		local value = 1 - visibility * (1 - keypoint.Value)
+		local envelope = math.min(keypoint.Envelope, value, 1 - value)
+		keypoints[index] = NumberSequenceKeypoint.new(keypoint.Time, value, envelope)
+	end
+	return NumberSequence.new(keypoints)
+end
+
+local function applyEffectVisibility(token, visibility)
+	visibility = math.clamp(visibility, 0, 1)
+	if token.lastEffectVisibility
+		and visibility ~= 0 and visibility ~= 1
+		and math.abs(visibility - token.lastEffectVisibility) < 0.02 then
+		return
+	end
+	token.lastEffectVisibility = visibility
+	for _, entry in ipairs(token.funnelEmitters or {}) do
+		entry.emitter.Enabled = visibility > 0.05
+		entry.emitter.Rate = entry.rate * visibility
+	end
+	for _, entry in ipairs(token.funnelBeams or {}) do
+		entry.beam.Transparency = scaledSequence(entry.transparency, visibility)
+	end
+end
+
+local function collectFunnelEffects(token, funnel)
+	token.funnelEmitters = {}
+	token.funnelBeams = {}
+	for _, descendant in ipairs(funnel:GetDescendants()) do
+		if descendant:IsA("ParticleEmitter") then
+			token.funnelEmitters[#token.funnelEmitters + 1] = { emitter = descendant, rate = descendant.Rate }
+		elseif descendant:IsA("Beam") then
+			token.funnelBeams[#token.funnelBeams + 1] = { beam = descendant, transparency = descendant.Transparency }
+		end
+	end
+end
+
 local function funnelCorePart(funnel)
 	local core = nil
 	for _, descendant in ipairs(funnel:GetDescendants()) do
@@ -285,6 +327,7 @@ local function updateFunnel(token, deltaTime)
 	-- an instantly-visible travel turn) re-brightens smoothly instead of popping.
 	visibility = math.min(visibility, (token.lastVisibility or 0) + deltaTime / 0.3)
 	applyVisibility(token.funnelOriginals, visibility)
+	applyEffectVisibility(token, visibility)
 	token.lastVisibility = visibility
 	if token.funnelWind then
 		token.funnelWind.Volume = FUNNEL_WIND_VOLUME * visibility
@@ -329,6 +372,8 @@ local function ensureFunnel(token)
 	token.funnel = funnel
 	token.funnelOriginals = collectOriginalTransparencies(funnel)
 	applyVisibility(token.funnelOriginals, 0)
+	collectFunnelEffects(token, funnel)
+	applyEffectVisibility(token, 0)
 	token.spinAngle = 0
 
 	local bboxCFrame, bboxSize = funnel:GetBoundingBox()
