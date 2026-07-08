@@ -256,7 +256,10 @@ function MenuGui.OpenPanel(panelName)
 	end
 
 	activePanelName = panelName
-	applyMenuEffects(true)
+	-- Panels registered with effects = false (e.g. the admin panel, a utility
+	-- overlay) open without blur/camera zoom/HUD hiding; switching from an
+	-- effects panel to one without turns the effects off.
+	applyMenuEffects(registration.effects ~= false)
 
 	if not callPanelHandler(panelName, "open") then
 		activePanelName = nil

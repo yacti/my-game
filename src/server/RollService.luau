@@ -11,6 +11,7 @@ local OfflineProgressService = require(Server:WaitForChild("OfflineProgressServi
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local RollOfferPersistence = require(Server:WaitForChild("RollOfferPersistence"))
+local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
@@ -377,6 +378,7 @@ local function weightedSeedEntry(crateId, player, profile, seedEntries, usedSeed
 	local serverLuckMultiplier = ServerLuckService.CurrentMultiplier()
 	local rewardWeights = RollChances.ComputeRewardWeights(crateId, candidates, luckPercent, serverLuckMultiplier, {
 		includeFallback = false,
+		adminLuckMultiplier = AdminLuckService.CurrentMultiplier(),
 	})
 	if not rewardWeights then
 		return nil
@@ -550,7 +552,9 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 		return nil, "empty-category-pool"
 	end
 
-	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, categoryEntries, luckPercent, serverLuckMultiplier)
+	local rewardWeights, weightCode = RollChances.ComputeRewardWeights(crateId, categoryEntries, luckPercent, serverLuckMultiplier, {
+		adminLuckMultiplier = AdminLuckService.CurrentMultiplier(),
+	})
 	if not rewardWeights then
 		return nil, weightCode or "invalid-reward-weights"
 	end

@@ -52,6 +52,20 @@ State.ServerLuck = {
 	EndsAt = "ServerLuckEndsAt",
 }
 
+-- Global admin luck boost (set through the live-events control plane);
+-- additive on top of crate/player/server luck. Attributes on ReplicatedStorage.
+State.AdminLuck = {
+	Multiplier = "AdminLuckMultiplier",
+	EndsAt = "AdminLuckEndsAt",
+}
+
+State.AdminPanel = {
+	-- Player attribute set only by AdminPanelService (server command bar);
+	-- clients read it to show/hide the owner admin panel. Never authority:
+	-- every panel command is re-validated server-side.
+	Enabled = "AdminPanelEnabled",
+}
+
 State.UpdateEvent = {
 	EventId = "UpdateEventId",
 }

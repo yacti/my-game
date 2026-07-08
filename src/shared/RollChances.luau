@@ -503,7 +503,7 @@ function RollChances.BaseWeightForChance(chanceN)
 	return 1 / chanceN
 end
 
-function RollChances.EffectiveLuckMultiplier(crateLuckMultiplier, playerLuckPercent, serverLuckMultiplier)
+function RollChances.EffectiveLuckMultiplier(crateLuckMultiplier, playerLuckPercent, serverLuckMultiplier, adminLuckMultiplier)
 	crateLuckMultiplier = tonumber(crateLuckMultiplier) or 1
 	if type(crateLuckMultiplier) ~= "number" or crateLuckMultiplier ~= crateLuckMultiplier or math.abs(crateLuckMultiplier) == math.huge then
 		crateLuckMultiplier = 1
@@ -520,11 +520,16 @@ function RollChances.EffectiveLuckMultiplier(crateLuckMultiplier, playerLuckPerc
 	if type(serverLuckMultiplier) ~= "number" or serverLuckMultiplier ~= serverLuckMultiplier or math.abs(serverLuckMultiplier) == math.huge then
 		serverLuckMultiplier = 1
 	end
+	adminLuckMultiplier = tonumber(adminLuckMultiplier) or 1
+	if type(adminLuckMultiplier) ~= "number" or adminLuckMultiplier ~= adminLuckMultiplier or math.abs(adminLuckMultiplier) == math.huge then
+		adminLuckMultiplier = 1
+	end
 	local serverLuckTerm = serverLuckMultiplier > 1 and (serverLuckMultiplier - 1) or 0
+	local adminLuckTerm = adminLuckMultiplier > 1 and (adminLuckMultiplier - 1) or 0
 	local playerLuckTerm = playerLuckPercent / 100
 
-	-- Luck sources add together so crate, player, and server luck do not scale explosively.
-	return math.max(crateLuckMultiplier + playerLuckTerm + serverLuckTerm, 1)
+	-- Luck sources add together so crate, player, server, and admin luck do not scale explosively.
+	return math.max(crateLuckMultiplier + playerLuckTerm + serverLuckTerm + adminLuckTerm, 1)
 end
 
 function RollChances.ComputeCategoryWeights(entries)
@@ -591,7 +596,8 @@ function RollChances.ComputeRewardWeights(crateId, entries, playerLuckPercent, s
 	end
 
 	local crateMultiplier = math.max(tonumber(crate.LuckMultiplier) or 1, 1)
-	local multiplier = RollChances.EffectiveLuckMultiplier(crateMultiplier, playerLuckPercent, serverLuckMultiplier)
+	local adminLuckMultiplier = type(options) == "table" and options.adminLuckMultiplier or nil
+	local multiplier = RollChances.EffectiveLuckMultiplier(crateMultiplier, playerLuckPercent, serverLuckMultiplier, adminLuckMultiplier)
 	local visibleBaseWeights = buildVisibleSeedBaseWeights(sortedEntries, baseWeights, fallbackWeight)
 	local cutoffIndex = earliestTrueStart(baseWeights, sortedEntries, multiplier)
 	return buildFinalSeedWeights(sortedEntries, baseWeights, visibleBaseWeights, multiplier, cutoffIndex)

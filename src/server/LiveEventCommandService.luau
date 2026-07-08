@@ -22,6 +22,9 @@
 --   LiveEvents.SetAdminPartyPad(true)
 --   LiveEvents.DropAdminCrate("UFOCrate")   -- also InfernoCrate | SaturnCrate
 --   LiveEvents.SetAdminPartyPad(false)
+--   LiveEvents.SetAdminLuck(5, 1800)        -- x5 admin luck for 30 min, all servers
+--   LiveEvents.StopAdminLuck()
+--   LiveEvents.GetAdminLuck()
 --   LiveEvents.ReconcileNow()
 --
 -- Command writes fail closed: if the DataStore write does not succeed, nothing
@@ -34,11 +37,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
+local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
 local RollService = require(Server:WaitForChild("RollService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminMessagePresets = require(Shared:WaitForChild("AdminMessagePresets"))
+local AdminPanelConfig = require(Shared:WaitForChild("AdminPanelConfig"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -135,8 +140,31 @@ local function freshState()
 		active = {},
 		messages = {},
 		adminParty = { padActive = false },
+		adminLuck = { multiplier = 1, startsAt = 0, endsAt = 0 },
 		processedCommands = {},
 		audit = {},
+	}
+end
+
+-- Pure (runs inside UpdateAsync transforms). Inactive is canonically
+-- { multiplier = 1, startsAt = 0, endsAt = 0 }; anything malformed collapses
+-- to inactive rather than poisoning future rewrites.
+local function sanitizeAdminLuck(record)
+	local inactive = { multiplier = 1, startsAt = 0, endsAt = 0 }
+	if type(record) ~= "table" then
+		return inactive
+	end
+	local multiplier = finiteNumber(record.multiplier)
+	local startsAt = finiteNumber(record.startsAt)
+	local endsAt = finiteNumber(record.endsAt)
+	if not multiplier or multiplier <= 1 or not startsAt or not endsAt or endsAt <= startsAt then
+		return inactive
+	end
+	return {
+		multiplier = multiplier,
+		startsAt = startsAt,
+		endsAt = math.min(endsAt, startsAt + MAX_EVENT_DURATION_SECONDS),
+		commandId = type(record.commandId) == "string" and record.commandId or nil,
 	}
 end
 
@@ -273,6 +301,7 @@ local function sanitizeState(raw)
 	if type(raw.adminParty) == "table" then
 		state.adminParty.padActive = raw.adminParty.padActive == true
 	end
+	state.adminLuck = sanitizeAdminLuck(raw.adminLuck)
 	-- Read only the newest capped window so a corrupt/bloated durable state
 	-- cannot stall transforms (which may run multiple times per write).
 	if type(raw.processedCommands) == "table" then
@@ -410,11 +439,19 @@ local function publishAdminMessages()
 end
 
 local localAdminPadActive = false
+local localAdminLuck = { multiplier = 1, startsAt = 0, endsAt = 0 }
 
 local function applyAdminPartyPad(padActive)
 	localAdminPadActive = padActive == true
 	RuntimeGuard.Run("LiveEventCommandService.ApplyAdminPartyPad", function()
 		RollService.SetAdminPartyPadActive(localAdminPadActive)
+	end)
+end
+
+local function applyAdminLuck(record)
+	localAdminLuck = sanitizeAdminLuck(record)
+	RuntimeGuard.Run("LiveEventCommandService.ApplyAdminLuck", function()
+		AdminLuckService.Apply(localAdminLuck.multiplier, localAdminLuck.endsAt)
 	end)
 end
 
@@ -437,6 +474,7 @@ local function applyState(state, force)
 	pushToGameEventService()
 	publishAdminMessages()
 	applyAdminPartyPad(type(state.adminParty) == "table" and state.adminParty.padActive)
+	applyAdminLuck(state.adminLuck)
 	return true
 end
 
@@ -508,6 +546,13 @@ local function onMessage(message)
 		localMessages = {}
 	elseif data.action == "adminParty" then
 		applyAdminPartyPad(data.padActive == true)
+	elseif data.action == "adminLuck" then
+		-- Replace semantics; a stop travels as the canonical inactive record.
+		if type(data.adminLuck) ~= "table" then
+			scheduleReconcile("invalid-adminluck-delta")
+			return
+		end
+		applyAdminLuck(data.adminLuck)
 	elseif data.action == "adminDrop" then
 		-- One-shot for players present right now: applied on delta receipt
 		-- only, never replayed from reconcile. A server that misses this
@@ -1153,6 +1198,139 @@ function LiveEventCommandService.SetAdminPartyPad(active, options)
 	end
 	print(string.format("[LiveEventCommandService] Admin party pad %s globally", active and "ENABLED" or "DISABLED"))
 	return true, active
+end
+
+-- Applies a global admin luck boost on every server (durable: booting servers
+-- reconcile it). Additive on top of crate/player/server luck in RollChances.
+-- Replace semantics: a new boost overwrites the running one from commit time.
+-- Multipliers are whitelisted (AdminPanelConfig.AllowedLuckMultipliers).
+function LiveEventCommandService.SetAdminLuck(multiplier, durationSeconds, options)
+	multiplier = finiteNumber(multiplier)
+	if not multiplier or not AdminPanelConfig.IsAllowedLuckMultiplier(multiplier) then
+		return false, "invalid-multiplier"
+	end
+	durationSeconds = finiteNumber(durationSeconds)
+	if not durationSeconds or durationSeconds <= 0 then
+		return false, "invalid-duration"
+	end
+	if durationSeconds > MAX_EVENT_DURATION_SECONDS then
+		return false, "duration-too-long", MAX_EVENT_DURATION_SECONDS
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	-- startsAt/endsAt are restamped at commit time (prepare below).
+	local startsAt = serverNow()
+	local record = {
+		multiplier = multiplier,
+		startsAt = startsAt,
+		endsAt = startsAt + durationSeconds,
+		commandId = commandId,
+	}
+	local commandHash = table.concat({ "adminLuck", tostring(multiplier), tostring(durationSeconds) }, ":")
+	local auditEntry = baseAuditEntry(commandId, "admin-luck", note)
+	auditEntry.multiplier = multiplier
+	auditEntry.durationSeconds = durationSeconds
+
+	local ok, result = runCommandWrite(commandId, commandHash, auditEntry, function(state)
+		state.adminLuck = {
+			multiplier = record.multiplier,
+			startsAt = record.startsAt,
+			endsAt = record.endsAt,
+			commandId = record.commandId,
+		}
+		return true, {
+			action = "adminLuck",
+			adminLuck = state.adminLuck,
+		}
+	end, function(commitNow)
+		record.startsAt = commitNow
+		record.endsAt = commitNow + durationSeconds
+	end)
+
+	if not ok then
+		return false, result
+	end
+	if result == "idempotent" then
+		local idempotentNow = serverNow()
+		if localAdminLuck.commandId == commandId and (finiteNumber(localAdminLuck.endsAt) or 0) > idempotentNow then
+			return true, copyRecord(localAdminLuck)
+		end
+		return true, "already-processed-not-active"
+	end
+	print(string.format(
+		"[LiveEventCommandService] Admin luck x%d for %ds globally (command %s)",
+		math.floor(multiplier),
+		math.floor(durationSeconds),
+		commandId
+	))
+	return true, copyRecord(record)
+end
+
+function LiveEventCommandService.StopAdminLuck(options)
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "admin-luck-stop", note)
+
+	local stopNow = serverNow()
+	local ok, result = runCommandWrite(commandId, "adminLuckStop", auditEntry, function(state)
+		local active = state.adminLuck
+			and (finiteNumber(state.adminLuck.multiplier) or 1) > 1
+			and (finiteNumber(state.adminLuck.endsAt) or 0) > stopNow
+		if not active then
+			return false, "no-change"
+		end
+		state.adminLuck = { multiplier = 1, startsAt = 0, endsAt = 0 }
+		return true, {
+			action = "adminLuck",
+			adminLuck = state.adminLuck,
+		}
+	end, function(commitNow)
+		stopNow = commitNow
+	end)
+
+	if not ok then
+		if result == "no-change" then
+			return true, "no-change"
+		end
+		return false, result
+	end
+	if result == "idempotent" then
+		return true, "already-processed"
+	end
+	print("[LiveEventCommandService] Admin luck stopped globally")
+	return true, "stopped"
+end
+
+function LiveEventCommandService.GetAdminLuck()
+	local now = serverNow()
+	if (finiteNumber(localAdminLuck.multiplier) or 1) > 1 and (finiteNumber(localAdminLuck.endsAt) or 0) > now then
+		return copyRecord(localAdminLuck), localRevision
+	end
+	return nil, localRevision
 end
 
 -- Drops one admin crate (InfernoCrate/SaturnCrate/UFOCrate) on every eligible

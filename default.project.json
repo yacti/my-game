@@ -129,6 +129,12 @@
         "ServerLuckBoosted": {
           "$className": "RemoteEvent"
         },
+        "AdminPanelCommandRequest": {
+          "$className": "RemoteEvent"
+        },
+        "AdminPanelCommandResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },
