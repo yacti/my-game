@@ -331,7 +331,29 @@ local function ensureFunnel(token)
 	return funnel
 end
 
-local function buildTurn(token, floorCFrame, floorSize, wanderSeed, startsAt, endsAt)
+-- Waypoints arrive from the server as floor-local Vector2s constrained to the
+-- plot's unlocked grid cells; the client only interpolates between them.
+local function sanitizeWaypoints(waypoints)
+	if type(waypoints) ~= "table" then
+		return nil
+	end
+	local sanitized = {}
+	for _, waypoint in ipairs(waypoints) do
+		if typeof(waypoint) ~= "Vector2" then
+			return nil
+		end
+		sanitized[#sanitized + 1] = waypoint
+	end
+	if #sanitized == 0 then
+		return nil
+	end
+	if #sanitized == 1 then
+		sanitized[2] = sanitized[1]
+	end
+	return sanitized
+end
+
+local function buildTurn(token, floorCFrame, floorSize, waypoints, startsAt, endsAt)
 	if typeof(floorCFrame) ~= "CFrame" or typeof(floorSize) ~= "Vector3" then
 		return nil
 	end
@@ -343,16 +365,11 @@ local function buildTurn(token, floorCFrame, floorSize, wanderSeed, startsAt, en
 	if not (token.funnelSize) then
 		return nil
 	end
-	local waypointSeconds = math.max(tonumber(token.settings and token.settings.wanderWaypointSeconds) or 2.5, 0.1)
-	local touchdownSeconds = math.max(tonumber(token.settings and token.settings.funnelTouchdownSeconds) or 1, 0)
-	local halfX = math.max(floorSize.X / 2 - token.funnelSize.X / 2, 0)
-	local halfZ = math.max(floorSize.Z / 2 - token.funnelSize.Z / 2, 0)
-	local wanderRng = Random.new(tonumber(wanderSeed) or 0)
-	local waypoints = { Vector2.zero }
-	local segments = math.max(math.ceil(math.max(endsAt - startsAt, 1) / waypointSeconds), 1)
-	for index = 1, segments do
-		waypoints[index + 1] = Vector2.new(wanderRng:NextNumber(-halfX, halfX), wanderRng:NextNumber(-halfZ, halfZ))
+	waypoints = sanitizeWaypoints(waypoints)
+	if not waypoints then
+		return nil
 	end
+	local touchdownSeconds = math.max(tonumber(token.settings and token.settings.funnelTouchdownSeconds) or 1, 0)
 	return {
 		startsAt = startsAt,
 		endsAt = endsAt,
@@ -425,7 +442,7 @@ local function handlePlotTurn(payload)
 	if not ensureFunnel(token) then
 		return
 	end
-	local turn = buildTurn(token, payload.floorCFrame, payload.floorSize, payload.wanderSeed, payload.startsAt, payload.endsAt)
+	local turn = buildTurn(token, payload.floorCFrame, payload.floorSize, payload.waypoints, payload.startsAt, payload.endsAt)
 	if not turn then
 		return
 	end
@@ -497,7 +514,7 @@ local function handleSync(payload)
 				token,
 				payload.currentFloorCFrame,
 				payload.currentFloorSize,
-				payload.currentWanderSeed,
+				payload.currentWaypoints,
 				payload.currentTurnStartsAt,
 				payload.currentTurnEndsAt
 			)

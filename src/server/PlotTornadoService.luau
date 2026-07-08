@@ -7,6 +7,7 @@ local EventEligibility = require(Server:WaitForChild("EventEligibility"))
 local FeedMachines = require(Server:WaitForChild("feedMachines"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
+local PlotGridService = require(Server:WaitForChild("PlotGridService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -217,7 +218,7 @@ local function syncPayload(session)
 		currentTurnEndsAt = session.currentTurnEndsAt,
 		currentFloorCFrame = session.currentFloorCFrame,
 		currentFloorSize = session.currentFloorSize,
-		currentWanderSeed = session.currentWanderSeed,
+		currentWaypoints = session.currentWaypoints,
 	}
 end
 
@@ -395,7 +396,43 @@ local function clearTurnState(session)
 	session.currentTurnEndsAt = nil
 	session.currentFloorCFrame = nil
 	session.currentFloorSize = nil
-	session.currentWanderSeed = nil
+	session.currentWaypoints = nil
+end
+
+-- Waypoints are floor-local Vector2s constrained to the plot's unlocked grid
+-- cells, so the funnel never wanders over locked ground. Midpoints between
+-- consecutive picks are re-rolled a few times toward walkable paths so the
+-- funnel avoids cutting across locked corners of L-shaped unlock layouts.
+local function buildWanderWaypoints(session, plot, turnSeconds)
+	local waypointSeconds = session.settings.wanderWaypointSeconds
+	local segments = math.max(math.ceil(math.max(turnSeconds, 1) / waypointSeconds), 1)
+	local waypoints = {}
+	for index = 1, segments + 1 do
+		local lx, lz
+		for attempt = 1, 4 do
+			lx, lz = PlotGridService.RandomUnlockedPoint(plot, rng)
+			if not lx then
+				break
+			end
+			local previous = waypoints[index - 1]
+			if not previous
+				or PlotGridService.IsWalkablePoint(plot, (previous.X + lx) / 2, (previous.Y + lz) / 2)
+				or attempt == 4 then
+				break
+			end
+		end
+		if not lx then
+			break
+		end
+		waypoints[index] = Vector2.new(lx, lz)
+	end
+	if #waypoints == 0 then
+		waypoints[1] = Vector2.zero
+	end
+	if #waypoints == 1 then
+		waypoints[2] = waypoints[1]
+	end
+	return waypoints
 end
 
 local function runPlotTurn(session, entry)
@@ -409,14 +446,14 @@ local function runPlotTurn(session, entry)
 	local turnStartsAt = serverNow()
 	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.endsAt - session.settings.windDownSeconds)
 	local mutationCount = rng:NextInteger(session.settings.minMutationsPerPlot, session.settings.maxMutationsPerPlot)
-	local wanderSeed = rng:NextInteger(1, 2 ^ 30)
+	local waypoints = buildWanderWaypoints(session, entry.plot, turnEndsAt - turnStartsAt)
 	session.phase = "plotTurn"
 	session.currentPlotCenter = entry.plotCenter
 	session.currentTurnStartsAt = turnStartsAt
 	session.currentTurnEndsAt = turnEndsAt
 	session.currentFloorCFrame = floor.CFrame
 	session.currentFloorSize = floor.Size
-	session.currentWanderSeed = wanderSeed
+	session.currentWaypoints = waypoints
 	fireViewers(session, "plotTurn", {
 		instanceId = session.instanceId,
 		userId = entry.userId,
@@ -424,7 +461,7 @@ local function runPlotTurn(session, entry)
 		plotCenter = entry.plotCenter,
 		floorCFrame = floor.CFrame,
 		floorSize = floor.Size,
-		wanderSeed = wanderSeed,
+		waypoints = waypoints,
 		startsAt = turnStartsAt,
 		endsAt = turnEndsAt,
 		settings = session.publicSettings,
