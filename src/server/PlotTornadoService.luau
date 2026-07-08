@@ -81,14 +81,14 @@ local function settingsFor()
 	local tornado = type(config.tornado) == "table" and config.tornado or {}
 	local windUpSeconds, activeSeconds, windDownSeconds, totalSeconds = GameEvents.TornadoTimings(config)
 	local minMutations = integerValue(tornado.minMutationsPerPlot, 2)
-	local maxMutations = math.max(integerValue(tornado.maxMutationsPerPlot, 5), minMutations)
+	local maxMutations = math.max(integerValue(tornado.maxMutationsPerPlot, 6), minMutations)
 	return {
 		mutationId = config.appliedMutationId or Mutations.Ids.Twisted,
 		windUpSeconds = windUpSeconds,
 		activeSeconds = activeSeconds,
 		windDownSeconds = windDownSeconds,
 		totalSeconds = totalSeconds,
-		plotTurnSeconds = math.max(numberValue(tornado.plotTurnSeconds, 15), 0),
+		plotTurnSeconds = math.max(numberValue(tornado.plotTurnSeconds, 20), 0),
 		maxPlotTurns = integerValue(tornado.maxPlotTurns, 8),
 		minMutationsPerPlot = minMutations,
 		maxMutationsPerPlot = maxMutations,

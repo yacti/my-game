@@ -102,11 +102,11 @@ GameEvents.EventConfigs = {
 		appliedMutationId = "Twisted",
 		tornado = {
 			windUpSeconds = 10,
-			plotTurnSeconds = 15,
+			plotTurnSeconds = 20,
 			maxPlotTurns = 8,
 			windDownSeconds = 10,
 			minMutationsPerPlot = 2,
-			maxMutationsPerPlot = 5,
+			maxMutationsPerPlot = 6,
 			targetRetrySeconds = 2,
 			tornadoSoundRange = 500,
 			funnelTouchdownSeconds = 1,
@@ -198,7 +198,7 @@ function GameEvents.TornadoTimings(config)
 	local tornado = type(config) == "table" and config.tornado or nil
 	tornado = type(tornado) == "table" and tornado or {}
 	local windUp = math.max(numeric(tornado.windUpSeconds, 10), 0)
-	local turn = math.max(numeric(tornado.plotTurnSeconds, 15), 0)
+	local turn = math.max(numeric(tornado.plotTurnSeconds, 20), 0)
 	local maxTurns = math.max(math.floor(numeric(tornado.maxPlotTurns, 8)), 0)
 	local windDown = math.max(numeric(tornado.windDownSeconds, 10), 0)
 	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
