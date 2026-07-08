@@ -48,6 +48,7 @@ local player = Players.LocalPlayer
 local watchedPlots = setmetatable({}, { __mode = "k" })
 local watchedPets = setmetatable({}, { __mode = "k" })
 local playedSeqByPet = setmetatable({}, { __mode = "k" })
+local evolutionBusyPets = setmetatable({}, { __mode = "k" })
 local activeCameraZooms = 0
 local cameraBaseFov = nil
 local cameraZoomTween = nil
@@ -402,21 +403,24 @@ local function restoreInstance(instance, entry)
 end
 
 local function restorePet(pet, hidden)
-	if not pet.Parent then return end
 	if hidden.connection then hidden.connection:Disconnect() end
 
-	pet:ScaleTo(hidden.targetScale)
-	local highlight = addWhiteout(pet, 0, 0)
+	-- Restore even while the pet is momentarily unparented (streaming, server
+	-- reparenting): skipping would leave every hidden label invisible forever.
 	for instance, entry in pairs(hidden.state) do
 		restoreInstance(instance, entry)
 	end
 
-	TweenService:Create(highlight, REVEAL_TWEEN, { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+	if pet.Parent then
+		pet:ScaleTo(hidden.targetScale)
+		local highlight = addWhiteout(pet, 0, 0)
+		TweenService:Create(highlight, REVEAL_TWEEN, { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+		task.delay(REVEAL_SECONDS, function()
+			if highlight.Parent then highlight:Destroy() end
+		end)
+	end
 	task.delay(REVEAL_SECONDS, function()
-		if highlight.Parent then highlight:Destroy() end
-		if pet.Parent then
-			pet:SetAttribute(State.Pet.EvolutionPaused, hidden.previousPause)
-		end
+		pet:SetAttribute(State.Pet.EvolutionPaused, hidden.previousPause)
 	end)
 end
 
@@ -530,6 +534,12 @@ end
 
 local function playForPet(pet)
 	if not isOwnPet(pet) then return end
+	-- Serialize cinematics per pet: a second cue arriving mid-cinematic would
+	-- snapshot the already-hidden label transparencies as the "originals" to
+	-- restore, leaving the billboard permanently invisible. The active
+	-- cinematic replays the latest cue once it finishes (see bottom of the
+	-- spawned task); the seq attribute itself acts as the queue.
+	if evolutionBusyPets[pet] then return end
 
 	local seq, oldPetId, oldScale, pivot, pathPetIds = readCue(pet)
 	if not seq then return end
@@ -538,6 +548,7 @@ local function playForPet(pet)
 	if not effect then return end
 
 	playedSeqByPet[pet] = seq
+	evolutionBusyPets[pet] = true
 	local restoreCamera = playCameraZoom()
 	local hiddenPet = hidePet(pet, pivot)
 
@@ -579,6 +590,14 @@ local function playForPet(pet)
 		restorePet(pet, hiddenPet)
 		if not ok then
 			warn("[PetEvolutionEffects] Evolution effect failed: " .. tostring(err))
+		end
+		-- Hold the busy flag through the reveal tween so a queued cue cannot
+		-- snapshot half-restored transparency values, then play any cue that
+		-- arrived mid-cinematic (readCue no-ops when the seq already played).
+		task.wait(REVEAL_SECONDS)
+		evolutionBusyPets[pet] = nil
+		if pet.Parent then
+			playForPet(pet)
 		end
 	end)
 end
