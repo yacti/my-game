@@ -468,7 +468,7 @@ local function setupScientist(activeFolder)
 				end
 				if rarityLabel then
 					UiEffects.SetTextStack(rarityLabel, tostring(rarity or "Unknown"))
-					local rarityColor = Rarities.ColorFor(rarity, os.clock())
+					local rarityColor = Rarities.TextColorFor(rarity, os.clock())
 					if rarityColor then
 						rarityLabel.TextColor3 = rarityColor
 					end

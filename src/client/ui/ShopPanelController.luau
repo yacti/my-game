@@ -181,7 +181,7 @@ function ShopPanelController.Start(config)
 			if row.rarityLabel then
 				local rarity = valueFrom(config, "getRarity", item, nil) or Rarities.Common
 				UiEffects.SetTextStack(row.rarityLabel, tostring(rarity))
-				row.rarityLabel.TextColor3 = Rarities.ColorFor(rarity) or Rarities.ColorFor(Rarities.Common)
+				row.rarityLabel.TextColor3 = Rarities.TextColorFor(rarity) or Rarities.TextColorFor(Rarities.Common)
 			end
 			if row.lockedFrame then
 				row.lockedFrame.Visible = locked

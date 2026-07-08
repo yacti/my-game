@@ -241,7 +241,7 @@ local function setRarityLabel(label, rarity)
 	end
 	local value = type(rarity) == "string" and rarity ~= "" and rarity or Rarities.Common
 	setTextStack(label, value)
-	label.TextColor3 = Rarities.ColorFor(value) or Rarities.ColorFor(Rarities.Common)
+	label.TextColor3 = Rarities.TextColorFor(value) or Rarities.TextColorFor(Rarities.Common)
 end
 
 local function currentMenu()

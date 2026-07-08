@@ -157,7 +157,7 @@ local function applyRarityVisual(row, rarity)
 	if not row or not rarity then
 		return
 	end
-	local color = Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common)
+	local color = Rarities.TextColorFor(rarity, os.clock()) or Rarities.TextColorFor(Rarities.Common)
 	colorTextStack(row:FindFirstChild("SettingName"), color)
 	colorTextStack(row:FindFirstChild("Icon"), color)
 end

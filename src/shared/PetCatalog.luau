@@ -48,10 +48,21 @@ local function petModelDefinition(model)
 	}
 end
 
+local cachedDefinitions = nil
+local cachedChildCount = -1
+
 local function allDefinitions()
 	local definitions = {}
 	local folder = petModelsFolder()
 	if not folder then return definitions end
+
+	-- Rebuilding walks every model and re-sorts, and callers hit this per
+	-- billboard render. Cache until the folder's child count changes (covers
+	-- late replication of pet models on the client).
+	local childCount = #folder:GetChildren()
+	if cachedDefinitions and childCount == cachedChildCount then
+		return cachedDefinitions
+	end
 
 	for _, model in ipairs(folder:GetChildren()) do
 		if model:IsA("Model") then
@@ -71,6 +82,8 @@ local function allDefinitions()
 		return ao < bo
 	end)
 
+	cachedDefinitions = definitions
+	cachedChildCount = childCount
 	return definitions
 end
 

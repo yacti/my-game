@@ -32,6 +32,7 @@ local TEMPLATE_WAIT_SECONDS = 8
 local BILLBOARD_ATTACHMENT_NAME = "PetBillboardAnchor"
 local BILLBOARD_ATTACHMENT_REFRESH_PASSES = 4
 local BILLBOARD_ATTACHMENT_Y_OFFSET = -1
+local WATCHDOG_INTERVAL_SECONDS = 5
 
 local function loadTemplates()
 	if templates then return templates end
@@ -161,6 +162,24 @@ local function attach(pet)
 	local baseNicknameColor = nicknameLabel and nicknameLabel.TextColor3
 	local rarityConnection
 
+	-- Authored transparencies captured from the fresh clone, so the watchdog
+	-- can detect and heal labels that some outside effect left invisible.
+	local labelBaselines = {}
+	local function captureBaseline(label)
+		if not label then return end
+		local stroke = label:FindFirstChildOfClass("UIStroke")
+		labelBaselines[label] = {
+			textTransparency = label.TextTransparency,
+			stroke = stroke,
+			strokeTransparency = stroke and stroke.Transparency or nil,
+		}
+	end
+	captureBaseline(nameLabel)
+	captureBaseline(nicknameLabel)
+	captureBaseline(moneyLabel)
+	captureBaseline(moneyRateLabel)
+	captureBaseline(xpCountLabel)
+
 	local function disconnectRarity()
 		if rarityConnection then
 			rarityConnection:Disconnect()
@@ -170,7 +189,7 @@ local function attach(pet)
 
 	local function applyNameColor(rarity)
 		if not nameLabel then return end
-		nameLabel.TextColor3 = Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common) or baseNameColor
+		nameLabel.TextColor3 = Rarities.TextColorFor(rarity, os.clock()) or Rarities.TextColorFor(Rarities.Common) or baseNameColor
 	end
 
 	local function refreshNameColor()
@@ -246,15 +265,60 @@ local function attach(pet)
 		end
 	end
 
+	-- Sub-renders are isolated so one failure cannot silently skip the rest:
+	-- for an idle pet this initial pass is the only guaranteed write, and a
+	-- skipped renderIdentity would leave stale labels with no signal to heal.
 	local function render()
 		refreshAttachmentForSizeChange()
-		renderMoney()
-		renderMoneyRate()
-		renderIdentity()
-		renderXPBar()
+		RuntimeGuard.Run("PetBillboards.RenderMoney", renderMoney)
+		RuntimeGuard.Run("PetBillboards.RenderMoneyRate", renderMoneyRate)
+		RuntimeGuard.Run("PetBillboards.RenderIdentity", renderIdentity)
+		RuntimeGuard.Run("PetBillboards.RenderXPBar", renderXPBar)
 	end
 	record.render = render
 	record.lastMoney = pet:GetAttribute(State.Pet.Money) or 0
+
+	-- Periodic self-heal: if a label drifted from its authored visibility or
+	-- the name no longer matches the pet, restore it and log what drifted so
+	-- field reports of missing billboard text carry the root cause.
+	local function heal()
+		if not (pet.Parent and billboard.Parent) then return end
+		if pet:GetAttribute(State.Pet.EvolutionPaused) == true then return end
+
+		local drift = nil
+		if nameLabel then
+			local expectedName = displayNameForPet(pet)
+			if nameLabel.Text ~= expectedName then
+				drift = string.format("NameLabel.Text %q ~= %q", nameLabel.Text, expectedName)
+			end
+		end
+		for label, baseline in pairs(labelBaselines) do
+			if label.Parent then
+				if math.abs(label.TextTransparency - baseline.textTransparency) > 0.05 then
+					drift = drift or string.format("%s.TextTransparency %.2f ~= %.2f",
+						label.Name, label.TextTransparency, baseline.textTransparency)
+					label.TextTransparency = baseline.textTransparency
+				end
+				local stroke = baseline.stroke
+				if stroke and stroke.Parent and baseline.strokeTransparency
+					and math.abs(stroke.Transparency - baseline.strokeTransparency) > 0.05 then
+					drift = drift or string.format("%s.UIStroke.Transparency %.2f ~= %.2f",
+						label.Name, stroke.Transparency, baseline.strokeTransparency)
+					stroke.Transparency = baseline.strokeTransparency
+				end
+			end
+		end
+
+		if drift then
+			render()
+			refreshNameColor()
+			if not record.healWarned then
+				record.healWarned = true
+				warn("[PetBillboards] Healed billboard label drift on " .. pet:GetFullName() .. ": " .. drift)
+			end
+		end
+	end
+	record.heal = heal
 
 	local function handleMoneyChanged()
 		local previousMoney = tonumber(record.lastMoney) or 0
@@ -311,6 +375,20 @@ local function isPlot(obj)
 	return (obj:IsA("Model") or obj:IsA("Folder")) and obj.Name:match("^Plot%d") ~= nil
 end
 
+local function startWatchdog()
+	local elapsed = 0
+	RuntimeGuard.Connect(RunService.Heartbeat, "PetBillboards.Watchdog", function(dt)
+		elapsed += dt
+		if elapsed < WATCHDOG_INTERVAL_SECONDS then return end
+		elapsed = 0
+		for _, record in pairs(attached) do
+			if type(record) == "table" and type(record.heal) == "function" then
+				record.heal()
+			end
+		end
+	end)
+end
+
 local function watchWorkspace()
 	local function onWsChild(obj)
 		if isPlot(obj) then
@@ -328,6 +406,7 @@ function PetBillboards.start()
 	PlayerStateStore.Observe(PlayerStateStore.Fields.VipOwned, refreshAll)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.GamePassOwnership, refreshAll)
 	watchWorkspace()
+	startWatchdog()
 end
 
 return PetBillboards

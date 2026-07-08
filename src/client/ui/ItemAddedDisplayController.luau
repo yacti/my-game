@@ -88,7 +88,7 @@ local function colorForRarity(rarity)
 	if type(rarity) ~= "string" or rarity == "" then
 		return nil
 	end
-	return Rarities.ColorFor(rarity, os.clock())
+	return Rarities.TextColorFor(rarity, os.clock())
 end
 
 local function applyColor(label, color)
@@ -126,7 +126,7 @@ local function applyRarity(entry, rarity, fallbackColor)
 			disconnectRarity(entry)
 			return
 		end
-		applyColor(entry.label, Rarities.ColorFor(rarity, os.clock()))
+		applyColor(entry.label, Rarities.TextColorFor(rarity, os.clock()))
 	end
 
 	refresh()

@@ -46,6 +46,9 @@ local DEFINITIONS = {
 	[Rarities.Secret] = {
 		Name = Rarities.Secret,
 		Color = Color3.fromRGB(20, 20, 20),
+		-- Color is near-black for frames/overlays; text drawn over the game's
+		-- black UIStrokes needs a readable variant or it disappears entirely.
+		TextColor = Color3.fromRGB(220, 50, 50),
 		Animated = false,
 	},
 }
@@ -75,6 +78,19 @@ function Rarities.ColorFor(rarity, timeSeconds)
 		return Rarities.RainbowColorAt(timeSeconds)
 	end
 	return definition.Color
+end
+
+-- Use for TextColor3: same as ColorFor, except rarities whose display color is
+-- too dark to read over text strokes provide a TextColor override.
+function Rarities.TextColorFor(rarity, timeSeconds)
+	local definition = Rarities.Get(rarity)
+	if not definition then
+		return nil
+	end
+	if definition.Animated then
+		return Rarities.RainbowColorAt(timeSeconds)
+	end
+	return definition.TextColor or definition.Color
 end
 
 return Rarities

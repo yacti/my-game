@@ -750,7 +750,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	end
 
 	local function applyToolNameRarityColor(rarity: any): ()
-		setToolNameColor(Rarities.ColorFor(rarity, os.clock()) or TEXT_COLOR)
+		setToolNameColor(Rarities.TextColorFor(rarity, os.clock()) or TEXT_COLOR)
 	end
 
 	local function refreshToolNameRarity(): ()

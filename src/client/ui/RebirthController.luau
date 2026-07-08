@@ -331,7 +331,7 @@ function RebirthController.start()
 			if not (row and row.Parent) then
 				rarityRewardRows[row] = nil
 			else
-				local color = Rarities.ColorFor(rarity, os.clock()) or Rarities.ColorFor(Rarities.Common)
+				local color = Rarities.TextColorFor(rarity, os.clock()) or Rarities.TextColorFor(Rarities.Common)
 				applyColorToTextStack(row, color)
 				local definition = Rarities.Get(rarity)
 				hasAnimated = hasAnimated or (definition and definition.Animated == true)

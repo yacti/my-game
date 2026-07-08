@@ -808,7 +808,7 @@ local function bindPreviewRarityAnimation(billboard, card, payload)
 	end
 
 	local function refresh()
-		applyLabelColor(label, Rarities.ColorFor(payload.rarity, os.clock() * PREVIEW_RARITY_SPEED_MULTIPLIER))
+		applyLabelColor(label, Rarities.TextColorFor(payload.rarity, os.clock() * PREVIEW_RARITY_SPEED_MULTIPLIER))
 	end
 	refresh()
 
@@ -868,7 +868,7 @@ local function addRevealBillboard(model, payload)
 		return
 	end
 
-	local rarityColor = Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
+	local rarityColor = Rarities.TextColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
 	setLabel(card, "NameLabel", name, Color3.new(1, 1, 1))
 	setLabel(card, "PriceLabel", "Price: " .. formatPrice(payload.price), seedPriceColor(payload.price))
 	setLabel(card, "ChanceLabel", formatChance(payload), Color3.fromRGB(210, 230, 255))
@@ -1196,7 +1196,7 @@ local function addPurchasePrompt(model, payload)
 end
 
 local function seedRarityColor(payload)
-	return Rarities.ColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
+	return Rarities.TextColorFor(payload.rarity, os.clock()) or Color3.new(1, 1, 1)
 end
 
 local function previewPayloadFor(parentPayload, preview)
