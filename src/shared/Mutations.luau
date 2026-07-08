@@ -22,12 +22,14 @@ Mutations.DisplayColors = {
 }
 
 Mutations.XPMultipliers = {
-	[Mutations.Ids.Lightning] = 5,
-	[Mutations.Ids.Alien] = 6,
-	[Mutations.Ids.Twisted] = 5,
-	[Mutations.Ids.Aqua] = 5,
-	[Mutations.Ids.Shaken] = 5,
+	[Mutations.Ids.Lightning] = 2,
+	[Mutations.Ids.Alien] = 3,
+	[Mutations.Ids.Twisted] = 2,
+	[Mutations.Ids.Aqua] = 2,
+	[Mutations.Ids.Shaken] = 2,
 }
+
+Mutations.MaxPerCrop = 3
 
 local function mutationRoot()
 	local assets = Assets.FindRoot() or Assets.WaitForRoot(5)
@@ -140,6 +142,21 @@ function Mutations.Primary(mutationIds, preferredMutationId)
 		return preferredMutationId
 	end
 	return clean[#clean]
+end
+
+function Mutations.CanAccept(mutationIds, mutationId)
+	local clean = Mutations.SanitizeList(mutationIds)
+	if #clean >= Mutations.MaxPerCrop then
+		return false, "mutation-limit"
+	end
+	if Mutations.Contains(clean, mutationId) then
+		return false, "already-mutated"
+	end
+	return true
+end
+
+function Mutations.DisplayNames(mutationIds)
+	return table.concat(Mutations.SanitizeList(mutationIds), " + ")
 end
 
 function Mutations.Add(mutationIds, mutationId)

@@ -688,7 +688,7 @@ function Patches.CollectMutationTargets(machine, mutationId)
 		if not slot.respawnAt
 			and slot.foodPart
 			and slot.stealReservationId == nil
-			and #Mutations.SanitizeList(slot.mutationIds) == 0 then
+			and Mutations.CanAccept(slot.mutationIds, mutationId) then
 			local position = slotPosition(slot)
 			if position then
 				targets[#targets + 1] = {
@@ -714,8 +714,9 @@ function Patches.ApplyMutation(machine, targetKey, mutationId)
 	if slot.stealReservationId ~= nil then
 		return false, "reserved"
 	end
-	if #Mutations.SanitizeList(slot.mutationIds) > 0 then
-		return false, "already-mutated"
+	local canAccept, rejectReason = Mutations.CanAccept(slot.mutationIds, mutationId)
+	if not canAccept then
+		return false, rejectReason
 	end
 	local nextMutationIds, added = Mutations.Add(slot.mutationIds, mutationId)
 	if not added then

@@ -73,6 +73,7 @@ local CONTROLLERS = {
 	"PatchSlotVisuals",
 	"AppleTreeSlotVisuals",
 	"MutationVisuals",
+	"MutationTooltipController",
 	"ThunderstormController",
 	"TornadoController",
 	"TsunamiController",

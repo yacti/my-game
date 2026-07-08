@@ -65,6 +65,9 @@ local BACKGROUND_CORNER_RADIUS: UDim = UDim.new(0, 8)
 local BACKGROUND_COLOR: Color3 = targetScript:GetAttribute("BackgroundColor3")
 	or Color3.new(25 / 255, 27 / 255, 29 / 255)
 
+-- Stacked-mutation slot backgrounds alternate between mutation colors on this cadence
+local MUTATION_CYCLE_SECONDS: number = 2
+
 -- Slots
 local SLOT_EQUIP_COLOR: Color3 = targetScript:GetAttribute("EquipBorderColor3") or Color3.new(0 / 255, 162 / 255, 1)
 local SLOT_LOCKED_TRANSPARENCY_DEFAULT: number = targetScript:GetAttribute("BackgroundTransparency") or 0.3 -- Locked means undraggable
@@ -668,6 +671,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolPrimaryMutationChangeConn: RBXScriptConnection? = nil
 	local ToolRarityChangeConn: RBXScriptConnection? = nil
 	local ToolRarityRenderConn: RBXScriptConnection? = nil
+	local ToolMutationRenderConn: RBXScriptConnection? = nil
 	local HighlightFrame: any = nil -- UIStroke
 	local DeleteHighlightFrame: UIStroke = nil
 	local SelectionObj: ImageLabel = nil
@@ -705,8 +709,16 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		end
 	end
 
+	local function disconnectToolMutationRender(): ()
+		if ToolMutationRenderConn then
+			ToolMutationRenderConn:Disconnect()
+			ToolMutationRenderConn = nil
+		end
+	end
+
 	local function disconnectToolRarity(): ()
 		disconnectToolRarityRender()
+		disconnectToolMutationRender()
 		if ToolRarityChangeConn then
 			ToolRarityChangeConn:Disconnect()
 			ToolRarityChangeConn = nil
@@ -776,16 +788,43 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	end
 
 	local function refreshMutationBackground(): ()
+		disconnectToolMutationRender()
+
 		local tool = slot.Tool
-		local primaryMutationId = tool and Mutations.PrimaryFromInstance(tool) or nil
-		local color = primaryMutationId and Mutations.DisplayColor(primaryMutationId) or nil
-		if color then
-			ToolIcon.BackgroundColor3 = color
-			ToolIcon.BackgroundTransparency = 0.18
-		else
-			ToolIcon.BackgroundColor3 = BACKGROUND_COLOR
-			ToolIcon.BackgroundTransparency = 1
+		local mutationIds = tool and Mutations.FromInstance(tool) or {}
+
+		if #mutationIds <= 1 then
+			local primaryMutationId = tool and Mutations.PrimaryFromInstance(tool) or nil
+			local color = primaryMutationId and Mutations.DisplayColor(primaryMutationId) or nil
+			if color then
+				ToolIcon.BackgroundColor3 = color
+				ToolIcon.BackgroundTransparency = 0.18
+			else
+				ToolIcon.BackgroundColor3 = BACKGROUND_COLOR
+				ToolIcon.BackgroundTransparency = 1
+			end
+			return
 		end
+
+		local colors = table.create(#mutationIds)
+		for index, mutationId in ipairs(mutationIds) do
+			colors[index] = Mutations.DisplayColor(mutationId) or BACKGROUND_COLOR
+		end
+
+		local function applyCycleColor(): ()
+			ToolIcon.BackgroundColor3 = colors[math.floor(os.clock() / MUTATION_CYCLE_SECONDS) % #colors + 1]
+		end
+		ToolIcon.BackgroundTransparency = 0.18
+		applyCycleColor()
+
+		local animatedTool = tool
+		ToolMutationRenderConn = RunService.Heartbeat:Connect(function(): ()
+			if slot.Tool ~= animatedTool or not animatedTool.Parent or not ToolIcon.Parent then
+				disconnectToolMutationRender()
+				return
+			end
+			applyCycleColor()
+		end)
 	end
 
 	-- Adjust the slots to the centered

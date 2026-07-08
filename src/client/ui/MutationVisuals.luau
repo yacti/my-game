@@ -22,9 +22,11 @@ local OVERLAY_TRANSPARENCY = 0.25
 local MAX_VISUAL_DISTANCE = 80
 local SCOPE_RANGE = MAX_VISUAL_DISTANCE
 local REFRESH_SECONDS = 0.3
+local GRADIENT_CYCLE_SECONDS = 2
 local DEFAULT_EFFECT_REFERENCE_EXTENT = 4
 local MIN_EFFECT_SCALE = 0.2
 local MAX_EFFECT_SCALE = 1.5
+local EFFECT_SCALE_MULTIPLIER = 1.5
 local EFFECT_EXTENT_EPSILON = 0.01
 local VISIBLE_TRANSPARENCY_CUTOFF = 0.98
 
@@ -103,6 +105,8 @@ local function clearRecord(record)
 	record.effectExtent = nil
 	record.renderKey = nil
 	record.host = nil
+	record.overlayParts = nil
+	record.overlayColors = nil
 end
 
 local function playerPosition()
@@ -481,7 +485,7 @@ local function applyEffectScale(record)
 			local referenceExtent = finitePositiveNumber(entry.referenceExtent)
 				and entry.referenceExtent
 				or DEFAULT_EFFECT_REFERENCE_EXTENT
-			local scale = math.clamp(extent / referenceExtent, MIN_EFFECT_SCALE, MAX_EFFECT_SCALE)
+			local scale = math.clamp(extent / referenceExtent, MIN_EFFECT_SCALE, MAX_EFFECT_SCALE) * EFFECT_SCALE_MULTIPLIER
 			emitter.Size = scaledNumberSequence(entry.size, scale)
 		else
 			table.remove(record.scaledEmitters, index)
@@ -559,7 +563,21 @@ local function render(record)
 	clearRecord(record)
 
 	local folder = visualFolder(record, host)
-	createForceFieldOverlay(host, folder, primaryMutationId)
+	local overlay = createForceFieldOverlay(host, folder, primaryMutationId)
+	if overlay and #mutationIds >= 2 then
+		local overlayParts = {}
+		for _, part in ipairs(overlay:GetChildren()) do
+			if part:IsA("BasePart") then
+				overlayParts[#overlayParts + 1] = part
+			end
+		end
+		local overlayColors = table.create(#mutationIds)
+		for index, mutationId in ipairs(mutationIds) do
+			overlayColors[index] = overlayColorFor(mutationId)
+		end
+		record.overlayParts = overlayParts
+		record.overlayColors = overlayColors
+	end
 	for _, mutationId in ipairs(mutationIds) do
 		local template = Mutations.Template(mutationId)
 		if template then
@@ -696,6 +714,52 @@ function MutationVisuals.start()
 			end
 		end
 	end)
+
+	-- Stacked-mutation overlays cycle between their mutation colors like an
+	-- alternating gradient; single-mutation overlays keep their static color.
+	RuntimeGuard.Connect(RunService.Heartbeat, "MutationVisuals.OverlayGradient", function()
+		local phase = os.clock() / GRADIENT_CYCLE_SECONDS
+		for _, record in pairs(tracked) do
+			local colors = record.overlayColors
+			local parts = record.overlayParts
+			if colors and parts then
+				local count = #colors
+				local fromIndex = math.floor(phase) % count + 1
+				local toIndex = fromIndex % count + 1
+				local alpha = phase % 1
+				alpha = alpha * alpha * (3 - 2 * alpha)
+				local color = colors[fromIndex]:Lerp(colors[toIndex], alpha)
+				for index = #parts, 1, -1 do
+					local part = parts[index]
+					if part.Parent then
+						part.Color = color
+					else
+						table.remove(parts, index)
+					end
+				end
+			end
+		end
+	end)
+end
+
+function MutationVisuals.VisibleMutatedCrops()
+	local crops = {}
+	for target in pairs(tracked) do
+		if not target:IsA("Tool") and target:IsDescendantOf(Workspace) then
+			local mutationIds = Mutations.FromInstance(target)
+			if #mutationIds > 0 then
+				local part = firstBasePart(hostFor(target))
+				if part then
+					crops[#crops + 1] = {
+						target = target,
+						part = part,
+						mutationIds = mutationIds,
+					}
+				end
+			end
+		end
+	end
+	return crops
 end
 
 return MutationVisuals
