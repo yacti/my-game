@@ -24,11 +24,10 @@ local TORNADO_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.T
 local LOCAL_FOLDER_NAME = "__LocalTornado"
 local WIND_SOUND_NAME = "Wind"
 local FUNNEL_WIND_NAME = "__TornadoFunnelWind"
-local BACKING_TRACK_SOUND_IDS = {
-	"rbxassetid://792323017",
-	"rbxassetid://7128755882",
+local BACKING_TRACKS = {
+	{ soundId = "rbxassetid://792323017", volume = 0.2 }, -- Tornado Siren
+	{ soundId = "rbxassetid://7128755882", volume = 0.5 }, -- Storm Loop
 }
-local BACKING_TRACK_VOLUME = 0.35
 local FUNNEL_WIND_VOLUME = 0.9
 local DEFAULT_TORNADO_SOUND_RANGE = 500
 local MUTATE_BURST_LIFETIME = 2
@@ -202,20 +201,20 @@ local function startBackingTracks(token, seconds)
 	token.backingTracks = {}
 	token.backingTweens = {}
 	seconds = math.max(tonumber(seconds) or 0, 0)
-	for index, soundId in ipairs(BACKING_TRACK_SOUND_IDS) do
+	for index, track in ipairs(BACKING_TRACKS) do
 		local sound = Instance.new("Sound")
 		sound.Name = "__TornadoBackingTrack" .. index
-		sound.SoundId = soundId
+		sound.SoundId = track.soundId
 		sound.Volume = 0
 		sound.Looped = true
 		sound.Parent = SoundService
 		token.backingTracks[#token.backingTracks + 1] = sound
 		sound:Play()
 		if seconds <= 0 then
-			sound.Volume = BACKING_TRACK_VOLUME
+			sound.Volume = track.volume
 		else
 			local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-				Volume = BACKING_TRACK_VOLUME,
+				Volume = track.volume,
 			})
 			token.backingTweens[#token.backingTweens + 1] = tween
 			token.tweens[#token.tweens + 1] = tween
