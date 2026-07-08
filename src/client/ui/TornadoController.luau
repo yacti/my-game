@@ -23,9 +23,12 @@ local TORNADO_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.T
 
 local LOCAL_FOLDER_NAME = "__LocalTornado"
 local WIND_SOUND_NAME = "Wind"
-local BACKING_TRACK_NAME = "__TornadoWindBackingTrack"
 local FUNNEL_WIND_NAME = "__TornadoFunnelWind"
-local BACKING_TRACK_VOLUME_SCALE = 0.5
+local BACKING_TRACK_SOUND_IDS = {
+	"rbxassetid://792323017",
+	"rbxassetid://7128755882",
+}
+local BACKING_TRACK_VOLUME = 0.35
 local FUNNEL_WIND_VOLUME = 0.9
 local DEFAULT_TORNADO_SOUND_RANGE = 500
 local MUTATE_BURST_LIFETIME = 2
@@ -159,68 +162,66 @@ local function windSoundTemplate()
 	return nil
 end
 
-local function stopBackingTrack(token, seconds)
-	local sound = token and token.backingTrack
-	if not sound then
+local function stopBackingTracks(token, seconds)
+	local sounds = token and token.backingTracks
+	if not sounds then
 		return
 	end
-	if token.backingTween then
-		token.backingTween:Cancel()
-		token.backingTween = nil
+	token.backingTracks = nil
+	if token.backingTweens then
+		for _, tween in ipairs(token.backingTweens) do
+			tween:Cancel()
+		end
+		token.backingTweens = nil
 	end
 	seconds = math.max(tonumber(seconds) or 0, 0)
-	if seconds <= 0 then
-		sound:Stop()
-		sound:Destroy()
-		token.backingTrack = nil
-		return
-	end
-	local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-		Volume = 0,
-	})
-	token.backingTween = tween
-	token.tweens[#token.tweens + 1] = tween
-	tween.Completed:Connect(function()
-		if token.backingTrack == sound then
-			token.backingTrack = nil
-			token.backingTween = nil
-		end
-		if sound.Parent then
+	for _, sound in ipairs(sounds) do
+		if seconds <= 0 then
 			sound:Stop()
 			sound:Destroy()
+		else
+			local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+				Volume = 0,
+			})
+			token.tweens[#token.tweens + 1] = tween
+			tween.Completed:Connect(function()
+				if sound.Parent then
+					sound:Stop()
+					sound:Destroy()
+				end
+			end)
+			tween:Play()
 		end
-	end)
-	tween:Play()
+	end
 end
 
-local function startBackingTrack(token, seconds)
-	if token.backingTrack then
+local function startBackingTracks(token, seconds)
+	if token.backingTracks then
 		return
 	end
-	local template = windSoundTemplate()
-	if not template then
-		return
-	end
-	local sound = template:Clone()
-	sound.Name = BACKING_TRACK_NAME
-	sound.Looped = true
-	sound.Volume = 0
-	sound.Parent = SoundService
-	token.backingTrack = sound
-	sound:Play()
-
-	local targetVolume = (tonumber(template.Volume) or 0.5) * BACKING_TRACK_VOLUME_SCALE
+	token.backingTracks = {}
+	token.backingTweens = {}
 	seconds = math.max(tonumber(seconds) or 0, 0)
-	if seconds <= 0 then
-		sound.Volume = targetVolume
-		return
+	for index, soundId in ipairs(BACKING_TRACK_SOUND_IDS) do
+		local sound = Instance.new("Sound")
+		sound.Name = "__TornadoBackingTrack" .. index
+		sound.SoundId = soundId
+		sound.Volume = 0
+		sound.Looped = true
+		sound.Parent = SoundService
+		token.backingTracks[#token.backingTracks + 1] = sound
+		sound:Play()
+		if seconds <= 0 then
+			sound.Volume = BACKING_TRACK_VOLUME
+		else
+			local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+				Volume = BACKING_TRACK_VOLUME,
+			})
+			token.backingTweens[#token.backingTweens + 1] = tween
+			token.tweens[#token.tweens + 1] = tween
+			tween:Play()
+		end
 	end
-	local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-		Volume = targetVolume,
-	})
-	token.backingTween = tween
-	token.tweens[#token.tweens + 1] = tween
-	tween:Play()
 end
 
 local function ensureCloud(token)
@@ -388,7 +389,7 @@ local function cleanupToken(token)
 	for _, tween in ipairs(token.tweens) do
 		tween:Cancel()
 	end
-	stopBackingTrack(token, 0)
+	stopBackingTracks(token, 0)
 	if token.funnelConnection then
 		token.funnelConnection:Disconnect()
 		token.funnelConnection = nil
@@ -425,7 +426,7 @@ local function beginTornado(payload)
 	activeToken = token
 	local windUpSeconds = tonumber(token.settings.windUpSeconds) or 0
 	EventLighting.Claim(GameEvents.Ids.Tornado, "Tornado", TORNADO_LIGHTING_PRIORITY, windUpSeconds)
-	startBackingTrack(token, windUpSeconds)
+	startBackingTracks(token, windUpSeconds)
 	ensureCloud(token)
 	ensureFunnel(token)
 end
@@ -489,7 +490,7 @@ local function handleWindDown(payload)
 	local endsAt = type(payload) == "table" and tonumber(payload.endsAt) or nil
 	local seconds = math.max(endsAt and (endsAt - serverNow()) or 0, 0)
 	EventLighting.Release(GameEvents.Ids.Tornado, seconds)
-	stopBackingTrack(activeToken, seconds)
+	stopBackingTracks(activeToken, seconds)
 	local turn = activeToken.turn
 	if turn then
 		local fadeSeconds = math.max(tonumber(activeToken.settings and activeToken.settings.funnelFadeSeconds) or 0.75, 0.05)
