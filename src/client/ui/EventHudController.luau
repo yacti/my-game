@@ -30,6 +30,7 @@ local EVENT_TIMER_NAMES = {
 	[GameEvents.Ids.Stormy] = "Storm",
 	[GameEvents.Ids.Tornado] = "Tornado",
 	[GameEvents.Ids.Tsunami] = "Tsunami",
+	[GameEvents.Ids.Earthquake] = "Earthquake",
 	[GameEvents.Ids.Alien] = "Alien",
 }
 

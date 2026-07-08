@@ -438,6 +438,32 @@ local function validateTsunamiAssets(errors)
 	end
 end
 
+local function validateEarthquakeAssets(errors)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Earthquake", errors)
+	end
+
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", errors)
+	local eventVfx = assetRoot and child(assetRoot, "EventVFX", "Folder", errors)
+	local earthquakeEvent = eventVfx and child(eventVfx, "EarthquakeEvent", "Folder", errors)
+	if earthquakeEvent and not hasDescendantOfClass(earthquakeEvent, "ParticleEmitter") then
+		add(errors, earthquakeEvent:GetFullName() .. " must contain a ParticleEmitter")
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local shaken = child(mutations, "Shaken", nil, errors)
+	if shaken then
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Shaken)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid configured %s %q", shaken:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(shaken, "ParticleEmitter") then
+			add(errors, shaken:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+end
+
 local function validateMusicPlaylist(errors)
 	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
 	if not soundRoot then
@@ -1778,6 +1804,7 @@ local function validateTopBarEventHud(hud, warnings)
 		child(currentEvent, "Stormy", "GuiObject", warnings)
 		child(currentEvent, "Tornado", "GuiObject", warnings)
 		child(currentEvent, "Tsunami", "GuiObject", warnings)
+		child(currentEvent, "Earthquake", "GuiObject", warnings)
 		child(currentEvent, "Alien", "GuiObject", warnings)
 	end
 
@@ -2706,6 +2733,7 @@ function AssetValidator.validate()
 	validateAlienEventAssets(errors)
 	validateTornadoAssets(errors)
 	validateTsunamiAssets(errors)
+	validateEarthquakeAssets(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)

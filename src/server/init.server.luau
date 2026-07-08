@@ -24,6 +24,7 @@ local CashPackShopService = require(Server:WaitForChild("CashPackShopService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
 local PlotWindService   = require(Server:WaitForChild("PlotWindService"))
+local PlotEarthquakeService = require(Server:WaitForChild("PlotEarthquakeService"))
 local GameEventService  = require(Server:WaitForChild("GameEventService"))
 local LiveEventCommandService = require(Server:WaitForChild("LiveEventCommandService"))
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
@@ -84,6 +85,7 @@ local GridUnlockEffect = Remotes.get(Remotes.Names.GridUnlockEffect)
 local PetBillboardFeedEffect = Remotes.get(Remotes.Names.PetBillboardFeedEffect)
 local PromptInteractEffect = Remotes.get(Remotes.Names.PromptInteractEffect)
 local PlotStressTest = nil
+local GameEventDev = nil
 local AnimalAmbientSoundService = require(Server:WaitForChild("AnimalAmbientSoundService"))
 
 if RunService:IsStudio() then
@@ -91,6 +93,10 @@ if RunService:IsStudio() then
 	local stressModule = devFolder and devFolder:FindFirstChild("PlotStressTest")
 	if stressModule and stressModule:IsA("ModuleScript") then
 		PlotStressTest = require(stressModule)
+	end
+	local gameEventDevModule = devFolder and devFolder:FindFirstChild("GameEventDev")
+	if gameEventDevModule and gameEventDevModule:IsA("ModuleScript") then
+		GameEventDev = require(gameEventDevModule)
 	end
 end
 
@@ -977,6 +983,7 @@ local function teardownPlayerState(player, plot, profile, options)
 	end
 	clearPendingPetFeedSnapshot(player)
 	RuntimeGuard.Run("PlayerTeardown.StopPlotWind." .. label, PlotWindService.StopForPlayer, player)
+	RuntimeGuard.Run("PlayerTeardown.StopPlotEarthquake." .. label, PlotEarthquakeService.StopForPlayer, player)
 	RuntimeGuard.Run("PlayerTeardown.ClearOfflineProgress." .. label, OfflineProgressService.Clear, player)
 	if plot then
 		RuntimeGuard.Run("PlayerTeardown.UnregisterPets." .. label, PetMotionService.UnregisterPlot, plot)
@@ -1132,6 +1139,7 @@ local function handlePlayerAdded(player)
 		startPetCollectionLoop(player, plot, profile)
 		startProfileSnapshotLoop(player, plot, profile)
 		RuntimeGuard.Run("PlotWindService.StartForPlayer." .. label, PlotWindService.StartForPlayer, player, plot)
+		RuntimeGuard.Run("PlotEarthquakeService.StartForPlayer." .. label, PlotEarthquakeService.StartForPlayer, player, plot)
 
 		local afkRejoinRestored = false
 
@@ -1513,4 +1521,8 @@ end)
 
 if PlotStressTest then
 	RuntimeGuard.Run("PlotStressTest.Watch", PlotStressTest.Watch)
+end
+
+if GameEventDev then
+	RuntimeGuard.Run("GameEventDev.Watch", GameEventDev.Watch)
 end

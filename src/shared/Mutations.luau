@@ -10,6 +10,7 @@ Mutations.Ids = {
 	Alien = "Alien",
 	Twisted = "Twisted",
 	Aqua = "Aqua",
+	Shaken = "Shaken",
 }
 
 Mutations.DisplayColors = {
@@ -17,6 +18,7 @@ Mutations.DisplayColors = {
 	[Mutations.Ids.Alien] = Color3.fromRGB(107, 255, 137),
 	[Mutations.Ids.Twisted] = Color3.fromRGB(163, 171, 184),
 	[Mutations.Ids.Aqua] = Color3.fromRGB(72, 219, 251),
+	[Mutations.Ids.Shaken] = Color3.fromRGB(191, 0, 255),
 }
 
 Mutations.XPMultipliers = {
@@ -24,6 +26,7 @@ Mutations.XPMultipliers = {
 	[Mutations.Ids.Alien] = 6,
 	[Mutations.Ids.Twisted] = 5,
 	[Mutations.Ids.Aqua] = 5,
+	[Mutations.Ids.Shaken] = 5,
 }
 
 local function mutationRoot()

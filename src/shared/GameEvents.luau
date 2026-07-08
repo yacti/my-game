@@ -22,6 +22,7 @@ GameEvents.Ids = {
 	Stormy = "Stormy",
 	Tornado = "Tornado",
 	Tsunami = "Tsunami",
+	Earthquake = "Earthquake",
 	Alien = "Alien",
 }
 
@@ -146,6 +147,27 @@ GameEvents.EventConfigs = {
 			lightingTweenOutSeconds = 3,
 		},
 	},
+	[GameEvents.Ids.Earthquake] = {
+		eventId = GameEvents.Ids.Earthquake,
+		layer = GameEvents.Layers.Weather,
+		source = GameEvents.Sources.AdminCommand,
+		displayFrame = "Earthquake",
+		-- No cadenceSeconds: WeatherSnapshot never auto-schedules this event, so
+		-- it only runs via GameEventService.StartManualEvent("Earthquake").
+		priority = 5,
+		displayPriority = 5,
+		preNoticeSeconds = 5,
+		preNoticeText = "The ground begins to tremble...",
+		appliedMutationId = "Shaken",
+		earthquake = {
+			windUpSeconds = 6,
+			durationSeconds = 30,
+			windDownSeconds = 4,
+			minMutationsPerPlot = 2,
+			maxMutationsPerPlot = 5,
+			targetRetrySeconds = 2,
+		},
+	},
 	[GameEvents.Ids.Alien] = {
 		eventId = GameEvents.Ids.Alien,
 		layer = GameEvents.Layers.Chaos,
@@ -199,6 +221,9 @@ function GameEvents.TotalDuration(config)
 	end
 	if type(config.tsunami) == "table" then
 		return select(4, GameEvents.TsunamiTimings(config))
+	end
+	if type(config.earthquake) == "table" then
+		return select(4, GameEvents.EarthquakeTimings(config))
 	end
 	if type(config.alien) == "table" then
 		return select(4, GameEvents.AlienTimings(config))
@@ -310,6 +335,16 @@ function GameEvents.TsunamiTimings(config)
 	local underwater = math.max(numeric(tsunami.underwaterSeconds, 120), 0)
 	local active = travel + underwater
 	local windDown = math.max(numeric(tsunami.windDownSeconds, 5), 0)
+	return windUp, active, windDown, windUp + active + windDown
+end
+
+function GameEvents.EarthquakeTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Earthquake)
+	local earthquake = type(config) == "table" and config.earthquake or nil
+	earthquake = type(earthquake) == "table" and earthquake or {}
+	local windUp = math.max(numeric(earthquake.windUpSeconds, 6), 0)
+	local active = math.max(numeric(earthquake.durationSeconds, 30), 0)
+	local windDown = math.max(numeric(earthquake.windDownSeconds, 4), 0)
 	return windUp, active, windDown, windUp + active + windDown
 end
 

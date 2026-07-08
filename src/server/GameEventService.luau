@@ -3,6 +3,7 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
+local PlotEarthquakeService = require(Server:WaitForChild("PlotEarthquakeService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotTornadoService = require(Server:WaitForChild("PlotTornadoService"))
 local PlotTsunamiService = require(Server:WaitForChild("PlotTsunamiService"))
@@ -293,6 +294,13 @@ local handlers = {
 		end,
 		stop = PlotTsunamiService.StopTsunami,
 		preNotice = PlotTsunamiService.NotifyTsunamiApproaching,
+	},
+	[GameEvents.Ids.Earthquake] = {
+		start = function(record, callbacks)
+			PlotEarthquakeService.StartEarthquake(record, callbacks)
+		end,
+		stop = PlotEarthquakeService.StopEarthquake,
+		preNotice = PlotEarthquakeService.NotifyEarthquakeStarting,
 	},
 	[GameEvents.Ids.Alien] = {
 		start = function(record, callbacks)
