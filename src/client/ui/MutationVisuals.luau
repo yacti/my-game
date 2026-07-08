@@ -276,6 +276,10 @@ local function stripOverlayPartDescendant(descendant)
 	if descendant:IsA("Decal")
 		or descendant:IsA("Texture")
 		or descendant:IsA("SurfaceAppearance")
+		-- Client-local billboards (tool XP badges, fruit pile XP) ride inside
+		-- the cloned host and would render as frozen duplicates.
+		or descendant:IsA("BillboardGui")
+		or descendant:IsA("SurfaceGui")
 		or descendant:IsA("ParticleEmitter")
 		or descendant:IsA("Beam")
 		or descendant:IsA("Trail")
@@ -368,6 +372,14 @@ local function pivotForOverlay(source)
 	end)
 	if boundsOk and typeof(boundsCF) == "CFrame" then
 		return boundsCF
+	end
+
+	-- Tools have no GetPivot/GetBoundingBox; anchor the overlay to the handle
+	-- rather than falling back to the world origin, which strands the shell
+	-- 10% of the origin distance away from the tool.
+	local part = firstBasePart(source)
+	if part then
+		return part.CFrame
 	end
 
 	return CFrame.new()
