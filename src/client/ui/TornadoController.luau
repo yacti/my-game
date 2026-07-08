@@ -264,6 +264,17 @@ local function funnelVisibility(token, now)
 	return math.min(fadeIn, fadeOut)
 end
 
+local function smoothstep(alpha)
+	alpha = math.clamp(alpha, 0, 1)
+	return alpha * alpha * (3 - 2 * alpha)
+end
+
+local function wanderBboxCFrame(token, turn, offset)
+	return turn.floorCFrame
+		* CFrame.new(offset.X, turn.floorSize.Y / 2 + token.funnelSize.Y / 2, offset.Y)
+		* CFrame.Angles(0, token.spinAngle, 0)
+end
+
 local function updateFunnel(token, deltaTime)
 	local funnel = token.funnel
 	if not (funnel and funnel.Parent) then
@@ -271,7 +282,11 @@ local function updateFunnel(token, deltaTime)
 	end
 	local now = serverNow()
 	local visibility = funnelVisibility(token, now)
+	-- Rate-limit upward jumps so a plot-to-plot hand-off (mid-fade-out swap to
+	-- an instantly-visible travel turn) re-brightens smoothly instead of popping.
+	visibility = math.min(visibility, (token.lastVisibility or 0) + deltaTime / 0.3)
 	applyVisibility(token.funnelOriginals, visibility)
+	token.lastVisibility = visibility
 	if token.funnelWind then
 		token.funnelWind.Volume = FUNNEL_WIND_VOLUME * visibility
 	end
@@ -283,15 +298,24 @@ local function updateFunnel(token, deltaTime)
 	local spinSpeed = math.max(tonumber(token.settings and token.settings.spinRevolutionsPerSecond) or 1.5, 0)
 	token.spinAngle = (token.spinAngle or 0) + deltaTime * 2 * math.pi * spinSpeed
 
-	local waypointSeconds = math.max(tonumber(token.settings and token.settings.wanderWaypointSeconds) or 2.5, 0.1)
-	local progress = math.max(now - turn.startsAt, 0) / waypointSeconds
-	local index = math.clamp(math.floor(progress) + 1, 1, #turn.waypoints - 1)
-	local alpha = math.clamp(progress - (index - 1), 0, 1)
-	alpha = alpha * alpha * (3 - 2 * alpha)
-	local offset = turn.waypoints[index]:Lerp(turn.waypoints[index + 1], alpha)
-	local bboxCFrame = turn.floorCFrame
-		* CFrame.new(offset.X, turn.floorSize.Y / 2 + token.funnelSize.Y / 2, offset.Y)
-		* CFrame.Angles(0, token.spinAngle, 0)
+	local bboxCFrame
+	if turn.travelFromWorld and now < turn.wanderStartsAt then
+		-- Travelling between plots: glide from the previous plot toward the
+		-- first waypoint on the new plot, still spinning and fully visible.
+		local travelAlpha = smoothstep((now - turn.startsAt) / math.max(turn.wanderStartsAt - turn.startsAt, 0.05))
+		local target = wanderBboxCFrame(token, turn, turn.waypoints[1])
+		bboxCFrame = CFrame.new(turn.travelFromWorld:Lerp(target.Position, travelAlpha))
+			* turn.floorCFrame.Rotation
+			* CFrame.Angles(0, token.spinAngle, 0)
+	else
+		local waypointSeconds = math.max(tonumber(token.settings and token.settings.wanderWaypointSeconds) or 2.5, 0.1)
+		local progress = math.max(now - turn.wanderStartsAt, 0) / waypointSeconds
+		local index = math.clamp(math.floor(progress) + 1, 1, #turn.waypoints - 1)
+		local alpha = smoothstep(math.clamp(progress - (index - 1), 0, 1))
+		local offset = turn.waypoints[index]:Lerp(turn.waypoints[index + 1], alpha)
+		bboxCFrame = wanderBboxCFrame(token, turn, offset)
+	end
+	token.lastBboxPosition = bboxCFrame.Position
 	funnel:PivotTo(bboxCFrame * token.funnelPivotFromBbox)
 end
 
@@ -354,7 +378,7 @@ local function sanitizeWaypoints(waypoints)
 	return sanitized
 end
 
-local function buildTurn(token, floorCFrame, floorSize, waypoints, startsAt, endsAt)
+local function buildTurn(token, floorCFrame, floorSize, waypoints, travelSeconds, startsAt, endsAt)
 	if typeof(floorCFrame) ~= "CFrame" or typeof(floorSize) ~= "Vector3" then
 		return nil
 	end
@@ -371,10 +395,23 @@ local function buildTurn(token, floorCFrame, floorSize, waypoints, startsAt, end
 		return nil
 	end
 	local touchdownSeconds = math.max(tonumber(token.settings and token.settings.funnelTouchdownSeconds) or 1, 0)
+	travelSeconds = math.max(tonumber(travelSeconds) or touchdownSeconds, 0)
+	local wanderStartsAt = startsAt + travelSeconds
+	-- If the funnel was on another plot moments ago, glide from its last
+	-- position instead of fading out and respawning. Gated on turn recency
+	-- rather than visibility: back-to-back turns arrive just as the previous
+	-- fade-out completes.
+	local travelFromWorld = nil
+	local previousTurn = token.turn
+	if token.lastBboxPosition and previousTurn and previousTurn.endsAt + 3 > startsAt then
+		travelFromWorld = token.lastBboxPosition
+	end
 	return {
 		startsAt = startsAt,
 		endsAt = endsAt,
-		appearAt = startsAt + touchdownSeconds,
+		appearAt = travelFromWorld and startsAt or wanderStartsAt,
+		wanderStartsAt = wanderStartsAt,
+		travelFromWorld = travelFromWorld,
 		floorCFrame = floorCFrame,
 		floorSize = floorSize,
 		waypoints = waypoints,
@@ -443,7 +480,7 @@ local function handlePlotTurn(payload)
 	if not ensureFunnel(token) then
 		return
 	end
-	local turn = buildTurn(token, payload.floorCFrame, payload.floorSize, payload.waypoints, payload.startsAt, payload.endsAt)
+	local turn = buildTurn(token, payload.floorCFrame, payload.floorSize, payload.waypoints, payload.travelSeconds, payload.startsAt, payload.endsAt)
 	if not turn then
 		return
 	end
@@ -516,6 +553,7 @@ local function handleSync(payload)
 				payload.currentFloorCFrame,
 				payload.currentFloorSize,
 				payload.currentWaypoints,
+				payload.currentTravelSeconds,
 				payload.currentTurnStartsAt,
 				payload.currentTurnEndsAt
 			)

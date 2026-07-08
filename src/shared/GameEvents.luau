@@ -110,6 +110,7 @@ GameEvents.EventConfigs = {
 			targetRetrySeconds = 2,
 			tornadoSoundRange = 500,
 			funnelTouchdownSeconds = 1,
+			funnelTravelSeconds = 4,
 			funnelFadeSeconds = 0.75,
 			wanderWaypointSeconds = 2.5,
 			spinRevolutionsPerSecond = 1.5,

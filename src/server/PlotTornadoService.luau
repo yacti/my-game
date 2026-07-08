@@ -95,6 +95,7 @@ local function settingsFor()
 		targetRetrySeconds = math.max(numberValue(tornado.targetRetrySeconds, 2), 0),
 		tornadoSoundRange = math.max(numberValue(tornado.tornadoSoundRange, 500), 0),
 		funnelTouchdownSeconds = math.max(numberValue(tornado.funnelTouchdownSeconds, 1), 0),
+		funnelTravelSeconds = math.max(numberValue(tornado.funnelTravelSeconds, 4), 0),
 		funnelFadeSeconds = math.max(numberValue(tornado.funnelFadeSeconds, 0.75), 0),
 		wanderWaypointSeconds = math.max(numberValue(tornado.wanderWaypointSeconds, 2.5), 0.1),
 		spinRevolutionsPerSecond = math.max(numberValue(tornado.spinRevolutionsPerSecond, 1.5), 0),
@@ -219,6 +220,7 @@ local function syncPayload(session)
 		currentFloorCFrame = session.currentFloorCFrame,
 		currentFloorSize = session.currentFloorSize,
 		currentWaypoints = session.currentWaypoints,
+		currentTravelSeconds = session.currentTravelSeconds,
 	}
 end
 
@@ -397,6 +399,7 @@ local function clearTurnState(session)
 	session.currentFloorCFrame = nil
 	session.currentFloorSize = nil
 	session.currentWaypoints = nil
+	session.currentTravelSeconds = nil
 end
 
 -- Waypoints are floor-local Vector2s constrained to the plot's unlocked grid
@@ -447,6 +450,11 @@ local function runPlotTurn(session, entry)
 	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.endsAt - session.settings.windDownSeconds)
 	local mutationCount = rng:NextInteger(session.settings.minMutationsPerPlot, session.settings.maxMutationsPerPlot)
 	local waypoints = buildWanderWaypoints(session, entry.plot, turnEndsAt - turnStartsAt)
+	-- The funnel touches down quickly on the first plot, then travels visibly
+	-- from plot to plot; mutations hold until it arrives.
+	local travelSeconds = session.ranAnyPlotTurn and session.settings.funnelTravelSeconds
+		or session.settings.funnelTouchdownSeconds
+	session.ranAnyPlotTurn = true
 	session.phase = "plotTurn"
 	session.currentPlotCenter = entry.plotCenter
 	session.currentTurnStartsAt = turnStartsAt
@@ -454,6 +462,7 @@ local function runPlotTurn(session, entry)
 	session.currentFloorCFrame = floor.CFrame
 	session.currentFloorSize = floor.Size
 	session.currentWaypoints = waypoints
+	session.currentTravelSeconds = travelSeconds
 	fireViewers(session, "plotTurn", {
 		instanceId = session.instanceId,
 		userId = entry.userId,
@@ -462,6 +471,7 @@ local function runPlotTurn(session, entry)
 		floorCFrame = floor.CFrame,
 		floorSize = floor.Size,
 		waypoints = waypoints,
+		travelSeconds = travelSeconds,
 		startsAt = turnStartsAt,
 		endsAt = turnEndsAt,
 		settings = session.publicSettings,
@@ -469,7 +479,7 @@ local function runPlotTurn(session, entry)
 	local displayName = entry.player.DisplayName ~= "" and entry.player.DisplayName or entry.player.Name
 	notifyViewers(session, string.format("The tornado is now over %s's plot", displayName), 5)
 
-	if not cancellableWait(session, math.min(session.settings.funnelTouchdownSeconds, math.max(turnEndsAt - serverNow(), 0))) then
+	if not cancellableWait(session, math.min(travelSeconds, math.max(turnEndsAt - serverNow(), 0))) then
 		return false
 	end
 
@@ -628,6 +638,7 @@ function PlotTornadoService.StartTornado(eventRecord, callbacks)
 		snapshotTokens = {},
 		cancelled = false,
 		suppressedActiveRecord = false,
+		ranAnyPlotTurn = false,
 		phase = "idle",
 	}
 	session.suppressActiveRecord = function()
