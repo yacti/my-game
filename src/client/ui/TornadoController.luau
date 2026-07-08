@@ -29,6 +29,7 @@ local BACKING_TRACKS = {
 	{ soundId = "rbxassetid://7128755882", volume = 0.5 }, -- Storm Loop
 }
 local FUNNEL_WIND_VOLUME = 0.9
+local FUNNEL_GROUND_SINK_STUDS = 2
 local DEFAULT_TORNADO_SOUND_RANGE = 500
 local MUTATE_BURST_LIFETIME = 2
 local WAIT_SECONDS = 10
@@ -312,7 +313,7 @@ end
 
 local function wanderBboxCFrame(token, turn, offset)
 	return turn.floorCFrame
-		* CFrame.new(offset.X, turn.floorSize.Y / 2 + token.funnelSize.Y / 2, offset.Y)
+		* CFrame.new(offset.X, turn.floorSize.Y / 2 + token.funnelSize.Y / 2 - FUNNEL_GROUND_SINK_STUDS, offset.Y)
 		* CFrame.Angles(0, token.spinAngle, 0)
 end
 
