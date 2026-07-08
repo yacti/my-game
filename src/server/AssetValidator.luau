@@ -401,6 +401,43 @@ local function validateTornadoAssets(errors)
 	-- REQUIRED_CLIENT_SOUNDS.
 end
 
+local function validateTsunamiAssets(errors)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Tsunami", errors)
+	end
+
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
+	local wave = child(misc, "Tsunami", "Model", errors)
+	if wave then
+		child(wave, "TsunamiMesh", "BasePart", errors)
+		child(wave, "TouchPart", "BasePart", errors)
+		child(wave, "TsunamiEnd", "BasePart", errors)
+	end
+
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", errors)
+	local eventVfx = assetRoot and child(assetRoot, "EventVFX", "Folder", errors)
+	local tsunamiEvent = eventVfx and child(eventVfx, "TsunamiEvent", "Folder", errors)
+	if tsunamiEvent then
+		local bubbles = child(tsunamiEvent, "Bubbles", "BasePart", errors)
+		if bubbles and not hasDescendantOfClass(bubbles, "ParticleEmitter") then
+			add(errors, bubbles:GetFullName() .. " must contain a ParticleEmitter")
+		end
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local aqua = child(mutations, "Aqua", nil, errors)
+	if aqua then
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Aqua)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid configured %s %q", aqua:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(aqua, "ParticleEmitter") then
+			add(errors, aqua:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+end
+
 local function validateMusicPlaylist(errors)
 	local soundRoot = ReplicatedStorage:FindFirstChild("Sounds")
 	if not soundRoot then
@@ -1740,6 +1777,7 @@ local function validateTopBarEventHud(hud, warnings)
 		child(currentEvent, "Windy", "GuiObject", warnings)
 		child(currentEvent, "Stormy", "GuiObject", warnings)
 		child(currentEvent, "Tornado", "GuiObject", warnings)
+		child(currentEvent, "Tsunami", "GuiObject", warnings)
 		child(currentEvent, "Alien", "GuiObject", warnings)
 	end
 
@@ -2667,6 +2705,7 @@ function AssetValidator.validate()
 	validateThunderstormAssets(errors, warnings)
 	validateAlienEventAssets(errors)
 	validateTornadoAssets(errors)
+	validateTsunamiAssets(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)

@@ -74,6 +74,7 @@ local CONTROLLERS = {
 	"MutationVisuals",
 	"ThunderstormController",
 	"TornadoController",
+	"TsunamiController",
 	"PlotWindController",
 	"TimerBillboards",
 	"ProcessorVisuals",

@@ -1,3 +1,5 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local GameEvents = {}
 
 GameEvents.RuntimeFolderName = "GameEvents"
@@ -19,6 +21,7 @@ GameEvents.Ids = {
 	Windy = "Windy",
 	Stormy = "Stormy",
 	Tornado = "Tornado",
+	Tsunami = "Tsunami",
 	Alien = "Alien",
 }
 
@@ -116,6 +119,33 @@ GameEvents.EventConfigs = {
 			spinRevolutionsPerSecond = 1.5,
 		},
 	},
+	[GameEvents.Ids.Tsunami] = {
+		eventId = GameEvents.Ids.Tsunami,
+		layer = GameEvents.Layers.Weather,
+		source = GameEvents.Sources.AdminCommand,
+		displayFrame = "Tsunami",
+		-- No cadenceSeconds: WeatherSnapshot never auto-schedules this event, so
+		-- it only runs via GameEventService.StartManualEvent("Tsunami").
+		priority = 4,
+		displayPriority = 4,
+		preNoticeSeconds = 5,
+		preNoticeText = "A tsunami is approaching...",
+		appliedMutationId = "Aqua",
+		tsunami = {
+			windUpSeconds = 6,
+			windDownSeconds = 5,
+			studsPerSecond = 100,
+			underwaterSeconds = 120,
+			underwaterGravity = 25,
+			minMutationsPerPlot = 2,
+			maxMutationsPerPlot = 5,
+			targetRetrySeconds = 2,
+			hitCheckSeconds = 0.1,
+			entranceSinkStuds = 260,
+			lightingTweenInSeconds = 0.75,
+			lightingTweenOutSeconds = 3,
+		},
+	},
 	[GameEvents.Ids.Alien] = {
 		eventId = GameEvents.Ids.Alien,
 		layer = GameEvents.Layers.Chaos,
@@ -167,6 +197,9 @@ function GameEvents.TotalDuration(config)
 	if type(config.tornado) == "table" then
 		return select(4, GameEvents.TornadoTimings(config))
 	end
+	if type(config.tsunami) == "table" then
+		return select(4, GameEvents.TsunamiTimings(config))
+	end
 	if type(config.alien) == "table" then
 		return select(4, GameEvents.AlienTimings(config))
 	end
@@ -203,6 +236,81 @@ function GameEvents.TornadoTimings(config)
 	local maxTurns = math.max(math.floor(numeric(tornado.maxPlotTurns, 8)), 0)
 	local windDown = math.max(numeric(tornado.windDownSeconds, 10), 0)
 	return windUp, turn * maxTurns, windDown, windUp + (turn * maxTurns) + windDown
+end
+
+-- The tsunami wave's spawn, touch slab, and end line live on the Studio-owned
+-- template (ReplicatedStorage.Assets.Misc.Tsunami), which never moves during
+-- the event -- both server and client derive the identical deterministic wave
+-- position from it. The lookup is non-yielding with numeric fallbacks so a
+-- degraded require (tests, early boot) still gets sane values; only a
+-- successful read is cached. Slab math assumes the template's authored
+-- identity rotation (axis-aligned parts).
+local TSUNAMI_GEOMETRY_FALLBACK = {
+	meshStartZ = 1101.16,
+	endZ = -3466.53,
+	touchCenterX = 52.3,
+	touchCenterY = 42.75,
+	touchStartZ = 1178.3,
+	touchSizeX = 2047.9,
+	touchSizeY = 266.9,
+	touchSizeZ = 25.4,
+}
+
+local cachedTsunamiGeometry = nil
+
+function GameEvents.TsunamiGeometry()
+	if cachedTsunamiGeometry then
+		return cachedTsunamiGeometry
+	end
+	local geometry = nil
+	pcall(function()
+		local assets = ReplicatedStorage:FindFirstChild("Assets")
+		local misc = assets and assets:FindFirstChild("Misc")
+		local template = misc and misc:FindFirstChild("Tsunami")
+		local mesh = template and template:FindFirstChild("TsunamiMesh")
+		local touch = template and template:FindFirstChild("TouchPart")
+		local endMarker = template and template:FindFirstChild("TsunamiEnd")
+		if mesh and mesh:IsA("BasePart")
+			and touch and touch:IsA("BasePart")
+			and endMarker and endMarker:IsA("BasePart") then
+			geometry = {
+				meshStartZ = mesh.Position.Z,
+				endZ = endMarker.Position.Z,
+				touchCenterX = touch.Position.X,
+				touchCenterY = touch.Position.Y,
+				touchStartZ = touch.Position.Z,
+				touchSizeX = touch.Size.X,
+				touchSizeY = touch.Size.Y,
+				touchSizeZ = touch.Size.Z,
+			}
+		end
+	end)
+	if geometry then
+		cachedTsunamiGeometry = geometry
+		return geometry
+	end
+	return TSUNAMI_GEOMETRY_FALLBACK
+end
+
+function GameEvents.TsunamiTravelSeconds(tsunami)
+	tsunami = type(tsunami) == "table" and tsunami or {}
+	local studsPerSecond = math.max(numeric(tsunami.studsPerSecond, 50), 1)
+	local geometry = GameEvents.TsunamiGeometry()
+	return math.max(geometry.meshStartZ - geometry.endZ, 0) / studsPerSecond
+end
+
+function GameEvents.TsunamiTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Tsunami)
+	local tsunami = type(config) == "table" and config.tsunami or nil
+	tsunami = type(tsunami) == "table" and tsunami or {}
+	local windUp = math.max(numeric(tsunami.windUpSeconds, 6), 0)
+	-- The active window covers the full wave sweep plus one underwater phase,
+	-- so players hit at the end of travel finish before the record ends.
+	local travel = GameEvents.TsunamiTravelSeconds(tsunami)
+	local underwater = math.max(numeric(tsunami.underwaterSeconds, 120), 0)
+	local active = travel + underwater
+	local windDown = math.max(numeric(tsunami.windDownSeconds, 5), 0)
+	return windUp, active, windDown, windUp + active + windDown
 end
 
 function GameEvents.AlienTimings(config)

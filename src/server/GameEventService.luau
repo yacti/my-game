@@ -5,6 +5,7 @@ local Server = script.Parent
 local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotTornadoService = require(Server:WaitForChild("PlotTornadoService"))
+local PlotTsunamiService = require(Server:WaitForChild("PlotTsunamiService"))
 local PlotWindService = require(Server:WaitForChild("PlotWindService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -285,6 +286,13 @@ local handlers = {
 		end,
 		stop = PlotTornadoService.StopTornado,
 		preNotice = PlotTornadoService.NotifyTornadoApproaching,
+	},
+	[GameEvents.Ids.Tsunami] = {
+		start = function(record, callbacks)
+			PlotTsunamiService.StartTsunami(record, callbacks)
+		end,
+		stop = PlotTsunamiService.StopTsunami,
+		preNotice = PlotTsunamiService.NotifyTsunamiApproaching,
 	},
 	[GameEvents.Ids.Alien] = {
 		start = function(record, callbacks)
