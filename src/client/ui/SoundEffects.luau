@@ -30,6 +30,7 @@ SoundEffects.Names = {
 	MailboxClose = "MailboxClose",
 	Wind = "Wind",
 	ThunderStrike = "ThunderStrike",
+	CrateDeposit = "CrateDeposit",
 }
 
 local function getSoundsFolder()

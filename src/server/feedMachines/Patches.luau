@@ -36,7 +36,7 @@ local Patches = {}
 
 local HARVEST_RESPAWN_DELAY = 3
 local NAV_BLOCK_SCALE_THRESHOLD = 1.5
-local OFFLINE_GROW_FRACTION = 0.02
+local OFFLINE_GROW_FRACTION = 0.04
 local EDIT_MODE_ATTR = "EditMode"
 local GROWING_SEED_PHASE = "GrowingSeed"
 

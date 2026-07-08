@@ -16,7 +16,6 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
-local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -27,6 +26,7 @@ local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
 local StormChaserController = {}
@@ -218,6 +218,7 @@ local function bindCrate(activeFolder, mutationId)
 	end
 
 	local record = {
+		body = body,
 		fill = fill,
 		maxSize = fill.Size,
 		bottomY = fill.Position.Y - fill.Size.Y / 2,
@@ -461,7 +462,9 @@ local function setupScientist(activeFolder)
 					UiEffects.SetTextStack(nameLabel, Seeds.DisplayNameFor(rewardSeedId))
 				end
 				if priceLabel then
-					UiEffects.SetTextStack(priceLabel, "Price: " .. NumberFormatter.Currency(Seeds.PriceFor(rewardSeedId) or 0))
+					-- StormChaser rewards are granted directly, never bought —
+					-- no price line on the preview card.
+					priceLabel.Visible = false
 				end
 				if chanceLabel then
 					UiEffects.SetTextStack(chanceLabel, "Event Reward")
@@ -550,10 +553,10 @@ local function setupScientist(activeFolder)
 				local currentEventId, slotStart = StormChaser.CurrentEvent(now)
 				local currentEndsAt = slotStart + GameEvents.TotalDuration(GameEvents.GetEvent(currentEventId))
 				if now < currentEndsAt then
-					timerLabel.Text = "Next event: NOW"
+					timerLabel.Text = "Next Natural Disaster: NOW"
 				else
 					local _, startsAt = StormChaser.NextEvent(now)
-					timerLabel.Text = "Next event: " .. GameEvents.FormatDuration(startsAt - now)
+					timerLabel.Text = "Next Natural Disaster: " .. GameEvents.FormatDuration(startsAt - now)
 				end
 				task.wait(COUNTDOWN_STEP_SECONDS)
 			end
@@ -582,6 +585,13 @@ function StormChaserController.start()
 			return
 		end
 		pendingRequestId = nil
+		if payload.success == true and payload.code == "deposited" then
+			local record = crates[payload.mutationId]
+			SoundEffects.PlayVaried(SoundEffects.Names.CrateDeposit, {
+				parent = record and record.body or nil,
+				range = 60,
+			})
+		end
 	end)
 
 	task.spawn(function()

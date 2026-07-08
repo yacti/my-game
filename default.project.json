@@ -329,6 +329,12 @@
             "Volume": 0.85
           }
         },
+        "CrateDeposit": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://133222321566847"
+          }
+        },
         "MusicPlaylist": {
           "$className": "Folder",
           "Track1": {

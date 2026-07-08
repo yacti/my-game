@@ -31,9 +31,9 @@ local TsunamiController = {}
 local TSUNAMI_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.Tsunami) or {}).priority) or 0
 
 local LOCAL_FOLDER_NAME = "__LocalTsunami"
-local SIREN_TRACK = { soundId = "rbxassetid://792323017", volume = 0.2 }
-local IMPACT_SOUND = { soundId = "rbxassetid://83673781452193", volume = 0.7 }
-local DRONE_TRACK = { soundId = "rbxassetid://94473522240855", volume = 0.5, fadeSeconds = 1 }
+local SIREN_TRACK = { soundId = "rbxassetid://792323017", volume = 0.15 }
+local IMPACT_SOUND = { soundId = "rbxassetid://83673781452193", volume = 0.525 }
+local DRONE_TRACK = { soundId = "rbxassetid://94473522240855", volume = 0.375, fadeSeconds = 1 }
 local SIREN_STOP_SECONDS = 0.5
 local IMPACT_MAX_LIFETIME = 15
 local VFX_LINGER_SECONDS = 4

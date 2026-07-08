@@ -25,7 +25,7 @@ local LOCAL_FOLDER_NAME = "__LocalTornado"
 local WIND_SOUND_NAME = "Wind"
 local FUNNEL_WIND_NAME = "__TornadoFunnelWind"
 local BACKING_TRACKS = {
-	{ soundId = "rbxassetid://792323017", volume = 0.2 }, -- Tornado Siren
+	{ soundId = "rbxassetid://792323017", volume = 0.15 }, -- Tornado Siren
 	{ soundId = "rbxassetid://7128755882", volume = 0.5 }, -- Storm Loop
 }
 local FUNNEL_WIND_VOLUME = 0.9
