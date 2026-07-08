@@ -13,6 +13,11 @@ local UiEffects = {}
 
 local BUTTON_EFFECTS_ATTR = "UiEffectsButtonBound"
 local BILLBOARD_POP_ATTR = "UiEffectsBillboardPopBound"
+-- Authored size/MaxDistance stored on the billboard itself: attributes travel
+-- with clones and survive lost bookkeeping, so a billboard can always be
+-- restored to its true size instead of adopting a mid-animation one.
+local BILLBOARD_BASE_SIZE_ATTR = "UiEffectsBaseSize"
+local BILLBOARD_BASE_MAX_DISTANCE_ATTR = "UiEffectsBaseMaxDistance"
 local GENERATED_SCALE_ATTR = "UiEffectsGeneratedScale"
 
 local OPEN_TWEEN = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -76,8 +81,36 @@ local pressedButtons = setmetatable({}, { __mode = "k" })
 local billboardBaseSizes = setmetatable({}, { __mode = "k" })
 local billboardPopTokens = setmetatable({}, { __mode = "k" })
 local distanceBillboards = setmetatable({}, { __mode = "k" })
+-- Bound-state lives here rather than in the BILLBOARD_POP_ATTR attribute:
+-- attributes are copied by Clone(), so a clone of a bound billboard would
+-- otherwise look bound while having none of the per-instance state.
+local boundPopBillboards = setmetatable({}, { __mode = "k" })
 local inputEndedConnection = nil
 local billboardDistanceConnection = nil
+
+local function isDegenerateSize(size)
+	return size.X.Scale == 0 and size.X.Offset == 0 and size.Y.Scale == 0 and size.Y.Offset == 0
+end
+
+local function billboardBaseSize(billboard)
+	local cached = billboardBaseSizes[billboard]
+	if cached then
+		return cached
+	end
+	local stored = billboard:GetAttribute(BILLBOARD_BASE_SIZE_ATTR)
+	local base = typeof(stored) == "UDim2" and stored or billboard.Size
+	if isDegenerateSize(base) then
+		-- Never adopt a zeroed size as the authored size (e.g. a clone taken
+		-- while its source was distance-hidden): leave it uncached so a later
+		-- honest size can win.
+		return base
+	end
+	billboardBaseSizes[billboard] = base
+	if typeof(stored) ~= "UDim2" then
+		billboard:SetAttribute(BILLBOARD_BASE_SIZE_ATTR, base)
+	end
+	return base
+end
 
 local function ensureInputEndedConnection()
 	if inputEndedConnection then
@@ -207,8 +240,7 @@ function UiEffects.PlayBillboardPop(billboard)
 		return nil
 	end
 
-	local baseSize = billboardBaseSizes[billboard] or billboard.Size
-	billboardBaseSizes[billboard] = baseSize
+	local baseSize = billboardBaseSize(billboard)
 
 	local token = (billboardPopTokens[billboard] or 0) + 1
 	billboardPopTokens[billboard] = token
@@ -232,9 +264,19 @@ function UiEffects.BindBillboardPop(billboard)
 	if not (billboard and billboard:IsA("BillboardGui")) then
 		return
 	end
-	if billboard:GetAttribute(BILLBOARD_POP_ATTR) == true then
+	if boundPopBillboards[billboard] then
 		return
 	end
+	if billboard:GetAttribute(BILLBOARD_POP_ATTR) == true then
+		-- Clone of a bound billboard: the attribute travelled with Clone()
+		-- but none of the per-instance state did. Restore the authored size
+		-- (the clone may have been taken mid-pop or while hidden) and rebind.
+		local stored = billboard:GetAttribute(BILLBOARD_BASE_SIZE_ATTR)
+		if typeof(stored) == "UDim2" and not isDegenerateSize(stored) then
+			billboard.Size = stored
+		end
+	end
+	boundPopBillboards[billboard] = true
 	billboard:SetAttribute(BILLBOARD_POP_ATTR, true)
 
 	RuntimeGuard.Connect(billboard:GetPropertyChangedSignal("Enabled"), "UiEffects.BillboardEnabled", function()
@@ -254,12 +296,6 @@ function UiEffects.BindBillboardPop(billboard)
 			end
 		end)
 	end
-end
-
-local function billboardBaseSize(billboard)
-	local baseSize = billboardBaseSizes[billboard] or billboard.Size
-	billboardBaseSizes[billboard] = baseSize
-	return baseSize
 end
 
 local function nextBillboardToken(billboard)
@@ -333,6 +369,19 @@ local function updateDistanceBillboard(billboard)
 
 	if distanceBillboardShouldShow(billboard, record) then
 		if record.visible == true and billboard.Enabled then
+			-- Self-heal: state says visible, but something external zeroed
+			-- the size (clone inheritance, lost tween, outside writer).
+			-- Re-pop instead of trusting the flag, and log the drift once so
+			-- field reports of missing billboards carry the root cause.
+			if isDegenerateSize(billboard.Size) and not isDegenerateSize(billboardBaseSize(billboard)) then
+				if not record.healWarned then
+					record.healWarned = true
+					warn("[UiEffects] Healed billboard stuck at zero size: " .. billboard:GetFullName())
+				end
+				record.allowPop = true
+				UiEffects.PlayBillboardPop(billboard)
+				record.allowPop = false
+			end
 			return
 		end
 		record.visible = true
@@ -361,9 +410,11 @@ local function ensureBillboardDistanceConnection()
 		if elapsed < BILLBOARD_DISTANCE_CHECK_INTERVAL then return end
 		elapsed = 0
 		for billboard in pairs(distanceBillboards) do
-			if billboard.Parent == nil then
-				distanceBillboards[billboard] = nil
-			else
+			-- Skip while unparented rather than dropping the record: a
+			-- billboard mid-reparent would otherwise be orphaned at whatever
+			-- size the gate left it. Destroyed billboards clean up via their
+			-- Destroying connection.
+			if billboard.Parent ~= nil then
 				updateDistanceBillboard(billboard)
 			end
 		end
@@ -375,7 +426,13 @@ function UiEffects.BindBillboardDistancePop(billboard)
 		return
 	end
 
-	local maxDistance = billboard.MaxDistance
+	-- Prefer the stored authored MaxDistance: on a rebind (or a clone of a
+	-- managed billboard) the live property already holds the managed
+	-- sentinel, not the real gating distance.
+	local maxDistance = billboard:GetAttribute(BILLBOARD_BASE_MAX_DISTANCE_ATTR)
+	if type(maxDistance) ~= "number" or maxDistance <= 0 then
+		maxDistance = billboard.MaxDistance
+	end
 	if type(maxDistance) ~= "number" or maxDistance <= 0 then
 		return
 	end
@@ -389,6 +446,9 @@ function UiEffects.BindBillboardDistancePop(billboard)
 		closing = false,
 	}
 	distanceBillboards[billboard] = record
+	if maxDistance < math.huge then
+		billboard:SetAttribute(BILLBOARD_BASE_MAX_DISTANCE_ATTR, maxDistance)
+	end
 	billboard.MaxDistance = BILLBOARD_MANAGED_MAX_DISTANCE
 
 	RuntimeGuard.Connect(billboard:GetPropertyChangedSignal("Enabled"), "UiEffects.DistanceBillboardEnabled", function()
