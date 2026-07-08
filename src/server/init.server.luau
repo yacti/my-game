@@ -66,6 +66,7 @@ local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
+local StormChaserService = require(Server:WaitForChild("StormChaserService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local UpdateEventConfigService = require(Server:WaitForChild("UpdateEventConfigService"))
 local UpdateLogService = require(Server:WaitForChild("UpdateLogService"))
@@ -1490,6 +1491,13 @@ end)
 
 RuntimeGuard.Run("GiftService.Start", function()
 	GiftService.Start({
+		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
+
+RuntimeGuard.Run("StormChaserService.Start", function()
+	StormChaserService.Start({
 		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})

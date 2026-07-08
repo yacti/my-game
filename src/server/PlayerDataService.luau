@@ -14,12 +14,13 @@ local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
+local StormChaser = require(ReplicatedStorage.Shared:WaitForChild("StormChaser"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersistence"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 10
+local CURRENT_DATA_VERSION = 11
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -69,6 +70,9 @@ local DATA_TEMPLATE = {
 	-- profile migrated in). Never set nil: Reconcile would refill it from
 	-- this template and re-arm the guarantee.
 	PurpleAngelCrateGuaranteeAt = 12,
+	-- StormChaser event: current reward tier and per-mutation crate deposits,
+	-- e.g. { Tier = 1, Deposits = { Twisted = 3 } }. Tiers loop 1 -> 2 -> 1.
+	StormChaser = { Tier = 1, Deposits = {} },
 	Onboarding = Onboarding.DefaultState(),
 	JoinGroupRewardCollected = false,
 	LastSeenUpdateLogId = "",
@@ -338,6 +342,10 @@ local function migrateData(data)
 			if type(data.LifetimeCrateRolls) ~= "number" then
 				data.LifetimeCrateRolls = 0
 			end
+		elseif nextVersion == 11 then
+			if type(data.StormChaser) ~= "table" then
+				data.StormChaser = { Tier = 1, Deposits = {} }
+			end
 		end
 
 		version = nextVersion
@@ -580,6 +588,25 @@ local function sanitizePets(petsValue, rebirths)
 	return pets
 end
 
+local function sanitizeStormChaser(value)
+	local clean = { Tier = 1, Deposits = {} }
+	if type(value) ~= "table" then
+		return clean
+	end
+	clean.Tier = StormChaser.NormalizeTier(value.Tier)
+	if type(value.Deposits) == "table" then
+		for _, mutationId in ipairs(StormChaser.CrateMutationIds) do
+			local required = StormChaser.RequiredFor(clean.Tier, mutationId) or 0
+			local count = math.floor(tonumber(value.Deposits[mutationId]) or 0)
+			count = math.clamp(count, 0, required)
+			if count > 0 then
+				clean.Deposits[mutationId] = count
+			end
+		end
+	end
+	return clean
+end
+
 local function ensureValidData(profile)
 	migrateData(profile.Data)
 	profile:Reconcile()
@@ -773,6 +800,7 @@ local function ensureValidData(profile)
 	if not Onboarding.IsEnabled() then
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
+	profile.Data.StormChaser = sanitizeStormChaser(profile.Data.StormChaser)
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
 	if type(profile.Data.LastSeenUpdateLogId) ~= "string" then
 		profile.Data.LastSeenUpdateLogId = ""

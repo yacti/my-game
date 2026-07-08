@@ -11,6 +11,7 @@ local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local StormChaser = require(Shared:WaitForChild("StormChaser"))
 
 local PlayerReplicaService = {}
 
@@ -116,6 +117,23 @@ local function copyOnboardingState(value)
 	return Onboarding.SanitizeState(value, Onboarding.CompleteState())
 end
 
+local function copyStormChaser(value)
+	local copy = { Tier = 1, Deposits = {} }
+	if type(value) ~= "table" then
+		return copy
+	end
+	copy.Tier = StormChaser.NormalizeTier(value.Tier)
+	if type(value.Deposits) == "table" then
+		for _, mutationId in ipairs(StormChaser.CrateMutationIds) do
+			local count = integer(value.Deposits[mutationId], 0)
+			if count > 0 then
+				copy.Deposits[mutationId] = count
+			end
+		end
+	end
+	return copy
+end
+
 local function stateFromProfile(player, profile)
 	local data = profile and profile.Data or {}
 	local key = userKey(player)
@@ -134,6 +152,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
 		[PlayerState.Fields.StarterPackPurchases] = copyStarterPackPurchases(data.StarterPackPurchases),
+		[PlayerState.Fields.StormChaser] = copyStormChaser(data.StormChaser),
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),

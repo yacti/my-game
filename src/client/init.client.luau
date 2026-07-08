@@ -78,6 +78,7 @@ local CONTROLLERS = {
 	"TsunamiController",
 	"EarthquakeController",
 	"PlotWindController",
+	"StormChaserController",
 	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",

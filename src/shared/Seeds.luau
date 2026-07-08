@@ -11,6 +11,9 @@ Seeds.Attributes = {
 	RollChanceN = "RollChanceN",
 	Price = "Price",
 	Rarity = "Rarity",
+	-- Event-exclusive seeds (e.g. StormChaser rewards) never enter the crate
+	-- roll pool and may omit RollChanceN.
+	EventOnly = "EventOnly",
 }
 
 local root
@@ -143,6 +146,11 @@ function Seeds.RollChanceNFor(seedId)
 		return chanceN
 	end
 	return nil
+end
+
+function Seeds.IsEventOnly(seedId)
+	local template = Seeds.GetTemplate(seedId)
+	return template ~= nil and template:GetAttribute(Seeds.Attributes.EventOnly) == true
 end
 
 function Seeds.RarityFor(seedId)

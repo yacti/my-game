@@ -69,6 +69,8 @@ Remotes.Names = {
 	RebirthResult = "RebirthResult",
 	GiftRequest = "GiftRequest",
 	GiftResult = "GiftResult",
+	StormChaserDepositRequest = "StormChaserDepositRequest",
+	StormChaserDepositResult = "StormChaserDepositResult",
 }
 
 local Definitions = {
@@ -132,6 +134,8 @@ local Definitions = {
 	[Remotes.Names.RebirthResult] = "RemoteEvent",
 	[Remotes.Names.GiftRequest] = "RemoteEvent",
 	[Remotes.Names.GiftResult] = "RemoteEvent",
+	[Remotes.Names.StormChaserDepositRequest] = "RemoteEvent",
+	[Remotes.Names.StormChaserDepositResult] = "RemoteEvent",
 }
 
 local function getFolder()

@@ -97,8 +97,10 @@ GameEvents.EventConfigs = {
 		layer = GameEvents.Layers.Weather,
 		source = GameEvents.Sources.Schedule,
 		displayFrame = "Tornado",
-		cadenceSeconds = 60 * 60,
-		offsetSeconds = 0,
+		-- StormChaser rotation: Earthquake -> Tsunami -> Tornado, one per epoch
+		-- hour (slot = hour % 3), so each event recurs every 3 hours.
+		cadenceSeconds = 3 * 60 * 60,
+		offsetSeconds = 2 * 60 * 60,
 		priority = 3,
 		displayPriority = 3,
 		preNoticeSeconds = 5,
@@ -109,8 +111,8 @@ GameEvents.EventConfigs = {
 			plotTurnSeconds = 20,
 			maxPlotTurns = 8,
 			windDownSeconds = 10,
-			minMutationsPerPlot = 2,
-			maxMutationsPerPlot = 6,
+			minMutationsPerPlot = 5,
+			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
 			tornadoSoundRange = 500,
 			funnelTouchdownSeconds = 1,
@@ -123,10 +125,11 @@ GameEvents.EventConfigs = {
 	[GameEvents.Ids.Tsunami] = {
 		eventId = GameEvents.Ids.Tsunami,
 		layer = GameEvents.Layers.Weather,
-		source = GameEvents.Sources.AdminCommand,
+		source = GameEvents.Sources.Schedule,
 		displayFrame = "Tsunami",
-		-- No cadenceSeconds: WeatherSnapshot never auto-schedules this event, so
-		-- it only runs via GameEventService.StartManualEvent("Tsunami").
+		-- StormChaser rotation slot 1 (see Tornado comment).
+		cadenceSeconds = 3 * 60 * 60,
+		offsetSeconds = 60 * 60,
 		priority = 4,
 		displayPriority = 4,
 		preNoticeSeconds = 5,
@@ -138,8 +141,8 @@ GameEvents.EventConfigs = {
 			studsPerSecond = 100,
 			underwaterSeconds = 120,
 			underwaterGravity = 25,
-			minMutationsPerPlot = 2,
-			maxMutationsPerPlot = 5,
+			minMutationsPerPlot = 5,
+			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
 			hitCheckSeconds = 0.1,
 			entranceSinkStuds = 260,
@@ -150,10 +153,11 @@ GameEvents.EventConfigs = {
 	[GameEvents.Ids.Earthquake] = {
 		eventId = GameEvents.Ids.Earthquake,
 		layer = GameEvents.Layers.Weather,
-		source = GameEvents.Sources.AdminCommand,
+		source = GameEvents.Sources.Schedule,
 		displayFrame = "Earthquake",
-		-- No cadenceSeconds: WeatherSnapshot never auto-schedules this event, so
-		-- it only runs via GameEventService.StartManualEvent("Earthquake").
+		-- StormChaser rotation slot 0 (see Tornado comment).
+		cadenceSeconds = 3 * 60 * 60,
+		offsetSeconds = 0,
 		priority = 5,
 		displayPriority = 5,
 		preNoticeSeconds = 5,
@@ -163,8 +167,8 @@ GameEvents.EventConfigs = {
 			windUpSeconds = 6,
 			durationSeconds = 30,
 			windDownSeconds = 4,
-			minMutationsPerPlot = 2,
-			maxMutationsPerPlot = 5,
+			minMutationsPerPlot = 5,
+			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
 		},
 	},

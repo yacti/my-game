@@ -200,6 +200,12 @@
         },
         "GiftResult": {
           "$className": "RemoteEvent"
+        },
+        "StormChaserDepositRequest": {
+          "$className": "RemoteEvent"
+        },
+        "StormChaserDepositResult": {
+          "$className": "RemoteEvent"
         }
       },
       "Sounds": {

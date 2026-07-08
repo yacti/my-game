@@ -267,6 +267,9 @@ local function collectRollPool()
 	local entries = {}
 
 	for _, seedId in ipairs(Seeds.AllSeedIds()) do
+		if Seeds.IsEventOnly(seedId) then
+			continue
+		end
 		local feedType = Seeds.FeedTypeFor(seedId)
 		local feedClass = feedType and FeedMachines.GetClass(feedType)
 		local chanceN = Seeds.RollChanceNFor(seedId)

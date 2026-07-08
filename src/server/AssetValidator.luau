@@ -919,9 +919,16 @@ local function validateSeeds(errors)
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.GrowTime, tostring(growTime)))
 		end
 
+		local isEventOnly = template:GetAttribute(Seeds.Attributes.EventOnly) == true
 		local rollChanceN = template:GetAttribute(Seeds.Attributes.RollChanceN)
 		local rollProbability = RollChances.BaseWeightForChance(rollChanceN)
-		if not rollProbability then
+		if isEventOnly then
+			-- Event-exclusive seeds never enter the roll pool; they may omit
+			-- RollChanceN and must not count toward the roll probability sum.
+			if rollChanceN ~= nil then
+				add(errors, string.format("%s is %s but has %s set", template:GetFullName(), Seeds.Attributes.EventOnly, Seeds.Attributes.RollChanceN))
+			end
+		elseif not rollProbability then
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.RollChanceN, tostring(rollChanceN)))
 		else
 			explicitRollProbability += rollProbability
