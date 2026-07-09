@@ -107,6 +107,7 @@ local function clearRecord(record)
 	record.host = nil
 	record.overlayParts = nil
 	record.overlayColors = nil
+	record.overlayPairs = nil
 end
 
 local function playerPosition()
@@ -249,13 +250,12 @@ local function sourcePartsForOverlay(source)
 	return parts
 end
 
+-- Structural only (part count), deliberately not sizes: growing patch fruit is
+-- rescaled every XP tick by PatchSlotVisuals, and keying the render on extent
+-- made each tick tear down and rebuild the emitters, visibly wiping all live
+-- particles. Size changes are tracked in place by applyEffectScale instead.
 local function overlayGeometrySignature(source)
-	local parts = sourcePartsForOverlay(source)
-	local extent = 0
-	for _, part in ipairs(parts) do
-		extent = math.max(extent, maxDimension(part.Size))
-	end
-	return string.format("%d:%.3f", #parts, extent)
+	return tostring(#sourcePartsForOverlay(source))
 end
 
 local function setLocalMutationVisual(instance)
@@ -436,6 +436,7 @@ local function createForceFieldOverlay(source, folder, primaryMutationId)
 
 	local color = overlayColorFor(primaryMutationId)
 	local pivot = scaledWithInstance and nil or pivotForOverlay(source)
+	local overlayPairs = table.create(#cloneParts)
 	for index, clonePart in ipairs(cloneParts) do
 		local sourcePart = sourceParts[index]
 		if not scaledWithInstance then
@@ -450,45 +451,66 @@ local function createForceFieldOverlay(source, folder, primaryMutationId)
 		weld.Part0 = sourcePart
 		weld.Part1 = clonePart
 		weld.Parent = clonePart
+		overlayPairs[index] = { source = sourcePart, clone = clonePart }
 	end
 
 	if not clone:IsA("BasePart") then
 		clone:Destroy()
 	end
-	return overlay
+	return overlay, overlayPairs
 end
 
 local function registerScalableEmitters(record, root, referenceExtent)
 	referenceExtent = finitePositiveNumber(referenceExtent) and referenceExtent or DEFAULT_EFFECT_REFERENCE_EXTENT
-	if root:IsA("ParticleEmitter") then
+	local function addEmitter(emitter)
 		record.scaledEmitters[#record.scaledEmitters + 1] = {
-			emitter = root,
-			size = root.Size,
+			emitter = emitter,
+			size = emitter.Size,
+			speed = emitter.Speed,
+			acceleration = emitter.Acceleration,
 			referenceExtent = referenceExtent,
 		}
 	end
 
+	if root:IsA("ParticleEmitter") then
+		addEmitter(root)
+	end
 	for _, descendant in ipairs(root:GetDescendants()) do
 		if descendant:IsA("ParticleEmitter") then
-			record.scaledEmitters[#record.scaledEmitters + 1] = {
-				emitter = descendant,
-				size = descendant.Size,
-				referenceExtent = referenceExtent,
-			}
+			addEmitter(descendant)
+		end
+	end
+end
+
+-- Model hosts rescale their overlay clones automatically (ScaleTo cascades to
+-- all descendants), so this is a no-op there; BasePart hosts resize via Size
+-- tweens the welded clone does not follow, so re-derive it from the source.
+local function syncOverlayPartSizes(record)
+	local overlayPairs = record.overlayPairs
+	if not overlayPairs then
+		return
+	end
+	for index = #overlayPairs, 1, -1 do
+		local entry = overlayPairs[index]
+		if entry.source.Parent and entry.clone.Parent then
+			local desired = entry.source.Size * OVERLAY_SCALE
+			if (entry.clone.Size - desired).Magnitude > EFFECT_EXTENT_EPSILON then
+				entry.clone.Size = desired
+			end
+		else
+			table.remove(overlayPairs, index)
 		end
 	end
 end
 
 local function applyEffectScale(record)
-	if #record.scaledEmitters == 0 then
-		record.effectExtent = nil
-		return
-	end
-
 	local extent = targetEffectExtent(record.target, record.host)
 	if record.effectExtent and math.abs(record.effectExtent - extent) < EFFECT_EXTENT_EPSILON then
 		return
 	end
+	record.effectExtent = extent
+
+	syncOverlayPartSizes(record)
 
 	for index = #record.scaledEmitters, 1, -1 do
 		local entry = record.scaledEmitters[index]
@@ -499,11 +521,15 @@ local function applyEffectScale(record)
 				or DEFAULT_EFFECT_REFERENCE_EXTENT
 			local scale = math.clamp(extent / referenceExtent, MIN_EFFECT_SCALE, MAX_EFFECT_SCALE) * EFFECT_SCALE_MULTIPLIER
 			emitter.Size = scaledNumberSequence(entry.size, scale)
+			-- ScaleTo on a growing host also multiplies emitter Speed and
+			-- Acceleration; pin them to the template values the effect was
+			-- tuned with.
+			emitter.Speed = entry.speed
+			emitter.Acceleration = entry.acceleration
 		else
 			table.remove(record.scaledEmitters, index)
 		end
 	end
-	record.effectExtent = extent
 end
 
 local function enablePersistentParticles(root)
@@ -613,7 +639,8 @@ local function render(record)
 	clearRecord(record)
 
 	local folder = visualFolder(record, host)
-	local overlay = createForceFieldOverlay(host, folder, primaryMutationId)
+	local overlay, overlayPairs = createForceFieldOverlay(host, folder, primaryMutationId)
+	record.overlayPairs = overlayPairs
 	if overlay and #mutationIds >= 2 then
 		local overlayParts = {}
 		for _, part in ipairs(overlay:GetChildren()) do
@@ -677,6 +704,7 @@ local function track(target)
 		folder = nil,
 		renderKey = nil,
 		host = nil,
+		overlayPairs = nil,
 	}
 	tracked[target] = record
 	table.insert(record.connections, RuntimeGuard.Connect(target:GetAttributeChangedSignal(State.Food.MutationIds), "MutationVisuals.MutationChanged", function()

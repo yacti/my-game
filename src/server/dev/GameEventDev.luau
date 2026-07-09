@@ -9,7 +9,8 @@
 --   }))
 --
 -- Actions: start (eventId, startsAtOffset?, durationSeconds?),
--- stop (instanceId), complete (instanceId), disable-tutorial (all players).
+-- stop (instanceId), complete (instanceId), disable-tutorial (all players),
+-- grant-currency (amount, userId? defaults to the first player).
 -- Each command's outcome is JSON-encoded into the GameEventDevResult
 -- attribute for the caller to read back.
 local HttpService = game:GetService("HttpService")
@@ -20,6 +21,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent.Parent
+local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
@@ -76,6 +78,23 @@ local function runCommand(command)
 		return { ok = true }
 	elseif action == "disable-tutorial" then
 		return disableTutorialForAll()
+	elseif action == "grant-currency" then
+		local amount = tonumber(command.amount)
+		if not amount or amount <= 0 then
+			return { ok = false, code = "invalid-amount" }
+		end
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+		local profile = player and PlayerDataService.GetProfile(player)
+		if not profile then
+			return { ok = false, code = "no-profile" }
+		end
+		CurrencyService.Add(player, profile, amount, false)
+		return { ok = true, currency = profile.Data.Currency }
 	end
 	return { ok = false, code = "unknown-action" }
 end

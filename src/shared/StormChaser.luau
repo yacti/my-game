@@ -19,15 +19,15 @@ StormChaser.Cycle = { "Earthquake", "Tsunami", "Tornado" }
 -- three crates are filled. Tiers loop: completing the last tier restarts at 1.
 StormChaser.Tiers = {
 	{
-		required = { Twisted = 10, Shaken = 10, Aqua = 10 },
+		required = { Twisted = 5, Shaken = 5, Aqua = 5 },
 		rewardSeedId = "LycheeTreeSeed",
 	},
 	{
-		required = { Twisted = 30, Shaken = 30, Aqua = 30 },
+		required = { Twisted = 15, Shaken = 15, Aqua = 15 },
 		rewardSeedId = "AgavePatchSeed",
 	},
 	{
-		required = { Twisted = 60, Shaken = 60, Aqua = 60 },
+		required = { Twisted = 30, Shaken = 30, Aqua = 30 },
 		rewardSeedId = "CoconutTreeSeed",
 	},
 }

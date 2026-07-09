@@ -189,6 +189,12 @@ function ViewportPreview.Render(viewport, template, options)
 	local clone = template:Clone()
 	options = type(options) == "table" and options or {}
 	anchor(clone)
+	if options.alignPivot then
+		-- Strip the template's stored world rotation so every model faces its
+		-- own pivot forward (-Z) before yaw/camera framing; templates are saved
+		-- with inconsistent rotations.
+		pivotPreview(clone, CFrame.new(clone:GetPivot().Position))
+	end
 	applyColorBoost(clone, options)
 	scalePreview(clone, options.targetMaxDimension)
 	clone.Parent = world

@@ -1,0 +1,27 @@
+{
+  "capturedAt": "2026-07-09",
+  "root": "ReplicatedStorage.Assets.FeedMachines",
+  "reason": "Before applying rebalanced XP values to all Tree/Patch feed machine templates.",
+  "templates": [
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Apple Tree", "feedType": "AppleTree", "attributes": { "XP": 1 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Pumpkin Patch", "feedType": "PumpkinPatch", "attributes": { "XP": 2 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Cabbage Patch", "feedType": "CabbagePatch", "attributes": { "XP": 3 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Potato Patch", "feedType": "PotatoPatch", "attributes": { "XP": 4 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Orange Tree", "feedType": "OrangeTree", "attributes": { "XP": 30 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Watermelon Patch", "feedType": "WatermelonPatch", "attributes": { "XP": 7 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Plum Tree", "feedType": "PlumTree", "attributes": { "XP": 60 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Corn Patch", "feedType": "CornPatch", "attributes": { "XP": 18 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Cherry Tree", "feedType": "CherryTree", "attributes": { "XP": 150 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Mushroom Patch", "feedType": "MushroomPatch", "attributes": { "XP": 48 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Banana Tree", "feedType": "BananaTree", "attributes": { "XP": 400 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Cactus", "feedType": "Cactus", "attributes": { "XP": 350 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Pineapple Patch", "feedType": "PineapplePatch", "attributes": { "XP": 217 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.FigTree", "feedType": "FigTree", "attributes": { "XP": 1800 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Purple Shroom Patch", "feedType": "PurpleShroomPatch", "attributes": { "XP": 633 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Blood Orange Tree", "feedType": "BloodOrangeTree", "attributes": { "XP": 5500 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Glowshroom Patch", "feedType": "GlowshroomPatch", "attributes": { "XP": 1933 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Dragonfruit Tree", "feedType": "DragonfruitTree", "attributes": { "XP": 17000 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Golden Apple Tree", "feedType": "GoldenAppleTree", "attributes": { "XP": 29000 } },
+    { "path": "ReplicatedStorage.Assets.FeedMachines.Tree.DurianTree", "feedType": "DurianTree", "attributes": { "XP": 50000 } }
+  ]
+}

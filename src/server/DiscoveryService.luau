@@ -6,6 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local PlayerReplicaService = require(script.Parent:WaitForChild("PlayerReplicaService"))
@@ -54,12 +55,41 @@ local function mark(set, id)
 	return true
 end
 
+-- petId -> previous petId in the evolution chain.
+local function predecessorMap()
+	local prev = {}
+	for _, petId in ipairs(PetCatalog.AllPetIds()) do
+		local nextId = PetCatalog.NextPetId(petId)
+		if nextId then
+			prev[nextId] = petId
+		end
+	end
+	return prev
+end
+
+-- Pets only advance through evolution (rebirth resets to the Order-1 pet),
+-- so owning a pet means the player owned every earlier form too. Mark the
+-- whole chain so profiles that progressed before the Index existed backfill
+-- their history.
+local function markPetChain(set, petId, prev)
+	prev = prev or predecessorMap()
+	local changed = false
+	local current = petId
+	local guard = 0
+	while type(current) == "string" and current ~= "" and guard < 1000 do
+		changed = mark(set, current) or changed
+		current = prev[current]
+		guard += 1
+	end
+	return changed
+end
+
 function DiscoveryService.MarkPet(player, profile, petId)
 	local discovered = ensure(profile)
 	if not discovered then
 		return false
 	end
-	local changed = mark(discovered.Pets, petId)
+	local changed = markPetChain(discovered.Pets, petId)
 	if changed then
 		publish(player, discovered)
 	end
@@ -95,9 +125,10 @@ function DiscoveryService.Sync(player, profile)
 	local changed = false
 
 	if type(data.Pets) == "table" then
+		local prev = predecessorMap()
 		for _, petData in pairs(data.Pets) do
 			if type(petData) == "table" then
-				changed = mark(discovered.Pets, petData.petId) or changed
+				changed = markPetChain(discovered.Pets, petData.petId, prev) or changed
 			end
 		end
 	end

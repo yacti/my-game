@@ -53,6 +53,9 @@ local GRID_VIEWPORT_OPTIONS = {
 		zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
 		rotate = false,
 		yawDegrees = FACE_CAMERA_YAW_DEGREES,
+		-- Pet templates are saved with inconsistent world rotations; align
+		-- them to their pivot so one yaw faces every model at the camera.
+		alignPivot = true,
 	},
 	Tree = { zoom = 2, rotate = false, yawDegrees = FACE_CAMERA_YAW_DEGREES },
 	-- Patches are wide and flat: zoom out and look down a little so the whole
@@ -63,6 +66,7 @@ local INFO_VIEWPORT_OPTIONS = {
 	Pet = {
 		targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
 		zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
+		alignPivot = true,
 	},
 	Tree = { zoom = 2 },
 	Patch = { zoom = 2.1, cameraHeightFactor = 0.6 },
