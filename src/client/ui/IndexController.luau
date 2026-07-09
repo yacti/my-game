@@ -17,6 +17,7 @@ local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
+local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
@@ -56,7 +57,7 @@ local GRID_VIEWPORT_OPTIONS = {
 	Tree = { zoom = 2, rotate = false, yawDegrees = FACE_CAMERA_YAW_DEGREES },
 	-- Patches are wide and flat: zoom out and look down a little so the whole
 	-- patch fits instead of cropping to its center.
-	Patch = { zoom = 1.4, cameraHeightFactor = 0.6, rotate = false, yawDegrees = FACE_CAMERA_YAW_DEGREES },
+	Patch = { zoom = 2.1, cameraHeightFactor = 0.6, rotate = false, yawDegrees = FACE_CAMERA_YAW_DEGREES },
 }
 local INFO_VIEWPORT_OPTIONS = {
 	Pet = {
@@ -64,7 +65,7 @@ local INFO_VIEWPORT_OPTIONS = {
 		zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
 	},
 	Tree = { zoom = 2 },
-	Patch = { zoom = 1.4, cameraHeightFactor = 0.6 },
+	Patch = { zoom = 2.1, cameraHeightFactor = 0.6 },
 }
 
 local SILHOUETTE_STRIP_CLASSES = {
@@ -106,14 +107,6 @@ local function rarityOrderIndex(rarity)
 		end
 	end
 	return #Rarities.Order + 1
-end
-
-local function disableBakedBillboards(instance)
-	for _, descendant in ipairs(instance:GetDescendants()) do
-		if descendant:IsA("BillboardGui") then
-			descendant.Enabled = false
-		end
-	end
 end
 
 -- ── Catalog builders ──────────────────────────────────────────────────────────
@@ -213,54 +206,6 @@ local function buildFeedEntries()
 		end)
 	end
 	return byClass
-end
-
--- ── Display model assembly ────────────────────────────────────────────────────
-
--- Clone the machine template, pin the produced food onto its BaseFood slot
--- anchors (mirrors Trees.spawnSlotVisual / Patches.makeSlotAnchor), and strip
--- the placeholder/utility parts so the viewport shows a clean tree/patch with
--- food on it.
-local function buildFeedDisplayModel(entry)
-	local clone = entry.template:Clone()
-	local foodTemplate = type(entry.foodDrop) == "string" and Food.GetTemplate(entry.foodDrop) or nil
-
-	local slots = {}
-	local removals = {}
-	for _, descendant in ipairs(clone:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			if entry.class == "Tree" and descendant.Name:match("^BaseFood%d+$") then
-				slots[#slots + 1] = descendant.CFrame
-				removals[#removals + 1] = descendant
-			elseif entry.class == "Tree" and descendant.Name:match("^BaseFoodGround%d*$") then
-				removals[#removals + 1] = descendant
-			elseif entry.class == "Patch" and descendant.Name == "BaseFood" then
-				-- Patch food templates author their pivot at the bottom
-				-- contact point; anchor at the slot's bottom face.
-				slots[#slots + 1] = descendant.CFrame * CFrame.new(0, -descendant.Size.Y / 2, 0)
-				removals[#removals + 1] = descendant
-			elseif descendant.Name == "EditSelectionHitbox" then
-				removals[#removals + 1] = descendant
-			end
-		end
-	end
-
-	for _, slotCFrame in ipairs(slots) do
-		if foodTemplate then
-			local food = foodTemplate:Clone()
-			disableBakedBillboards(food)
-			if food:IsA("BasePart") then
-				food.CFrame = slotCFrame
-			elseif food:IsA("Model") then
-				food:PivotTo(slotCFrame)
-			end
-			food.Parent = clone
-		end
-	end
-	for _, part in ipairs(removals) do
-		part:Destroy()
-	end
-	return clone
 end
 
 -- All-black neon silhouette for locked entries.
@@ -535,7 +480,7 @@ function IndexController.start()
 		if locked then
 			local silhouette = silhouetteCache[entry.key]
 			if not silhouette then
-				local source = entry.kind == "Pet" and entry.template or buildFeedDisplayModel(entry)
+				local source = entry.kind == "Pet" and entry.template or FeedDisplayModel.Build(entry.template)
 				silhouette = applySilhouette(source:Clone())
 				silhouetteCache[entry.key] = silhouette
 			end
@@ -547,7 +492,7 @@ function IndexController.start()
 		end
 		local model = displayModelCache[entry.key]
 		if not model then
-			model = buildFeedDisplayModel(entry)
+			model = FeedDisplayModel.Build(entry.template)
 			displayModelCache[entry.key] = model
 		end
 		return model

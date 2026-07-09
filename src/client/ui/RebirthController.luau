@@ -16,6 +16,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -117,9 +118,6 @@ local function rewardTemplateFor(reward)
 	end
 	if reward.kind == "FeedMachine" then
 		return GrowingVisuals.FeedTemplateFor(reward.feedType)
-	end
-	if reward.kind == "Seed" then
-		return Seeds.GetTemplate(reward.seedId)
 	end
 	return nil
 end
@@ -366,11 +364,6 @@ function RebirthController.start()
 				zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
 			}
 		end
-		if type(reward) == "table" and reward.kind == "Seed" then
-			return {
-				zoom = SEED_REWARD_VIEWPORT_ZOOM,
-			}
-		end
 		return nil
 	end
 
@@ -418,7 +411,14 @@ function RebirthController.start()
 			row.Visible = true
 			row:SetAttribute(GENERATED_REWARD_ATTR, true)
 			UiEffects.SetTextStack(row, rewardText(reward))
-			renderRewardViewport(row, rewardTemplateFor(reward), rewardViewportOptions(reward))
+			local template, viewportOptions
+			if type(reward) == "table" and reward.kind == "Seed" then
+				template, viewportOptions = FeedDisplayModel.SeedPreview(reward.seedId, { zoom = SEED_REWARD_VIEWPORT_ZOOM })
+			else
+				template = rewardTemplateFor(reward)
+				viewportOptions = rewardViewportOptions(reward)
+			end
+			renderRewardViewport(row, template, viewportOptions)
 			row.Parent = rewardList
 			registerRewardRarityRow(row, reward)
 		end

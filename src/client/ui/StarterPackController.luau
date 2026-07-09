@@ -13,6 +13,7 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -166,7 +167,8 @@ local function rewardDisplayInfo(reward)
 	end
 
 	local seedId = reward and reward.SeedId
-	return Seeds.GetTemplate(seedId), Seeds.DisplayNameFor(seedId), Seeds.RarityFor(seedId)
+	local template, previewOptions = FeedDisplayModel.SeedPreview(seedId, SEED_PREVIEW_OPTIONS)
+	return template, Seeds.DisplayNameFor(seedId), Seeds.RarityFor(seedId), previewOptions
 end
 
 local function renderRewardSlot(slot, reward)
@@ -175,13 +177,13 @@ local function renderRewardSlot(slot, reward)
 	local nameLabel = child(slot, "Name", "TextLabel") or descendant(slot, "Name", "TextLabel")
 	local amountLabel = child(slot, "Amount", "TextLabel") or descendant(slot, "Amount", "TextLabel")
 	local amount = math.max(math.floor(tonumber(reward and reward.Amount) or 0), 0)
-	local template, displayName, rarity = rewardDisplayInfo(reward)
+	local template, displayName, rarity, seedPreviewOptions = rewardDisplayInfo(reward)
 	local isCash = reward ~= nil and reward.Kind == ShopBalance.StarterPackRewardKinds.Cash
 
 	slot.Visible = reward ~= nil
 	if icon then
 		icon.Visible = not isCash
-		local previewOptions = reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and SEED_PREVIEW_OPTIONS or PREVIEW_OPTIONS
+		local previewOptions = reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and seedPreviewOptions or PREVIEW_OPTIONS
 		ViewportPreview.Render(icon, template, previewOptions)
 	end
 	if iconImage then

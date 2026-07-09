@@ -17,6 +17,7 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -414,7 +415,7 @@ local function renderRewardSlot(slot, reward, pack)
 	local rarity = Seeds.RarityFor(seedId)
 	local displayName = Seeds.DisplayNameFor(seedId)
 	if icon then
-		ViewportPreview.Render(icon, Seeds.GetTemplate(seedId), PACK_REWARD_PREVIEW_OPTIONS)
+		ViewportPreview.Render(icon, FeedDisplayModel.SeedPreview(seedId, PACK_REWARD_PREVIEW_OPTIONS))
 	end
 	if chance then
 		setTextStack(chance, ShopBalance.ChanceText(pack, reward))
@@ -663,7 +664,7 @@ local function configureHolder(holder, payload, result)
 	hideFtueDrag(holder)
 	local resultViewport = holder:FindFirstChild("Result")
 	if resultViewport and resultViewport:IsA("ViewportFrame") then
-		ViewportPreview.Render(resultViewport, Seeds.GetTemplate(result.seedId), REVEAL_PREVIEW_OPTIONS)
+		ViewportPreview.Render(resultViewport, FeedDisplayModel.SeedPreview(result.seedId, REVEAL_PREVIEW_OPTIONS))
 	end
 
 	setTextStack(holder:FindFirstChild("ItemName"), result.displayName or Seeds.DisplayNameFor(result.seedId))
