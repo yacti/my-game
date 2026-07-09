@@ -5,6 +5,7 @@ Rarities.Rare = "Rare"
 Rarities.Epic = "Epic"
 Rarities.Legendary = "Legendary"
 Rarities.Mythical = "Mythical"
+Rarities.Exclusive = "Exclusive"
 Rarities.Secret = "Secret"
 
 Rarities.Order = {
@@ -13,6 +14,7 @@ Rarities.Order = {
 	Rarities.Epic,
 	Rarities.Legendary,
 	Rarities.Mythical,
+	Rarities.Exclusive,
 	Rarities.Secret,
 }
 
@@ -43,6 +45,14 @@ local DEFINITIONS = {
 		Animated = true,
 		RainbowPeriod = 4,
 	},
+	[Rarities.Exclusive] = {
+		Name = Rarities.Exclusive,
+		Color = Color3.fromRGB(255, 255, 0),
+		Animated = true,
+		-- Two-colour ping-pong instead of the Mythical rainbow cycle.
+		TweenColors = { Color3.fromRGB(255, 255, 0), Color3.fromRGB(255, 195, 0) },
+		TweenPeriod = 2,
+	},
 	[Rarities.Secret] = {
 		Name = Rarities.Secret,
 		Color = Color3.fromRGB(20, 20, 20),
@@ -69,13 +79,23 @@ function Rarities.RainbowColorAt(timeSeconds)
 	return Color3.fromHSV(hue, 0.85, 1)
 end
 
+local function animatedColorAt(definition, timeSeconds)
+	local colors = definition.TweenColors
+	if colors then
+		local period = definition.TweenPeriod or 2
+		local alpha = 0.5 - 0.5 * math.cos(((tonumber(timeSeconds) or 0) / period) * 2 * math.pi)
+		return colors[1]:Lerp(colors[2], alpha)
+	end
+	return Rarities.RainbowColorAt(timeSeconds)
+end
+
 function Rarities.ColorFor(rarity, timeSeconds)
 	local definition = Rarities.Get(rarity)
 	if not definition then
 		return nil
 	end
 	if definition.Animated then
-		return Rarities.RainbowColorAt(timeSeconds)
+		return animatedColorAt(definition, timeSeconds)
 	end
 	return definition.Color
 end
@@ -88,7 +108,7 @@ function Rarities.TextColorFor(rarity, timeSeconds)
 		return nil
 	end
 	if definition.Animated then
-		return Rarities.RainbowColorAt(timeSeconds)
+		return animatedColorAt(definition, timeSeconds)
 	end
 	return definition.TextColor or definition.Color
 end

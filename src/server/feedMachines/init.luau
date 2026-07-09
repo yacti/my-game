@@ -123,6 +123,76 @@ function FeedMachines.AllFeedTypes()
 	return out
 end
 
+-- ── Dynamic XP (PercentageOfBest) ─────────────────────────────────────────────
+
+-- Mirrors FeedGrowthService's phase marker; growing-seed visuals never had
+-- Setup and must not count toward (or receive) dynamic XP. Read via attribute
+-- because requiring FeedGrowthService here would be circular.
+local GROWING_SEED_PHASE = "GrowingSeed"
+
+local function percentageOfBestOf(machine)
+	local pct = machine:GetAttribute(State.Feed.PercentageOfBest)
+	if type(pct) == "number" and pct > 0 then
+		return pct
+	end
+	return nil
+end
+
+-- Recomputes every PercentageOfBest machine's effective XP attribute from the
+-- best same-class static machine on the plot. Placed machines are direct plot
+-- children (PlotService parents clones to the plot); templates are untouched.
+function FeedMachines.RecomputeDynamicXP(plot)
+	if not plot or not plot.Parent then return end
+	local best = {} -- [feedClass] = highest static XP
+	local dynamic = {} -- { { machine, class, pct } }
+	for _, child in ipairs(plot:GetChildren()) do
+		local feedType = child:GetAttribute(State.Feed.Type)
+		if type(feedType) ~= "string" or child:GetAttribute(State.Feed.Index) == nil then
+			continue
+		end
+		if child:GetAttribute(State.Seed.Phase) == GROWING_SEED_PHASE then
+			continue
+		end
+		local feedClass = FeedMachines.GetClass(feedType)
+		if feedClass ~= "Tree" and feedClass ~= "Patch" then
+			continue
+		end
+		local pct = percentageOfBestOf(child)
+		if pct then
+			table.insert(dynamic, { machine = child, class = feedClass, pct = pct })
+		else
+			local xp = child:GetAttribute(State.Feed.XP)
+			-- Same defaults as Trees.xpMultiplierFor / PatchScale.NormalizePatchXP.
+			xp = (type(xp) == "number" and xp > 0) and xp or 1
+			if xp > (best[feedClass] or 0) then
+				best[feedClass] = xp
+			end
+		end
+	end
+	for _, entry in ipairs(dynamic) do
+		local base = best[entry.class]
+		local resolved = base and math.max(entry.pct * base, 1) or 1
+		if entry.class == "Patch" then
+			Patches.SetResolvedPatchXP(entry.machine, resolved)
+		else
+			-- Trees read the attribute live on every drop.
+			entry.machine:SetAttribute(State.Feed.XP, resolved)
+		end
+	end
+end
+
+-- Coalesces the many Setup/Destroying calls of a plot load or teardown into a
+-- single recompute per plot per frame.
+local dirtyPlots = {}
+local function markPlotDirty(plot)
+	if not plot or dirtyPlots[plot] then return end
+	dirtyPlots[plot] = true
+	task.defer(function()
+		dirtyPlots[plot] = nil
+		RuntimeGuard.Run("FeedMachines.RecomputeDynamicXP", FeedMachines.RecomputeDynamicXP, plot)
+	end)
+end
+
 -- ── Dispatch ──────────────────────────────────────────────────────────────────
 
 local function feedTypeOf(machine)
@@ -158,7 +228,11 @@ function FeedMachines.Setup(machine, plot, owner)
 	-- Auto-cleanup when the part dies during plot resets or lifecycle teardown.
 	RuntimeGuard.Connect(machine.Destroying, "FeedMachines.Destroying." .. tostring(name), function()
 		FeedMachines.Teardown(machine)
+		-- Membership changed; the destroyed machine self-excludes at defer
+		-- time (Parent == nil).
+		markPlotDirty(plot)
 	end)
+	markPlotDirty(plot)
 	return true
 end
 

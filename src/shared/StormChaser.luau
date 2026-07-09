@@ -26,6 +26,10 @@ StormChaser.Tiers = {
 		required = { Twisted = 30, Shaken = 30, Aqua = 30 },
 		rewardSeedId = "AgavePatchSeed",
 	},
+	{
+		required = { Twisted = 60, Shaken = 60, Aqua = 60 },
+		rewardSeedId = "CoconutTreeSeed",
+	},
 }
 
 StormChaser.CrateMutationIds = { "Twisted", "Shaken", "Aqua" }

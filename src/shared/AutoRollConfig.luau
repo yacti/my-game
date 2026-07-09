@@ -18,7 +18,14 @@ AutoRollConfig.ToggleColors = {
 	On = Color3.fromRGB(70, 235, 95),
 }
 
-AutoRollConfig.Rarities = table.clone(Rarities.Order)
+-- Exclusive seeds are EventOnly (never in the roll pool), so they get no
+-- auto-roll filter row.
+AutoRollConfig.Rarities = {}
+for _, rarity in ipairs(Rarities.Order) do
+	if rarity ~= Rarities.Exclusive then
+		table.insert(AutoRollConfig.Rarities, rarity)
+	end
+end
 AutoRollConfig.PurchasePriority = {
 	Rarities.Secret,
 	Rarities.Mythical,

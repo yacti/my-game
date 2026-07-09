@@ -1359,7 +1359,8 @@ local function playSeedReveal(payload, crateFloor, token)
 		untrackRollEffect(clone, payload.offerId)
 		return
 	end
-	if Rarities.Get(payload.rarity) and Rarities.Get(payload.rarity).Animated then
+	local rarityDefinition = Rarities.Get(payload.rarity)
+	if rarityDefinition and rarityDefinition.Animated and not rarityDefinition.TweenColors then
 		startRainbowParticle(emitter, particleExpiresAt)
 	else
 		setParticleColor(emitter, targetColor)

@@ -375,6 +375,37 @@ function Patches.Setup(machine, plot, owner)
 	end
 end
 
+-- Re-rates a machine to a new XP-per-interval (dynamic PercentageOfBest
+-- resolution). Fully-elapsed intervals are banked at the OLD rate first
+-- (anchorSlotGrowth reads slot.patchXP), then the rate swaps and the machine
+-- attribute republishes so client derivation (PatchGrowth) stays consistent.
+function Patches.SetResolvedPatchXP(machine, resolvedXP)
+	local s = state[machine]
+	if not s then return end
+	resolvedXP = PatchScale.NormalizePatchXP(resolvedXP)
+	if s.patchXP == resolvedXP then
+		if machine:GetAttribute(State.Feed.XP) ~= resolvedXP then
+			machine:SetAttribute(State.Feed.XP, resolvedXP)
+		end
+		return
+	end
+	local now = serverNow()
+	for _, slot in ipairs(s.slots) do
+		if not slot.respawnAt and type(slot.growthStart) == "number" then
+			anchorSlotGrowth(machine, slot, now - slot.growthStart, now)
+		end
+		-- Frozen slots (offline-progress pending) and respawn-pending slots
+		-- just swap: baseXP is absolute, and pending growth seconds convert
+		-- at the new rate when they materialize.
+		slot.patchXP = resolvedXP
+		if slot.foodPart then
+			publishSlotGrowth(slot)
+		end
+	end
+	s.patchXP = resolvedXP
+	machine:SetAttribute(State.Feed.XP, resolvedXP)
+end
+
 function Patches.Teardown(machine)
 	local s = state[machine]
 	if s then

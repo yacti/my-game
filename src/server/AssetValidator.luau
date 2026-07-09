@@ -104,6 +104,9 @@ local REQUIRED_FEEDS = {
 	"CherryTree",
 	"JamBarrel",
 	"PumpkinPatch",
+	"LycheeTree",
+	"CoconutTree",
+	"AgavePatch",
 }
 
 local REQUIRED_TOOLS = {
@@ -786,8 +789,18 @@ local function validateFeedTemplateIdentity(root, errors, warnings)
 			if feedXP ~= nil and (type(feedXP) ~= "number" or feedXP <= 0) then
 				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.XP, tostring(feedXP)))
 			end
-			if feedClass == "Patch" and feedXP == nil then
-				add(errors, string.format("%s missing required %s attribute", template:GetFullName(), State.Feed.XP))
+			local percentageOfBest = template:GetAttribute(State.Feed.PercentageOfBest)
+			if percentageOfBest ~= nil and (type(percentageOfBest) ~= "number" or percentageOfBest <= 0) then
+				add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.PercentageOfBest, tostring(percentageOfBest)))
+			end
+			if percentageOfBest ~= nil and feedClass ~= "Tree" and feedClass ~= "Patch" then
+				add(errors, string.format("%s has %s attribute; only Tree/Patch machines support dynamic XP", template:GetFullName(), State.Feed.PercentageOfBest))
+			end
+			if percentageOfBest ~= nil and feedXP ~= nil then
+				add(errors, string.format("%s has both %s and %s; set exactly one", template:GetFullName(), State.Feed.XP, State.Feed.PercentageOfBest))
+			end
+			if feedClass == "Patch" and feedXP == nil and percentageOfBest == nil then
+				add(errors, string.format("%s missing required %s (or %s) attribute", template:GetFullName(), State.Feed.XP, State.Feed.PercentageOfBest))
 			end
 			if (feedClass == "Processor" or feedClass == "JamBarrel") and feedXP ~= nil then
 				add(errors, string.format("%s has processor multiplier attribute %s; use %s", template:GetFullName(), State.Feed.XP, State.Feed.XPMultiplier))

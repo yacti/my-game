@@ -125,6 +125,7 @@ State.Feed = {
 	GrowRate        = "GrowRate",        -- Patch: seconds per XP interval
 	ProcessDuration = "ProcessDuration", -- Processor: seconds to process each item
 	XP              = "XP",              -- Tree multiplier; Patch XP per growth interval
+	PercentageOfBest = "PercentageOfBest", -- Tree/Patch: resolved XP = pct x best same-class static machine XP on the plot (min 1); replaces XP on the template
 	XPMultiplier    = "XPMultiplier",    -- Processor/JamBarrel multiplier applied to deposited food XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
 
