@@ -108,10 +108,12 @@ GameEvents.EventConfigs = {
 		appliedMutationId = "Twisted",
 		tornado = {
 			windUpSeconds = 10,
-			plotTurnSeconds = 20,
+			-- One 45s turn per plot, up to 8 plots: window = 10 + 45*8 + 10 = 380s
+			-- max; servers with fewer eligible plots wind down early.
+			plotTurnSeconds = 45,
 			maxPlotTurns = 8,
 			windDownSeconds = 10,
-			minMutationsPerPlot = 5,
+			minMutationsPerPlot = 6,
 			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
 			tornadoSoundRange = 500,
@@ -139,9 +141,11 @@ GameEvents.EventConfigs = {
 			windUpSeconds = 6,
 			windDownSeconds = 5,
 			studsPerSecond = 100,
-			underwaterSeconds = 120,
+			-- 6 windUp + ~45.7 wave travel (map length / 100 studs/s) + 243
+			-- underwater + 5 windDown ~= 300s total.
+			underwaterSeconds = 243,
 			underwaterGravity = 25,
-			minMutationsPerPlot = 5,
+			minMutationsPerPlot = 6,
 			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
 			hitCheckSeconds = 0.1,
@@ -165,11 +169,18 @@ GameEvents.EventConfigs = {
 		appliedMutationId = "Shaken",
 		earthquake = {
 			windUpSeconds = 6,
-			durationSeconds = 30,
+			-- 6 + 290 + 4 = 300s total. The active window plays as pulsed tremor
+			-- bursts with calm between (see EarthquakePulses), not continuous shake.
+			durationSeconds = 290,
 			windDownSeconds = 4,
-			minMutationsPerPlot = 5,
+			minMutationsPerPlot = 6,
 			maxMutationsPerPlot = 12,
 			targetRetrySeconds = 2,
+			burstSeconds = 20,
+			calmSecondsMin = 20,
+			calmSecondsMax = 20,
+			swellSeconds = 5,
+			burstEaseSeconds = 5,
 		},
 	},
 	[GameEvents.Ids.Alien] = {
@@ -350,6 +361,55 @@ function GameEvents.EarthquakeTimings(config)
 	local active = math.max(numeric(earthquake.durationSeconds, 30), 0)
 	local windDown = math.max(numeric(earthquake.windDownSeconds, 4), 0)
 	return windUp, active, windDown, windUp + active + windDown
+end
+
+-- Deterministic tremor-burst schedule for the earthquake's active window:
+-- burstSeconds of shake, then a seeded-random calm gap, repeating until the
+-- window ends. Seeded from the record's startsAt (identical on the server
+-- session, the replicated record, and dev-command records), so the server's
+-- mutation hits and every client's shake -- including late joiners -- agree
+-- on the exact same bursts. Offsets are seconds relative to startsAt.
+function GameEvents.EarthquakePulses(config, startsAt)
+	local windUp, active = GameEvents.EarthquakeTimings(config)
+	local earthquake = type(config) == "table" and config.earthquake or nil
+	earthquake = type(earthquake) == "table" and earthquake or {}
+	local burstSeconds = math.max(numeric(earthquake.burstSeconds, 8), 1)
+	local calmMin = math.max(numeric(earthquake.calmSecondsMin, 25), 1)
+	local calmMax = math.max(numeric(earthquake.calmSecondsMax, 35), calmMin)
+	local activeEnd = windUp + active
+	local rand = Random.new(math.floor(numeric(startsAt, 0)))
+	local pulses = {}
+	local cursor = windUp
+	while cursor < activeEnd do
+		pulses[#pulses + 1] = {
+			startOffset = cursor,
+			endOffset = math.min(cursor + burstSeconds, activeEnd),
+		}
+		cursor += burstSeconds + rand:NextNumber(calmMin, calmMax)
+	end
+	return pulses
+end
+
+-- Shake/audio gates in [0, 1] over the pulse schedule. Both fades live
+-- entirely inside the burst window -- rise from the burst's start, fall to
+-- silence exactly at its end -- so the calm gaps between bursts stay truly
+-- quiet and still. Shake ramps over easeSeconds on both edges; audio rises
+-- over swellSeconds (its slower swell doubles as the tremor's tell) and falls
+-- with the shake. Pure function of elapsed, so late joiners land
+-- mid-schedule with no bookkeeping.
+function GameEvents.EarthquakePulseFactors(elapsed, pulses, swellSeconds, easeSeconds)
+	swellSeconds = math.max(numeric(swellSeconds, 5), 0.01)
+	easeSeconds = math.max(numeric(easeSeconds, 5), 0.01)
+	local shakeFactor = 0
+	local audioFactor = 0
+	for _, pulse in ipairs(type(pulses) == "table" and pulses or {}) do
+		local fadeOut = math.clamp((pulse.endOffset - elapsed) / easeSeconds, 0, 1)
+		local shake = math.min(math.clamp((elapsed - pulse.startOffset) / easeSeconds, 0, 1), fadeOut)
+		local audio = math.min(math.clamp((elapsed - pulse.startOffset) / swellSeconds, 0, 1), fadeOut)
+		shakeFactor = math.max(shakeFactor, shake)
+		audioFactor = math.max(audioFactor, audio)
+	end
+	return shakeFactor, audioFactor
 end
 
 function GameEvents.AlienTimings(config)

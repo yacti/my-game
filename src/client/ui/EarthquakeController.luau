@@ -1,13 +1,18 @@
 -- Earthquake visuals are snapshot-driven like the wind and tsunami events:
 -- there is no dedicated remote. The controller polls
 -- ReplicatedStorage.GameEvents.Active for an Earthquake record and renders a
--- camera rumble plus a looping rumble bed, both driven per-frame by a single
--- intensity envelope that is a pure function of (now - startsAt) -- so late
--- joiners resume mid-phase with no tween bookkeeping. The shake is strictly
--- positional (Humanoid.CameraOffset, vertical-dominant); rotational shake is
--- what reads as nauseating. A dusty lighting preset and the authored
--- EarthquakeEvent dust VFX (played where it sits, no motion) round out the
--- ambience. The server independently applies the Shaken mutations.
+-- camera rumble plus a looping rumble bed. The long active window plays as
+-- pulsed tremor bursts with calm between: the burst schedule comes from
+-- GameEvents.EarthquakePulses (deterministically seeded from startsAt, the
+-- same schedule the server constrains mutation hits into) and gates both the
+-- shake and the audio, with both fading in/out inside each burst window so
+-- the calm gaps stay quiet. Everything is a pure function of (now - startsAt) -- so late
+-- joiners resume mid-schedule with no tween bookkeeping. The shake is
+-- strictly positional (Humanoid.CameraOffset, vertical-dominant); rotational
+-- shake is what reads as nauseating. A dusty lighting preset and the authored
+-- EarthquakeEvent dust VFX (played where it sits, no motion) persist across
+-- the whole event rather than pulsing. The server independently applies the
+-- Shaken mutations.
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -35,9 +40,9 @@ local VFX_LINGER_SECONDS = 4
 local LIGHTING_TWEEN_IN_MIN_SECONDS = 0.75
 local WAIT_SECONDS = 10
 local RUMBLE_TRACK = { soundId = "rbxassetid://9085909202", volume = 0.45 }
--- Peak offset ~0.35 studs, dominated by the vertical axis: reads as ground
+-- Peak offset ~0.23 studs, dominated by the vertical axis: reads as ground
 -- rumble rather than head-sway.
-local SHAKE_AMPLITUDE = Vector3.new(0.12, 0.3, 0.12)
+local SHAKE_AMPLITUDE = Vector3.new(0.08, 0.2, 0.08)
 -- Noise sample rates (~Hz). Below ~3 Hz the motion reads as seasick swaying;
 -- above ~20 Hz it aliases at 60 fps.
 local SHAKE_NOISE_RATES = Vector3.new(7.3, 11, 8.7)
@@ -108,11 +113,14 @@ end
 
 local function timingsFor()
 	local config = GameEvents.GetEvent(GameEvents.Ids.Earthquake) or {}
+	local earthquake = type(config.earthquake) == "table" and config.earthquake or {}
 	local windUpSeconds, activeSeconds, windDownSeconds = GameEvents.EarthquakeTimings(config)
 	return {
 		windUpSeconds = windUpSeconds,
 		activeSeconds = activeSeconds,
 		windDownSeconds = windDownSeconds,
+		swellSeconds = tonumber(earthquake.swellSeconds) or 5,
+		burstEaseSeconds = tonumber(earthquake.burstEaseSeconds) or 5,
 	}
 end
 
@@ -216,6 +224,12 @@ end
 local function updateEarthquake(token)
 	local elapsed = serverNow() - token.startsAt
 	local intensity = rumbleIntensity(elapsed, token.timings)
+	local shakeFactor, audioFactor = GameEvents.EarthquakePulseFactors(
+		elapsed,
+		token.pulses,
+		token.timings.swellSeconds,
+		token.timings.burstEaseSeconds
+	)
 
 	if not token.ambienceEnded and elapsed >= token.timings.windUpSeconds + token.timings.activeSeconds then
 		endAmbience(token, token.timings.windDownSeconds)
@@ -223,14 +237,15 @@ local function updateEarthquake(token)
 
 	local rumble = token.rumble
 	if rumble and rumble.Parent then
-		rumble.Volume = RUMBLE_TRACK.volume * intensity
+		rumble.Volume = RUMBLE_TRACK.volume * intensity * audioFactor
 	end
 
 	local humanoid = token.humanoid
 	if not (humanoid and humanoid.Parent) then
 		return
 	end
-	if intensity <= 0 then
+	local shake = intensity * shakeFactor
+	if shake <= 0 then
 		if token.offsetApplied then
 			token.offsetApplied = false
 			humanoid.CameraOffset = Vector3.zero
@@ -244,7 +259,7 @@ local function updateEarthquake(token)
 		math.noise(now * SHAKE_NOISE_RATES.X, 17.3) * 2 * SHAKE_AMPLITUDE.X,
 		math.noise(now * SHAKE_NOISE_RATES.Y, 91.7) * 2 * SHAKE_AMPLITUDE.Y,
 		math.noise(now * SHAKE_NOISE_RATES.Z, 43.1) * 2 * SHAKE_AMPLITUDE.Z
-	) * intensity
+	) * shake
 end
 
 local function cleanupToken(token)
@@ -287,6 +302,7 @@ local function beginEarthquake(record)
 		startsAt = record.startsAt,
 		endsAt = record.endsAt,
 		timings = timingsFor(),
+		pulses = GameEvents.EarthquakePulses(GameEvents.GetEvent(GameEvents.Ids.Earthquake), record.startsAt),
 		connections = {},
 		humanoid = currentHumanoid(),
 		rumble = nil,

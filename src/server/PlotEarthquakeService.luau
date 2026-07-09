@@ -1,10 +1,13 @@
 -- Earthquake weather event: a global tremor with no dedicated remote --
--- clients render the rumble from the replicated snapshot record. This service
--- owns the gameplay: during the 30s active window each eligible player has
--- 2-5 of their fruit turn Shaken, spread across the window like the tsunami's
--- underwater phase. Players are tracked through a per-player registry (the
--- Windy pattern) so mid-event joiners are picked up prorated: hit times are
--- rolled over the full window and instants already in the past are discarded.
+-- clients render the rumble from the replicated snapshot record. The active
+-- window plays as pulsed tremor bursts with calm between (the schedule comes
+-- from GameEvents.EarthquakePulses, deterministically seeded from startsAt so
+-- clients render the identical bursts). This service owns the gameplay: each
+-- eligible player has 6-12 of their fruit turn Shaken, scattered across the
+-- bursts so hits only land while the ground visibly shakes. Players are
+-- tracked through a per-player registry (the Windy pattern) so mid-event
+-- joiners are picked up prorated: hit times are rolled over the full window
+-- and instants already in the past are discarded.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -98,6 +101,7 @@ local function settingsFor()
 		minMutationsPerPlot = minMutations,
 		maxMutationsPerPlot = maxMutations,
 		targetRetrySeconds = math.max(numberValue(earthquake.targetRetrySeconds, 2), 0),
+		burstEaseSeconds = math.max(numberValue(earthquake.burstEaseSeconds, 0.5), 0),
 	}
 end
 
@@ -255,18 +259,44 @@ local function registeredEntries()
 	return entries
 end
 
--- Roll the full-window hit count and spread it with one random time per equal
--- segment (the tsunami's underwater pattern), offset past the wind-up so hits
--- only land while the ground is actually shaking.
-local function sampleMutationTimes(settings)
+-- Hits must land only while the ground visibly shakes, so sampling happens in
+-- concatenated-burst-time: roll the full-window hit count, spread it with one
+-- random time per equal segment (the tsunami's underwater pattern) over the
+-- summed burst lengths, then map each point back to its absolute offset
+-- inside a burst. Bursts are inset by the ease ramp on both edges so a hit
+-- only ever lands while the shake is at (or near) full strength.
+local MUTATION_EDGE_INSET_SECONDS = 0.5
+
+local function sampleMutationTimes(settings, pulses)
 	local times = {}
 	local count = rng:NextInteger(settings.minMutationsPerPlot, settings.maxMutationsPerPlot)
-	if count <= 0 or settings.activeSeconds <= 0 then
+	if count <= 0 then
 		return times
 	end
-	local segment = settings.activeSeconds / count
+	local edgeInset = math.max(settings.burstEaseSeconds, MUTATION_EDGE_INSET_SECONDS)
+	local spans = {}
+	local totalBurstSeconds = 0
+	for _, pulse in ipairs(type(pulses) == "table" and pulses or {}) do
+		local spanStart = pulse.startOffset + edgeInset
+		local spanLength = (pulse.endOffset - edgeInset) - spanStart
+		if spanLength > 0 then
+			spans[#spans + 1] = { startOffset = spanStart, length = spanLength }
+			totalBurstSeconds += spanLength
+		end
+	end
+	if totalBurstSeconds <= 0 then
+		return times
+	end
+	local segment = totalBurstSeconds / count
 	for index = 1, count do
-		times[index] = settings.windUpSeconds + (index - 1) * segment + rng:NextNumber(0, segment)
+		local point = (index - 1) * segment + rng:NextNumber(0, segment)
+		for spanIndex, span in ipairs(spans) do
+			if point <= span.length or spanIndex == #spans then
+				times[#times + 1] = span.startOffset + math.min(point, span.length)
+				break
+			end
+			point -= span.length
+		end
 	end
 	return times
 end
@@ -311,12 +341,16 @@ local function scheduleEntry(session, entry)
 
 	local minElapsed = math.max(serverNow() - session.startsAt, 0)
 	local times = {}
-	for _, timeOffset in ipairs(sampleMutationTimes(session.settings)) do
+	for _, timeOffset in ipairs(sampleMutationTimes(session.settings, session.pulses)) do
 		if timeOffset > minElapsed and session.startsAt + timeOffset < session.endsAt then
 			times[#times + 1] = timeOffset
 		end
 	end
-	printEarthquakeLifecycle("schedule", session, string.format("user=%d hits=%d", key, #times))
+	local offsets = {}
+	for index, timeOffset in ipairs(times) do
+		offsets[index] = string.format("%.1f", timeOffset)
+	end
+	printEarthquakeLifecycle("schedule", session, string.format("user=%d hits=%d t=[%s]", key, #times, table.concat(offsets, ",")))
 	if #times == 0 then
 		return
 	end
@@ -387,6 +421,7 @@ function PlotEarthquakeService.StartEarthquake(eventRecord, callbacks)
 		startsAt = startsAt,
 		endsAt = endsAt,
 		settings = settings,
+		pulses = GameEvents.EarthquakePulses(GameEvents.GetEvent(GameEvents.Ids.Earthquake), startsAt),
 		scheduledByUserId = {},
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
@@ -405,7 +440,7 @@ function PlotEarthquakeService.StartEarthquake(eventRecord, callbacks)
 		end
 	end
 	activeSession = session
-	printEarthquakeLifecycle("start", session, string.format("window=%ds", math.floor(settings.activeSeconds)))
+	printEarthquakeLifecycle("start", session, string.format("window=%ds bursts=%d", math.floor(settings.activeSeconds), #session.pulses))
 
 	RuntimeGuard.Spawn("PlotEarthquakeService.RunGuarded." .. session.instanceId, runEarthquakeGuarded, session)
 end
