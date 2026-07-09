@@ -5,6 +5,7 @@ local Rarities = require(ReplicatedStorage.Shared:WaitForChild("Rarities"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local ToolIdentity = require(ReplicatedStorage.Shared:WaitForChild("ToolIdentity"))
+local DiscoveryService = require(script.Parent:WaitForChild("DiscoveryService"))
 local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
 local SeedTools = {}
@@ -202,6 +203,7 @@ function SeedTools.ApplyPrepared(player, profile, prepared, grantOptions)
 
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
 	profile.Data.SeedInventory[seedId] = (profile.Data.SeedInventory[seedId] or 0) + amount
+	DiscoveryService.MarkSeed(player, profile, seedId)
 	return true
 end
 

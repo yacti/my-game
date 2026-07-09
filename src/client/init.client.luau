@@ -87,6 +87,7 @@ local CONTROLLERS = {
 	"FeedPlacement",
 	"TreeClickController",
 	"RebirthController",
+	"IndexController",
 	"GridUnlockEffects",
 	"AdminPartyPadController",
 	"AdminPanelController",

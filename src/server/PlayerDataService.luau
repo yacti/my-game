@@ -74,6 +74,8 @@ local DATA_TEMPLATE = {
 	-- e.g. { Tier = 1, Deposits = { Twisted = 3 } }. Tiers loop 1 -> 2 -> 1.
 	StormChaser = { Tier = 1, Deposits = {} },
 	Onboarding = Onboarding.DefaultState(),
+	-- Index/codex discovery sets: { Pets = { [PetID] = true }, Feed = { [FeedType] = true } }.
+	Discovered = { Pets = {}, Feed = {} },
 	JoinGroupRewardCollected = false,
 	LastSeenUpdateLogId = "",
 	LastSeen = 0,
@@ -607,6 +609,28 @@ local function sanitizeStormChaser(value)
 	return clean
 end
 
+local function sanitizeDiscoveredSet(value)
+	local clean = {}
+	if type(value) == "table" then
+		for id, flag in pairs(value) do
+			if type(id) == "string" and flag == true then
+				clean[id] = true
+			end
+		end
+	end
+	return clean
+end
+
+local function sanitizeDiscovered(value)
+	if type(value) ~= "table" then
+		value = {}
+	end
+	return {
+		Pets = sanitizeDiscoveredSet(value.Pets),
+		Feed = sanitizeDiscoveredSet(value.Feed),
+	}
+end
+
 local function ensureValidData(profile)
 	migrateData(profile.Data)
 	profile:Reconcile()
@@ -801,6 +825,7 @@ local function ensureValidData(profile)
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
 	profile.Data.StormChaser = sanitizeStormChaser(profile.Data.StormChaser)
+	profile.Data.Discovered = sanitizeDiscovered(profile.Data.Discovered)
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
 	if type(profile.Data.LastSeenUpdateLogId) ~= "string" then
 		profile.Data.LastSeenUpdateLogId = ""

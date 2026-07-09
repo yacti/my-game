@@ -657,7 +657,8 @@ function FeedEditController.start()
 		:setImage(TOPBAR_EDIT_ICON_IMAGE)
 		:setImageScale(0.58)
 		:setCaption("Edit mode")
-		:setOrder(0)
+		-- Topbar order: backpack (-1), index (0), edit (1).
+		:setOrder(1)
 		:autoDeselect(false)
 	editModeIcon:modifyTheme({
 		{ "IconButton", "BackgroundColor3", Color3.fromRGB(0, 0, 0) },

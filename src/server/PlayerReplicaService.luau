@@ -134,6 +134,28 @@ local function copyStormChaser(value)
 	return copy
 end
 
+local function copyDiscoveredSet(value)
+	local copy = {}
+	if type(value) == "table" then
+		for id, flag in pairs(value) do
+			if type(id) == "string" and flag == true then
+				copy[id] = true
+			end
+		end
+	end
+	return copy
+end
+
+local function copyDiscovered(value)
+	if type(value) ~= "table" then
+		value = {}
+	end
+	return {
+		Pets = copyDiscoveredSet(value.Pets),
+		Feed = copyDiscoveredSet(value.Feed),
+	}
+end
+
 local function stateFromProfile(player, profile)
 	local data = profile and profile.Data or {}
 	local key = userKey(player)
@@ -157,6 +179,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),
 		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
+		[PlayerState.Fields.Discovered] = copyDiscovered(data.Discovered),
 		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
 		[PlayerState.Fields.LastSeenUpdateLogId] = stringValue(data.LastSeenUpdateLogId),
 	}

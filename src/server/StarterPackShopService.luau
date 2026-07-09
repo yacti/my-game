@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
+local DiscoveryService = require(Server:WaitForChild("DiscoveryService"))
 local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -236,10 +237,12 @@ local function grantPrepared(player, profile, prepared)
 	profile.Data.SeedInventory = profile.Data.SeedInventory or {}
 	for seedId, amount in pairs(prepared.seedCounts or {}) do
 		profile.Data.SeedInventory[seedId] = int(profile.Data.SeedInventory[seedId]) + int(amount)
+		DiscoveryService.MarkSeed(player, profile, seedId)
 	end
 	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 	for feedType, amount in pairs(prepared.feedCounts or {}) do
 		profile.Data.FeedInventory[feedType] = int(profile.Data.FeedInventory[feedType]) + int(amount)
+		DiscoveryService.MarkFeedType(player, profile, feedType)
 	end
 	return true, "ok"
 end

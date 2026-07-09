@@ -25,6 +25,7 @@ PlayerState.Fields = {
 	JoinBackShowcase = "JoinBackShowcase",
 	JoinGroupRewardCollected = "JoinGroupRewardCollected",
 	LastSeenUpdateLogId = "LastSeenUpdateLogId",
+	Discovered = "Discovered",
 }
 
 return PlayerState

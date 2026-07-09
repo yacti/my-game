@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
+local DiscoveryService = require(Server:WaitForChild("DiscoveryService"))
 local FeedRewardService = require(Server:WaitForChild("FeedRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -419,6 +420,7 @@ local function getTransactionContext(player, options)
 end
 
 local function finishTransaction(player, profile, tierNumber, options)
+	DiscoveryService.Sync(player, profile)
 	PlayerReplicaService.PublishProfile(player, profile)
 	CurrencyService.Publish(player, profile)
 	NotificationService.Success(player, "Rebirth " .. NumberFormatter.Integer(tierNumber) .. " complete!")

@@ -171,6 +171,20 @@ function Seeds.RarityForFeedType(feedType)
 	return nil
 end
 
+function Seeds.RollChanceNForFeedType(feedType)
+	local template = Seeds.TemplateForFeedType(feedType)
+	local chanceN = template and template:GetAttribute(Seeds.Attributes.RollChanceN)
+	if type(chanceN) == "number" and chanceN > 0 then
+		return chanceN
+	end
+	return nil
+end
+
+function Seeds.IsEventOnlyFeedType(feedType)
+	local template = Seeds.TemplateForFeedType(feedType)
+	return template ~= nil and template:GetAttribute(Seeds.Attributes.EventOnly) == true
+end
+
 function Seeds.DisplayNameFor(seedId)
 	local template = Seeds.GetTemplate(seedId)
 	return template and template.Name or seedId

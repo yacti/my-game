@@ -37,6 +37,7 @@ local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
 local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
 local CosmeticShopService = require(Server:WaitForChild("CosmeticShopService"))
 local CollectAllService = require(Server:WaitForChild("CollectAllService"))
+local DiscoveryService  = require(Server:WaitForChild("DiscoveryService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -448,6 +449,9 @@ local function snapshotProfileState(player, plot, profile)
 	profile.Data.FoodInventoryItems = feedState.FoodInventoryItems
 	profile.Data.FoodInventory = feedState.FoodInventory
 	profile.Data.LastSeen = os.time()
+	-- Catch-all discovery sweep: covers gifting and any grant path without a
+	-- point hook (publish rides the PublishProfile below).
+	RuntimeGuard.Run("snapshotProfileState.discoverySync", DiscoveryService.Sync, player, profile)
 	local publishRunOk, published = RuntimeGuard.Run("snapshotProfileState.publishProfile", PlayerReplicaService.PublishProfile, player, profile)
 	if publishRunOk and published ~= true then
 		warn("[init] Snapshot saved but PlayerState replica was not updated for user " .. userLabel(player))
@@ -797,6 +801,9 @@ local function feedPet(plot, player, profile, pet)
 	if petData.xp >= maxXP then
 		activePet, evolved = tryEvolvePet(plot, pet, profile)
 		if not activePet or not activePet.Parent then return false end
+		if evolved then
+			DiscoveryService.MarkPet(player, profile, activePet:GetAttribute(State.Pet.Id))
+		end
 	else
 		local logicalPivot = PetMotionService.GetLogicalPivot(pet)
 		PlotService.RescalePet(pet, petData.xp, logicalPivot)
@@ -1031,6 +1038,10 @@ local function handlePlayerAdded(player)
 		teardownPlayerState(player, plot, nil, { snapshot = false })
 		return
 	end
+	-- Backfill Index discoveries from everything the profile already owns
+	-- (runs before the replica is created, so the initial replica state
+	-- carries the result).
+	RuntimeGuard.Run("PlayerAdded.DiscoverySync." .. userLabel(player), DiscoveryService.Sync, player, profile)
 	if PlotStressTest and PlotStressTest.ShouldDisableTutorial() then
 		RuntimeGuard.Run("PlotStressTest.PreparePlayerProfile." .. userLabel(player), PlotStressTest.PreparePlayerProfile, player, profile)
 	end

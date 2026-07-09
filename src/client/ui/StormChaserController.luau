@@ -439,6 +439,8 @@ local function setupScientist(activeFolder)
 		clone:PivotTo(base)
 		clone.Parent = Workspace
 
+		local animatedRarityLabel = nil
+		local animatedRarity = nil
 		local billboardTemplate = BillboardGuiTemplates.Find("SeedRoll")
 		if billboardTemplate and billboardTemplate:IsA("BillboardGui") then
 			local billboard = billboardTemplate:Clone()
@@ -475,6 +477,13 @@ local function setupScientist(activeFolder)
 					if rarityColor then
 						rarityLabel.TextColor3 = rarityColor
 					end
+					-- Animated rarities cycle their color, so a one-shot set
+					-- would freeze them; keep them live from the spin loop.
+					local definition = Rarities.Get(rarity)
+					if definition and definition.Animated then
+						animatedRarityLabel = rarityLabel
+						animatedRarity = rarity
+					end
 				end
 			end
 			billboard.Parent = billboard.Adornee
@@ -486,13 +495,20 @@ local function setupScientist(activeFolder)
 		local connection = RuntimeGuard.Connect(RunService.Heartbeat, "StormChaserController.SeedPreviewSpin", function(deltaTime)
 			angle += deltaTime * math.pi * 2 / SEED_PREVIEW_REVOLUTION_SECONDS
 			clone:PivotTo(base * CFrame.Angles(0, angle, 0))
+			if animatedRarityLabel and animatedRarityLabel.Parent then
+				local color = Rarities.TextColorFor(animatedRarity, os.clock())
+				if color then
+					animatedRarityLabel.TextColor3 = color
+				end
+			end
 		end)
 		activePreview = { model = clone, connection = connection }
 	end
 
-	-- Rotates reward line -> forecast line -> experiment line, one per prompt.
-	-- The dialogue stays hidden until prompted and hides again (with the seed
-	-- preview) DIALOGUE_TIMEOUT_SECONDS after the last prompt.
+	-- Rotates reward line -> forecast line -> experiment line -> next-tier
+	-- tease, one per prompt. The dialogue stays hidden until prompted and
+	-- hides again (with the seed preview) DIALOGUE_TIMEOUT_SECONDS after the
+	-- last prompt.
 	local dialogueToken = 0
 	local lineIndex = 0
 	local function hideDialogue()
@@ -509,7 +525,7 @@ local function setupScientist(activeFolder)
 		end
 		dialogueToken += 1
 		local token = dialogueToken
-		lineIndex = lineIndex % 3 + 1
+		lineIndex = lineIndex % 4 + 1
 		clearSeedPreview()
 		local text
 		if lineIndex == 1 then
@@ -521,8 +537,14 @@ local function setupScientist(activeFolder)
 		elseif lineIndex == 2 then
 			local eventId = StormChaser.NextEvent(serverNow())
 			text = StormChaser.ForecastLines[eventId] or ""
-		else
+		elseif lineIndex == 3 then
 			text = "Participate in my experiment and be rewarded!"
+		else
+			-- Tease the tier after the current one; NextTier loops the last
+			-- tier back to 1, so the preview always has a reward to show.
+			local nextRewardSeedId = StormChaser.TierConfig(StormChaser.NextTier(currentTier())).rewardSeedId
+			text = "If you finish this task, I have another task for you with this reward!"
+			showSeedPreview(nextRewardSeedId)
 		end
 		if dialogueGui then
 			dialogueGui.Enabled = true

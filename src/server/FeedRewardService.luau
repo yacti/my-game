@@ -1,3 +1,4 @@
+local DiscoveryService = require(script.Parent:WaitForChild("DiscoveryService"))
 local FeedMachineTools = require(script.Parent:WaitForChild("FeedMachineTools"))
 local ToolGrantService = require(script.Parent:WaitForChild("ToolGrantService"))
 
@@ -73,6 +74,7 @@ function FeedRewardService.ApplyPrepared(player, profile, prepared)
 
 	profile.Data.FeedInventory = profile.Data.FeedInventory or {}
 	profile.Data.FeedInventory[feedType] = (profile.Data.FeedInventory[feedType] or 0) + amount
+	DiscoveryService.MarkFeedType(player, profile, feedType)
 	return true
 end
 

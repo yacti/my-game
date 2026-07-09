@@ -5,8 +5,8 @@ Rarities.Rare = "Rare"
 Rarities.Epic = "Epic"
 Rarities.Legendary = "Legendary"
 Rarities.Mythical = "Mythical"
-Rarities.Exclusive = "Exclusive"
 Rarities.Secret = "Secret"
+Rarities.Exclusive = "Exclusive"
 
 Rarities.Order = {
 	Rarities.Common,
@@ -14,8 +14,8 @@ Rarities.Order = {
 	Rarities.Epic,
 	Rarities.Legendary,
 	Rarities.Mythical,
-	Rarities.Exclusive,
 	Rarities.Secret,
+	Rarities.Exclusive,
 }
 
 local DEFINITIONS = {
@@ -47,11 +47,17 @@ local DEFINITIONS = {
 	},
 	[Rarities.Exclusive] = {
 		Name = Rarities.Exclusive,
-		Color = Color3.fromRGB(255, 255, 0),
+		Color = Color3.fromRGB(0, 236, 255),
 		Animated = true,
-		-- Two-colour ping-pong instead of the Mythical rainbow cycle.
-		TweenColors = { Color3.fromRGB(255, 255, 0), Color3.fromRGB(255, 195, 0) },
-		TweenPeriod = 2,
+		-- Colour-stop loop instead of the Mythical rainbow cycle: each entry
+		-- tweens to the next, and the last wraps back to the first.
+		TweenColors = {
+			Color3.fromRGB(255, 255, 255),
+			Color3.fromRGB(0, 236, 255),
+			Color3.fromRGB(0, 45, 255),
+			Color3.fromRGB(0, 236, 255),
+		},
+		TweenPeriod = 4,
 	},
 	[Rarities.Secret] = {
 		Name = Rarities.Secret,
@@ -83,8 +89,13 @@ local function animatedColorAt(definition, timeSeconds)
 	local colors = definition.TweenColors
 	if colors then
 		local period = definition.TweenPeriod or 2
-		local alpha = 0.5 - 0.5 * math.cos(((tonumber(timeSeconds) or 0) / period) * 2 * math.pi)
-		return colors[1]:Lerp(colors[2], alpha)
+		local progress = (((tonumber(timeSeconds) or 0) / period) % 1) * #colors
+		local index = math.floor(progress) + 1
+		local from = colors[index]
+		local to = colors[index % #colors + 1]
+		-- Cosine-ease each segment so stops don't produce visible kinks.
+		local alpha = 0.5 - 0.5 * math.cos((progress - (index - 1)) * math.pi)
+		return from:Lerp(to, alpha)
 	end
 	return Rarities.RainbowColorAt(timeSeconds)
 end
