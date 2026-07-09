@@ -42,6 +42,7 @@ local AUTO_ROLL_REQUEST_RATE_SECONDS = AutoRollConfig.RequestRateSeconds
 local AUTO_ROLL_RETRY_SECONDS = AutoRollConfig.RetrySeconds
 local LUCK_REQUEST_RATE_SECONDS = 0.35
 local DROP_AREA_REQUEST_RATE_SECONDS = 0.35
+local OFFER_SYNC_RATE_SECONDS = 2
 local ACTION_ROLL = "roll"
 local ACTION_SHOW_OFFERS = "showOffers"
 local ACTION_RESTORE_OFFERS = "restoreOffers"
@@ -92,6 +93,7 @@ local lastPurchaseRequest = {}
 local lastAutoRollRequest = {}
 local lastLuckRequest = {}
 local lastDropAreaRequest = {}
+local lastOfferSyncRequest = {}
 local pendingOffers = {}
 local adminPendingOffers = {}
 local autoRollSessions = {}
@@ -126,6 +128,7 @@ end
 local CrateRollEffect = Remotes.get(Remotes.Names.CrateRollEffect)
 local CrateRollPurchaseRequest = Remotes.get(Remotes.Names.CrateRollPurchaseRequest)
 local CrateRollPurchaseResult = Remotes.get(Remotes.Names.CrateRollPurchaseResult)
+local CrateRollOfferSyncRequest = Remotes.get(Remotes.Names.CrateRollOfferSyncRequest)
 local AutoRollRequest = Remotes.get(Remotes.Names.AutoRollRequest)
 local AutoRollState = Remotes.get(Remotes.Names.AutoRollState)
 local RollLuckUpgradeRequest = Remotes.get(Remotes.Names.RollLuckUpgradeRequest)
@@ -453,6 +456,28 @@ local function rareTeaseSeedEntry(seedEntries, usedSeedIds)
 	return fallbackRarity and randomSeedEntry(seedEntries, usedSeedIds, fallbackRarity, true) or nil
 end
 
+-- Rarity-pool admin crates (RollChances.AdminCrates[*].PoolRarity): the pool
+-- is every crate-roll SEED of that rarity, and the pick is an equal split —
+-- luck (crate/player/server/admin) deliberately plays no part.
+local function collectRarityPoolEntries(entries, rarity)
+	local pool = {}
+	for _, entry in ipairs(entries or {}) do
+		if entry.category == RollRewards.Categories.Seed and entry.rarity == rarity then
+			pool[#pool + 1] = entry
+		end
+	end
+	return pool
+end
+
+local function rollUniformSeedEntry(entries)
+	if #entries == 0 then
+		return nil, "empty-rarity-pool"
+	end
+	local rolled = table.clone(entries[rng:NextInteger(1, #entries)])
+	rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
+	return rolled
+end
+
 local function rollSeedPreviewCount()
 	local options = RollConfig.Reveal.SeedPreviewCountOptions
 	local candidates = {}
@@ -492,14 +517,25 @@ local function buildSeedPreviewSeeds(rolled, entries, crateId, player, profile)
 		usedSeedIds[rolled.seedId] = true
 	end
 
+	-- Rarity-pool crates preview with the same equal split as the roll itself
+	-- (entries is already the restricted pool); the rare tease is meaningless
+	-- there since everything in the pool is the teased rarity.
+	local crate = RollChances.GetCrate(crateId)
+	local uniformPool = crate ~= nil and crate.PoolRarity ~= nil
+
 	for index = 1, count do
 		local entry = nil
-		if rng:NextNumber(0, 1) < RollConfig.Reveal.SeedRareTeaseChance then
-			entry = rareTeaseSeedEntry(seedEntries, usedSeedIds)
+		if uniformPool then
+			entry = randomSeedEntry(seedEntries, usedSeedIds, nil, false)
+				or randomSeedEntry(seedEntries, usedSeedIds, nil, true)
+		else
+			if rng:NextNumber(0, 1) < RollConfig.Reveal.SeedRareTeaseChance then
+				entry = rareTeaseSeedEntry(seedEntries, usedSeedIds)
+			end
+			entry = entry
+				or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, false)
+				or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, true)
 		end
-		entry = entry
-			or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, false)
-			or weightedSeedEntry(crateId, player, profile, seedEntries, usedSeedIds, true)
 		if entry then
 			previews[index] = entry
 			usedSeedIds[entry.seedId] = true
@@ -663,6 +699,57 @@ local function sendRestoreRollOffers(player, rollBatchId, offers)
 	})
 end
 
+local function snapshotOfferPayload(offer)
+	return {
+		offerId = offer.offerId,
+		rollBatchId = offer.rollBatchId,
+		dropAreaIndex = offer.dropAreaIndex,
+		crateFloor = offer.crateFloor,
+		category = offer.category,
+		rewardId = offer.rewardId,
+		seedId = offer.seedId,
+		feedType = offer.feedType,
+		miscId = offer.miscId,
+		displayName = offer.displayName,
+		rarity = offer.rarity,
+		price = offer.price,
+		chanceN = offer.chanceN,
+		rngChanceText = offer.rngChanceText,
+		tutorialGuaranteed = offer.tutorialGuaranteed == true,
+	}
+end
+
+-- Targeted backfill for one client: resend every live normal-track offer as
+-- ACTION_RESTORE_OFFERS. Join-time restore is a one-shot FireAllClients that a
+-- client still booting its controllers can miss; the client restore handler is
+-- idempotent, so duplicate delivery re-renders instead of double-rendering.
+-- Admin drops stay excluded: those are for players present at the command.
+local function sendPendingOfferSnapshot(targetPlayer)
+	if not targetPlayer:IsDescendantOf(Players) then
+		return
+	end
+	for ownerUserId, offers in pairs(pendingOffers) do
+		local payloads = {}
+		local rollBatchId = nil
+		for _, offer in pairs(offers) do
+			rollBatchId = rollBatchId or offer.rollBatchId
+			payloads[#payloads + 1] = snapshotOfferPayload(offer)
+		end
+		if #payloads > 0 then
+			table.sort(payloads, function(a, b)
+				return a.offerId < b.offerId
+			end)
+			CrateRollEffect:FireClient(targetPlayer, {
+				action = ACTION_RESTORE_OFFERS,
+				rollBatchId = rollBatchId,
+				ownerUserId = ownerUserId,
+				offers = payloads,
+				track = TRACK_NORMAL,
+			})
+		end
+	end
+end
+
 local function sendClearOffer(player, offerId)
 	CrateRollEffect:FireAllClients({
 		action = ACTION_CLEAR_OFFER,
@@ -791,6 +878,23 @@ local function consumePurchaseRate(player)
 	return consumeRateLimit(lastPurchaseRequest, player, PURCHASE_REQUEST_RATE_SECONDS)
 end
 
+-- Client-ready handshake: RollController fires this once its CrateRollEffect
+-- listener is bound, so a resend here provably lands (unlike the join-time
+-- broadcast, which races the sequential client controller boot).
+local function handleOfferSyncRequest(player)
+	if not consumeRateLimit(lastOfferSyncRequest, player, OFFER_SYNC_RATE_SECONDS) then
+		return
+	end
+	-- Self-heal if the join-time restore never ran or failed transiently;
+	-- idempotent via the "already-active" guard.
+	local profile = PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player)
+	local plot = PlotServiceRef and PlotServiceRef.GetPlayerPlot(player)
+	if profile and plot then
+		RollService.RestorePendingOffers(player, plot, profile)
+	end
+	sendPendingOfferSnapshot(player)
+end
+
 local function applySeedReward(player, profile, offer, options)
 	local prepared, prepareCode = SeedTools.PrepareGrant(offer.seedId, 1)
 	if not prepared then
@@ -871,6 +975,12 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 	local canRoll, rollGateCode = OnboardingService.ResolveRollAttempt(player, profile, hasRequiredTutorialOffer(player, profile))
 	if not canRoll then
 		NotificationService.Info(player, "Buy the tutorial seed before rolling again")
+		-- The required offer exists server-side but this client may never have
+		-- rendered it (missed the join-time restore broadcast). Resend so the
+		-- buy prompt appears instead of leaving the player softlocked.
+		if consumeRateLimit(lastOfferSyncRequest, player, OFFER_SYNC_RATE_SECONDS) then
+			sendPendingOfferSnapshot(player)
+		end
 		return false, rollGateCode or "tutorial-buy-pending"
 	end
 
@@ -2136,12 +2246,21 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 	locks[key] = true
 	local ok, success, codeOrEffect, publicOfferOrNil, visualDurationOrNil = pcall(function()
 		local rollPool = collectRollPool()
-		local rolled, rollCode = rollRewardForCrate(crateId, player, profile, rollPool)
+		local rolled, rollCode
+		if crate.PoolRarity then
+			-- Rarity-pool crate: equal split over the restricted pool. The pool
+			-- also feeds the previews below, so teasers stay on-rarity.
+			rollPool = collectRarityPoolEntries(rollPool, crate.PoolRarity)
+			rolled, rollCode = rollUniformSeedEntry(rollPool)
+		else
+			rolled, rollCode = rollRewardForCrate(crateId, player, profile, rollPool)
+		end
 		if not rolled then
 			return false, rollCode or "reward-roll-failed"
 		end
 		-- Display the seed's original rarity odds, matching regular seed roll
-		-- reveals; the boosted luck only decides WHAT drops, not the shown text.
+		-- reveals; the boosted luck (or equal split) only decides WHAT drops,
+		-- not the shown text.
 		if rolled.chanceN then
 			rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
 		end
@@ -2263,6 +2382,11 @@ function RollService.DropAdminCrate(crateId)
 	if not crate then
 		return false, "unknown-admin-crate"
 	end
+	if crate.PoolRarity and #collectRarityPoolEntries(collectRollPool(), crate.PoolRarity) == 0 then
+		-- No crate-roll seed carries this rarity (asset misconfiguration):
+		-- fail the whole drop loudly rather than skip every player silently.
+		return false, "empty-rarity-pool"
+	end
 	if not adminPadActive then
 		return false, "pad-inactive"
 	end
@@ -2331,6 +2455,10 @@ function RollService.Start()
 		RollService.Purchase(player, offerId, profile)
 	end)
 
+	RuntimeGuard.Connect(CrateRollOfferSyncRequest.OnServerEvent, "RollService.CrateRollOfferSyncRequest", function(player)
+		handleOfferSyncRequest(player)
+	end)
+
 	RuntimeGuard.Connect(AutoRollRequest.OnServerEvent, "RollService.AutoRollRequest", function(player, payload)
 		handleAutoRollRequest(player, payload)
 	end)
@@ -2357,6 +2485,7 @@ function RollService.Start()
 		lastAutoRollRequest[key] = nil
 		lastLuckRequest[key] = nil
 		lastDropAreaRequest[key] = nil
+		lastOfferSyncRequest[key] = nil
 		pendingOffers[key] = nil
 		adminPendingOffers[key] = nil
 		if autoRollSessions[key] then

@@ -37,7 +37,7 @@ GearShopBalance.Items = {
 		FeedType = "BasicScarecrow",
 		Description = "Jumps every 10s, shaking all fruit off trees within 35 studs.",
 		Rarity = "Epic",
-		Price = 5000,
+		Price = 15000,
 		DevProductId = 0,
 		RequiredRebirths = 0,
 	},

@@ -20,7 +20,7 @@
 --   LiveEvents.SendGlobalMessage("We are coming...", { preset = "Alien" })
 --   LiveEvents.ClearGlobalMessages()
 --   LiveEvents.SetAdminPartyPad(true)
---   LiveEvents.DropAdminCrate("UFOCrate")   -- also InfernoCrate | SaturnCrate
+--   LiveEvents.DropAdminCrate("UFOCrate")   -- also Inferno|Saturn|SecretLuckyBlock|MythicLuckyBlock
 --   LiveEvents.SetAdminPartyPad(false)
 --   LiveEvents.SetAdminLuck(5, 1800)        -- x5 admin luck for 30 min, all servers
 --   LiveEvents.StopAdminLuck()
@@ -1333,7 +1333,7 @@ function LiveEventCommandService.GetAdminLuck()
 	return nil, localRevision
 end
 
--- Drops one admin crate (InfernoCrate/SaturnCrate/UFOCrate) on every eligible
+-- Drops one admin crate (any RollChances.AdminCrates id) on every eligible
 -- player's admin pad, on every server. One-shot: players present right now.
 function LiveEventCommandService.DropAdminCrate(crateId, options)
 	local crate = RollChances.GetAdminCrate(crateId)

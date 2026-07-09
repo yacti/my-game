@@ -42,6 +42,9 @@
         "CrateRollPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "CrateRollOfferSyncRequest": {
+          "$className": "RemoteEvent"
+        },
         "AutoRollRequest": {
           "$className": "RemoteEvent"
         },

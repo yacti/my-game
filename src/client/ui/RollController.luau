@@ -311,6 +311,35 @@ local function playCrateAnimation(crate)
 	track:Play()
 end
 
+-- Crates carrying CrateRainbowSurfaces (Studio-owned, same pattern as the
+-- animation attribute above) cycle every SurfaceAppearance inside through the
+-- Mythical rarity rainbow while the crate exists — owner falls and ghost
+-- falls alike. Entries self-clean once the crate leaves Workspace.
+local CRATE_RAINBOW_ATTRIBUTE = "CrateRainbowSurfaces"
+local activeRainbowSurfaces = {}
+
+local function startCrateRainbowSurfaces(crate)
+	if crate:GetAttribute(CRATE_RAINBOW_ATTRIBUTE) ~= true then
+		return
+	end
+	for _, descendant in ipairs(crate:GetDescendants()) do
+		if descendant:IsA("SurfaceAppearance") then
+			activeRainbowSurfaces[descendant] = true
+		end
+	end
+end
+
+local function stepRainbowSurfaces()
+	local color = Rarities.RainbowColorAt(os.clock())
+	for surface in pairs(activeRainbowSurfaces) do
+		if surface:IsDescendantOf(Workspace) then
+			surface.Color = color
+		else
+			activeRainbowSurfaces[surface] = nil
+		end
+	end
+end
+
 local function fadeIn(root, duration)
 	duration = tonumber(duration) or 0.2
 	for _, part in ipairs(effectParts(root)) do
@@ -1156,6 +1185,9 @@ local function stepRollRenderEffects()
 	if next(activeRainbowParticles) ~= nil then
 		stepRainbowParticles()
 	end
+	if next(activeRainbowSurfaces) ~= nil then
+		stepRainbowSurfaces()
+	end
 	if next(activeRevealAnimations) ~= nil then
 		stepRevealAnimations()
 	end
@@ -1483,6 +1515,7 @@ local function playCrateFall(payload, token)
 	crate.Parent = Workspace
 	trackRollEffect(crate, payload.offerId)
 	playCrateAnimation(crate)
+	startCrateRainbowSurfaces(crate)
 
 	local endCFrame = floorLandingCFrame(crate, crateFloor, 0)
 	local startCFrame = endCFrame + Vector3.new(0, CRATE_START_HEIGHT, 0)
@@ -1543,6 +1576,7 @@ local function playGhostCrateFall(payload)
 	crate.Parent = Workspace
 	trackRollEffect(crate, payload.offerId)
 	playCrateAnimation(crate)
+	startCrateRainbowSurfaces(crate)
 
 	local endCFrame = floorLandingCFrame(crate, crateFloor, 0)
 	local startCFrame = endCFrame + Vector3.new(0, CRATE_START_HEIGHT, 0)
@@ -1570,6 +1604,15 @@ local function collectPayloadOffers(payload)
 		offers[1] = payload
 	end
 	return offers
+end
+
+-- Bounded retries for restored offers whose crateFloor Instance had not
+-- replicated when the payload arrived (showPublicOffer drops those silently).
+local OFFER_SYNC_RETRY_SECONDS = 3
+local offerSyncRetryBudget = 2
+
+local function requestOfferSync()
+	Remotes.get(Remotes.Names.CrateRollOfferSyncRequest):FireServer()
 end
 
 function RollController.start()
@@ -1634,13 +1677,22 @@ function RollController.start()
 			end
 			local track = trackOf(payload)
 			clearOwnerReveals(ownerUserId, track)
+			local missingCrateFloor = false
 			for _, offer in ipairs(collectPayloadOffers(payload)) do
 				offer.ownerUserId = ownerUserId
 				offer.rollBatchId = offer.rollBatchId or payload.rollBatchId
 				offer.track = track
+				local crateFloor = offer.crateFloor
+				if not (crateFloor and crateFloor:IsA("BasePart") and crateFloor:IsDescendantOf(Workspace)) then
+					missingCrateFloor = true
+				end
 				RuntimeGuard.Spawn("RollController.RestoreOffer", showPublicOffer, offer, {
 					addPurchasePromptForOwner = true,
 				})
+			end
+			if missingCrateFloor and offerSyncRetryBudget > 0 then
+				offerSyncRetryBudget -= 1
+				task.delay(OFFER_SYNC_RETRY_SECONDS, requestOfferSync)
 			end
 			return
 		end
@@ -1696,6 +1748,12 @@ function RollController.start()
 			prompt.Enabled = false
 		end
 	end)
+
+	-- Ready handshake (same idea as Replica.RequestData in init.client.luau):
+	-- the join-time restore broadcast can fire before the CrateRollEffect
+	-- listener above exists on slow boots; ask the server to resend live
+	-- offers now that this controller can render them.
+	requestOfferSync()
 end
 
 function RollController.GetActiveTutorialReveal(seedId)

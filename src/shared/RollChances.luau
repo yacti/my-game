@@ -76,6 +76,11 @@ RollChances.Crates = {
 -- (LiveEvents.DropAdminCrate). They have no DropWeight on purpose: they must
 -- never enter the normal RollCrate pool. Templates live under the
 -- Assets.Crates.AdminParty subfolder.
+--
+-- Two reward mechanisms, exactly one per crate:
+--   LuckMultiplier - normal luck-weighted roll over the full pool.
+--   PoolRarity     - equal split over every crate-roll SEED of that rarity
+--                    (luck ignored; the pool resizes as seeds ship).
 RollChances.AdminCrates = {
 	InfernoCrate = {
 		DisplayName = "Inferno Crate",
@@ -93,6 +98,18 @@ RollChances.AdminCrates = {
 		DisplayName = "UFO Crate",
 		LuckMultiplier = 1000,
 		TemplateName = "UFOCrate",
+		FallDurationMultiplier = 4,
+	},
+	SecretLuckyBlock = {
+		DisplayName = "Secret Lucky Block",
+		PoolRarity = "Secret",
+		TemplateName = "SecretLuckyBlock",
+		FallDurationMultiplier = 4,
+	},
+	MythicLuckyBlock = {
+		DisplayName = "Mythic Lucky Block",
+		PoolRarity = "Mythical",
+		TemplateName = "MythicLuckyBlock",
 		FallDurationMultiplier = 4,
 	},
 }
@@ -674,7 +691,14 @@ function RollChances.Validate(errors)
 		if crate.DropWeight ~= nil then
 			errors[#errors + 1] = string.format("RollChances admin crate %s must not define DropWeight", tostring(crateId))
 		end
-		if type(crate.LuckMultiplier) ~= "number" or crate.LuckMultiplier < 1 then
+		if crate.PoolRarity ~= nil then
+			if type(crate.PoolRarity) ~= "string" or crate.PoolRarity == "" then
+				errors[#errors + 1] = string.format("RollChances admin crate %s has invalid PoolRarity", tostring(crateId))
+			end
+			if crate.LuckMultiplier ~= nil then
+				errors[#errors + 1] = string.format("RollChances admin crate %s must define LuckMultiplier or PoolRarity, not both", tostring(crateId))
+			end
+		elseif type(crate.LuckMultiplier) ~= "number" or crate.LuckMultiplier < 1 then
 			errors[#errors + 1] = string.format("RollChances admin crate %s has invalid LuckMultiplier", tostring(crateId))
 		end
 		if crate.FallDurationMultiplier ~= nil and (type(crate.FallDurationMultiplier) ~= "number" or crate.FallDurationMultiplier <= 0) then

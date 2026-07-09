@@ -11,8 +11,8 @@
 --                                   globally (replace semantics)
 --   AdminEvents                  -> global Alien start/stop
 --   PadToggle                    -> admin party pad on/off (all servers)
---   CrateDrops                   -> one-shot admin crate drops (mythic/secret
---                                   intentionally unwired for now)
+--   CrateDrops                   -> one-shot admin crate drops (luck crates
+--                                   plus the Secret/Mythic rarity-pool blocks)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -291,15 +291,9 @@ local function bindPanel(panelFrame)
 
 	local crateDrops = section(panel, "CrateDrops")
 	if crateDrops then
-		for _, crateId in ipairs({ "InfernoCrate", "SaturnCrate", "UFOCrate" }) do
+		-- Button names double as RollChances.AdminCrates ids.
+		for _, crateId in ipairs({ "InfernoCrate", "SaturnCrate", "UFOCrate", "MythicLuckyBlock", "SecretLuckyBlock" }) do
 			bindSimpleButton(crateDrops, crateId, Actions.DropCrate, { crateId = crateId })
-		end
-		-- mythic / secret stay unwired for now; dim them so they read as inert.
-		for _, inertName in ipairs({ "mythic", "secret" }) do
-			local inert = child(crateDrops, inertName, "ImageButton")
-			if inert then
-				UiEffects.SetButtonEnabled(inert, false)
-			end
 		end
 	end
 
