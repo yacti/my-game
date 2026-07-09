@@ -11,7 +11,7 @@ local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 
 local UPDATE_INTERVAL = 0.2
 local TARGET_EPSILON = 0.05
-local POST_FEED_IDLE_SECONDS = 2
+local POST_FEED_IDLE_SECONDS = 5
 local TURN_TWEEN_SECONDS = 0.2
 local MIN_WALK_SEGMENT_SECONDS = 0.3
 local WALK_SPEED_VARIATION = 0.08
