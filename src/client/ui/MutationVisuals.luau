@@ -514,7 +514,45 @@ local function enablePersistentParticles(root)
 	end
 end
 
+local function isInsideTemplatePart(descendant, template)
+	local current = descendant.Parent
+	while current and current ~= template do
+		if current:IsA("BasePart") then
+			return true
+		end
+		current = current.Parent
+	end
+	return false
+end
+
+-- Template parts (e.g. Aqua's drip pad) become a surface effect sized to the
+-- food: X/Z stretched to the primary part's footprint, seated flush on top.
+local function clonePartVisual(descendant, folder, targetPart)
+	local part = descendant:Clone()
+	setLocalMutationVisual(part)
+	part.Size = Vector3.new(targetPart.Size.X, part.Size.Y, targetPart.Size.Z)
+	part.CFrame = targetPart.CFrame * CFrame.new(0, (targetPart.Size.Y + part.Size.Y) / 2, 0)
+	part.Anchored = targetPart.Anchored
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Massless = true
+	part.CastShadow = false
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "MutationPartWeld"
+	weld.Part0 = targetPart
+	weld.Part1 = part
+	weld.Parent = part
+
+	part.Parent = folder
+	return part
+end
+
 local function cloneVisualDescendant(descendant, host, folder, targetPart)
+	if descendant:IsA("BasePart") and targetPart then
+		return clonePartVisual(descendant, folder, targetPart)
+	end
 	if descendant:IsA("Attachment") and targetPart then
 		local attachment = descendant:Clone()
 		attachment.Parent = targetPart
@@ -595,12 +633,15 @@ local function render(record)
 		if template then
 			local referenceExtent = templateReferenceExtent(template)
 			for _, descendant in ipairs(template:GetDescendants()) do
-				local clone = cloneVisualDescendant(descendant, host, folder, targetPart)
-				if clone then
-					clone.Name = mutationId .. "_" .. clone.Name
-					record.extras[#record.extras + 1] = clone
-					registerScalableEmitters(record, clone, referenceExtent)
-					enablePersistentParticles(clone)
+				-- Descendants of a template part ride along with its clone.
+				if not isInsideTemplatePart(descendant, template) then
+					local clone = cloneVisualDescendant(descendant, host, folder, targetPart)
+					if clone then
+						clone.Name = mutationId .. "_" .. clone.Name
+						record.extras[#record.extras + 1] = clone
+						registerScalableEmitters(record, clone, referenceExtent)
+						enablePersistentParticles(clone)
+					end
 				end
 			end
 		end
