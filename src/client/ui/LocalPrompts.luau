@@ -1606,9 +1606,16 @@ refreshAll = function(shouldScan)
 			continue
 		end
 
+		-- Same far-distance early-out internal prompts get: skip availability
+		-- callbacks for prompts that could not be shown from here anyway.
+		local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
+		if distance and distance > prompt.MaxActivationDistance + FAR_PROMPT_REFRESH_BUFFER then
+			prompt.Enabled = false
+			continue
+		end
+
 		prompt.Enabled = record.isAvailable(prompt) == true
 		if prompt.Enabled then
-			local distance = rootPosition and promptDistance(prompt, rootPosition) or nil
 			if distance and distance <= prompt.MaxActivationDistance then
 				if shouldSelectPrompt(closestKind, closestDistance, nil, distance, feedIntentActive) then
 					closestPrompt = prompt

@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -23,6 +24,7 @@ local ShovelController = {}
 
 local DELETE_PROMPT_ATTACHMENT_NAME = "__ShovelDeletePromptAttachment"
 local DELETE_PROMPT_DISTANCE = 18
+local PROMPT_UPDATE_INTERVAL = 0.1
 
 local DELETE_FAILURE_MESSAGES = {
 	["busy"] = "Please wait before deleting another item",
@@ -181,27 +183,6 @@ local function targetWorldCenter(target)
 	return part and part.Position or nil
 end
 
-local function promptParentForTarget(target)
-	local part = target:IsA("BasePart") and target or target.PrimaryPart or firstBasePartDescendant(target)
-	if not part then
-		return nil
-	end
-	local attachment = part:FindFirstChild(DELETE_PROMPT_ATTACHMENT_NAME)
-	if attachment and not attachment:IsA("Attachment") then
-		return part
-	end
-	if not attachment then
-		attachment = Instance.new("Attachment")
-		attachment.Name = DELETE_PROMPT_ATTACHMENT_NAME
-		attachment.Parent = part
-	end
-	local position = targetWorldCenter(target)
-	if position then
-		attachment.WorldPosition = position
-	end
-	return attachment
-end
-
 function ShovelController.start()
 	local player = Players.LocalPlayer
 	local ShovelDeleteRequest = Remotes.get(Remotes.Names.ShovelDeleteRequest)
@@ -214,14 +195,18 @@ function ShovelController.start()
 	local pendingRequestId = nil
 	local pendingTarget = nil
 	local boundTools = setmetatable({}, { __mode = "k" })
-	local deletePrompts = {}
 	local deleteTargets = {}
+	local deleteTargetParts = setmetatable({}, { __mode = "k" })
 	local deleteTargetConnections = {}
 	local plotDescendantConnection = nil
 
-	local refreshDeletePrompts
-	local clearDeletePrompts
-	local unregisterDeleteTarget
+	-- One prompt follows the nearest deletable item instead of one prompt per
+	-- item: LocalPrompts only ever shows the single closest prompt, so a
+	-- per-item fleet is pure instance/refresh overhead.
+	local roamingPrompt = nil -- { prompt, attachment, triggeredConnection, unregisterExternalPrompt }
+	local currentTarget = nil
+
+	local updateRoamingPrompt
 
 	local function isEquipped()
 		return equippedTool ~= nil and equippedTool.Parent == player.Character
@@ -231,13 +216,55 @@ function ShovelController.start()
 		return player:GetAttribute(State.Player.OfflineProgressPending) == true
 	end
 
+	local function playerRootPosition()
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		return root and root:IsA("BasePart") and root.Position or nil
+	end
+
+	local function destroyRoamingPrompt()
+		currentTarget = nil
+		local record = roamingPrompt
+		if not record then
+			return
+		end
+		roamingPrompt = nil
+		if record.triggeredConnection then
+			record.triggeredConnection:Disconnect()
+		end
+		if record.unregisterExternalPrompt then
+			record.unregisterExternalPrompt()
+		end
+		-- Hide before destroying so a shown prompt fires PromptHidden for the
+		-- customizer instead of relying solely on its Destroying fallback.
+		record.prompt.Enabled = false
+		record.prompt:Destroy()
+		if record.attachment.Parent then
+			record.attachment:Destroy()
+		end
+	end
+
 	local function cancelPrompt()
 		promptToken += 1
 		promptOpen = false
 		YesNoWarning.Cancel("cancelled")
-		if refreshDeletePrompts then
-			refreshDeletePrompts(false)
+		if updateRoamingPrompt then
+			updateRoamingPrompt()
 		end
+	end
+
+	local function isDeletePromptAvailable()
+		if promptOpen or pendingRequestId ~= nil or not isEquipped() or isOfflineProgressPending() then
+			return false
+		end
+		local target = currentTarget
+		if not target or not target.Parent then
+			return false
+		end
+		local plot = PlotResolver.ResolveForPlayer(player)
+		return plot ~= nil
+			and target:IsDescendantOf(plot)
+			and (isFeedPlacement(target) or isCosmeticPlacement(target))
 	end
 
 	local function requestDelete(target)
@@ -258,9 +285,7 @@ function ShovelController.start()
 		nextRequestId += 1
 		pendingRequestId = nextRequestId
 		pendingTarget = target
-		if refreshDeletePrompts then
-			refreshDeletePrompts(false)
-		end
+		updateRoamingPrompt()
 		ShovelDeleteRequest:FireServer(pendingRequestId, target, shovelGuid)
 	end
 
@@ -275,9 +300,7 @@ function ShovelController.start()
 		promptToken += 1
 		local token = promptToken
 		promptOpen = true
-		if refreshDeletePrompts then
-			refreshDeletePrompts(false)
-		end
+		updateRoamingPrompt()
 
 		local opened = YesNoWarning.Prompt({
 			title = "Delete Item?",
@@ -293,56 +316,137 @@ function ShovelController.start()
 			promptOpen = false
 			if confirmed and isEquipped() and target.Parent then
 				requestDelete(target)
-			elseif refreshDeletePrompts then
-				refreshDeletePrompts(false)
+			else
+				updateRoamingPrompt()
 			end
 		end)
 
 		if not opened then
 			promptOpen = false
-			if refreshDeletePrompts then
-				refreshDeletePrompts(false)
+			updateRoamingPrompt()
+		end
+	end
+
+	local function positionPartFor(target)
+		local cached = deleteTargetParts[target]
+		if cached and cached.Parent and (cached == target or cached:IsDescendantOf(target)) then
+			return cached
+		end
+		local part = target:IsA("BasePart") and target
+			or (target:IsA("Model") and target.PrimaryPart)
+			or firstBasePartDescendant(target)
+		deleteTargetParts[target] = part
+		return part
+	end
+
+	local function nearestDeleteTarget(rootPosition)
+		local best = nil
+		local bestPart = nil
+		local bestDistanceSq = DELETE_PROMPT_DISTANCE * DELETE_PROMPT_DISTANCE
+		for target in pairs(deleteTargets) do
+			local part = target.Parent and positionPartFor(target) or nil
+			if part then
+				local offset = part.Position - rootPosition
+				local distanceSq = offset:Dot(offset)
+				if distanceSq <= bestDistanceSq then
+					best = target
+					bestPart = part
+					bestDistanceSq = distanceSq
+				end
 			end
 		end
+		return best, bestPart
 	end
 
-	local function removeDeletePrompt(target)
-		local record = deletePrompts[target]
+	local function attachRoamingPrompt(target, part)
+		local record = roamingPrompt
 		if not record then
+			local attachment = Instance.new("Attachment")
+			attachment.Name = DELETE_PROMPT_ATTACHMENT_NAME
+
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "ShovelDeletePrompt"
+			prompt.ActionText = "Delete"
+			prompt.ObjectText = ""
+			prompt.KeyboardKeyCode = Enum.KeyCode.E
+			prompt.HoldDuration = 0.25
+			prompt.MaxActivationDistance = DELETE_PROMPT_DISTANCE
+			prompt.RequiresLineOfSight = false
+			prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
+			prompt.Enabled = false
+			prompt.Parent = attachment
+
+			record = {
+				prompt = prompt,
+				attachment = attachment,
+			}
+			record.unregisterExternalPrompt = LocalPrompts.RegisterExternalPrompt(prompt, isDeletePromptAvailable, {
+				allowWhileShovelEquipped = true,
+			})
+			record.triggeredConnection = RuntimeGuard.Connect(prompt.Triggered, "ShovelController.DeletePromptTriggered", function()
+				local triggeredTarget = currentTarget
+				if isEquipped() and triggeredTarget and triggeredTarget.Parent then
+					promptDelete(triggeredTarget)
+				end
+			end)
+			roamingPrompt = record
+		end
+
+		if record.attachment.Parent ~= part then
+			record.attachment.Parent = part
+		end
+		if target ~= currentTarget then
+			currentTarget = target
+			record.attachment.WorldPosition = targetWorldCenter(target) or part.Position
+		end
+	end
+
+	updateRoamingPrompt = function()
+		if isOfflineProgressPending() or not isEquipped() then
+			destroyRoamingPrompt()
 			return
 		end
-		for _, connection in ipairs(record.connections) do
-			connection:Disconnect()
+		if promptOpen or pendingRequestId ~= nil then
+			-- Keep the current target locked while a confirm dialog or delete
+			-- request is in flight; just make sure the prompt is hidden.
+			if roamingPrompt then
+				roamingPrompt.prompt.Enabled = false
+			end
+			return
 		end
-		if record.unregisterExternalPrompt then
-			record.unregisterExternalPrompt()
+		if roamingPrompt and (roamingPrompt.prompt.Parent == nil or roamingPrompt.attachment.Parent == nil) then
+			-- The part the prompt was riding on got destroyed; rebuild below.
+			destroyRoamingPrompt()
 		end
-		if record.prompt then
-			record.prompt:Destroy()
+
+		local rootPosition = playerRootPosition()
+		local target, part
+		if rootPosition then
+			target, part = nearestDeleteTarget(rootPosition)
 		end
-		if record.attachment and record.attachment.Parent then
-			record.attachment:Destroy()
+		if not target or not part then
+			currentTarget = nil
+			if roamingPrompt then
+				roamingPrompt.prompt.Enabled = false
+			end
+			return
 		end
-		deletePrompts[target] = nil
+		attachRoamingPrompt(target, part)
 	end
 
-	unregisterDeleteTarget = function(target)
-		removeDeletePrompt(target)
+	local function unregisterDeleteTarget(target)
 		local connection = deleteTargetConnections[target]
 		if connection then
 			connection:Disconnect()
 			deleteTargetConnections[target] = nil
 		end
 		deleteTargets[target] = nil
-	end
-
-	clearDeletePrompts = function()
-		local targets = {}
-		for target in pairs(deletePrompts) do
-			targets[#targets + 1] = target
-		end
-		for _, target in ipairs(targets) do
-			removeDeletePrompt(target)
+		deleteTargetParts[target] = nil
+		if currentTarget == target then
+			currentTarget = nil
+			if roamingPrompt then
+				roamingPrompt.prompt.Enabled = false
+			end
 		end
 	end
 
@@ -354,61 +458,6 @@ function ShovelController.start()
 		for _, target in ipairs(targets) do
 			unregisterDeleteTarget(target)
 		end
-	end
-
-	local function isDeletePromptAvailable(target)
-		if promptOpen or pendingRequestId ~= nil or not isEquipped() or not target or not target.Parent then
-			return false
-		end
-		local plot = PlotResolver.ResolveForPlayer(player)
-		return plot ~= nil
-			and target:IsDescendantOf(plot)
-			and (isFeedPlacement(target) or isCosmeticPlacement(target))
-	end
-
-	local function addDeletePrompt(target)
-		if deletePrompts[target] then
-			return
-		end
-
-		local parent = promptParentForTarget(target)
-		if not parent then
-			return
-		end
-
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "ShovelDeletePrompt"
-		prompt.ActionText = "Delete"
-		prompt.ObjectText = ""
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0.25
-		prompt.MaxActivationDistance = DELETE_PROMPT_DISTANCE
-		prompt.RequiresLineOfSight = false
-		prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
-		prompt.Enabled = false
-		prompt.Parent = parent
-
-		local record = {
-			prompt = prompt,
-			attachment = parent:IsA("Attachment") and parent or nil,
-			connections = {},
-		}
-		record.unregisterExternalPrompt = LocalPrompts.RegisterExternalPrompt(prompt, function()
-			return isDeletePromptAvailable(target)
-		end, {
-			allowWhileShovelEquipped = true,
-		})
-		record.connections[#record.connections + 1] = RuntimeGuard.Connect(prompt.Triggered, "ShovelController.DeletePromptTriggered", function()
-			if isEquipped() and target.Parent then
-				promptDelete(target)
-			end
-		end)
-		record.connections[#record.connections + 1] = RuntimeGuard.Connect(target.AncestryChanged, "ShovelController.DeleteTargetAncestryChanged", function()
-			if not target:IsDescendantOf(Workspace) then
-				removeDeletePrompt(target)
-			end
-		end)
-		deletePrompts[target] = record
 	end
 
 	local function registerDeleteTarget(target, plot)
@@ -468,55 +517,13 @@ function ShovelController.start()
 		end
 		plotDescendantConnection = RuntimeGuard.Connect(plot.DescendantAdded, "ShovelController.PlotDescendantAdded", function(instance)
 			tryIndexDeleteTarget(instance, plot)
-			if not isEquipped() then
-				return
-			end
+			-- Attributes are often applied right after parenting; retry once
+			-- next step. The roaming-prompt heartbeat picks new targets up on
+			-- its own, so no prompt refresh is needed here.
 			task.defer(function()
 				RuntimeGuard.Run("ShovelController.TryBindDeferred", tryIndexDeleteTarget, instance, plot)
-				RuntimeGuard.Run("ShovelController.RefreshPromptsDeferred", refreshDeletePrompts, false)
 			end)
 		end)
-	end
-
-	local function bindIndexedDeleteTargets()
-		local targets = {}
-		for target in pairs(deleteTargets) do
-			targets[#targets + 1] = target
-		end
-		for _, target in ipairs(targets) do
-			if not target.Parent then
-				unregisterDeleteTarget(target)
-			elseif isDeletePromptAvailable(target) then
-				addDeletePrompt(target)
-			end
-		end
-	end
-
-	refreshDeletePrompts = function(shouldScan)
-		local plot = PlotResolver.ResolveForPlayer(player)
-		if isOfflineProgressPending() or not isEquipped() or not plot then
-			clearDeletePrompts()
-			return
-		end
-
-		if shouldScan then
-			rebuildDeleteTargetIndex()
-		end
-		bindIndexedDeleteTargets()
-
-		for target, record in pairs(deletePrompts) do
-			if not target.Parent
-				or not target:IsDescendantOf(plot)
-				or not (isFeedPlacement(target) or isCosmeticPlacement(target)) then
-				unregisterDeleteTarget(target)
-				continue
-			end
-
-			record.prompt.ObjectText = ""
-			if not isDeletePromptAvailable(target) then
-				record.prompt.Enabled = false
-			end
-		end
 	end
 
 	local function bindTool(tool)
@@ -527,7 +534,7 @@ function ShovelController.start()
 
 		local function activateTool()
 			equippedTool = tool
-			refreshDeletePrompts(false)
+			updateRoamingPrompt()
 		end
 
 		RuntimeGuard.Connect(tool.Equipped, "ShovelController.ToolEquipped", activateTool)
@@ -538,7 +545,7 @@ function ShovelController.start()
 			if equippedTool == tool then
 				equippedTool = nil
 				cancelPrompt()
-				clearDeletePrompts()
+				destroyRoamingPrompt()
 			end
 		end)
 	end
@@ -565,10 +572,10 @@ function ShovelController.start()
 			if target then
 				unregisterDeleteTarget(target)
 			end
-			refreshDeletePrompts(false)
+			updateRoamingPrompt()
 			return
 		end
-		refreshDeletePrompts(false)
+		updateRoamingPrompt()
 		NotificationUi.show({
 			kind = NotificationConfig.Kinds.Error,
 			text = deleteFailureMessage(reason),
@@ -579,7 +586,7 @@ function ShovelController.start()
 	RuntimeGuard.Connect(player.CharacterAdded, "ShovelController.CharacterAdded", function(character)
 		equippedTool = nil
 		cancelPrompt()
-		clearDeletePrompts()
+		destroyRoamingPrompt()
 		RuntimeGuard.Connect(character.ChildAdded, "ShovelController.CharacterChildAdded", bindTool)
 		task.defer(function()
 			RuntimeGuard.Run("ShovelController.ScanToolsDeferred", scanTools)
@@ -591,19 +598,26 @@ function ShovelController.start()
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "ShovelController.AssignedPlotChanged", function()
 		rebuildDeleteTargetIndex()
 		bindPlotIndexWatcher()
-		if isEquipped() then
-			clearDeletePrompts()
-			refreshDeletePrompts(false)
-		end
+		destroyRoamingPrompt()
+		updateRoamingPrompt()
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "ShovelController.OfflineProgressPendingChanged", function()
 		cancelPrompt()
-		if isOfflineProgressPending() then
-			clearDeletePrompts()
-		elseif isEquipped() then
-			refreshDeletePrompts(false)
-		end
 	end)
+
+	local accumulator = 0
+	RuntimeGuard.Connect(RunService.Heartbeat, "ShovelController.Heartbeat", function(dt)
+		accumulator += dt
+		if accumulator < PROMPT_UPDATE_INTERVAL then
+			return
+		end
+		accumulator = 0
+		if not isEquipped() then
+			return
+		end
+		RuntimeGuard.Run("ShovelController.RoamingPromptHeartbeat", updateRoamingPrompt)
+	end)
+
 	rebuildDeleteTargetIndex()
 	bindPlotIndexWatcher()
 	RuntimeGuard.Run("ShovelController.ScanToolsInitial", scanTools)
