@@ -72,6 +72,7 @@ local CONTROLLERS = {
 	"GrowSkipController",
 	"PatchSlotVisuals",
 	"AppleTreeSlotVisuals",
+	"ScarecrowJumpEffects",
 	"MutationVisuals",
 	"MutationTooltipController",
 	"ThunderstormController",

@@ -128,6 +128,8 @@ State.Feed = {
 	PercentageOfBest = "PercentageOfBest", -- Tree/Patch: resolved XP = pct x best same-class static machine XP on the plot (min 1); replaces XP on the template
 	XPMultiplier    = "XPMultiplier",    -- Processor/JamBarrel multiplier applied to deposited food XP
 	MaxQueue        = "MaxQueue",        -- Processor: queue capacity
+	JumpSeconds     = "JumpSeconds",     -- Scarecrow: seconds between jumps (global clock boundary)
+	JumpRadius      = "JumpRadius",      -- Scarecrow: tree-shake radius in studs
 
 	-- Server-published runtime state (clients can read for UI).
 	QueueCount = "QueueCount", -- Processor

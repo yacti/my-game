@@ -730,6 +730,42 @@ local function validateTreeClickTarget(template, errors, warnings)
 	end
 end
 
+local function validateScarecrowTemplate(template, feedType, errors, warnings)
+	if not template:IsA("Model") then
+		add(errors, template:GetFullName() .. " must be a Model")
+	elseif not template.PrimaryPart then
+		add(errors, template:GetFullName() .. " missing PrimaryPart")
+	end
+
+	local jumpSeconds = template:GetAttribute(State.Feed.JumpSeconds)
+	if type(jumpSeconds) ~= "number" or jumpSeconds <= 0 then
+		add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.JumpSeconds, tostring(jumpSeconds)))
+	end
+	local jumpRadius = template:GetAttribute(State.Feed.JumpRadius)
+	if type(jumpRadius) ~= "number" or jumpRadius <= 0 then
+		add(errors, string.format("%s has invalid %s %q", template:GetFullName(), State.Feed.JumpRadius, tostring(jumpRadius)))
+	end
+
+	-- Template Price must mirror the gear-shop source of truth exactly.
+	local price = template:GetAttribute(Seeds.Attributes.Price)
+	local shopItem = type(feedType) == "string" and GearShopBalance.Get(feedType) or nil
+	if type(price) ~= "number" or price <= 0 or price % 1 ~= 0 then
+		add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.Price, tostring(price)))
+	elseif shopItem and price ~= GearShopBalance.Price(shopItem) then
+		add(errors, string.format(
+			"%s %s %d does not match GearShopBalance price %d",
+			template:GetFullName(),
+			Seeds.Attributes.Price,
+			price,
+			GearShopBalance.Price(shopItem)
+		))
+	end
+
+	if not template:FindFirstChild("PumpkinHead", true) then
+		add(warnings, template:GetFullName() .. " has no PumpkinHead; the jump bob will animate the body only")
+	end
+end
+
 local function validateFeedTemplateIdentity(root, errors, warnings)
 	local seenByFeedType = {}
 	for _, classFolder in ipairs(root:GetChildren()) do
@@ -765,6 +801,11 @@ local function validateFeedTemplateIdentity(root, errors, warnings)
 			end
 
 			for _, attributeName in ipairs(SEED_OWNED_FEED_ATTRIBUTES) do
+				-- Scarecrows are gear-shop items; their template Price is a
+				-- display copy cross-checked against GearShopBalance below.
+				if feedClass == "Scarecrow" and attributeName == Seeds.Attributes.Price then
+					continue
+				end
 				if template:GetAttribute(attributeName) ~= nil then
 					add(errors, string.format(
 						"%s has seed-owned attribute %s; move it to the matching seed template",
@@ -823,6 +864,8 @@ local function validateFeedTemplateIdentity(root, errors, warnings)
 				validatePatchEditSelectionHitbox(template, errors)
 			elseif feedClass == "Tree" then
 				validateTreeClickTarget(template, errors, warnings)
+			elseif feedClass == "Scarecrow" then
+				validateScarecrowTemplate(template, feedType, errors, warnings)
 			end
 
 			local growRate = template:GetAttribute(State.Feed.GrowRate)
@@ -1311,17 +1354,16 @@ local function validateShopUi(menu, uiName, requireRarity, errors)
 	descendant(template, "Description", "TextLabel", errors)
 	descendant(template, "ItemIcon", "ViewportFrame", errors)
 	descendant(template, "isLocked", "GuiObject", errors)
-	local buyButtons = descendant(template, "BuyBtns", "GuiObject", errors)
-	if buyButtons then
-		local cashButton = descendant(buyButtons, "CashBtn", "GuiButton", errors)
-		if cashButton then
-			descendant(cashButton, "Price", "TextLabel", errors)
-			descendant(cashButton, "CannotAfford", "ImageLabel", errors)
-		end
-		local robuxButton = descendant(buyButtons, "RobuxBtn", "GuiButton", errors)
-		if robuxButton then
-			descendant(robuxButton, "Price", "TextLabel", errors)
-		end
+	-- Buy buttons may sit directly on the row (GearShop, cash-only) or inside a
+	-- BuyBtns container (CosmeticShop); RobuxBtn is optional either way.
+	local cashButton = descendant(template, "CashBtn", "GuiButton", errors)
+	if cashButton then
+		descendant(cashButton, "Price", "TextLabel", errors)
+		descendant(cashButton, "CannotAfford", "ImageLabel", errors)
+	end
+	local robuxButton = template:FindFirstChild("RobuxBtn", true)
+	if robuxButton and robuxButton:IsA("GuiButton") then
+		descendant(robuxButton, "Price", "TextLabel", errors)
 	end
 end
 

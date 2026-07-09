@@ -186,6 +186,9 @@ function ShopPanelController.Start(config)
 			if row.lockedFrame then
 				row.lockedFrame.Visible = locked
 			end
+			if row.lockedLabel and locked then
+				UiEffects.SetTextStack(row.lockedLabel, string.format("REBIRTH %d REQUIRED", requiredRebirths))
+			end
 			if row.cannotAfford then
 				row.cannotAfford.Visible = not locked and not affordable
 			end
@@ -282,6 +285,7 @@ function ShopPanelController.Start(config)
 			rarityLabel = findDescendant(rowGui, "Rarity", "TextLabel"),
 			descriptionLabel = findDescendant(rowGui, "Description", "TextLabel"),
 			lockedFrame = findDescendant(rowGui, "isLocked", "GuiObject"),
+			lockedLabel = findDescendant(rowGui, "Locked", "TextLabel"),
 			cashButton = cashButton,
 			robuxButton = robuxButton,
 			cashPriceLabel = cashButton and findDescendant(cashButton, "Price", "TextLabel"),

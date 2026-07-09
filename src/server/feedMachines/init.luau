@@ -31,6 +31,7 @@ local Trees = require(script:WaitForChild("Trees"))
 local Patches   = require(script:WaitForChild("Patches"))
 local JamBarrel = require(script:WaitForChild("JamBarrel"))
 local Processor = require(script:WaitForChild("Processor"))
+local Scarecrow = require(script:WaitForChild("Scarecrow"))
 
 -- Class-level implementations.
 local CLASSES = {
@@ -38,6 +39,7 @@ local CLASSES = {
 	Patch     = Patches,
 	Processor = Processor,
 	Tree      = Trees,
+	Scarecrow = Scarecrow,
 }
 
 local FeedMachines = {}

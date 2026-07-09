@@ -65,6 +65,17 @@ local function descriptionFor(item)
 				formatSeconds(processDuration)
 			)
 		end
+	elseif feedClass == "Scarecrow" then
+		local jumpSeconds = template:GetAttribute(State.Feed.JumpSeconds)
+		local jumpRadius = template:GetAttribute(State.Feed.JumpRadius)
+		if type(jumpSeconds) == "number" and jumpSeconds > 0
+			and type(jumpRadius) == "number" and jumpRadius > 0 then
+			return string.format(
+				"Shakes all fruit off trees within %d studs every %ss",
+				jumpRadius,
+				formatSeconds(jumpSeconds)
+			)
+		end
 	end
 	return description
 end

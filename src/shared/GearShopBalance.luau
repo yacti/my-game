@@ -21,7 +21,7 @@ GearShopBalance.Items = {
 		Rarity = "Epic",
 		Price = 100000,
 		DevProductId = 0,
-		RequiredRebirths = 0,
+		RequiredRebirths = 1,
 	},
 	{
 		Kind = GearShopBalance.Kinds.FeedMachine,
@@ -30,7 +30,34 @@ GearShopBalance.Items = {
 		Rarity = "Legendary",
 		Price = 10000000,
 		DevProductId = 0,
+		RequiredRebirths = 2,
+	},
+	{
+		Kind = GearShopBalance.Kinds.FeedMachine,
+		FeedType = "BasicScarecrow",
+		Description = "Jumps every 10s, shaking all fruit off trees within 35 studs.",
+		Rarity = "Epic",
+		Price = 5000,
+		DevProductId = 0,
 		RequiredRebirths = 0,
+	},
+	{
+		Kind = GearShopBalance.Kinds.FeedMachine,
+		FeedType = "UpgradedScarecrow",
+		Description = "Jumps every 5s, shaking all fruit off trees within 60 studs.",
+		Rarity = "Legendary",
+		Price = 100000,
+		DevProductId = 0,
+		RequiredRebirths = 1,
+	},
+	{
+		Kind = GearShopBalance.Kinds.FeedMachine,
+		FeedType = "GoldenScarecrow",
+		Description = "Jumps every 2s, shaking all fruit off trees within 100 studs.",
+		Rarity = "Mythical",
+		Price = 5000000,
+		DevProductId = 0,
+		RequiredRebirths = 2,
 	},
 }
 
