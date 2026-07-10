@@ -15,6 +15,7 @@ local Food    = require(Shared:WaitForChild("Food"))
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local PetGeometry = require(Shared:WaitForChild("PetGeometry"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local PromptActionConfig = require(Shared:WaitForChild("PromptActionConfig"))
@@ -1124,12 +1125,21 @@ local function stepAutoHold()
 	end
 end
 
+local function isTreeAutoCollectEnabled()
+	local settings = PlayerStateStore.Get(PlayerStateStore.Fields.PlayerSettings)
+	return PlayerSettings.Get(settings, PlayerSettings.Keys.TreeAutoCollect)
+end
+
 local function findPassiveTreeGroundPickupCandidate()
 	if autoHoldMode ~= nil
 		or areCollectPromptsSuppressed()
 		or isShovelEquipped()
 		or isOfflineProgressPending()
 		or isPlacementPromptBlocked() then
+		return nil
+	end
+	-- Settings toggle: walk-into pickup only; the manual E prompt stays live.
+	if not isTreeAutoCollectEnabled() then
 		return nil
 	end
 	if isEditMode() then

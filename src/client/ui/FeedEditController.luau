@@ -657,9 +657,9 @@ function FeedEditController.start()
 		:setImage(TOPBAR_EDIT_ICON_IMAGE)
 		:setImageScale(0.58)
 		:setCaption("Edit mode")
-		-- Right-aligned topbar group: index (0), edit (1).
+		-- Right-aligned topbar group: edit (0), index (1), discord (2), settings (3).
 		:setAlignment("Right")
-		:setOrder(1)
+		:setOrder(0)
 		:autoDeselect(false)
 	editModeIcon:modifyTheme({
 		{ "IconButton", "BackgroundColor3", Color3.fromRGB(0, 0, 0) },

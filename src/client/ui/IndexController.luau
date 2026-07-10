@@ -4,7 +4,7 @@
 -- Discovered profile field, rarity-coloured card backgrounds, viewport
 -- previews (pets, fruited trees, patches with food), a per-tab discovered
 -- counter, and a click-to-inspect info panel. Also owns the topbar Index
--- icon (order 0, between the backpack and edit icons).
+-- icon (order 1, between the edit and discord icons).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -906,7 +906,7 @@ function IndexController.start()
 			:setImageScale(0.7)
 			:setCaption("Index")
 			:setAlignment("Right")
-			:setOrder(0)
+			:setOrder(1)
 			:autoDeselect(false)
 		icon:modifyTheme({
 			{ "IconButton", "BackgroundColor3", Color3.fromRGB(0, 0, 0) },

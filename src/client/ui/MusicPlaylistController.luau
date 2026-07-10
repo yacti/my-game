@@ -5,7 +5,10 @@ local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+
+local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local MusicPlaylistController = {}
 
@@ -21,8 +24,12 @@ local MUSIC_VOLUME_MULTIPLIER = 0.65
 local LOAD_TIMEOUT_SECONDS = 15
 local TRACK_END_PADDING_SECONDS = 5
 
+local MUSIC_STOP_FADE_SECONDS = 0.75
+
 local rng = Random.new()
 local started = false
+local musicEnabled = true
+local activeSound = nil
 
 local function waitForLoadingScreenDismissed()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -100,7 +107,29 @@ local function preloadSound(sound)
 	return waitForLoaded(sound)
 end
 
+-- Fading to silence and destroying the active sound unparents it, which also
+-- unblocks waitForEnded so the playlist loop can park until re-enabled.
+local function stopActiveTrack()
+	local sound = activeSound
+	activeSound = nil
+	if not (sound and sound.Parent) then
+		return
+	end
+	TweenService:Create(
+		sound,
+		TweenInfo.new(MUSIC_STOP_FADE_SECONDS, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+		{ Volume = 0 }
+	):Play()
+	task.delay(MUSIC_STOP_FADE_SECONDS, function()
+		sound:Destroy()
+	end)
+end
+
 local function playTrack(template)
+	if not musicEnabled then
+		return false
+	end
+
 	local targetVolume = tonumber(template.Volume) or DEFAULT_VOLUME
 	if targetVolume <= 0 then
 		targetVolume = DEFAULT_VOLUME
@@ -127,6 +156,7 @@ local function playTrack(template)
 		ended = true
 	end)
 
+	activeSound = sound
 	sound:Play()
 	TweenService:Create(
 		sound,
@@ -138,6 +168,9 @@ local function playTrack(template)
 		return ended
 	end)
 	endedConnection:Disconnect()
+	if activeSound == sound then
+		activeSound = nil
+	end
 	sound:Destroy()
 	return completed
 end
@@ -147,6 +180,10 @@ local function runPlaylist()
 
 	local playlist = getPlaylist()
 	while true do
+		while not musicEnabled do
+			task.wait(0.5)
+		end
+
 		local template = chooseTrack(playlist)
 		local completed = false
 		if template then
@@ -169,6 +206,19 @@ function MusicPlaylistController.start()
 		return
 	end
 	started = true
+
+	local function onSettingsChanged(value)
+		local enabled = PlayerSettings.Get(PlayerSettings.CopySettings(value), PlayerSettings.Keys.MusicEnabled)
+		if enabled == musicEnabled then
+			return
+		end
+		musicEnabled = enabled
+		if not enabled then
+			stopActiveTrack()
+		end
+	end
+	onSettingsChanged(PlayerStateStore.Get(PlayerStateStore.Fields.PlayerSettings))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.PlayerSettings, onSettingsChanged)
 
 	task.spawn(runPlaylist)
 end

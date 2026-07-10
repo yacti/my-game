@@ -45,6 +45,10 @@ State.Player = {
 	-- when complete) so other clients can hide cross-player interactions;
 	-- never authority, the server re-resolves the profile.
 	OnboardingActive = "OnboardingActive",
+	-- Client-visible mirror of the acceptGifts setting (true while gifts are
+	-- refused, nil while accepted) so giver clients can hide gift prompts;
+	-- never authority, GiftService re-resolves the profile.
+	AcceptGiftsDisabled = "AcceptGiftsDisabled",
 }
 
 State.ServerLuck = {

@@ -25,9 +25,12 @@ local LOCAL_FOLDER_NAME = "__LocalTornado"
 local WIND_SOUND_NAME = "Wind"
 local FUNNEL_WIND_NAME = "__TornadoFunnelWind"
 local BACKING_TRACKS = {
-	{ soundId = "rbxassetid://792323017", volume = 0.15 }, -- Tornado Siren
+	-- The siren ducks to half volume once the event is established so it reads
+	-- as ambience instead of an alarm for the rest of the tornado.
+	{ soundId = "rbxassetid://792323017", volume = 0.15, duckAfterSeconds = 15, duckToFraction = 0.5 }, -- Tornado Siren
 	{ soundId = "rbxassetid://7128755882", volume = 0.5 }, -- Storm Loop
 }
+local DUCK_FADE_SECONDS = 1
 local FUNNEL_WIND_VOLUME = 0.9
 local FUNNEL_GROUND_SINK_STUDS = 2
 local DEFAULT_TORNADO_SOUND_RANGE = 500
@@ -220,6 +223,21 @@ local function startBackingTracks(token, seconds)
 			token.backingTweens[#token.backingTweens + 1] = tween
 			token.tweens[#token.tweens + 1] = tween
 			tween:Play()
+		end
+		if track.duckAfterSeconds then
+			local tracks = token.backingTracks
+			task.delay(track.duckAfterSeconds, function()
+				-- Skip if the event wound down/ended or restarted in the meantime.
+				if token.cancelled or token.backingTracks ~= tracks or not sound.Parent then
+					return
+				end
+				local tween = TweenService:Create(sound, TweenInfo.new(DUCK_FADE_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+					Volume = track.volume * track.duckToFraction,
+				})
+				token.backingTweens[#token.backingTweens + 1] = tween
+				token.tweens[#token.tweens + 1] = tween
+				tween:Play()
+			end)
 		end
 	end
 end

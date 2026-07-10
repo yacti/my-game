@@ -53,6 +53,8 @@ Remotes.Names = {
 	AdminPanelCommandResult = "AdminPanelCommandResult",
 	PlayerNotification = "PlayerNotification",
 	UpdateLogClosed = "UpdateLogClosed",
+	MediaRewardRedeemRequest = "MediaRewardRedeemRequest",
+	MediaRewardRedeemResult = "MediaRewardRedeemResult",
 	HomeTeleportRequest = "HomeTeleportRequest",
 	EventTeleportRequest = "EventTeleportRequest",
 	PlaceCosmetic = "PlaceCosmetic",
@@ -75,6 +77,7 @@ Remotes.Names = {
 	GiftResult = "GiftResult",
 	StormChaserDepositRequest = "StormChaserDepositRequest",
 	StormChaserDepositResult = "StormChaserDepositResult",
+	PlayerSettingsUpdateRequest = "PlayerSettingsUpdateRequest",
 }
 
 local Definitions = {
@@ -122,6 +125,8 @@ local Definitions = {
 	[Remotes.Names.AdminPanelCommandResult] = "RemoteEvent",
 	[Remotes.Names.PlayerNotification] = "RemoteEvent",
 	[Remotes.Names.UpdateLogClosed] = "RemoteEvent",
+	[Remotes.Names.MediaRewardRedeemRequest] = "RemoteEvent",
+	[Remotes.Names.MediaRewardRedeemResult] = "RemoteEvent",
 	[Remotes.Names.HomeTeleportRequest] = "RemoteEvent",
 	[Remotes.Names.EventTeleportRequest] = "RemoteEvent",
 	[Remotes.Names.PlaceCosmetic] = "RemoteEvent",
@@ -144,6 +149,7 @@ local Definitions = {
 	[Remotes.Names.GiftResult] = "RemoteEvent",
 	[Remotes.Names.StormChaserDepositRequest] = "RemoteEvent",
 	[Remotes.Names.StormChaserDepositResult] = "RemoteEvent",
+	[Remotes.Names.PlayerSettingsUpdateRequest] = "RemoteEvent",
 }
 
 local function getFolder()

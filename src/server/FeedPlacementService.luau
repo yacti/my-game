@@ -25,6 +25,7 @@ local FeedPlacementService = {}
 
 local DEFAULT_RATE_SECONDS = 0.25
 local DEFAULT_PLACE_DISTANCE = 24
+local DEFAULT_SEED_PLACE_DISTANCE = 1000
 local DEFERRED_SNAPSHOT_RETRY_SECONDS = 1
 
 local function userKey(player)
@@ -83,6 +84,7 @@ function FeedPlacementService.Start(config)
 	end
 	local rateSeconds = tonumber(config.rateSeconds) or DEFAULT_RATE_SECONDS
 	local placeDistance = tonumber(config.placeDistance) or DEFAULT_PLACE_DISTANCE
+	local seedPlaceDistance = tonumber(config.seedPlaceDistance) or DEFAULT_SEED_PLACE_DISTANCE
 	local lastFire = {}
 	local locks = {}
 
@@ -242,7 +244,7 @@ function FeedPlacementService.Start(config)
 			local _, lry, _  = localCF:ToEulerAnglesXYZ()
 			local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 			local snappedWorldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(snappedLX, 0, snappedLZ))
-			if not isPlayerNearPosition(player, snappedWorldPosition, placeDistance) then
+			if not isPlayerNearPosition(player, snappedWorldPosition, placingSeed and seedPlaceDistance or placeDistance) then
 				recordPlacementReject(player, "too-far", {
 					feedType = feedType,
 					plot = plot,

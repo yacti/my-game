@@ -2,23 +2,20 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
-local CosmeticTools = require(Server:WaitForChild("CosmeticTools"))
-local FeedMachineTools = require(Server:WaitForChild("FeedMachineTools"))
 local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
-local SeedTools = require(Server:WaitForChild("SeedTools"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
-local Shovel = require(Shared:WaitForChild("Shovel"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GiftService = {}
@@ -82,27 +79,18 @@ local function characterRoot(player)
 	return character and character:FindFirstChild("HumanoidRootPart") or nil
 end
 
+-- Only patch/tree harvests are giftable; jam (processor-made) and every
+-- non-food tool (seeds, cosmetics, gear, shovel, feed tools) are not.
 local function isGiftableTool(item)
 	if not (item and item:IsA("Tool")) then
 		return false
 	end
-	if FeedMachineTools.IsFeedTool(item) or Shovel.IsTool(item) then
-		return false
-	end
-	return SeedTools.IsSeedTool(item) or CosmeticTools.IsCosmeticTool(item) or Food.IsFood(item)
+	return Food.IsFood(item) and not Food.IsJamFoodId(Food.IdOf(item))
 end
 
 -- The descriptor is both the mint recipe for the recipient's copy and the
 -- rollback recipe if a snapshot fails after the giver's tool is destroyed.
 local function describeTool(tool)
-	local seedId = SeedTools.SeedIdOf(tool)
-	if seedId then
-		return { kind = "seed", itemId = seedId }
-	end
-	local cosmeticId = CosmeticTools.CosmeticIdOf(tool)
-	if cosmeticId then
-		return { kind = "cosmetic", itemId = cosmeticId }
-	end
 	local record = FoodInventoryService.SerializeTool(tool)
 	if record then
 		return { kind = "food", itemId = record.foodId, record = record }
@@ -111,12 +99,6 @@ local function describeTool(tool)
 end
 
 local function mintFromDescriptor(descriptor, forRecipient)
-	if descriptor.kind == "seed" then
-		return SeedTools.MakeSeedTool(descriptor.itemId)
-	end
-	if descriptor.kind == "cosmetic" then
-		return CosmeticTools.MakeCosmeticTool(descriptor.itemId)
-	end
 	local record = table.clone(descriptor.record)
 	if forRecipient then
 		-- Fresh guid for the recipient's copy; the giver's profile still
@@ -185,6 +167,12 @@ function GiftService.Start(config)
 			sendResult(giver, requestId, false, "recipient-onboarding")
 			return
 		end
+		-- The giver's client hides the prompt via the AcceptGiftsDisabled
+		-- attribute; the profile stays authoritative here.
+		if not PlayerSettings.Get(recipientProfile.Data.PlayerSettings, PlayerSettings.Keys.AcceptGifts) then
+			sendResult(giver, requestId, false, "recipient-not-accepting")
+			return
+		end
 
 		local now = os.clock()
 		local pairCooldowns = pairCooldownAtByGiverId[giverKey]
@@ -224,9 +212,13 @@ function GiftService.Start(config)
 			return
 		end
 
-		local tool = ToolIdentity.FindEquippedByGuid(giver, toolGuid, isGiftableTool)
+		local tool = ToolIdentity.FindEquippedByGuid(giver, toolGuid)
 		if not tool then
 			sendResult(giver, requestId, false, "not-holding")
+			return
+		end
+		if not isGiftableTool(tool) then
+			sendResult(giver, requestId, false, "not-giftable")
 			return
 		end
 		if Inventory.RemainingSlots(recipient) <= 0 then

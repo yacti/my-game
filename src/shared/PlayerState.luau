@@ -9,6 +9,7 @@ PlayerState.Fields = {
 	RollLuckLevel = "RollLuckLevel",
 	RollDropAreaLevel = "RollDropAreaLevel",
 	AutoRollSettings = "AutoRollSettings",
+	PlayerSettings = "PlayerSettings",
 	CosmeticInventory = "CosmeticInventory",
 	FeedInventory = "FeedInventory",
 	SeedInventory = "SeedInventory",
@@ -26,6 +27,7 @@ PlayerState.Fields = {
 	HourlyPetIncome = "HourlyPetIncome",
 	JoinBackShowcase = "JoinBackShowcase",
 	JoinGroupRewardCollected = "JoinGroupRewardCollected",
+	MediaRewardCollected = "MediaRewardCollected",
 	LastSeenUpdateLogId = "LastSeenUpdateLogId",
 	Discovered = "Discovered",
 }

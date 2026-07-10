@@ -2,14 +2,11 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
-local Seeds = require(Shared:WaitForChild("Seeds"))
-local Shovel = require(Shared:WaitForChild("Shovel"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
@@ -25,9 +22,12 @@ local PROMPT_DISTANCE = 10
 local PROMPT_ATTACHMENT_NAME = "__LocalPrompt_GiftAttachment"
 local RESULT_TIMEOUT_SECONDS = 10
 
+local NOT_GIFTABLE_MESSAGE = "You cannot gift this item!"
+
 -- recipient-inventory-full is absent on purpose: the server already sends
 -- the giver an Error notification for it.
 local FAILURE_MESSAGES = {
+	["not-giftable"] = NOT_GIFTABLE_MESSAGE,
 	["rate-limited"] = "Please wait a moment before gifting again",
 	["busy"] = "Please wait a moment before gifting again",
 	["too-far"] = "Too far away to gift",
@@ -35,6 +35,7 @@ local FAILURE_MESSAGES = {
 	["onboarding"] = "Finish the tutorial before gifting",
 	["recipient-onboarding"] = "That player hasn't finished the tutorial yet",
 	["recipient-gone"] = "That player left the game",
+	["recipient-not-accepting"] = "That player isn't accepting gifts",
 	["recipient-not-ready"] = "That player can't receive gifts right now",
 	["recipient-busy"] = "That player can't receive gifts right now",
 	["recipient-no-character"] = "That player can't receive gifts right now",
@@ -53,6 +54,8 @@ local pendingRequestId = nil
 local promptOpen = false
 local promptToken = 0
 
+-- Mirrors GiftService.isGiftableTool: only patch/tree harvests are
+-- giftable; jam (processor-made) and every non-food tool are not.
 local function isGiftableTool(tool)
 	if not (tool and tool:IsA("Tool")) then
 		return false
@@ -60,36 +63,21 @@ local function isGiftableTool(tool)
 	if ToolIdentity.GuidOf(tool) == nil then
 		return false
 	end
-	if Shovel.IsTool(tool) then
-		return false
-	end
-	local feedType = tool:GetAttribute(State.Feed.Type)
-	if type(feedType) == "string" and feedType ~= "" then
-		return false
-	end
-	if Food.IsFood(tool) then
-		return true
-	end
-	local seedId = tool:GetAttribute(State.Seed.Id)
-	if type(seedId) == "string" and Seeds.GetTemplate(seedId) ~= nil then
-		return true
-	end
-	local cosmeticId = tool:GetAttribute(State.Cosmetic.Id)
-	if type(cosmeticId) == "string" and Cosmetics.GetTemplate(cosmeticId) ~= nil then
-		return true
-	end
-	return false
+	return Food.IsFood(tool) and not Food.IsJamFoodId(Food.IdOf(tool))
 end
 
-local function giftableEquippedTool()
+local function equippedTool()
 	local character = player.Character
 	if not character then
 		return nil
 	end
-	for _, child in ipairs(character:GetChildren()) do
-		if child:IsA("Tool") and isGiftableTool(child) then
-			return child
-		end
+	return character:FindFirstChildWhichIsA("Tool")
+end
+
+local function giftableEquippedTool()
+	local tool = equippedTool()
+	if tool and isGiftableTool(tool) then
+		return tool
 	end
 	return nil
 end
@@ -122,12 +110,19 @@ local function isAvailable(other)
 	if other:GetAttribute(State.Player.OnboardingActive) == true then
 		return false
 	end
+	-- Same for the target's accept-gifts setting: hides the E prompt, and
+	-- GiftService re-resolves the profile on transfer.
+	if other:GetAttribute(State.Player.AcceptGiftsDisabled) == true then
+		return false
+	end
 	local character = other.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then
 		return false
 	end
-	return giftableEquippedTool() ~= nil
+	-- Any held tool shows the prompt; non-giftable items get an explicit
+	-- "You cannot gift this item!" toast on trigger instead of a hidden prompt.
+	return equippedTool() ~= nil
 end
 
 local function cleanupCharacter(other)
@@ -171,7 +166,17 @@ local function onPromptTriggered(other)
 	if not isAvailable(other) then
 		return
 	end
-	local tool = giftableEquippedTool()
+	local tool = equippedTool()
+	if not tool then
+		return
+	end
+	if not isGiftableTool(tool) then
+		NotificationUi.show({
+			kind = NotificationConfig.Kinds.Error,
+			text = NOT_GIFTABLE_MESSAGE,
+		})
+		return
+	end
 	local toolGuid = ToolIdentity.GuidOf(tool)
 	if not toolGuid then
 		return

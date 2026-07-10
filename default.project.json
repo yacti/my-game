@@ -150,6 +150,12 @@
         "UpdateLogClosed": {
           "$className": "RemoteEvent"
         },
+        "MediaRewardRedeemRequest": {
+          "$className": "RemoteEvent"
+        },
+        "MediaRewardRedeemResult": {
+          "$className": "RemoteEvent"
+        },
         "HomeTeleportRequest": {
           "$className": "RemoteEvent"
         },
@@ -217,6 +223,9 @@
           "$className": "RemoteEvent"
         },
         "StormChaserDepositResult": {
+          "$className": "RemoteEvent"
+        },
+        "PlayerSettingsUpdateRequest": {
           "$className": "RemoteEvent"
         }
       },

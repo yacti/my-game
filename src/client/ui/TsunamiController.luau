@@ -287,8 +287,9 @@ local function stopDrone(token, seconds)
 end
 
 -- Mirror of PlotTsunamiService.slabContains: the touch slab only exists while
--- the wave is traveling, so a player who joins (or finishes onboarding) after
--- the wave passed their plot can never be hit retroactively.
+-- the wave is traveling. A player the slab never touched (late join, behind
+-- the wave, onboarding) still enters the underwater phase once the wave
+-- reaches the end line and the map counts as flooded, matching the server.
 local function slabContains(token, position, now)
 	local timings = token.timings
 	local geometry = timings.geometry
@@ -343,14 +344,18 @@ local function endUnderwater(token, seconds)
 	end
 end
 
-local function beginUnderwater(token)
+-- durationSeconds defaults to the full underwater window (slab hits); flood
+-- entries pass the time left until the global flood ends. playImpact is false
+-- for flood entries -- the crash belongs to being struck, not to logging in
+-- with the map already underwater.
+local function beginUnderwater(token, durationSeconds, playImpact)
 	if token.underwater then
 		return
 	end
 	local timings = token.timings
 	local underwater = {
 		ended = false,
-		endsAt = serverNow() + timings.underwaterSeconds,
+		endsAt = serverNow() + math.max(numberValue(durationSeconds, timings.underwaterSeconds), 0),
 		prevReverb = SoundService.AmbientReverb,
 		prevGravity = Workspace.Gravity,
 		vfx = nil,
@@ -362,7 +367,9 @@ local function beginUnderwater(token)
 	-- Client-side gravity only affects locally-simulated physics (the local
 	-- character), so the floaty feel stays per-player like the rest of the phase.
 	Workspace.Gravity = timings.underwaterGravity
-	playImpactSound()
+	if playImpact ~= false then
+		playImpactSound()
+	end
 	token.drone = startLoopedTrack(token, "__TsunamiDrone", DRONE_TRACK, DRONE_TRACK.fadeSeconds)
 	underwater.vfx = cloneEventVfx()
 end
@@ -394,11 +401,23 @@ local function updateTsunami(token)
 	end
 
 	if not token.hitDone then
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root and slabContains(token, root.Position, now) then
+		local sweepSeconds = timings.windUpSeconds + timings.travelSeconds
+		if elapsed >= sweepSeconds then
+			-- The wave reached the end line: the map is flooded, so anyone the
+			-- slab never touched enters the phase now, clamped to the time left
+			-- until the global flood ends.
 			token.hitDone = true
-			beginUnderwater(token)
+			local remaining = sweepSeconds + timings.underwaterSeconds - elapsed
+			if remaining > 0 then
+				beginUnderwater(token, remaining, false)
+			end
+		else
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if root and slabContains(token, root.Position, now) then
+				token.hitDone = true
+				beginUnderwater(token)
+			end
 		end
 	end
 
@@ -455,24 +474,30 @@ local function beginTsunami(record)
 	}
 	activeToken = token
 
-	-- Late joiners resume mid-timeline: skip the wave (and siren) entirely when
-	-- only the underwater tail of the record remains.
+	-- A token that starts after the wave has launched belongs to a late joiner
+	-- (or a player whose onboarding just finished): skip the wave and siren
+	-- entirely and drop straight into the underwater phase, clamped to the
+	-- global flood end. This mirrors the server's veteran/newcomer split.
 	local elapsed = serverNow() - record.startsAt
-	local sweepSeconds = timings.windUpSeconds + timings.travelSeconds
-	if elapsed < sweepSeconds + timings.windDownSeconds then
-		local wave = cloneWaveTemplate()
-		if wave then
-			token.wave = wave
-			token.authoredPivot = wave:GetPivot()
-			token.waveOriginals = collectOriginalTransparencies(wave)
-			applyVisibility(token.waveOriginals, 0)
-			updateTsunami(token)
+	if elapsed >= timings.windUpSeconds then
+		token.hitDone = true
+		local floodEndsElapsed = timings.windUpSeconds + timings.travelSeconds + timings.underwaterSeconds
+		local duration = math.min(floodEndsElapsed - elapsed, timings.underwaterSeconds)
+		if duration > 0 then
+			beginUnderwater(token, duration, false)
 		end
+		return
 	end
-	if elapsed < sweepSeconds then
-		local fadeSeconds = math.max(timings.windUpSeconds - math.max(elapsed, 0), 0.25)
-		token.siren = startLoopedTrack(token, "__TsunamiSiren", SIREN_TRACK, fadeSeconds)
+	local wave = cloneWaveTemplate()
+	if wave then
+		token.wave = wave
+		token.authoredPivot = wave:GetPivot()
+		token.waveOriginals = collectOriginalTransparencies(wave)
+		applyVisibility(token.waveOriginals, 0)
+		updateTsunami(token)
 	end
+	local fadeSeconds = math.max(timings.windUpSeconds - math.max(elapsed, 0), 0.25)
+	token.siren = startLoopedTrack(token, "__TsunamiSiren", SIREN_TRACK, fadeSeconds)
 end
 
 local function refresh()

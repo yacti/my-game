@@ -10,6 +10,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
@@ -37,6 +38,8 @@ local PANEL_NAME = "DurianPackHolder"
 local SHOP_MENU_GROUP = "Shop"
 local HUD_NAME = "HUD"
 local HUD_ENTRY_NAME = "DurianPack"
+-- On touch devices the authored HUD entry sits slightly too high; nudge it down.
+local HUD_ENTRY_TOUCH_Y_OFFSET_PIXELS = 6
 local HUD_WAIT_SECONDS = 10
 local RUNTIME_TICKET_OFFER_NAME = "__DurianTicketOffer"
 local RAINBOW_ROTATION_DEGREES_PER_SECOND = 90
@@ -448,6 +451,9 @@ function DurianPackController.start()
 		hudEntry = hud:FindFirstChild(HUD_ENTRY_NAME)
 	end
 	if hudEntry and hudEntry:IsA("GuiObject") then
+		if UserInputService.TouchEnabled then
+			hudEntry.Position += UDim2.fromOffset(0, HUD_ENTRY_TOUCH_Y_OFFSET_PIXELS)
+		end
 		local hudViewport = hudEntry:FindFirstChild(PANEL_NAME)
 		if hudViewport and hudViewport:IsA("ViewportFrame") then
 			PackIconDisplay.RenderViewport(hudViewport, pack.PackId)

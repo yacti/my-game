@@ -2064,6 +2064,27 @@ local function validateAutoRollSettingsUi(menu, errors)
 	end
 end
 
+local function validateSettingsUi(menu, errors)
+	local panel = child(menu, "Settings", "GuiObject", errors)
+	if not panel then return end
+
+	descendant(panel, "CloseButton", "GuiButton", errors)
+	local list = child(panel, "List", "ScrollingFrame", errors)
+	if not list then return end
+	child(list, "UIListLayout", "UIListLayout", errors)
+	local template = child(list, "Template", "GuiObject", errors)
+	if not template then return end
+	child(template, "Icon", "ImageLabel", errors)
+	child(template, "SettingName", "TextLabel", errors)
+	child(template, "Background", "GuiObject", errors)
+	local toggle = child(template, "ToggleButton", "GuiButton", errors)
+	if toggle then
+		child(toggle, "On", "ImageLabel", errors)
+		child(toggle, "Off", "ImageLabel", errors)
+		descendant(toggle, "StatusTxt", "TextLabel", errors)
+	end
+end
+
 local function validateRollBillboards(billboardFolder, errors)
 	local function validateTemplate(templateName, labelNames)
 		local billboard = child(billboardFolder, templateName, "BillboardGui", errors)
@@ -2538,6 +2559,7 @@ local function validateUi(errors, warnings)
 		validateYesNoWarningUi(menu, errors)
 		validateUpdateLogUi(menu, warnings)
 		validateAutoRollSettingsUi(menu, errors)
+		validateSettingsUi(menu, errors)
 	end
 
 	local billboardFolder = child(ui, "BillboardGUIs", "Folder", errors)

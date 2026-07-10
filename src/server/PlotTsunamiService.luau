@@ -5,6 +5,12 @@
 -- service evaluates the identical timeline to decide which players the touch
 -- slab envelops and applies the gameplay: each eligible player hit gets a
 -- per-player underwater phase during which 2-5 of their fruit turn Aqua.
+-- Players present and eligible when the wave launches ("veterans") ride it:
+-- the slab hits them during the sweep, and anyone it misses is enrolled when
+-- the wave reaches the end line and the map counts as flooded. Everyone else
+-- (late joiners, rejoins, players whose onboarding/profile resolves after
+-- launch) drops straight into the underwater phase on becoming eligible, with
+-- the window clamped to the global flood end so late entry never pays better.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -219,9 +225,9 @@ local function chooseTarget(session, entry, retrySeconds)
 end
 
 -- Pure AABB test against the moving touch slab. The slab only exists while the
--- wave is traveling, so players who join (or finish onboarding) behind the
--- wave can never be hit retroactively. Assumes the template's authored
--- identity rotation.
+-- wave is traveling; players who join (or finish onboarding) behind the wave
+-- are instead enrolled once the wave reaches the end line and the map counts
+-- as flooded. Assumes the template's authored identity rotation.
 local function slabContains(session, position, now)
 	local settings = session.settings
 	local geometry = settings.geometry
@@ -237,14 +243,28 @@ end
 
 -- Per-player underwater phase: spread the rolled mutation count across the
 -- window with one random time per equal segment, so hits feel scattered but
--- still cover the full two minutes.
+-- still cover the whole window. Flood enrollees get the time left until the
+-- global flood ends, with the mutation roll prorated to match, so joining
+-- late never pays better than riding out the wave.
 local function runUnderwaterPhase(session, entry)
+	local windowSeconds = math.min(
+		numberValue(entry.windowSeconds, session.settings.underwaterSeconds),
+		session.settings.underwaterSeconds
+	)
 	local count = rng:NextInteger(session.settings.minMutationsPerPlot, session.settings.maxMutationsPerPlot)
-	printTsunamiLifecycle("underwater", session, string.format("user=%d mutations=%d", entry.userId, count))
-	if count <= 0 then
+	if windowSeconds < session.settings.underwaterSeconds then
+		count = math.floor(count * windowSeconds / math.max(session.settings.underwaterSeconds, 1) + 0.5)
+	end
+	printTsunamiLifecycle("underwater", session, string.format(
+		"user=%d mutations=%d window=%ds",
+		entry.userId,
+		count,
+		math.floor(windowSeconds)
+	))
+	if count <= 0 or windowSeconds <= 0 then
 		return
 	end
-	local segment = session.settings.underwaterSeconds / count
+	local segment = windowSeconds / count
 	local previousTime = 0
 	for index = 1, count do
 		local mutateAt = (index - 1) * segment + rng:NextNumber(0, segment)
@@ -277,20 +297,43 @@ local function tryHitPlayer(session, player, now)
 	if session.hitByUserId[userId] then
 		return
 	end
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not (root and slabContains(session, root.Position, now)) then
-		return
+	-- After the sweep the whole map is flooded, so position no longer matters.
+	-- During the sweep, veterans (present and eligible at wave launch) are hit
+	-- only by the traveling slab; newcomers fall through and drop straight
+	-- into the underwater phase as soon as they're eligible.
+	local flooded = now >= session.sweepEndsAt
+	local veteran = session.veteranUserIds[userId] == true
+	if not flooded and veteran then
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if not (root and slabContains(session, root.Position, now)) then
+			return
+		end
 	end
 	local eligible, code, context = EventEligibility.IsEligible(player)
 	if not (eligible == true and context and context.plot) then
-		printTsunamiLifecycle("hit-skipped", session, string.format("user=%d code=%s", userId, tostring(code)))
-		session.hitByUserId[userId] = true
+		-- Ineligibility here is usually transient (profile load, plot assign,
+		-- offline-progress ack), so late joiners the slab is still enveloping
+		-- must stay retryable; only an actual hit consumes the player.
+		if session.skipCodeByUserId[userId] ~= code then
+			session.skipCodeByUserId[userId] = code
+			printTsunamiLifecycle("hit-skipped", session, string.format("user=%d code=%s", userId, tostring(code)))
+		end
 		return
 	end
+	session.skipCodeByUserId[userId] = nil
 	session.hitByUserId[userId] = true
-	printTsunamiLifecycle("hit", session, string.format("user=%d", userId))
-	local entry = { player = player, userId = userId, plot = context.plot }
+	local via = flooded and "flood" or (veteran and "wave" or "join")
+	printTsunamiLifecycle("hit", session, string.format("user=%d via=%s", userId, via))
+	local entry = {
+		player = player,
+		userId = userId,
+		plot = context.plot,
+		windowSeconds = math.min(
+			math.max(session.underwaterEndsAt - now, 0),
+			session.settings.underwaterSeconds
+		),
+	}
 	RuntimeGuard.Spawn(
 		"PlotTsunamiService.Underwater." .. tostring(session.instanceId) .. "." .. tostring(userId),
 		runUnderwaterPhase,
@@ -299,15 +342,33 @@ local function tryHitPlayer(session, player, now)
 	)
 end
 
+-- Whoever is present and eligible when the wave launches rides it out; taken
+-- once so everyone who shows up (or becomes eligible) afterwards enrolls
+-- straight into the underwater phase. On a backdated start the snapshot runs
+-- immediately, so a fresh server's current players still get slab hits for
+-- whatever sweep remains.
+local function snapshotVeterans(session)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if isEventEligible(player) then
+			session.veteranUserIds[player.UserId] = true
+		end
+	end
+end
+
 local function runHitLoop(session)
-	local sweepEndsAt = session.startsAt + session.settings.windUpSeconds + session.settings.travelSeconds
 	while sessionActive(session) do
 		local now = serverNow()
-		if now >= math.min(sweepEndsAt + 1, session.endsAt) then
+		if now >= math.min(session.underwaterEndsAt, session.endsAt) then
 			break
 		end
-		for _, player in ipairs(Players:GetPlayers()) do
-			tryHitPlayer(session, player, now)
+		if now >= session.waveLaunchAt then
+			if not session.veteransSnapshotted then
+				session.veteransSnapshotted = true
+				snapshotVeterans(session)
+			end
+			for _, player in ipairs(Players:GetPlayers()) do
+				tryHitPlayer(session, player, now)
+			end
 		end
 		task.wait(session.settings.hitCheckSeconds)
 	end
@@ -366,12 +427,20 @@ function PlotTsunamiService.StartTsunami(eventRecord, callbacks)
 	local settings = settingsFor()
 	local startsAt = numberValue(eventRecord.startsAt, serverNow())
 	local endsAt = numberValue(eventRecord.endsAt, startsAt + settings.totalSeconds)
+	local waveLaunchAt = startsAt + settings.windUpSeconds
+	local sweepEndsAt = waveLaunchAt + settings.travelSeconds
 	local session = {
 		instanceId = tostring(eventRecord.instanceId or ""),
 		startsAt = startsAt,
 		endsAt = endsAt,
+		waveLaunchAt = waveLaunchAt,
+		sweepEndsAt = sweepEndsAt,
+		underwaterEndsAt = sweepEndsAt + settings.underwaterSeconds,
 		settings = settings,
 		hitByUserId = {},
+		skipCodeByUserId = {},
+		veteranUserIds = {},
+		veteransSnapshotted = false,
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
 		cancelled = false,
@@ -394,6 +463,19 @@ function PlotTsunamiService.StartTsunami(eventRecord, callbacks)
 
 	RuntimeGuard.Spawn("PlotTsunamiService.RunGuarded." .. session.instanceId, runTsunamiGuarded, session)
 end
+
+-- A player who leaves mid-event and rejoins is a newcomer again: forget their
+-- session marks so they re-enroll straight into the underwater phase (their
+-- old phase task exits on its own via entryStillEligible).
+RuntimeGuard.Connect(Players.PlayerRemoving, "PlotTsunamiService.PlayerRemoving", function(player)
+	local session = activeSession
+	if not session then
+		return
+	end
+	session.hitByUserId[player.UserId] = nil
+	session.skipCodeByUserId[player.UserId] = nil
+	session.veteranUserIds[player.UserId] = nil
+end)
 
 function PlotTsunamiService.NotifyTsunamiApproaching()
 	local config = GameEvents.GetEvent(GameEvents.Ids.Tsunami) or {}

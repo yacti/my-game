@@ -55,6 +55,7 @@ local AFKRejoinService = require(Server:WaitForChild("AFKRejoinService"))
 local HomeTeleportService = require(Server:WaitForChild("HomeTeleportService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local JoinGroupRewardService = require(Server:WaitForChild("JoinGroupRewardService"))
+local MediaRewardService = require(Server:WaitForChild("MediaRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
@@ -73,6 +74,7 @@ local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local UpdateEventConfigService = require(Server:WaitForChild("UpdateEventConfigService"))
 local UpdateLogService = require(Server:WaitForChild("UpdateLogService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local PlayerSettingsService = require(Server:WaitForChild("PlayerSettingsService"))
 
 local Interactions = require(Shared:WaitForChild("Interactions"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
@@ -225,6 +227,7 @@ RuntimeGuard.Run("UpdateEventConfigService.Start", UpdateEventConfigService.Star
 RuntimeGuard.Run("UpdateLogService.Start", UpdateLogService.Start)
 RuntimeGuard.Run("HomeTeleportService.Start", HomeTeleportService.Start)
 RuntimeGuard.Run("JoinGroupRewardService.Start", JoinGroupRewardService.Start)
+RuntimeGuard.Run("MediaRewardService.Start", MediaRewardService.Start)
 RuntimeGuard.Run("FriendBoostService.Start", FriendBoostService.Start)
 RuntimeGuard.Run("PetIncomeService.Start", function()
 	PetIncomeService.Start({
@@ -1139,6 +1142,7 @@ local function handlePlayerAdded(player)
 		end
 
 		PlayerReplicaService.Create(player, profile)
+		PlayerSettingsService.ApplyToPlayer(player, profile)
 		FriendBoostService.Publish(player)
 		FriendBoostService.ScheduleRefresh()
 		CurrencyService.Publish(player, profile)
@@ -1508,6 +1512,10 @@ RuntimeGuard.Run("GiftService.Start", function()
 		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
+end)
+
+RuntimeGuard.Run("PlayerSettingsService.Start", function()
+	PlayerSettingsService.Start()
 end)
 
 RuntimeGuard.Run("StormChaserService.Start", function()

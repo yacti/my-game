@@ -14,6 +14,7 @@ local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
+local PlayerSettings = require(ReplicatedStorage.Shared:WaitForChild("PlayerSettings"))
 local StormChaser = require(ReplicatedStorage.Shared:WaitForChild("StormChaser"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersistence"))
@@ -66,6 +67,11 @@ local DATA_TEMPLATE = {
 		autoPurchase = false,
 		selectedRarities = {},
 	},
+	PlayerSettings = {
+		musicEnabled = true,
+		treeAutoCollect = true,
+		acceptGifts = true,
+	},
 	Rebirths = 0,
 	UnlockedGridKeys = {},
 	-- Lifetime count of crates spawned by this player's rolls (one per drop
@@ -83,6 +89,7 @@ local DATA_TEMPLATE = {
 	-- Index/codex discovery sets: { Pets = { [PetID] = true }, Feed = { [FeedType] = true } }.
 	Discovered = { Pets = {}, Feed = {} },
 	JoinGroupRewardCollected = false,
+	MediaRewardCollected = false,
 	LastSeenUpdateLogId = "",
 	LastSeen = 0,
 }
@@ -822,6 +829,7 @@ local function ensureValidData(profile)
 	profile.Data.RollLuckLevel = RollLuckBalance.LevelFor(profile.Data.RollLuckLevel)
 	profile.Data.RollDropAreaLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
 	profile.Data.AutoRollSettings = AutoRollConfig.CopySettings(profile.Data.AutoRollSettings)
+	profile.Data.PlayerSettings = PlayerSettings.CopySettings(profile.Data.PlayerSettings)
 	local unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)
 	if #unlockedGridKeys == 0 then
 		unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridIds)
@@ -835,6 +843,7 @@ local function ensureValidData(profile)
 	profile.Data.StormChaser = sanitizeStormChaser(profile.Data.StormChaser)
 	profile.Data.Discovered = sanitizeDiscovered(profile.Data.Discovered)
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
+	profile.Data.MediaRewardCollected = profile.Data.MediaRewardCollected == true
 	if type(profile.Data.LastSeenUpdateLogId) ~= "string" then
 		profile.Data.LastSeenUpdateLogId = ""
 	end

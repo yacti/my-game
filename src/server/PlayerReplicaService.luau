@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -166,6 +167,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.RollLuckLevel] = integer(data.RollLuckLevel, 0),
 		[PlayerState.Fields.RollDropAreaLevel] = integer(data.RollDropAreaLevel, 0),
 		[PlayerState.Fields.AutoRollSettings] = AutoRollConfig.CopySettings(data.AutoRollSettings),
+		[PlayerState.Fields.PlayerSettings] = PlayerSettings.CopySettings(data.PlayerSettings),
 		[PlayerState.Fields.CosmeticInventory] = copyCountMap(data.CosmeticInventory),
 		[PlayerState.Fields.FeedInventory] = copyCountMap(data.FeedInventory),
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
@@ -183,6 +185,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.HourlyPetIncome] = hourlyIncomeForKey(key),
 		[PlayerState.Fields.Discovered] = copyDiscovered(data.Discovered),
 		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
+		[PlayerState.Fields.MediaRewardCollected] = data.MediaRewardCollected == true,
 		[PlayerState.Fields.LastSeenUpdateLogId] = stringValue(data.LastSeenUpdateLogId),
 	}
 end
@@ -333,6 +336,11 @@ function PlayerReplicaService.PublishAutoRollSettings(player, profile)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.AutoRollSettings, AutoRollConfig.CopySettings(data.AutoRollSettings))
 end
 
+function PlayerReplicaService.PublishPlayerSettings(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.PlayerSettings, PlayerSettings.CopySettings(data.PlayerSettings))
+end
+
 function PlayerReplicaService.PublishInventories(player, profile)
 	local data = profile and profile.Data or {}
 	local success = true
@@ -438,6 +446,11 @@ end
 function PlayerReplicaService.PublishJoinGroupRewardCollected(player, profile)
 	local data = profile and profile.Data or {}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinGroupRewardCollected, data.JoinGroupRewardCollected == true)
+end
+
+function PlayerReplicaService.PublishMediaRewardCollected(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.MediaRewardCollected, data.MediaRewardCollected == true)
 end
 
 function PlayerReplicaService.PublishLastSeenUpdateLogId(player, profile)
