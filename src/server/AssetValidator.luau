@@ -28,6 +28,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
+local StormChaser = require(Shared:WaitForChild("StormChaser"))
 
 local AssetValidator = {}
 
@@ -2509,6 +2510,10 @@ local function validateUi(errors, warnings)
 		if leftButtons then
 			child(leftButtons, "RebirthButton", "GuiButton", errors)
 			child(leftButtons, "ShopButton", "GuiButton", errors)
+			local eventButton = child(leftButtons, "EventButton", "GuiButton", errors)
+			if eventButton then
+				child(eventButton, "Alert", "GuiObject", errors)
+			end
 		end
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
 		if notifications then
@@ -2560,6 +2565,14 @@ local function validateRobuxShopPart(warnings)
 	local shopParts = child(map, "ShopParts", nil, warnings)
 	if not shopParts then return end
 	child(shopParts, "RobuxShop", "BasePart", warnings)
+end
+
+local function validateEventTeleportPart(warnings)
+	local map = child(Workspace, "Map", nil, warnings)
+	if not map then return end
+	local eventFolder = child(map, StormChaser.MapFolderName, nil, warnings)
+	if not eventFolder then return end
+	child(eventFolder, StormChaser.TeleportPartName, "BasePart", warnings)
 end
 
 local function validateGroupReward(errors)
@@ -2921,6 +2934,7 @@ function AssetValidator.validate()
 	validateFoodTemplates(errors)
 	validateUi(warnings, warnings)
 	validateRobuxShopPart(warnings)
+	validateEventTeleportPart(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)
 	validatePlots(errors, warnings)

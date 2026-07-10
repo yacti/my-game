@@ -8,7 +8,7 @@ local ResponsiveUi = {}
 
 local BASE_SHORT_SIDE = 853
 local MIN_DIVISOR = 1
-local MAX_DIVISOR = 3
+local MAX_DIVISOR = 6
 local BASE_THICKNESS_ATTR = "ResponsiveUiBaseThickness"
 local IGNORE_ATTR = "ResponsiveUiIgnore"
 
@@ -35,7 +35,9 @@ local function strokeDivisorFor(viewport)
 		return MIN_DIVISOR
 	end
 
-	local rawDivisor = BASE_SHORT_SIDE / shortSide
+	-- Squared falloff: 1 at the 853pt baseline (desktop/tablet unchanged), ~4-5 on
+	-- phone short sides (~375-430pt) so strokes render at a quarter of base thickness
+	local rawDivisor = (BASE_SHORT_SIDE / shortSide) ^ 2
 	return math.clamp(math.round(rawDivisor * 2) / 2, MIN_DIVISOR, MAX_DIVISOR)
 end
 

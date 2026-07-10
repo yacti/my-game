@@ -8,6 +8,7 @@ local PlotService = require(Server:WaitForChild("PlotService"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local StormChaser = require(Shared:WaitForChild("StormChaser"))
 
 local HomeTeleportService = {}
 
@@ -16,6 +17,7 @@ local SPAWN_CLEARANCE_PADDING = 0.5
 local DEFAULT_CHARACTER_HEIGHT = 6
 
 local requestRemote = Remotes.get(Remotes.Names.HomeTeleportRequest)
+local eventRequestRemote = Remotes.get(Remotes.Names.EventTeleportRequest)
 local started = false
 local lastRequestByUserId = {}
 
@@ -92,10 +94,9 @@ local function clearAssemblyVelocity(character)
 	end
 end
 
-local function teleportHome(player)
-	local spawnLocation = spawnLocationFor(player)
+local function teleportToPart(player, part)
 	local character, humanoid = characterParts(player)
-	if not (spawnLocation and character) then
+	if not (part and character) then
 		return
 	end
 
@@ -103,10 +104,10 @@ local function teleportHome(player)
 		return
 	end
 
-	local yOffset = (spawnLocation.Size.Y * 0.5)
+	local yOffset = (part.Size.Y * 0.5)
 		+ (characterHeight(character) * 0.5)
 		+ SPAWN_CLEARANCE_PADDING
-	local targetCFrame = spawnLocation.CFrame + (spawnLocation.CFrame.UpVector * yOffset)
+	local targetCFrame = part.CFrame + (part.CFrame.UpVector * yOffset)
 
 	if humanoid then
 		humanoid.Sit = false
@@ -117,6 +118,24 @@ local function teleportHome(player)
 	clearAssemblyVelocity(character)
 end
 
+local function teleportHome(player)
+	teleportToPart(player, spawnLocationFor(player))
+end
+
+local function eventTeleportPart()
+	local map = Workspace:FindFirstChild("Map")
+	local eventFolder = map and map:FindFirstChild(StormChaser.MapFolderName)
+	local part = eventFolder and eventFolder:FindFirstChild(StormChaser.TeleportPartName)
+	if part and part:IsA("BasePart") then
+		return part
+	end
+	return nil
+end
+
+local function teleportToEvent(player)
+	teleportToPart(player, eventTeleportPart())
+end
+
 function HomeTeleportService.Start()
 	if started then
 		return
@@ -124,6 +143,7 @@ function HomeTeleportService.Start()
 	started = true
 
 	RuntimeGuard.Connect(requestRemote.OnServerEvent, "HomeTeleportService.Request", teleportHome)
+	RuntimeGuard.Connect(eventRequestRemote.OnServerEvent, "HomeTeleportService.EventRequest", teleportToEvent)
 	RuntimeGuard.Connect(Players.PlayerRemoving, "HomeTeleportService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key then

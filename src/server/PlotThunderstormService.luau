@@ -89,6 +89,7 @@ local function settingsFor()
 		totalSeconds = totalSeconds,
 		plotTurnSeconds = math.max(numberValue(storm.plotTurnSeconds, 30), 0),
 		maxPlotTurns = integerValue(storm.maxPlotTurns, 8),
+		emptyQueueGraceSeconds = math.max(numberValue(storm.emptyQueueGraceSeconds, 10), 0),
 		minStrikesPerPlot = minStrikes,
 		maxStrikesPerPlot = maxStrikes,
 		targetRetrySeconds = math.max(numberValue(storm.targetRetrySeconds, 2), 0),
@@ -325,10 +326,49 @@ local function entryStillEligible(session, entry)
 	return context and context.plot == entry.plot
 end
 
+local function queuedTurnsRemaining(session)
+	return math.max(#session.entries - ((session.nextEntryIndex or 1) - 1), 0)
+end
+
+-- Session endsAt tracks the committed schedule -- the in-flight turn, queued
+-- turns at plotTurnSeconds each, the trailing empty-queue linger, then
+-- wind-down -- clamped to the config-max window (capEndsAt). Joins extend it,
+-- leaves shrink it, and the published event record follows via updateEndsAt
+-- so the HUD countdown stays honest. Mirrors PlotTornadoService.
+local function recomputeEndsAt(session, baseOverride)
+	local now = serverNow()
+	local settings = session.settings
+	local base
+	if baseOverride then
+		base = math.max(baseOverride, now)
+	elseif session.phase == "plotTurn" and session.currentTurnEndsAt then
+		base = math.max(session.currentTurnEndsAt, now)
+	elseif session.phase == "idle" or session.phase == "windUp" then
+		base = math.max(session.startsAt + settings.windUpSeconds, now)
+	else
+		base = now
+	end
+	local trailing = settings.windDownSeconds
+	if not baseOverride and session.phase ~= "windDown" then
+		trailing += settings.emptyQueueGraceSeconds
+	end
+	local endsAt = math.min(
+		base + queuedTurnsRemaining(session) * settings.plotTurnSeconds + trailing,
+		session.capEndsAt
+	)
+	if math.abs(endsAt - session.endsAt) < 0.05 then
+		return
+	end
+	session.endsAt = endsAt
+	if type(session.updateEndsAt) == "function" then
+		session.updateEndsAt(session.instanceId, endsAt)
+	end
+end
+
 local function canScheduleEntry(session)
 	return sessionActive(session)
 		and #session.entries < session.settings.maxPlotTurns
-		and serverNow() < session.endsAt - session.settings.windDownSeconds
+		and serverNow() < session.capEndsAt - session.settings.windDownSeconds
 end
 
 local function scheduleNewlyEligibleEntries(session)
@@ -348,7 +388,44 @@ local function scheduleNewlyEligibleEntries(session)
 			added += 1
 		end
 	end
+	if added > 0 then
+		recomputeEndsAt(session)
+	end
 	return added
+end
+
+-- A leaver's queued (not yet started) turns come off the schedule right away;
+-- clearing the scheduled flag lets a rejoin queue a fresh turn. A turn already
+-- in flight is aborted by the entryStillEligible checks instead.
+local function removeQueuedEntriesFor(session, player)
+	local userId = player and player.UserId
+	if not (sessionActive(session) and userId) then
+		return
+	end
+	local removed = false
+	for index = #session.entries, session.nextEntryIndex or 1, -1 do
+		if session.entries[index].userId == userId then
+			table.remove(session.entries, index)
+			removed = true
+		end
+	end
+	if removed then
+		session.scheduledByUserId[userId] = nil
+		recomputeEndsAt(session)
+	end
+end
+
+local function disconnectSessionConnections(session)
+	if session.playerRemovingConnection then
+		session.playerRemovingConnection:Disconnect()
+		session.playerRemovingConnection = nil
+	end
+end
+
+local function clearTurnState(session)
+	session.currentPlotCenter = nil
+	session.currentCloudOrigin = nil
+	session.currentTurnEndsAt = nil
 end
 
 local function nextQueuedEntry(session)
@@ -409,13 +486,14 @@ local function runPlotTurn(session, entry)
 		return false
 	end
 	local turnStartsAt = serverNow()
-	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.endsAt - session.settings.windDownSeconds)
+	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.capEndsAt - session.settings.windDownSeconds)
 	local strikeCount = rng:NextInteger(session.settings.minStrikesPerPlot, session.settings.maxStrikesPerPlot)
 	local cloudOrigin = entry.plotCenter + Vector3.new(0, session.settings.cloudPlotHeight, 0)
 	session.phase = "plotTurn"
 	session.currentPlotCenter = entry.plotCenter
 	session.currentCloudOrigin = cloudOrigin
 	session.currentTurnEndsAt = turnEndsAt
+	recomputeEndsAt(session)
 	fireViewers(session, "plotTurn", {
 		instanceId = session.instanceId,
 		userId = entry.userId,
@@ -444,6 +522,9 @@ local function runPlotTurn(session, entry)
 		if strikeIndex > 1 and not cancellableWait(session, math.min(gap, math.max(turnEndsAt - serverNow(), 0))) then
 			break
 		end
+		-- Players who become eligible mid-turn join the queue (and extend the
+		-- timer) here rather than waiting for the next turn boundary.
+		scheduleNewlyEligibleEntries(session)
 		local target = chooseTarget(session, entry, session.settings.targetRetrySeconds)
 		if not target or not targetStillValid(target, session.settings.mutationId) then
 			break
@@ -470,7 +551,39 @@ local function runPlotTurn(session, entry)
 			})
 		end
 	end
+	-- Strikes usually land before the turn is up, but the cloud visibly stays
+	-- on the plot until turnEndsAt -- hold the turn to match, so the schedule
+	-- keeps its per-player shape and late joiners keep queueing.
+	while sessionActive(session) and serverNow() < turnEndsAt and entryStillEligible(session, entry) do
+		if not cancellableWait(session, math.min(2, turnEndsAt - serverNow())) then
+			break
+		end
+		scheduleNewlyEligibleEntries(session)
+	end
 	return true
+end
+
+-- With the turn queue empty the storm lingers briefly instead of winding
+-- down, so a player who joins right as the last turn ends still gets one.
+-- endsAt is held at the linger deadline (plus wind-down) so the HUD matches.
+local function waitForNewEntries(session)
+	local deadline = math.min(
+		serverNow() + session.settings.emptyQueueGraceSeconds,
+		session.capEndsAt - session.settings.windDownSeconds
+	)
+	if serverNow() >= deadline then
+		return false
+	end
+	session.phase = "waitingForPlayers"
+	clearTurnState(session)
+	recomputeEndsAt(session, deadline)
+	while sessionActive(session) and serverNow() < deadline do
+		if scheduleNewlyEligibleEntries(session) > 0 then
+			return true
+		end
+		task.wait(math.min(WAIT_STEP, math.max(deadline - serverNow(), 0)))
+	end
+	return sessionActive(session) and queuedTurnsRemaining(session) > 0
 end
 
 local function runStorm(session)
@@ -491,29 +604,25 @@ local function runStorm(session)
 
 	local ranAnyTurn = false
 	while sessionActive(session) do
-		if serverNow() >= session.endsAt - session.settings.windDownSeconds then
+		if serverNow() >= session.capEndsAt - session.settings.windDownSeconds then
 			break
 		end
 		scheduleNewlyEligibleEntries(session)
 
 		local entry = nextQueuedEntry(session)
-		if not entry then
+		if entry then
+			ranAnyTurn = runPlotTurn(session, entry) or ranAnyTurn
+		elseif not waitForNewEntries(session) then
 			break
 		end
-		ranAnyTurn = runPlotTurn(session, entry) or ranAnyTurn
 	end
 
 	if not sessionActive(session) then
 		return
 	end
 	session.phase = "windDown"
-	session.currentPlotCenter = nil
-	session.currentCloudOrigin = nil
-	session.currentTurnEndsAt = nil
-	local earlyWindDown = serverNow() < session.endsAt - session.settings.windDownSeconds - 0.1
-	if earlyWindDown then
-		session.suppressActiveRecord()
-	end
+	clearTurnState(session)
+	recomputeEndsAt(session, serverNow())
 	fireViewers(session, "windDown", {
 		instanceId = session.instanceId,
 		startsAt = serverNow(),
@@ -536,6 +645,7 @@ local function cleanupFailedStorm(session)
 	end
 	session.failureCleanupDone = true
 	session.cancelled = true
+	disconnectSessionConnections(session)
 	if not session.loggedEnd then
 		session.loggedEnd = true
 		printStormLifecycle("end", session, "failed")
@@ -576,6 +686,10 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 		instanceId = tostring(eventRecord.instanceId or ""),
 		startsAt = startsAt,
 		endsAt = endsAt,
+		-- The record's endsAt is the hard ceiling; session.endsAt floats below
+		-- it as the turn queue grows and shrinks.
+		capEndsAt = endsAt,
+		updateEndsAt = callbacks.updateEndsAt,
 		settings = settings,
 		publicSettings = {
 			windUpSeconds = settings.windUpSeconds,
@@ -594,34 +708,34 @@ function PlotThunderstormService.StartStorm(eventRecord, callbacks)
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
 		cancelled = false,
-		suppressedActiveRecord = false,
 		phase = "idle",
 	}
-	session.suppressActiveRecord = function()
-		if session.suppressedActiveRecord then
-			return
-		end
-		session.suppressedActiveRecord = true
-		if type(callbacks.complete) == "function" then
-			callbacks.complete(session.instanceId, {
-				blockLowerPriorityUntil = session.endsAt,
-				keepHandlerRunning = true,
-			})
-		end
-	end
 	session.complete = function()
 		if not session.loggedEnd then
 			session.loggedEnd = true
 			printStormLifecycle("end", session, "completed")
 		end
+		disconnectSessionConnections(session)
 		if activeSession == session then
 			activeSession = nil
 		end
-		if not session.suppressedActiveRecord and type(callbacks.complete) == "function" then
-			callbacks.complete(session.instanceId)
+		if type(callbacks.complete) == "function" then
+			local options = nil
+			-- Finishing inside the scheduled window still reserves the rest of
+			-- it, so lower-priority events cannot slot into the freed time.
+			if serverNow() < session.capEndsAt - 0.1 then
+				options = { blockLowerPriorityUntil = session.capEndsAt }
+			end
+			callbacks.complete(session.instanceId, options)
 		end
 	end
+	session.playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
+		RuntimeGuard.Run("PlotThunderstormService.PlayerRemoving." .. session.instanceId, function()
+			removeQueuedEntriesFor(session, player)
+		end)
+	end)
 	activeSession = session
+	recomputeEndsAt(session)
 	printStormLifecycle("start", session, string.format("entries=%d", #session.entries))
 
 	RuntimeGuard.Spawn("PlotThunderstormService.RunGuarded." .. session.instanceId, runStormGuarded, session)
@@ -643,6 +757,7 @@ function PlotThunderstormService.StopStorm(instanceId)
 		return
 	end
 	session.cancelled = true
+	disconnectSessionConnections(session)
 	if not session.loggedEnd then
 		session.loggedEnd = true
 		printStormLifecycle("end", session, "stopped")

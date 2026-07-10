@@ -61,6 +61,7 @@ local HIDDEN_DURING_ACTIVE_TUTORIAL = {
 		"RollButtons",
 		"SkipTimeButtons",
 		"RebirthButton",
+		"EventButton",
 		"TopBar",
 	},
 	LocalPromptKinds = {

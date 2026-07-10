@@ -50,6 +50,7 @@ StormChaser.MaxDepositDistance = 14
 
 StormChaser.MapFolderName = "3HourlyEvent"
 StormChaser.ActiveFolderName = "Active"
+StormChaser.TeleportPartName = "EventTeleport"
 
 function StormChaser.NormalizeTier(tier)
 	tier = tonumber(tier)

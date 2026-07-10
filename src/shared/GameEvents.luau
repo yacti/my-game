@@ -79,9 +79,14 @@ GameEvents.EventConfigs = {
 		appliedMutationId = "Lightning",
 		storm = {
 			windUpSeconds = 10,
+			-- One 30s turn per eligible player, up to 8; the session timer sizes
+			-- itself to the turn queue like the tornado (see Tornado comment).
 			plotTurnSeconds = 30,
 			maxPlotTurns = 8,
 			windDownSeconds = 10,
+			-- Short linger after the last turn so a player who joins right as
+			-- the queue empties still gets one; baked into the published timer.
+			emptyQueueGraceSeconds = 10,
 			minStrikesPerPlot = 3,
 			maxStrikesPerPlot = 7,
 			targetRetrySeconds = 2,

@@ -479,6 +479,30 @@ local function runPlotVisit(session, entry)
 	return ranAnyZap
 end
 
+-- The alien window is fixed (global/admin record), so with no visits queued
+-- the UFO idles and keeps polling for new entrants -- fresh joiners, or
+-- players newly under their visit cap -- until the window closes or the
+-- visit budget is spent, instead of winding down for good on a lull.
+local ENTRY_POLL_SECONDS = 1
+local function waitForNewEntries(session)
+	if #session.entries >= session.settings.maxTotalVisits then
+		return false
+	end
+	session.phase = "waitingForPlayers"
+	session.currentPlotCenter = nil
+	session.currentVisitEndsAt = nil
+	while sessionActive(session) and serverNow() < session.endsAt - session.settings.windDownSeconds do
+		if scheduleNewlyEligibleEntries(session) > 0 then
+			return true
+		end
+		if #session.entries >= session.settings.maxTotalVisits then
+			return false
+		end
+		task.wait(ENTRY_POLL_SECONDS)
+	end
+	return false
+end
+
 local function runAlien(session)
 	session.phase = "windUp"
 	fireViewers(session, "start", {
@@ -501,10 +525,11 @@ local function runAlien(session)
 		scheduleNewlyEligibleEntries(session)
 
 		local entry = nextQueuedEntry(session)
-		if not entry then
+		if entry then
+			ranAnyVisit = runPlotVisit(session, entry) or ranAnyVisit
+		elseif not waitForNewEntries(session) then
 			break
 		end
-		ranAnyVisit = runPlotVisit(session, entry) or ranAnyVisit
 	end
 
 	if not sessionActive(session) then

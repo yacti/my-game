@@ -153,6 +153,9 @@
         "HomeTeleportRequest": {
           "$className": "RemoteEvent"
         },
+        "EventTeleportRequest": {
+          "$className": "RemoteEvent"
+        },
         "PlaceCosmetic": {
           "$className": "RemoteEvent"
         },

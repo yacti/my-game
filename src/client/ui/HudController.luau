@@ -18,12 +18,16 @@ local HudController = {}
 local LEFT_BUTTONS_NAME = "LeftButtons"
 local TOP_BAR_NAME = "TopBar"
 local HOME_BUTTON_NAME = "Home"
+local EVENT_BUTTON_NAME = "EventButton"
+local EVENT_ALERT_NAME = "Alert"
 local HIDDEN_ON_CLONE = {
 	SkipTimeButtons = true,
 }
 local HOME_TELEPORT_COOLDOWN_SECONDS = 0.75
+local EVENT_TELEPORT_COOLDOWN_SECONDS = 0.75
 
 local HomeTeleportRequest = Remotes.get(Remotes.Names.HomeTeleportRequest)
+local EventTeleportRequest = Remotes.get(Remotes.Names.EventTeleportRequest)
 
 local function findCurrencyLabel(gui)
 	local currency = gui:FindFirstChild("Currency")
@@ -133,6 +137,36 @@ local function bindHomeButton(topBar)
 	end)
 end
 
+local function bindEventButton(leftButtons)
+	local button = leftButtons:FindFirstChild(EVENT_BUTTON_NAME)
+	if not (button and button:IsA("GuiButton")) then
+		warn("[HudController] HUD.LeftButtons missing EventButton GuiButton")
+		return
+	end
+
+	local alert = button:FindFirstChild(EVENT_ALERT_NAME)
+	if alert and alert:IsA("GuiObject") then
+		alert.Visible = true
+	else
+		warn("[HudController] HUD.LeftButtons.EventButton missing Alert GuiObject")
+		alert = nil
+	end
+
+	local lastRequestAt = 0
+	RuntimeGuard.Connect(button.Activated, "HudController.EventButtonActivated", function()
+		if alert and alert.Parent then
+			alert.Visible = false
+		end
+
+		local now = os.clock()
+		if now - lastRequestAt < EVENT_TELEPORT_COOLDOWN_SECONDS then
+			return
+		end
+		lastRequestAt = now
+		EventTeleportRequest:FireServer()
+	end)
+end
+
 local function bindInviteFriendsButton(button, player)
 	if not button then
 		return
@@ -188,6 +222,7 @@ function HudController.start()
 	local leftButtons = gui:FindFirstChild(LEFT_BUTTONS_NAME)
 	if leftButtons and leftButtons:IsA("GuiObject") then
 		UiEffects.BindAllButtons(leftButtons)
+		bindEventButton(leftButtons)
 	else
 		warn("[HudController] HUD missing LeftButtons GuiObject")
 	end
