@@ -1,6 +1,7 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -161,6 +162,47 @@ function ShopPanelController.Start(config)
 		}
 	end
 
+	-- ── Animated rarity text (one shared render connection per panel) ──────
+	-- Mirrors IndexController: animated rarities (Mythical, Exclusive) keep
+	-- cycling while the panel is open, including on rebirth-locked rows — the
+	-- isLocked overlay is a sibling and never pauses the label underneath.
+	local animatedRarityLabels = {} -- [TextLabel] = rarity
+	local rarityRenderConnection = nil
+
+	local function refreshAnimatedRarities()
+		local now = os.clock()
+		local hasAny = false
+		for label, rarity in pairs(animatedRarityLabels) do
+			if label.Parent then
+				hasAny = true
+				label.TextColor3 = Rarities.TextColorFor(rarity, now)
+			else
+				animatedRarityLabels[label] = nil
+			end
+		end
+		if not hasAny and rarityRenderConnection then
+			rarityRenderConnection:Disconnect()
+			rarityRenderConnection = nil
+		end
+	end
+
+	local function ensureRarityRender()
+		if open and not rarityRenderConnection and next(animatedRarityLabels) ~= nil then
+			rarityRenderConnection = RuntimeGuard.Connect(
+				RunService.RenderStepped,
+				debugName .. ".RarityRender",
+				refreshAnimatedRarities
+			)
+		end
+	end
+
+	local function stopRarityRender()
+		if rarityRenderConnection then
+			rarityRenderConnection:Disconnect()
+			rarityRenderConnection = nil
+		end
+	end
+
 	local function render()
 		local current = state()
 		for _, row in ipairs(rows) do
@@ -181,7 +223,15 @@ function ShopPanelController.Start(config)
 			if row.rarityLabel then
 				local rarity = valueFrom(config, "getRarity", item, nil) or Rarities.Common
 				UiEffects.SetTextStack(row.rarityLabel, tostring(rarity))
-				row.rarityLabel.TextColor3 = Rarities.TextColorFor(rarity) or Rarities.TextColorFor(Rarities.Common)
+				local definition = Rarities.Get(rarity)
+				if definition and definition.Animated then
+					animatedRarityLabels[row.rarityLabel] = rarity
+					row.rarityLabel.TextColor3 = Rarities.TextColorFor(rarity, os.clock())
+					ensureRarityRender()
+				else
+					animatedRarityLabels[row.rarityLabel] = nil
+					row.rarityLabel.TextColor3 = Rarities.TextColorFor(rarity) or Rarities.TextColorFor(Rarities.Common)
+				end
 			end
 			if row.lockedFrame then
 				row.lockedFrame.Visible = locked
@@ -210,12 +260,14 @@ function ShopPanelController.Start(config)
 		open = true
 		transitionToken += 1
 		render()
+		ensureRarityRender()
 		UiEffects.PlayOpen(panel, panelState)
 	end
 
 	local function hidePanel(switching)
 		if not open and not panel.Visible then return end
 		open = false
+		stopRarityRender()
 		transitionToken += 1
 		local token = transitionToken
 		if switching then
