@@ -12,9 +12,12 @@
 -- one shared RenderStepped connection exists only while any scarecrow is
 -- tracked (idle self-disconnect).
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -135,6 +138,14 @@ local function updateModel(model, record, now, cameraPosition)
 end
 
 local function onRenderStep()
+	-- Hold still while the player is editing their plot: a hopping model is
+	-- hard to select and drag. The server skips shake waves in edit mode too.
+	if player:GetAttribute("EditMode") == true then
+		for model, record in pairs(tracked) do
+			restore(model, record)
+		end
+		return
+	end
 	local now = serverNow()
 	local camera = Workspace.CurrentCamera
 	local cameraPosition = camera and camera.CFrame.Position or nil
