@@ -38,6 +38,7 @@ local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementS
 local CosmeticShopService = require(Server:WaitForChild("CosmeticShopService"))
 local CollectAllService = require(Server:WaitForChild("CollectAllService"))
 local DiscoveryService  = require(Server:WaitForChild("DiscoveryService"))
+local DurianPackShopService = require(Server:WaitForChild("DurianPackShopService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -213,6 +214,7 @@ RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
+RuntimeGuard.Run("DurianPackShopService.Start", DurianPackShopService.Start)
 RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
 RuntimeGuard.Run("ServerLuckService.Start", ServerLuckService.Start)
@@ -241,6 +243,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		gearShopService = GearShopService,
 		cosmeticShopService = CosmeticShopService,
 		seedPackShopService = SeedPackShopService,
+		durianPackShopService = DurianPackShopService,
 		cashPackShopService = CashPackShopService,
 		starterPackShopService = StarterPackShopService,
 		serverLuckService = ServerLuckService,

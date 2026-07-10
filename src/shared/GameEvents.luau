@@ -141,9 +141,9 @@ GameEvents.EventConfigs = {
 			windUpSeconds = 6,
 			windDownSeconds = 5,
 			studsPerSecond = 100,
-			-- 6 windUp + ~45.7 wave travel (map length / 100 studs/s) + 243
-			-- underwater + 5 windDown ~= 300s total.
-			underwaterSeconds = 243,
+			-- 6 windUp + ~45.7 wave travel (map length / 100 studs/s) + 273
+			-- underwater + 5 windDown ~= 330s total.
+			underwaterSeconds = 273,
 			underwaterGravity = 25,
 			minMutationsPerPlot = 4,
 			maxMutationsPerPlot = 8,

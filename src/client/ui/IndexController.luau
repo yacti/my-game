@@ -905,6 +905,7 @@ function IndexController.start()
 			:setImage(TOPBAR_INDEX_ICON_IMAGE)
 			:setImageScale(0.7)
 			:setCaption("Index")
+			:setAlignment("Right")
 			:setOrder(0)
 			:autoDeselect(false)
 		icon:modifyTheme({

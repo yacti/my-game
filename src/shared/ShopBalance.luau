@@ -46,22 +46,41 @@ ShopBalance.SeedPacks = {
 			{ SeedId = "DurianTreeSeed", Weight = 1 },
 		},
 	},
-	{
-		PackId = "DurianPack",
-		DisplayName = "Durian Pack",
-		Featured = true,
-		Products = {
-			{ Quantity = 1, DevProductId = 3607448000 },
-			{ Quantity = 3, DevProductId = 3607448072 },
-			{ Quantity = 10, DevProductId = 3607448274 },
-			{ Quantity = 50, DevProductId = 3607448383 },
-		},
-		Rewards = {
-			{ SeedId = "WatermelonSeed", Weight = 60 },
-			{ SeedId = "MushroomSeed", Weight = 35 },
-			{ SeedId = "GlowshroomSeed", Weight = 4 },
-			{ SeedId = "DurianTreeSeed", Weight = 1 },
-		},
+}
+
+-- Standalone Durian Pack feature (HUD entry -> Menu.DurianPackHolder), no
+-- longer sold from the RobuxShop seed pack sections. Players buy tickets with
+-- Robux; one ticket funds one roll from Rewards. Every PityRollCount-th roll
+-- is a guaranteed PitySeedId; naturally rolled durians do not reset the pity
+-- counter. CycleSeconds only drives the visual countdown label.
+ShopBalance.DurianPack = {
+	PackId = "DurianPack",
+	DisplayName = "Durian Pack",
+	CycleSeconds = 14 * 24 * 60 * 60,
+	PityRollCount = 90,
+	PitySeedId = "DurianTreeSeed",
+	RollCounts = { 1, 3, 10 },
+	TicketProducts = {
+		{ Tickets = 1, ExtraTickets = 0, DevProductId = 3608999791 },
+		{ Tickets = 3, ExtraTickets = 0, DevProductId = 3608999818 },
+		{ Tickets = 10, ExtraTickets = 2, DevProductId = 3608999847 },
+		{ Tickets = 25, ExtraTickets = 5, DevProductId = 3608999879 },
+		{ Tickets = 50, ExtraTickets = 10, DevProductId = 3608999957 },
+	},
+	-- Retired shop-era DurianPack roll products. Not shown in any UI; pending
+	-- receipts convert one purchased roll into one ticket so live players are
+	-- never left with an unprocessable purchase.
+	LegacyTicketProducts = {
+		{ Tickets = 1, ExtraTickets = 0, DevProductId = 3607448000 },
+		{ Tickets = 3, ExtraTickets = 0, DevProductId = 3607448072 },
+		{ Tickets = 10, ExtraTickets = 0, DevProductId = 3607448274 },
+		{ Tickets = 50, ExtraTickets = 0, DevProductId = 3607448383 },
+	},
+	Rewards = {
+		{ SeedId = "WatermelonSeed", Weight = 50 },
+		{ SeedId = "MushroomSeed", Weight = 35 },
+		{ SeedId = "GlowshroomSeed", Weight = 14 },
+		{ SeedId = "DurianTreeSeed", Weight = 1 },
 	},
 }
 
@@ -320,8 +339,56 @@ local function copyPack(pack)
 		DisplayName = pack.DisplayName,
 		DevProductId = int(pack.DevProductId or (oneProduct and oneProduct.DevProductId), 0),
 		BuyThreeDevProductId = int(pack.BuyThreeDevProductId or (threeProduct and threeProduct.DevProductId), 0),
-		Featured = pack.Featured == true,
 		Products = products,
+		Rewards = rewards,
+	}
+end
+
+local function copyDurianTicketProduct(product, legacy)
+	if type(product) ~= "table" then
+		return nil
+	end
+	return {
+		Tickets = int(product.Tickets, 0),
+		ExtraTickets = int(product.ExtraTickets, 0),
+		DevProductId = int(product.DevProductId, 0),
+		Legacy = legacy == true,
+	}
+end
+
+local function copyDurianPack(config)
+	if type(config) ~= "table" then
+		return nil
+	end
+	local rewards = {}
+	for _, reward in ipairs(config.Rewards or {}) do
+		rewards[#rewards + 1] = copyReward(reward)
+	end
+	local ticketProducts = {}
+	for _, product in ipairs(config.TicketProducts or {}) do
+		local copy = copyDurianTicketProduct(product, false)
+		if copy then
+			ticketProducts[#ticketProducts + 1] = copy
+		end
+	end
+	table.sort(ticketProducts, function(a, b)
+		if a.Tickets ~= b.Tickets then
+			return a.Tickets < b.Tickets
+		end
+		return a.DevProductId < b.DevProductId
+	end)
+	local rollCounts = {}
+	for _, count in ipairs(config.RollCounts or {}) do
+		rollCounts[#rollCounts + 1] = int(count, 0)
+	end
+	return {
+		PackId = config.PackId,
+		DisplayName = config.DisplayName,
+		CycleSeconds = int(config.CycleSeconds, 0),
+		PityRollCount = int(config.PityRollCount, 0),
+		PitySeedId = config.PitySeedId,
+		RollCounts = rollCounts,
+		TicketProducts = ticketProducts,
 		Rewards = rewards,
 	}
 end
@@ -509,6 +576,43 @@ function ShopBalance.SeedPackForProductId(productIdValue)
 		end
 	end
 	return nil
+end
+
+function ShopBalance.GetDurianPack()
+	return copyDurianPack(ShopBalance.DurianPack)
+end
+
+function ShopBalance.DurianTicketProductForProductId(productIdValue)
+	local target = productId(productIdValue)
+	local config = ShopBalance.DurianPack
+	if target <= 0 or type(config) ~= "table" then
+		return nil
+	end
+	for _, product in ipairs(config.TicketProducts or {}) do
+		if productId(product.DevProductId) == target then
+			return copyDurianTicketProduct(product, false)
+		end
+	end
+	for _, product in ipairs(config.LegacyTicketProducts or {}) do
+		if productId(product.DevProductId) == target then
+			return copyDurianTicketProduct(product, true)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.DurianRollCountAllowed(rollCount)
+	local target = int(rollCount, 0)
+	if target <= 0 then
+		return false
+	end
+	local config = ShopBalance.DurianPack
+	for _, count in ipairs(type(config) == "table" and config.RollCounts or {}) do
+		if int(count, 0) == target then
+			return true
+		end
+	end
+	return false
 end
 
 function ShopBalance.AllCashPacks()
@@ -1107,6 +1211,91 @@ function ShopBalance.Validate(errors)
 						add(rewardSource .. " has invalid Amount")
 					end
 				end
+			end
+		end
+	end
+
+	local durianPack = ShopBalance.DurianPack
+	if type(durianPack) ~= "table" then
+		add("ShopBalance.DurianPack must be a table")
+	else
+		if type(durianPack.PackId) ~= "string" or durianPack.PackId == "" then
+			add("ShopBalance.DurianPack has invalid PackId")
+		elseif seenPacks[durianPack.PackId] then
+			add("Duplicate shop PackId " .. tostring(durianPack.PackId))
+		else
+			seenPacks[durianPack.PackId] = true
+		end
+		if type(durianPack.DisplayName) ~= "string" or durianPack.DisplayName == "" then
+			add("ShopBalance.DurianPack has invalid DisplayName")
+		end
+		if type(durianPack.CycleSeconds) ~= "number" or durianPack.CycleSeconds <= 0 or durianPack.CycleSeconds % 1 ~= 0 then
+			add("ShopBalance.DurianPack has invalid CycleSeconds")
+		end
+		if type(durianPack.PityRollCount) ~= "number" or durianPack.PityRollCount <= 0 or durianPack.PityRollCount % 1 ~= 0 then
+			add("ShopBalance.DurianPack has invalid PityRollCount")
+		end
+		if type(durianPack.PitySeedId) ~= "string" or durianPack.PitySeedId == "" then
+			add("ShopBalance.DurianPack has invalid PitySeedId")
+		end
+		if type(durianPack.RollCounts) ~= "table" or #durianPack.RollCounts == 0 then
+			add("ShopBalance.DurianPack must define RollCounts")
+		else
+			local seenRollCounts = {}
+			for index, count in ipairs(durianPack.RollCounts) do
+				local source = "ShopBalance.DurianPack.RollCounts[" .. tostring(index) .. "]"
+				if type(count) ~= "number" or count <= 0 or count % 1 ~= 0 then
+					add(source .. " has invalid roll count")
+				elseif seenRollCounts[count] then
+					add("Duplicate ShopBalance.DurianPack roll count " .. tostring(count))
+				else
+					seenRollCounts[count] = true
+				end
+			end
+		end
+		local function validateTicketProducts(products, sourceName)
+			if type(products) ~= "table" or #products == 0 then
+				add("ShopBalance.DurianPack." .. sourceName .. " must define ticket products")
+				return
+			end
+			for index, product in ipairs(products) do
+				local source = "ShopBalance.DurianPack." .. sourceName .. "[" .. tostring(index) .. "]"
+				if type(product) ~= "table" then
+					add(source .. " must be a table")
+					continue
+				end
+				if type(product.Tickets) ~= "number" or product.Tickets <= 0 or product.Tickets % 1 ~= 0 then
+					add(source .. " has invalid Tickets")
+				end
+				if type(product.ExtraTickets) ~= "number" or product.ExtraTickets < 0 or product.ExtraTickets % 1 ~= 0 then
+					add(source .. " has invalid ExtraTickets")
+				end
+				validateProduct(product.DevProductId, source .. ".DevProductId")
+			end
+		end
+		validateTicketProducts(durianPack.TicketProducts, "TicketProducts")
+		validateTicketProducts(durianPack.LegacyTicketProducts, "LegacyTicketProducts")
+		if type(durianPack.Rewards) ~= "table" or #durianPack.Rewards == 0 then
+			add("ShopBalance.DurianPack must define Rewards")
+		else
+			local pityRewardFound = false
+			for rewardIndex, reward in ipairs(durianPack.Rewards) do
+				local rewardSource = "ShopBalance.DurianPack.Rewards[" .. tostring(rewardIndex) .. "]"
+				if type(reward) ~= "table" then
+					add(rewardSource .. " must be a table")
+					continue
+				end
+				if type(reward.SeedId) ~= "string" or reward.SeedId == "" then
+					add(rewardSource .. " has invalid SeedId")
+				elseif reward.SeedId == durianPack.PitySeedId then
+					pityRewardFound = true
+				end
+				if type(reward.Weight) ~= "number" or reward.Weight <= 0 or reward.Weight ~= reward.Weight or math.abs(reward.Weight) == math.huge then
+					add(rewardSource .. " has invalid Weight")
+				end
+			end
+			if not pityRewardFound then
+				add("ShopBalance.DurianPack.PitySeedId must also be a configured reward")
 			end
 		end
 	end

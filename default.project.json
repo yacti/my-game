@@ -84,6 +84,12 @@
         "SeedPackPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "DurianPackRollRequest": {
+          "$className": "RemoteEvent"
+        },
+        "DurianPackRollResult": {
+          "$className": "RemoteEvent"
+        },
         "StarterPackPurchaseRequest": {
           "$className": "RemoteEvent"
         },

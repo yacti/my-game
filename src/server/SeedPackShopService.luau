@@ -109,7 +109,7 @@ local function resultPayload(pack, rewards)
 	return {
 		action = "reveal",
 		packId = pack.PackId,
-		sourceSection = pack.Featured == true and "Featured" or "SeedPacks",
+		sourceSection = "SeedPacks",
 		results = results,
 	}
 end

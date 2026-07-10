@@ -10,7 +10,8 @@
 --
 -- Actions: start (eventId, startsAtOffset?, durationSeconds?),
 -- stop (instanceId), complete (instanceId), disable-tutorial (all players),
--- grant-currency (amount, userId? defaults to the first player).
+-- grant-currency (amount, userId? defaults to the first player),
+-- grant-durian-tickets (amount, pity?, userId? defaults to the first player).
 -- Each command's outcome is JSON-encoded into the GameEventDevResult
 -- attribute for the caller to read back.
 local HttpService = game:GetService("HttpService")
@@ -95,6 +96,27 @@ local function runCommand(command)
 		end
 		CurrencyService.Add(player, profile, amount, false)
 		return { ok = true, currency = profile.Data.Currency }
+	elseif action == "grant-durian-tickets" then
+		local amount = tonumber(command.amount)
+		if not amount or amount <= 0 then
+			return { ok = false, code = "invalid-amount" }
+		end
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+		local profile = player and PlayerDataService.GetProfile(player)
+		if not profile then
+			return { ok = false, code = "no-profile" }
+		end
+		profile.Data.DurianTickets = math.max(math.floor(tonumber(profile.Data.DurianTickets) or 0), 0) + math.floor(amount)
+		if tonumber(command.pity) then
+			profile.Data.DurianPackPity = math.max(math.floor(tonumber(command.pity)), 0)
+		end
+		PlayerReplicaService.PublishDurianPack(player, profile)
+		return { ok = true, durianTickets = profile.Data.DurianTickets, durianPackPity = profile.Data.DurianPackPity }
 	end
 	return { ok = false, code = "unknown-action" }
 end

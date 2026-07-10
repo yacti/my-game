@@ -53,6 +53,12 @@ local DATA_TEMPLATE = {
 	PendingRollOffers = {},
 	StarterPackPurchased = false,
 	StarterPackPurchases = {},
+	-- Durian Pack tickets bought with Robux; one ticket funds one durian roll.
+	DurianTickets = 0,
+	-- Rolls since the last pity-guaranteed durian. Every PityRollCount-th roll
+	-- (see ShopBalance.DurianPack) is forced to the durian reward and resets
+	-- this; natural durian rolls do not.
+	DurianPackPity = 0,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
@@ -645,6 +651,8 @@ local function ensureValidData(profile)
 	profile.Data.Rebirths = math.max(math.floor(tonumber(profile.Data.Rebirths) or 0), 0)
 	profile.Data.LifetimeCrateRolls = math.max(math.floor(tonumber(profile.Data.LifetimeCrateRolls) or 0), 0)
 	profile.Data.PurpleAngelCrateGuaranteeAt = math.max(math.floor(tonumber(profile.Data.PurpleAngelCrateGuaranteeAt) or 0), 0)
+	profile.Data.DurianTickets = math.max(math.floor(tonumber(profile.Data.DurianTickets) or 0), 0)
+	profile.Data.DurianPackPity = math.max(math.floor(tonumber(profile.Data.DurianPackPity) or 0), 0)
 	profile.Data.Pets = sanitizePets(profile.Data.Pets, profile.Data.Rebirths)
 
 	local placements = {}

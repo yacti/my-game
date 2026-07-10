@@ -14,10 +14,10 @@ Mutations.Ids = {
 }
 
 Mutations.DisplayColors = {
-	[Mutations.Ids.Lightning] = Color3.fromRGB(107, 206, 255),
+	[Mutations.Ids.Lightning] = Color3.fromRGB(0, 255, 249),
 	[Mutations.Ids.Alien] = Color3.fromRGB(107, 255, 137),
 	[Mutations.Ids.Twisted] = Color3.fromRGB(163, 171, 184),
-	[Mutations.Ids.Aqua] = Color3.fromRGB(72, 219, 251),
+	[Mutations.Ids.Aqua] = Color3.fromRGB(0, 157, 255),
 	[Mutations.Ids.Shaken] = Color3.fromRGB(191, 0, 255),
 }
 

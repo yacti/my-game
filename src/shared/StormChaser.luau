@@ -20,7 +20,7 @@ StormChaser.Cycle = { "Earthquake", "Tsunami", "Tornado" }
 StormChaser.Tiers = {
 	{
 		required = { Twisted = 5, Shaken = 5, Aqua = 5 },
-		rewardSeedId = "LycheeTreeSeed",
+		rewardSeedId = "CoconutTreeSeed",
 	},
 	{
 		required = { Twisted = 15, Shaken = 15, Aqua = 15 },
@@ -28,7 +28,7 @@ StormChaser.Tiers = {
 	},
 	{
 		required = { Twisted = 30, Shaken = 30, Aqua = 30 },
-		rewardSeedId = "CoconutTreeSeed",
+		rewardSeedId = "LycheeTreeSeed",
 	},
 }
 

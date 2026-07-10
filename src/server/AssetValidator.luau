@@ -1394,15 +1394,11 @@ local function validateRobuxShopUi(menu, errors)
 	end
 end
 
-local function seedPackButtonNameCandidates(quantity, featured)
+local function seedPackButtonNameCandidates(quantity)
 	if quantity == 1 then
-		return featured and { "Buy1", "BuyOne", "BuyButton" } or { "BuyOne", "BuyButton", "Buy1" }
+		return { "BuyOne", "BuyButton", "Buy1" }
 	elseif quantity == 3 then
-		return featured and { "Buy3", "BuyThree" } or { "BuyThree", "Buy3" }
-	elseif quantity == 10 then
-		return { "Buy10" }
-	elseif quantity == 50 then
-		return { "Buy50" }
+		return { "BuyThree", "Buy3" }
 	end
 	return { "Buy" .. tostring(quantity) }
 end
@@ -1419,12 +1415,12 @@ local function namedDescendant(root, name, className)
 	return nil
 end
 
-local function seedPackRewardSlots(items, pack)
+local function seedPackRewardSlots(items, extraTemplateNames)
 	local templates = {}
 	for _, item in ipairs(items and items:GetChildren() or {}) do
 		if item:IsA("GuiObject") then
 			local valid = item.Name == "Template"
-				or (pack and pack.PackId == "DurianPack" and (item.Name == "MythicalTemplate" or item.Name == "SecretTemplate"))
+				or (extraTemplateNames and extraTemplateNames[item.Name] == true)
 			if valid then
 				templates[#templates + 1] = item
 			end
@@ -1442,10 +1438,10 @@ local function seedPackRewardSlots(items, pack)
 	return templates
 end
 
-local function validateSeedPackProductButton(card, pack, product, source, errors)
+local function validateSeedPackProductButton(card, product, source, errors)
 	local quantity = math.max(math.floor(tonumber(product and product.Quantity) or 0), 0)
 	local found = nil
-	for _, name in ipairs(seedPackButtonNameCandidates(quantity, pack and pack.Featured == true)) do
+	for _, name in ipairs(seedPackButtonNameCandidates(quantity)) do
 		local candidate = card and card:FindFirstChild(name, true)
 		if candidate then
 			if candidate:IsA("GuiButton") then
@@ -1463,11 +1459,9 @@ local function validateSeedPackProductButton(card, pack, product, source, errors
 end
 
 local function validateSeedPackCard(card, pack, source, errors)
-	if pack.Featured ~= true then
-		descendant(card, "Title", "TextLabel", errors)
-	end
+	descendant(card, "Title", "TextLabel", errors)
 	for _, product in ipairs(ShopBalance.AllSeedPackProducts(pack)) do
-		validateSeedPackProductButton(card, pack, product, source, errors)
+		validateSeedPackProductButton(card, product, source, errors)
 	end
 
 	-- Pack icons are 3D viewports rendered from Assets.Misc.SeedPacks models
@@ -1481,7 +1475,7 @@ local function validateSeedPackCard(card, pack, source, errors)
 	if not items then
 		return
 	end
-	local templates = seedPackRewardSlots(items, pack)
+	local templates = seedPackRewardSlots(items)
 	local expectedTemplates = #(pack.Rewards or {})
 	if #templates ~= expectedTemplates then
 		add(errors, string.format("%s.Items must contain exactly %d configured reward GuiObjects", source, expectedTemplates))
@@ -1490,9 +1484,6 @@ local function validateSeedPackCard(card, pack, source, errors)
 		local templateSource = source .. ".Items." .. template.Name .. "[" .. tostring(index) .. "]"
 		descendant(template, "Icon", "ViewportFrame", errors)
 		descendant(template, "Chance", "TextLabel", errors)
-		if pack.PackId == "DurianPack" then
-			descendant(template, "Name", "TextLabel", errors)
-		end
 		if not template.Visible then
 			add(errors, templateSource .. " should be visible in the Studio-authored card")
 		end
@@ -1503,18 +1494,80 @@ local function validateSeedPacksUi(menu, errors)
 	local panel = child(menu, "RobuxShop", "GuiObject", errors)
 	if not panel then return end
 	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
-	local featured = holder and child(holder, "Featured", "GuiObject", errors)
 	local seedPacks = holder and child(holder, "SeedPacks", "GuiObject", errors)
 	if not holder then return end
 
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
-		local section = pack.Featured == true and featured or seedPacks
-		local sectionName = pack.Featured == true and "Featured" or "SeedPacks"
-		local card = child(section, pack.PackId, "GuiObject", errors)
+		local card = child(seedPacks, pack.PackId, "GuiObject", errors)
 		if card then
-			validateSeedPackCard(card, pack, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder." .. sectionName .. "." .. tostring(pack.PackId), errors)
+			validateSeedPackCard(card, pack, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.SeedPacks." .. tostring(pack.PackId), errors)
 		end
 	end
+end
+
+local DURIAN_EXTRA_TEMPLATE_NAMES = {
+	MythicalTemplate = true,
+	SecretTemplate = true,
+}
+
+-- Standalone Durian Pack UI (opened from HUD.DurianPack, not the RobuxShop).
+local function validateDurianPackUi(menu, errors)
+	local panel = child(menu, "DurianPackHolder", "GuiObject", errors)
+	if not panel then return end
+	local source = "ReplicatedStorage.UI.Menu.DurianPackHolder"
+	local pack = ShopBalance.GetDurianPack()
+
+	descendant(panel, "CloseButton", "GuiButton", errors)
+
+	local durianFrame = child(panel, "DurianPack", "GuiObject", errors)
+	if durianFrame then
+		child(durianFrame, "Title", "TextLabel", errors)
+		child(durianFrame, "RollPity", "TextLabel", errors)
+		child(durianFrame, "Timer", "TextLabel", errors)
+		local ticketHolder = child(durianFrame, "TicketHolder", "GuiObject", errors)
+		if ticketHolder then
+			descendant(ticketHolder, "TicketAmount", "TextLabel", errors)
+		end
+		for _, rollCount in ipairs(pack and pack.RollCounts or {}) do
+			child(durianFrame, "Roll" .. tostring(rollCount), "GuiButton", errors)
+		end
+		local items = child(durianFrame, "Items", "GuiObject", errors)
+		if items then
+			local templates = seedPackRewardSlots(items, DURIAN_EXTRA_TEMPLATE_NAMES)
+			local expectedTemplates = #(pack and pack.Rewards or {})
+			if #templates ~= expectedTemplates then
+				add(errors, string.format(
+					"%s.DurianPack.Items must contain exactly %d configured reward GuiObjects",
+					source,
+					expectedTemplates
+				))
+			end
+			for _, template in ipairs(templates) do
+				descendant(template, "Icon", "ViewportFrame", errors)
+				descendant(template, "Name", "TextLabel", errors)
+				descendant(template, "Chance", "TextLabel", errors)
+			end
+		end
+	end
+
+	local buyRolls = child(panel, "BuyRolls", "GuiObject", errors)
+	local buyHolder = buyRolls and descendant(buyRolls, "SFHolder", "ScrollingFrame", errors)
+	local offerTemplate = buyHolder and child(buyHolder, "Template", "GuiObject", errors)
+	if offerTemplate then
+		child(offerTemplate, "TicketAmount", "TextLabel", errors)
+		child(offerTemplate, "ExtraTickets", "TextLabel", errors)
+		local buyButton = child(offerTemplate, "Buy", "GuiButton", errors)
+		if buyButton then
+			descendant(buyButton, "Price", "TextLabel", errors)
+		end
+	end
+end
+
+local function validateDurianPackHud(hud, errors)
+	local entry = child(hud, "DurianPack", "GuiObject", errors)
+	if not entry then return end
+	child(entry, "Click", "GuiButton", errors)
+	child(entry, "DurianPackHolder", "ViewportFrame", errors)
 end
 
 local function validateServerLuckShopUi(menu, warnings)
@@ -1846,6 +1899,10 @@ local function validateServerLuckHud(hud, warnings)
 
 	child(serverLuck, "Timer", "TextLabel", warnings)
 	child(serverLuck, "Multiplier", "TextLabel", warnings)
+	local icon = child(serverLuck, "Icon", "ImageLabel", warnings)
+	if icon then
+		child(icon, "Crown", "ImageLabel", warnings)
+	end
 end
 
 local function validateTopBarEventHud(hud, warnings)
@@ -2201,6 +2258,12 @@ local function validateShopBalance(errors)
 			end
 		end
 	end
+	local durianPack = ShopBalance.GetDurianPack()
+	for rewardIndex, reward in ipairs(durianPack and durianPack.Rewards or {}) do
+		if not Seeds.GetTemplate(reward.SeedId) then
+			add(errors, "ShopBalance.DurianPack.Rewards[" .. tostring(rewardIndex) .. "] has unknown SeedId " .. tostring(reward.SeedId))
+		end
+	end
 	for packIndex, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
 		for rewardIndex, reward in ipairs(starterPack.Rewards or {}) do
 			local rewardSource = "ShopBalance.StarterPacks[" .. tostring(packIndex) .. "].Rewards[" .. tostring(rewardIndex) .. "]"
@@ -2257,6 +2320,25 @@ local function validateShopProductIds(errors)
 				seenProducts,
 				product.DevProductId,
 				"ShopBalance.SeedPacks[" .. tostring(index) .. "].Products[" .. tostring(productIndex) .. "].DevProductId",
+				errors
+			)
+		end
+	end
+	local durianConfig = ShopBalance.DurianPack
+	if type(durianConfig) == "table" then
+		for index, product in ipairs(durianConfig.TicketProducts or {}) do
+			addProductIdSource(
+				seenProducts,
+				product.DevProductId,
+				"ShopBalance.DurianPack.TicketProducts[" .. tostring(index) .. "].DevProductId",
+				errors
+			)
+		end
+		for index, product in ipairs(durianConfig.LegacyTicketProducts or {}) do
+			addProductIdSource(
+				seenProducts,
+				product.DevProductId,
+				"ShopBalance.DurianPack.LegacyTicketProducts[" .. tostring(index) .. "].DevProductId",
 				errors
 			)
 		end
@@ -2399,6 +2481,7 @@ local function validateUi(errors, warnings)
 		validateUpdateTimerHud(hud, warnings)
 		validateVipHud(hud, warnings)
 		validateAutoPromptButton(hud, errors)
+		validateDurianPackHud(hud, errors)
 		local rollButtons = child(hud, "RollButtons", "GuiObject", errors)
 		if rollButtons then
 			validateRollLuckHud(rollButtons, errors)
@@ -2429,6 +2512,7 @@ local function validateUi(errors, warnings)
 		validateStarterPackShopUi(menu, warnings)
 		validateGamePassShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
+		validateDurianPackUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
 		validateUpdateLogUi(menu, warnings)

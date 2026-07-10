@@ -8,6 +8,7 @@ local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
+local ResponsiveUi = require(script.Parent:WaitForChild("ResponsiveUi"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 
@@ -18,6 +19,10 @@ local CONTAINER_NAME = "Notifications"
 local ITEM_TEMPLATE_NAME = "NotificationTemplate"
 local SHOW_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local HIDE_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+local OVERLAY_GUI_NAME = "NotificationsOverlay"
+-- Above HUD (0) and Menu (0) so toasts stay readable over open menu panels.
+local OVERLAY_DISPLAY_ORDER = 50
 
 local started = false
 local container = nil
@@ -201,6 +206,20 @@ function Notifications.start()
 	template.Visible = false
 	if not ensureListLayout(container) then return end
 	template.Parent = nil
+
+	-- MenuGui disables the whole HUD ScreenGui while a menu panel is open, so
+	-- the Studio-authored container is lifted into its own always-enabled
+	-- overlay ScreenGui and toasts stay visible over open menus (e.g. the
+	-- Durian Pack "No durian tickets!" error).
+	local overlay = Instance.new("ScreenGui")
+	overlay.Name = OVERLAY_GUI_NAME
+	overlay.DisplayOrder = OVERLAY_DISPLAY_ORDER
+	overlay.IgnoreGuiInset = hud.IgnoreGuiInset
+	overlay.ZIndexBehavior = hud.ZIndexBehavior
+	overlay.ResetOnSpawn = false
+	overlay.Parent = playerGui
+	container.Parent = overlay
+	ResponsiveUi.BindRoot(overlay)
 
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.PlayerNotification).OnClientEvent, "Notifications.Show", Notifications.show)
 end

@@ -2,12 +2,10 @@ local ContextActionService = game:GetService("ContextActionService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Assets = require(Shared:WaitForChild("Assets"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -20,6 +18,7 @@ local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
+local PackIconDisplay = require(script.Parent:WaitForChild("PackIconDisplay"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -42,7 +41,8 @@ local SLICE_CAMERA_SINK_ACTION = "SeedPackShopController.SliceCameraSink"
 local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
 local MAX_REVEAL_BATCH_SIZE = 3
 local ADVANCE_INPUT_GRACE_SECONDS = 0.12
-local RAINBOW_ROTATION_DEGREES_PER_SECOND = 90
+local DURIAN_REVEAL_SOURCE_SECTION = "DurianPack"
+local DURIAN_PANEL_NAME = "DurianPackHolder"
 
 local PACK_REWARD_PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
@@ -50,31 +50,6 @@ local PACK_REWARD_PREVIEW_OPTIONS = {
 	colorSaturation = 2.5,
 	colorBrightness = 1.55,
 	lightColor = Color3.fromRGB(255, 255, 255),
-}
--- 3D pack icons: static, dead-on front, no turntable spin.
-local PACK_ICON_NAME = "PackIcon"
-local SEED_PACKS_FOLDER_NAME = "SeedPacks"
-local PACK_ICON_PREVIEW_OPTIONS = {
-	rotate = false,
-	yawDegrees = -135,
-	zoom = 2.43,
-	cameraHeightFactor = 0,
-	colorSaturation = 1.2,
-	colorBrightness = 1.55,
-	lightColor = Color3.fromRGB(255, 255, 255),
-}
--- Main/Highlight rarity colour animation (SeedPack stays authored/static).
--- Epic/Secret: Highlight tracks Main's colour a beat behind, darkened to keep
--- the authored shading relationship (Highlight is ~61% of Main's brightness).
--- Durian's rainbow runs synced on both parts (shading only, no time offset).
-local PACK_COLOR_PERIOD_SECONDS = 4
-local PACK_HIGHLIGHT_PHASE_SECONDS = 0.75
-local PACK_HIGHLIGHT_SHADE = 100 / 163
-local PACK_ANIMATION_BRIGHTNESS = 1.55
-local PACK_COLOR_ANIMATIONS = {
-	EpicSeedPack = { from = Color3.fromRGB(197, 47, 216), to = Color3.fromRGB(56, 0, 198) },
-	SecretSeedPack = { from = Color3.fromRGB(255, 255, 255), to = Color3.fromRGB(0, 0, 0) },
-	DurianPack = { rainbow = true },
 }
 local REVEAL_PREVIEW_OPTIONS = {
 	targetMaxDimension = 4,
@@ -113,8 +88,6 @@ local productPriceById = {}
 local awaitingAdvance = false
 local advanceReadyAt = 0
 local lastRevealSourceSection = SEED_PACKS_NAME
-local rainbowGradients = {}
-local rainbowConnection = nil
 local shopScrollTween = nil
 
 local function isSeedPacksAllowed()
@@ -275,123 +248,17 @@ local function shopSection(sectionName)
 	return nil, holder
 end
 
-local function applySeedPacksVisibility(rows)
+local function applySeedPacksVisibility()
 	local _, _, _, seedPacks = shopFrames()
-	local allowed = isSeedPacksAllowed()
 	if seedPacks then
-		seedPacks.Visible = allowed
-	end
-	for _, row in ipairs(rows or {}) do
-		if row.frame and row.pack and row.pack.Featured == true then
-			row.frame.Visible = allowed
-		end
+		seedPacks.Visible = isSeedPacksAllowed()
 	end
 end
 
 local function packFrameForPack(pack)
-	local section = pack and pack.Featured == true and shopSection(FEATURED_SECTION_NAME) or shopSection(SEED_PACKS_NAME)
+	local section = shopSection(SEED_PACKS_NAME)
 	local frame = section and section:FindFirstChild(pack and pack.PackId or "")
 	return frame and frame:IsA("GuiObject") and frame or nil
-end
-
-local function packModelFor(packId)
-	local misc = Assets.Find("Misc")
-	local packsFolder = misc and misc:FindFirstChild(SEED_PACKS_FOLDER_NAME)
-	local model = packsFolder and type(packId) == "string" and packsFolder:FindFirstChild(packId) or nil
-	if model and model:IsA("Model") then
-		return model
-	end
-	return nil
-end
-
--- One shared heartbeat animates Main/Highlight in every live pack-icon
--- viewport clone; it exists only while animated entries do, and prunes
--- entries whose clones were destroyed (viewport re-render or UI teardown).
-local animatedPackEntries = {}
-local packAnimationConnection = nil
-
-local function stopPackAnimationIfIdle()
-	if packAnimationConnection and next(animatedPackEntries) == nil then
-		packAnimationConnection:Disconnect()
-		packAnimationConnection = nil
-	end
-end
-
-local function packAnimationColor(animation, timeSeconds)
-	local color
-	if animation.rainbow then
-		color = Rarities.RainbowColorAt(timeSeconds)
-	else
-		local alpha = 0.5 + 0.5 * math.sin(timeSeconds * math.pi * 2 / PACK_COLOR_PERIOD_SECONDS)
-		color = animation.from:Lerp(animation.to, alpha)
-	end
-	local h, s, v = color:ToHSV()
-	return Color3.fromHSV(h, s, math.clamp(v * PACK_ANIMATION_BRIGHTNESS, 0, 1))
-end
-
-local function shadedColor(color)
-	return Color3.new(
-		color.R * PACK_HIGHLIGHT_SHADE,
-		color.G * PACK_HIGHLIGHT_SHADE,
-		color.B * PACK_HIGHLIGHT_SHADE
-	)
-end
-
-local function ensurePackAnimationLoop()
-	if packAnimationConnection then
-		return
-	end
-	packAnimationConnection = RuntimeGuard.Connect(RunService.Heartbeat, "SeedPackShopController.PackColors", function()
-		local now = os.clock()
-		for entry in pairs(animatedPackEntries) do
-			if not (entry.main.Parent and (not entry.highlight or entry.highlight.Parent)) then
-				animatedPackEntries[entry] = nil
-			else
-				entry.main.Color = packAnimationColor(entry.animation, now)
-				if entry.highlight then
-					-- Rainbow packs run both parts in sync; the others trail
-					-- the Highlight a beat behind. Shading applies to both.
-					local highlightTime = entry.animation.rainbow and now or now - PACK_HIGHLIGHT_PHASE_SECONDS
-					entry.highlight.Color = shadedColor(packAnimationColor(entry.animation, highlightTime))
-				end
-			end
-		end
-		stopPackAnimationIfIdle()
-	end)
-end
-
-local function registerPackAnimation(viewport, packId)
-	local animation = PACK_COLOR_ANIMATIONS[packId]
-	if not animation then
-		return
-	end
-	local world = viewport:FindFirstChildOfClass("WorldModel")
-	local main = world and world:FindFirstChild("Main", true)
-	local highlight = world and world:FindFirstChild("Highlight", true)
-	if not (main and main:IsA("BasePart")) then
-		return
-	end
-	animatedPackEntries[{
-		main = main,
-		highlight = highlight and highlight:IsA("BasePart") and highlight or nil,
-		animation = animation,
-	}] = true
-	ensurePackAnimationLoop()
-end
-
-local function renderPackIcon(container, packId)
-	local icon = findDescendant(container, PACK_ICON_NAME, "ViewportFrame")
-	if not icon then
-		warn("[SeedPackShopController] Missing " .. PACK_ICON_NAME .. " ViewportFrame for pack " .. tostring(packId))
-		return
-	end
-	icon.ImageTransparency = 0
-	local rendered = ViewportPreview.Render(icon, packModelFor(packId), PACK_ICON_PREVIEW_OPTIONS)
-	if rendered then
-		registerPackAnimation(icon, packId)
-	else
-		warn("[SeedPackShopController] Missing SeedPacks model for pack " .. tostring(packId))
-	end
 end
 
 local function renderRewardSlot(slot, reward, pack)
@@ -429,18 +296,14 @@ local function renderRewardSlot(slot, reward, pack)
 	end)
 end
 
-local function rewardSlots(pack, items)
+local function rewardSlots(items)
 	local slots = {}
 	if not items then
 		return slots
 	end
 	for _, item in ipairs(items:GetChildren()) do
-		if item:IsA("GuiObject") then
-			local isTemplate = item.Name == "Template"
-				or (pack and pack.PackId == "DurianPack" and (item.Name == "MythicalTemplate" or item.Name == "SecretTemplate"))
-			if isTemplate then
-				slots[#slots + 1] = item
-			end
+		if item:IsA("GuiObject") and item.Name == "Template" then
+			slots[#slots + 1] = item
 		end
 	end
 	table.sort(slots, function(left, right)
@@ -455,21 +318,17 @@ local function rewardSlots(pack, items)
 	return slots
 end
 
-local function buttonNameCandidates(quantity, featured)
+local function buttonNameCandidates(quantity)
 	if quantity == 1 then
-		return featured and { "Buy1", "BuyOne", "BuyButton" } or { "BuyOne", "BuyButton", "Buy1" }
+		return { "BuyOne", "BuyButton", "Buy1" }
 	elseif quantity == 3 then
-		return featured and { "Buy3", "BuyThree" } or { "BuyThree", "Buy3" }
-	elseif quantity == 10 then
-		return { "Buy10" }
-	elseif quantity == 50 then
-		return { "Buy50" }
+		return { "BuyThree", "Buy3" }
 	end
 	return { "Buy" .. tostring(quantity) }
 end
 
-local function findProductButton(frame, pack, product)
-	for _, buttonName in ipairs(buttonNameCandidates(tonumber(product and product.Quantity) or 0, pack and pack.Featured == true)) do
+local function findProductButton(frame, product)
+	for _, buttonName in ipairs(buttonNameCandidates(tonumber(product and product.Quantity) or 0)) do
 		local direct = frame and frame:FindFirstChild(buttonName)
 		if direct and direct:IsA("GuiButton") then
 			return direct
@@ -485,8 +344,7 @@ end
 local function renderPackCard(pack)
 	local frame = packFrameForPack(pack)
 	if not frame then
-		local sectionName = pack.Featured == true and FEATURED_SECTION_NAME or SEED_PACKS_NAME
-		warn("[SeedPackShopController] Missing " .. sectionName .. "." .. tostring(pack.PackId))
+		warn("[SeedPackShopController] Missing " .. SEED_PACKS_NAME .. "." .. tostring(pack.PackId))
 		return nil
 	end
 
@@ -499,17 +357,17 @@ local function renderPackCard(pack)
 		setTextStack(nameLabel, pack.DisplayName)
 	end
 
-	renderPackIcon(frame, pack.PackId)
+	PackIconDisplay.Render(frame, pack.PackId)
 
 	local items = frame:FindFirstChild("Items")
-	local slots = rewardSlots(pack, items)
+	local slots = rewardSlots(items)
 	for index, slot in ipairs(slots) do
 		renderRewardSlot(slot, (pack.Rewards or {})[index], pack)
 	end
 
 	local productButtons = {}
 	for _, product in ipairs(ShopBalance.AllSeedPackProducts(pack)) do
-		local button = findProductButton(frame, pack, product)
+		local button = findProductButton(frame, product)
 		if button then
 			UiEffects.BindButton(button)
 			productButtons[#productButtons + 1] = {
@@ -520,7 +378,7 @@ local function renderPackCard(pack)
 		else
 			warn(string.format(
 				"[SeedPackShopController] Missing %s.%s quantity %d buy button",
-				pack.Featured == true and FEATURED_SECTION_NAME or SEED_PACKS_NAME,
+				SEED_PACKS_NAME,
 				tostring(pack.PackId),
 				tonumber(product.Quantity) or 0
 			))
@@ -551,13 +409,13 @@ local function promptProduct(productId)
 end
 
 local function renderRows(rows)
-	applySeedPacksVisibility(rows)
+	applySeedPacksVisibility()
 	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true and isSeedPacksAllowed()
 	for _, row in ipairs(rows) do
 		for _, productButton in ipairs(row.productButtons or {}) do
 			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
 			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
-			if quantity == 3 and row.pack and row.pack.PackId ~= "DurianPack" then
+			if quantity == 3 then
 				setTextStack(productButton.priceLabel, "x3")
 			else
 				setTextStack(productButton.priceLabel, robuxText(productId, function()
@@ -657,7 +515,7 @@ local function configureHolder(holder, payload, result)
 		packButton.Visible = true
 		packButton.Active = false
 		packButton.ImageTransparency = 0
-		renderPackIcon(packButton, payload.packId)
+		PackIconDisplay.Render(packButton, payload.packId)
 	end
 
 	setRewardVisible(holder, false)
@@ -813,7 +671,7 @@ local function openHolder(state)
 	if pack and pack:IsA("ImageButton") then
 		-- Fade the 3D pack icon with the button: ViewportFrame content does
 		-- not follow the parent ImageButton's ImageTransparency.
-		local icon = pack:FindFirstChild(PACK_ICON_NAME)
+		local icon = pack:FindFirstChild("PackIcon")
 		if icon and icon:IsA("ViewportFrame") then
 			TweenService:Create(icon, PACK_FADE_TWEEN, {
 				ImageTransparency = 1,
@@ -1207,6 +1065,12 @@ function showNextReveal()
 	if not nextPayload then
 		activeReveal = nil
 		awaitingAdvance = false
+		-- Durian Pack rolls return to the standalone Durian panel; shop
+		-- purchases return to the RobuxShop at their source section.
+		if lastRevealSourceSection == DURIAN_REVEAL_SOURCE_SECTION then
+			MenuGui.OpenPanel(DURIAN_PANEL_NAME)
+			return
+		end
 		MenuGui.OpenPanel(ROBUX_PANEL_NAME)
 		scrollToShopSection(lastRevealSourceSection or SEED_PACKS_NAME)
 		return
@@ -1246,6 +1110,13 @@ local function enqueueReveal(payload)
 	end
 end
 
+-- Other controllers (the Durian Pack) reuse the pack-opening reveal flow by
+-- handing their server payloads here; payload.sourceSection decides which
+-- panel reopens once every reveal batch is finished.
+function SeedPackShopController.EnqueueReveal(payload)
+	enqueueReveal(payload)
+end
+
 local function bindHeaderScrollButtons()
 	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
 	local header = panel and findDescendant(panel, "Header", "GuiObject")
@@ -1264,69 +1135,6 @@ local function bindHeaderScrollButtons()
 		else
 			warn("[SeedPackShopController] Missing RobuxShop Header." .. buttonName)
 		end
-	end
-end
-
-local function refreshRainbowGradients()
-	rainbowGradients = {}
-	local frame = nil
-	local _, _, featured = shopFrames()
-	local candidate = featured and featured:FindFirstChild("DurianPack")
-	if candidate and candidate:IsA("GuiObject") then
-		frame = candidate
-	end
-	if not frame then
-		return
-	end
-	for _, descendant in ipairs(frame:GetDescendants()) do
-		if descendant.Name == "RainbowStroke" and descendant:IsA("UIGradient") then
-			rainbowGradients[#rainbowGradients + 1] = descendant
-		end
-	end
-end
-
-local function stopRainbowRotation()
-	if rainbowConnection then
-		rainbowConnection:Disconnect()
-		rainbowConnection = nil
-	end
-end
-
-local function startRainbowRotation()
-	if rainbowConnection then
-		return
-	end
-	refreshRainbowGradients()
-	if #rainbowGradients == 0 then
-		return
-	end
-	rainbowConnection = RuntimeGuard.Connect(RunService.RenderStepped, "SeedPackShopController.DurianRainbow", function()
-		local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
-		if not (panel and panel.Parent and panel.Visible) then
-			stopRainbowRotation()
-			return
-		end
-		local rotation = (os.clock() * RAINBOW_ROTATION_DEGREES_PER_SECOND) % 360
-		for index = #rainbowGradients, 1, -1 do
-			local gradient = rainbowGradients[index]
-			if gradient and gradient.Parent then
-				gradient.Rotation = rotation
-			else
-				table.remove(rainbowGradients, index)
-			end
-		end
-		if #rainbowGradients == 0 then
-			stopRainbowRotation()
-		end
-	end)
-end
-
-local function refreshRainbowRotation()
-	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
-	if panel and panel.Visible then
-		startRainbowRotation()
-	else
-		stopRainbowRotation()
 	end
 end
 
@@ -1417,8 +1225,6 @@ function SeedPackShopController.start()
 		refreshConsoleHint()
 	end)
 	RuntimeGuard.Connect(UserInputService.GamepadDisconnected, "SeedPackShopController.GamepadDisconnected", refreshConsoleHint)
-	RuntimeGuard.Connect(robuxPanel:GetPropertyChangedSignal("Visible"), "SeedPackShopController.RobuxVisible", refreshRainbowRotation)
-	RuntimeGuard.Connect(robuxPanel.Destroying, "SeedPackShopController.RobuxDestroying", stopRainbowRotation)
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, function()
 		renderRows(rows)
@@ -1427,7 +1233,6 @@ function SeedPackShopController.start()
 		renderRows(rows)
 	end)
 	renderRows(rows)
-	refreshRainbowRotation()
 end
 
 return SeedPackShopController

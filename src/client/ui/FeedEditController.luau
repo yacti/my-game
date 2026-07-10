@@ -657,7 +657,8 @@ function FeedEditController.start()
 		:setImage(TOPBAR_EDIT_ICON_IMAGE)
 		:setImageScale(0.58)
 		:setCaption("Edit mode")
-		-- Topbar order: backpack (-1), index (0), edit (1).
+		-- Right-aligned topbar group: index (0), edit (1).
+		:setAlignment("Right")
 		:setOrder(1)
 		:autoDeselect(false)
 	editModeIcon:modifyTheme({

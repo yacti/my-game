@@ -36,6 +36,7 @@ local CONTROLLERS = {
 	"RobuxShopController",
 	"CashPackShopController",
 	"SeedPackShopController",
+	"DurianPackController",
 	"StarterPackController",
 	"GamePassShopController",
 	"VipController",

@@ -147,6 +147,7 @@ Key server modules:
 - `PromptInteractionService`: thin `PromptInteract` dispatcher.
 - `RollService`: server-authoritative crate reward rolls, roll cooldowns, pending roll offers, roll purchases, notifications, and roll VFX payloads.
 - `ReceiptService`: `MarketplaceService.ProcessReceipt` routing and processed receipt idempotency.
+- `DurianPackShopService`: standalone Durian Pack feature (HUD entry -> Studio-owned `Menu.DurianPackHolder`). Robux ticket purchases arrive via receipts (`ShopBalance.DurianPack.TicketProducts`, plus retired shop-era `LegacyTicketProducts` that convert one roll into one ticket); ticket rolls arrive via `DurianPackRollRequest` and grant seed tools with a `PityRollCount` guarantee (every 90th roll is the durian; natural durians do not reset the counter). Profile fields `DurianTickets`/`DurianPackPity` replicate through `PlayerState`. The client `DurianPackController` hides the HUD entry while paid random items are restricted, the onboarding tutorial is active, or `OfflineProgressPending` is set after a rejoin; it reuses the `SeedPackShopController` pack-opening reveal via `EnqueueReveal`, and shared pack icon rendering/colour animation lives in `src/client/ui/PackIconDisplay.luau`. Pack models under `Assets.Misc.SeedPacks` share the `Stroke`/`Main`/`Highlight`/`Highlight2` part shape: the base `SeedPack` is authored/static, animated packs are authored neutral grey with a pure white `Highlight2`, and the animation drives `Main` at 240/255 effective shading plus `Highlight` with the same gradient shaded to 200/255 while `Highlight2` always stays plain white. The Durian pack sweeps rgb(0,203,255)->rgb(0,85,255) on a slow 12s period (per-animation `periodSeconds`).
 - `RebirthService`: tiered rebirth transaction and receipt handling.
 - `FeedRewardService`: prepares/applies mature feed-machine rewards for rebirth and other non-seed grants.
 - `FeedMachineTools`: feed tool cloning and attributes.
@@ -201,7 +202,7 @@ When touching feeds, foods, roll odds, misc rewards, or rebirth rewards, cross-c
 Controller categories:
 
 - Replica-backed player state: `PlayerStateStore`, `HudController`, `RebirthController`, `RollLuckController`, `RollDropAreaController`
-- Remote-driven events/panels: `Notifications`
+- Remote-driven events/panels: `Notifications` (at start it lifts the Studio-authored `HUD.Notifications` container into a runtime `NotificationsOverlay` ScreenGui with DisplayOrder 50, so toasts stay visible while `MenuGui` disables the HUD for open menu panels)
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
 - Hybrid systems: `FeedPlacement`, `FeedEditController`, `ShovelController`, `LocalPrompts`, `PlacementGrid`
 - VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals` (generic `FeedClass = "Tree"` presentation despite the legacy file name), `RollController`
@@ -276,6 +277,7 @@ Groups:
 - Shovel deletion: `ShovelDeleteRequest`, `ShovelDeleteResult`
 - Interactions: `PromptInteract`
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
+- Durian Pack rolls: `DurianPackRollRequest`, `DurianPackRollResult`
 - Rebirth: `RebirthRequest`, `RebirthResult`
 - Gifting: `GiftRequest`, `GiftResult`
 

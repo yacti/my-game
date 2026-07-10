@@ -34,7 +34,7 @@ AdminMessagePresets.Presets = {
 	[AdminMessagePresets.Ids.Alien] = {
 		presetId = AdminMessagePresets.Ids.Alien,
 		frameName = "Other",
-		displayName = "Alien Boss",
+		displayName = "Mr. Alien",
 		image = "rbxassetid://114139662257349",
 		-- Name and text share the alien mutation display green
 		-- (see Mutations.DisplayColors).

@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-07-10",
+  "root": "ReplicatedStorage.Assets.FeedMachines",
+  "reason": "Before changing Agave Patch PercentageOfBest from 1.25 to 1.",
+  "templates": [
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Agave Patch",
+      "feedType": "AgavePatch",
+      "attributes": {
+        "PercentageOfBest": 1.25
+      }
+    }
+  ]
+}
