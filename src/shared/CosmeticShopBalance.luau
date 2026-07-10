@@ -7,8 +7,18 @@ CosmeticShopBalance.Items = {
 		DevProductId = 0,
 	},
 	{
+		ItemID = "PebblePath",
+		Price = 3000,
+		DevProductId = 0,
+	},
+	{
 		ItemID = "GrassPath",
 		Price = 5000,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "Haybale",
+		Price = 10000,
 		DevProductId = 0,
 	},
 	{

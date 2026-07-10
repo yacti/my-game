@@ -27,7 +27,10 @@ local PLOT_TIME_RESERVATION_KIND = "PlotTime"
 local TARGETED_SAPLING_SKIP_ID = "TargetedSapling"
 local REQUEST_RATE_SECONDS = 0.5
 local RESERVATION_SECONDS = 5 * 60
-local SKIP_DISTANCE = MailboxConfig.InteractionDistance
+-- Client shows the sapling prompt at 10 studs (GrowSkipController.PROMPT_DISTANCE);
+-- validate with slack for movement/latency, like the other 10-stud prompts.
+local SAPLING_SKIP_DISTANCE = 14
+local MAILBOX_SKIP_DISTANCE = MailboxConfig.InteractionDistance
 local EDIT_MODE_ATTR = "EditMode"
 local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
 local MAILBOX_NAME = MailboxConfig.MailboxName
@@ -136,11 +139,11 @@ local function instancePosition(instance)
 	return part and part.Position or nil
 end
 
-local function isPlayerNearInstance(player, target)
+local function isPlayerNearInstance(player, target, maxDistance)
 	local character = player and player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local position = root and root:IsA("BasePart") and instancePosition(target) or nil
-	return position ~= nil and (root.Position - position).Magnitude <= SKIP_DISTANCE
+	return position ~= nil and (root.Position - position).Magnitude <= maxDistance
 end
 
 local function feedRootForTarget(plot, target)
@@ -272,7 +275,7 @@ local function reservePlotTimeSkip(player, plot, profile, target, skipId)
 	if not mailbox then
 		return nil, false, "invalid-target"
 	end
-	if not isPlayerNearInstance(player, mailbox) then
+	if not isPlayerNearInstance(player, mailbox, MAILBOX_SKIP_DISTANCE) then
 		return nil, false, "too-far"
 	end
 	if player:GetAttribute(EDIT_MODE_ATTR) == true then
@@ -331,7 +334,7 @@ local function onSkipRequest(player, requestId, target, skipId)
 		sendResult(player, requestId, false, "busy")
 		return
 	end
-	if not isPlotTimeRequest and not isPlayerNearInstance(player, target) then
+	if not isPlotTimeRequest and not isPlayerNearInstance(player, target, SAPLING_SKIP_DISTANCE) then
 		sendResult(player, requestId, false, "too-far")
 		return
 	end

@@ -2122,6 +2122,22 @@ local function validateUpdateLogUi(menu, warnings)
 	if type(updateId) ~= "string" or updateId == "" then
 		add(warnings, updateLog:GetFullName() .. " must define a non-empty " .. State.UpdateLog.Id .. " attribute")
 	end
+
+	local holder = descendant(updateLog, "SFHolder", "ScrollingFrame", warnings)
+	if not holder then return end
+
+	if holder.ScrollingDirection ~= Enum.ScrollingDirection.Y then
+		add(warnings, holder:GetFullName() .. " must scroll vertically (ScrollingDirection=Y)")
+	end
+	if holder.AutomaticCanvasSize ~= Enum.AutomaticSize.Y and holder.CanvasSize.Y.Scale <= 1 and holder.CanvasSize.Y.Offset <= 0 then
+		add(warnings, holder:GetFullName() .. " must size its canvas via AutomaticCanvasSize=Y or an explicit CanvasSize")
+	end
+	if not holder:FindFirstChildOfClass("UIListLayout") then
+		add(warnings, holder:GetFullName() .. " must contain a UIListLayout to order update entries")
+	end
+	if not holder:FindFirstChildWhichIsA("TextLabel") then
+		add(warnings, holder:GetFullName() .. " must contain at least one TextLabel update entry")
+	end
 end
 
 local function validateOnboardingPresentation(ui, hud, billboardFolder, warnings)

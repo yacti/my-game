@@ -108,11 +108,17 @@ GameEvents.EventConfigs = {
 		appliedMutationId = "Twisted",
 		tornado = {
 			windUpSeconds = 10,
-			-- One 45s turn per plot, up to 8 plots: window = 10 + 45*8 + 10 = 380s
-			-- max; servers with fewer eligible plots wind down early.
+			-- One 45s turn per eligible player, up to 8. The session timer sizes
+			-- itself to the turn queue (a join adds a turn, a leave removes one)
+			-- and the published record follows, clamped to the config-max window
+			-- of 10 + 45*8 + 10 = 380s.
 			plotTurnSeconds = 45,
 			maxPlotTurns = 8,
 			windDownSeconds = 10,
+			-- Short linger after the last turn so a player who joins right as
+			-- the queue empties still gets one; baked into the published timer
+			-- so the countdown runs smoothly to zero.
+			emptyQueueGraceSeconds = 10,
 			minMutationsPerPlot = 4,
 			maxMutationsPerPlot = 8,
 			targetRetrySeconds = 2,

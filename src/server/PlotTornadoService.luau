@@ -90,6 +90,7 @@ local function settingsFor()
 		totalSeconds = totalSeconds,
 		plotTurnSeconds = math.max(numberValue(tornado.plotTurnSeconds, 20), 0),
 		maxPlotTurns = integerValue(tornado.maxPlotTurns, 8),
+		emptyQueueGraceSeconds = math.max(numberValue(tornado.emptyQueueGraceSeconds, 30), 0),
 		minMutationsPerPlot = minMutations,
 		maxMutationsPerPlot = maxMutations,
 		targetRetrySeconds = math.max(numberValue(tornado.targetRetrySeconds, 2), 0),
@@ -273,6 +274,14 @@ local function notifyViewers(session, text, lifetime)
 end
 
 local function syncNewViewers(session)
+	-- Drop synced flags for players who left, so a rejoining player (same
+	-- UserId) counts as a fresh viewer and gets a full state sync instead of
+	-- waiting for the next plotTurn broadcast to rebuild their visuals.
+	for userId in pairs(session.syncedViewers) do
+		if not Players:GetPlayerByUserId(userId) then
+			session.syncedViewers[userId] = nil
+		end
+	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		if viewerEligible(session, player) and not session.syncedViewers[player.UserId] then
 			syncViewer(session, player)
@@ -313,10 +322,51 @@ local function entryStillEligible(session, entry)
 	return context and context.plot == entry.plot
 end
 
+local function queuedTurnsRemaining(session)
+	return math.max(#session.entries - ((session.nextEntryIndex or 1) - 1), 0)
+end
+
+-- Session endsAt tracks the committed schedule -- the in-flight turn, queued
+-- turns at plotTurnSeconds each, the trailing empty-queue linger, then
+-- wind-down -- clamped to the config-max window (capEndsAt). Joins extend it,
+-- leaves shrink it, and the published event record follows via updateEndsAt
+-- so the HUD countdown stays honest. The linger is part of the schedule up
+-- front so the countdown never bumps upward at the end; once the linger is
+-- underway (baseOverride) or wind-down has begun it is already spent.
+local function recomputeEndsAt(session, baseOverride)
+	local now = serverNow()
+	local settings = session.settings
+	local base
+	if baseOverride then
+		base = math.max(baseOverride, now)
+	elseif session.phase == "plotTurn" and session.currentTurnEndsAt then
+		base = math.max(session.currentTurnEndsAt, now)
+	elseif session.phase == "idle" or session.phase == "windUp" then
+		base = math.max(session.startsAt + settings.windUpSeconds, now)
+	else
+		base = now
+	end
+	local trailing = settings.windDownSeconds
+	if not baseOverride and session.phase ~= "windDown" then
+		trailing += settings.emptyQueueGraceSeconds
+	end
+	local endsAt = math.min(
+		base + queuedTurnsRemaining(session) * settings.plotTurnSeconds + trailing,
+		session.capEndsAt
+	)
+	if math.abs(endsAt - session.endsAt) < 0.05 then
+		return
+	end
+	session.endsAt = endsAt
+	if type(session.updateEndsAt) == "function" then
+		session.updateEndsAt(session.instanceId, endsAt)
+	end
+end
+
 local function canScheduleEntry(session)
 	return sessionActive(session)
 		and #session.entries < session.settings.maxPlotTurns
-		and serverNow() < session.endsAt - session.settings.windDownSeconds
+		and serverNow() < session.capEndsAt - session.settings.windDownSeconds
 end
 
 local function scheduleNewlyEligibleEntries(session)
@@ -336,7 +386,38 @@ local function scheduleNewlyEligibleEntries(session)
 			added += 1
 		end
 	end
+	if added > 0 then
+		recomputeEndsAt(session)
+	end
 	return added
+end
+
+-- A leaver's queued (not yet started) turns come off the schedule right away;
+-- clearing the scheduled flag lets a rejoin queue a fresh turn. A turn already
+-- in flight is aborted by the entryStillEligible checks instead.
+local function removeQueuedEntriesFor(session, player)
+	local userId = player and player.UserId
+	if not (sessionActive(session) and userId) then
+		return
+	end
+	local removed = false
+	for index = #session.entries, session.nextEntryIndex or 1, -1 do
+		if session.entries[index].userId == userId then
+			table.remove(session.entries, index)
+			removed = true
+		end
+	end
+	if removed then
+		session.scheduledByUserId[userId] = nil
+		recomputeEndsAt(session)
+	end
+end
+
+local function disconnectSessionConnections(session)
+	if session.playerRemovingConnection then
+		session.playerRemovingConnection:Disconnect()
+		session.playerRemovingConnection = nil
+	end
 end
 
 local function nextQueuedEntry(session)
@@ -447,7 +528,7 @@ local function runPlotTurn(session, entry)
 		return false
 	end
 	local turnStartsAt = serverNow()
-	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.endsAt - session.settings.windDownSeconds)
+	local turnEndsAt = math.min(turnStartsAt + session.settings.plotTurnSeconds, session.capEndsAt - session.settings.windDownSeconds)
 	local mutationCount = rng:NextInteger(session.settings.minMutationsPerPlot, session.settings.maxMutationsPerPlot)
 	local waypoints = buildWanderWaypoints(session, entry.plot, turnEndsAt - turnStartsAt)
 	-- The funnel touches down quickly on the first plot, then travels visibly
@@ -463,6 +544,7 @@ local function runPlotTurn(session, entry)
 	session.currentFloorSize = floor.Size
 	session.currentWaypoints = waypoints
 	session.currentTravelSeconds = travelSeconds
+	recomputeEndsAt(session)
 	fireViewers(session, "plotTurn", {
 		instanceId = session.instanceId,
 		userId = entry.userId,
@@ -494,6 +576,9 @@ local function runPlotTurn(session, entry)
 		if mutationIndex > 1 and not cancellableWait(session, math.min(gap, math.max(turnEndsAt - serverNow(), 0))) then
 			break
 		end
+		-- Players who become eligible mid-turn join the queue (and extend the
+		-- timer) here rather than waiting for the next turn boundary.
+		scheduleNewlyEligibleEntries(session)
 		local target = chooseTarget(session, entry, session.settings.targetRetrySeconds)
 		if not target or not targetStillValid(target, session.settings.mutationId) then
 			break
@@ -519,7 +604,39 @@ local function runPlotTurn(session, entry)
 			})
 		end
 	end
+	-- Mutations usually land before the turn is up, but the funnel visibly
+	-- stays on the plot until turnEndsAt -- hold the turn to match, so the
+	-- schedule keeps its 45s-per-player shape and late joiners keep queueing.
+	while sessionActive(session) and serverNow() < turnEndsAt and entryStillEligible(session, entry) do
+		if not cancellableWait(session, math.min(2, turnEndsAt - serverNow())) then
+			break
+		end
+		scheduleNewlyEligibleEntries(session)
+	end
 	return true
+end
+
+-- With the turn queue empty the tornado lingers briefly instead of winding
+-- down, so a player who joins right as the last turn ends still gets one.
+-- endsAt is held at the linger deadline (plus wind-down) so the HUD matches.
+local function waitForNewEntries(session)
+	local deadline = math.min(
+		serverNow() + session.settings.emptyQueueGraceSeconds,
+		session.capEndsAt - session.settings.windDownSeconds
+	)
+	if serverNow() >= deadline then
+		return false
+	end
+	session.phase = "waitingForPlayers"
+	clearTurnState(session)
+	recomputeEndsAt(session, deadline)
+	while sessionActive(session) and serverNow() < deadline do
+		if scheduleNewlyEligibleEntries(session) > 0 then
+			return true
+		end
+		task.wait(math.min(WAIT_STEP, math.max(deadline - serverNow(), 0)))
+	end
+	return sessionActive(session) and queuedTurnsRemaining(session) > 0
 end
 
 local function runTornado(session)
@@ -537,16 +654,17 @@ local function runTornado(session)
 
 	local ranAnyTurn = false
 	while sessionActive(session) do
-		if serverNow() >= session.endsAt - session.settings.windDownSeconds then
+		if serverNow() >= session.capEndsAt - session.settings.windDownSeconds then
 			break
 		end
 		scheduleNewlyEligibleEntries(session)
 
 		local entry = nextQueuedEntry(session)
-		if not entry then
+		if entry then
+			ranAnyTurn = runPlotTurn(session, entry) or ranAnyTurn
+		elseif not waitForNewEntries(session) then
 			break
 		end
-		ranAnyTurn = runPlotTurn(session, entry) or ranAnyTurn
 	end
 
 	if not sessionActive(session) then
@@ -554,10 +672,7 @@ local function runTornado(session)
 	end
 	session.phase = "windDown"
 	clearTurnState(session)
-	local earlyWindDown = serverNow() < session.endsAt - session.settings.windDownSeconds - 0.1
-	if earlyWindDown then
-		session.suppressActiveRecord()
-	end
+	recomputeEndsAt(session, serverNow())
 	fireViewers(session, "windDown", {
 		instanceId = session.instanceId,
 		startsAt = serverNow(),
@@ -580,6 +695,7 @@ local function cleanupFailedTornado(session)
 	end
 	session.failureCleanupDone = true
 	session.cancelled = true
+	disconnectSessionConnections(session)
 	if not session.loggedEnd then
 		session.loggedEnd = true
 		printTornadoLifecycle("end", session, "failed")
@@ -620,6 +736,10 @@ function PlotTornadoService.StartTornado(eventRecord, callbacks)
 		instanceId = tostring(eventRecord.instanceId or ""),
 		startsAt = startsAt,
 		endsAt = endsAt,
+		-- The record's endsAt is the hard ceiling; session.endsAt floats below
+		-- it as the turn queue grows and shrinks.
+		capEndsAt = endsAt,
+		updateEndsAt = callbacks.updateEndsAt,
 		settings = settings,
 		publicSettings = {
 			windUpSeconds = settings.windUpSeconds,
@@ -637,35 +757,35 @@ function PlotTornadoService.StartTornado(eventRecord, callbacks)
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
 		cancelled = false,
-		suppressedActiveRecord = false,
 		ranAnyPlotTurn = false,
 		phase = "idle",
 	}
-	session.suppressActiveRecord = function()
-		if session.suppressedActiveRecord then
-			return
-		end
-		session.suppressedActiveRecord = true
-		if type(callbacks.complete) == "function" then
-			callbacks.complete(session.instanceId, {
-				blockLowerPriorityUntil = session.endsAt,
-				keepHandlerRunning = true,
-			})
-		end
-	end
 	session.complete = function()
 		if not session.loggedEnd then
 			session.loggedEnd = true
 			printTornadoLifecycle("end", session, "completed")
 		end
+		disconnectSessionConnections(session)
 		if activeSession == session then
 			activeSession = nil
 		end
-		if not session.suppressedActiveRecord and type(callbacks.complete) == "function" then
-			callbacks.complete(session.instanceId)
+		if type(callbacks.complete) == "function" then
+			local options = nil
+			-- Finishing inside the scheduled window still reserves the rest of
+			-- it, so lower-priority events cannot slot into the freed time.
+			if serverNow() < session.capEndsAt - 0.1 then
+				options = { blockLowerPriorityUntil = session.capEndsAt }
+			end
+			callbacks.complete(session.instanceId, options)
 		end
 	end
+	session.playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
+		RuntimeGuard.Run("PlotTornadoService.PlayerRemoving." .. session.instanceId, function()
+			removeQueuedEntriesFor(session, player)
+		end)
+	end)
 	activeSession = session
+	recomputeEndsAt(session)
 	printTornadoLifecycle("start", session, string.format("entries=%d", #session.entries))
 
 	RuntimeGuard.Spawn("PlotTornadoService.RunGuarded." .. session.instanceId, runTornadoGuarded, session)
@@ -687,6 +807,7 @@ function PlotTornadoService.StopTornado(instanceId)
 		return
 	end
 	session.cancelled = true
+	disconnectSessionConnections(session)
 	if not session.loggedEnd then
 		session.loggedEnd = true
 		printTornadoLifecycle("end", session, "stopped")

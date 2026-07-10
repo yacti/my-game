@@ -36,6 +36,11 @@ local serviceConfig = {}
 local manualRecordsByInstanceId = {}
 local manualSequence = 0
 local externalRecordsBySource = {}
+-- Running handlers may resize their instance's published window (e.g. the
+-- tornado sizes its run to the eligible-player queue); the override replaces
+-- the record's endsAt at publish time. Scheduling and suppression still use
+-- the original window, so an override cannot outlive its scheduled occurrence.
+local endsAtOverridesByInstanceId = {}
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
@@ -109,11 +114,21 @@ local function getActiveFolder()
 	return activeFolder
 end
 
+-- Overrides are applied here, at publish/signature time only, so handler
+-- tracking and completion suppression keep seeing the original scheduled
+-- window (suppression must outlast the occurrence or a shrunk event could
+-- restart inside it).
 local function sortedActiveRecords(records)
 	local copy = {}
 	for index, record in ipairs(records or {}) do
 		if index > GameEvents.MaxReplicatedActiveEvents then
 			break
+		end
+		local overrideEndsAt = endsAtOverridesByInstanceId[record.instanceId]
+		if overrideEndsAt and overrideEndsAt ~= record.endsAt then
+			local overridden = copyRecord(record)
+			overridden.endsAt = overrideEndsAt
+			record = overridden
 		end
 		copy[#copy + 1] = record
 	end
@@ -374,6 +389,7 @@ local function updateHandlers(records)
 				logEvent("Starting", record)
 				RuntimeGuard.Run("GameEventService.Start." .. tostring(eventId), handler.start, record, {
 					complete = GameEventService.CompleteInstance,
+					updateEndsAt = GameEventService.UpdateInstanceEndsAt,
 					snapshotProfileState = serviceConfig.snapshotProfileState,
 				})
 			else
@@ -433,6 +449,11 @@ local function update()
 			completionBlocksByLayer[layer] = nil
 		end
 	end
+	for instanceId, overrideEndsAt in pairs(endsAtOverridesByInstanceId) do
+		if overrideEndsAt + SUPPRESS_AFTER_ENDS_SECONDS <= now then
+			endsAtOverridesByInstanceId[instanceId] = nil
+		end
+	end
 	local snapshot = GameEvents.WeatherSnapshot(now, completedInstanceIds, completionBlocksByLayer)
 	local records = {}
 	for _, record in ipairs(snapshot.activeRecords or {}) do
@@ -457,6 +478,23 @@ local function update()
 	updatePreNotice(now, nextWeather)
 end
 
+-- Resizes a live instance's published window; the override lands on the next
+-- update tick (never synchronously -- handlers call this from inside update()).
+function GameEventService.UpdateInstanceEndsAt(instanceId, endsAt)
+	if type(instanceId) ~= "string" or instanceId == "" then
+		return false
+	end
+	endsAt = finiteNumber(endsAt)
+	if not endsAt or completedInstanceIds[instanceId] then
+		return false
+	end
+	if endsAtOverridesByInstanceId[instanceId] ~= endsAt then
+		endsAtOverridesByInstanceId[instanceId] = endsAt
+		lastSignature = nil
+	end
+	return true
+end
+
 function GameEventService.CompleteInstance(instanceId, options)
 	if type(instanceId) ~= "string" or instanceId == "" then
 		return
@@ -466,6 +504,7 @@ function GameEventService.CompleteInstance(instanceId, options)
 	local now = serverNow()
 	completedInstanceIds[instanceId] = suppressionUntilFor(instanceId, now)
 	manualRecordsByInstanceId[instanceId] = nil
+	endsAtOverridesByInstanceId[instanceId] = nil
 	for eventId, activeInstanceId in pairs(activeInstanceIdsByEventId) do
 		if activeInstanceId == instanceId then
 			local handler = handlers[eventId]

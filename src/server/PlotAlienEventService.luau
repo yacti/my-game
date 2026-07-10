@@ -289,6 +289,13 @@ local function notifyViewers(session, text, lifetime)
 end
 
 local function syncNewViewers(session)
+	-- Drop synced flags for players who left, so a rejoining player (same
+	-- UserId) counts as a fresh viewer and gets a full state sync.
+	for userId in pairs(session.syncedViewers) do
+		if not Players:GetPlayerByUserId(userId) then
+			session.syncedViewers[userId] = nil
+		end
+	end
 	for _, player in ipairs(Players:GetPlayers()) do
 		if viewerEligible(session, player) and not session.syncedViewers[player.UserId] then
 			syncViewer(session, player)
