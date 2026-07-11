@@ -13,6 +13,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Food = require(Shared:WaitForChild("Food"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -894,6 +895,21 @@ function IndexController.start()
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Discovered, onDiscoveredChanged)
 
+	-- The icon stays hidden until the tutorial is done so onboarding keeps a
+	-- clean topbar; setEnabled toggles the whole TopbarPlus widget.
+	local function isOnboardingComplete(value)
+		local state = Onboarding.SanitizeState(value, Onboarding.CompleteState())
+		return Onboarding.IsComplete(state.Stage)
+	end
+
+	local onboardingComplete = isOnboardingComplete(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function(value)
+		onboardingComplete = isOnboardingComplete(value)
+		if topbarIcon then
+			topbarIcon:setEnabled(onboardingComplete)
+		end
+	end)
+
 	-- Topbar icon: backpack (-1), index (0), edit (1).
 	RuntimeGuard.Spawn("IndexController.TopbarIcon", function()
 		local Icon = requireTopbarIcon()
@@ -926,6 +942,7 @@ function IndexController.start()
 			end
 		end)
 		topbarIcon = icon
+		icon:setEnabled(onboardingComplete)
 		-- The panel may already be open/closed by the time the icon resolves.
 		syncTopbarIcon(MenuGui.IsOpen(PANEL_NAME))
 	end)

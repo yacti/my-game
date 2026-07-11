@@ -190,6 +190,10 @@ function MediaRewardService.Start()
 	end
 	started = true
 
+	if MediaReward.Enabled ~= true then
+		return
+	end
+
 	resultRemote = Remotes.get(Remotes.Names.MediaRewardRedeemResult)
 
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.MediaRewardRedeemRequest).OnServerEvent, "MediaRewardService.Redeem", function(player, requestId, codeText)

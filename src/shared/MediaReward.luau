@@ -4,6 +4,10 @@
 -- seed once per player.
 local MediaReward = {}
 
+-- Master switch: false hides the topbar icon/panel for every player and makes
+-- the server refuse redeems, without tearing out the feature.
+MediaReward.Enabled = false
+
 MediaReward.PanelName = "SocialMedia"
 MediaReward.VisualName = "Watermelon Seed"
 

@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -622,6 +623,7 @@ function FeedEditController.start()
 	local placementGrid = nil
 	local editEnabled = player:GetAttribute(EDIT_MODE_ATTR) == true
 	local buttonVisible = false
+	local tutorialActive = false
 	local selectedFeed = nil
 	local selectedPrimary = nil
 	local selectedAnchor = nil
@@ -1359,7 +1361,10 @@ function FeedEditController.start()
 
 	local function refreshButtonVisibility()
 		local floor = getPlayerFloor()
-		local visible = floor ~= nil and isOnFloor(floor) and not isOfflineProgressPending()
+		local visible = floor ~= nil
+			and isOnFloor(floor)
+			and not isOfflineProgressPending()
+			and not tutorialActive
 		buttonVisible = visible
 		refreshEditButtonVisibility()
 		syncEditModeVirtualCursor()
@@ -1590,6 +1595,13 @@ function FeedEditController.start()
 		end
 		refreshButtonVisibility()
 	end)
+	local function onOnboardingChanged(state)
+		state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
+		tutorialActive = Onboarding.IsActive(state.Stage)
+		refreshButtonVisibility()
+	end
+	onOnboardingChanged(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, onOnboardingChanged)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.JoinBackShowcase, function()
 		if isOfflineProgressPending() then
 			clearSelection(true)

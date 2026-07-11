@@ -66,6 +66,10 @@ local function requireTopbarIcon()
 	return require(topbarPlus)
 end
 
+-- No age gate: PolicyService.AllowedExternalLinkReferences is a sunset legacy
+-- field that returns {} for every player, so it cannot distinguish 13+ users
+-- anymore and Roblox ships no replacement API for in-experience references.
+
 -- Index-style preview: the reward seed's patch with its grown food pinned on
 -- (FeedDisplayModel.Build), resolved through the seed -> machine link so the
 -- model follows the configured reward.
@@ -86,6 +90,10 @@ function MediaRewardController.start()
 		return
 	end
 	started = true
+
+	if MediaReward.Enabled ~= true then
+		return
+	end
 
 	local panel = MenuGui.GetFrame(PANEL_NAME, "MediaRewardController")
 	if not panel then

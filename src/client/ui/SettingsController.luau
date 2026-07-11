@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -40,6 +41,13 @@ local settingsRows = {}
 local topbarIcon = nil
 local syncingIcon = false
 local settingsSaveToken = 0
+local tutorialActive = false
+
+local function applyTutorialVisibility()
+	if topbarIcon and topbarIcon.enabled == tutorialActive then
+		topbarIcon:setEnabled(not tutorialActive)
+	end
+end
 
 local function findDescendant(root, name, className)
 	if not root then
@@ -257,6 +265,14 @@ function SettingsController.start()
 	onSettingsChanged(PlayerStateStore.Get(PlayerStateStore.Fields.PlayerSettings))
 	PlayerStateStore.Observe(PlayerStateStore.Fields.PlayerSettings, onSettingsChanged)
 
+	local function onOnboardingChanged(state)
+		state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
+		tutorialActive = Onboarding.IsActive(state.Stage)
+		applyTutorialVisibility()
+	end
+	onOnboardingChanged(PlayerStateStore.Get(PlayerStateStore.Fields.Onboarding))
+	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, onOnboardingChanged)
+
 	-- Topbar icon: backpack (-1), index (0), edit (1), media reward (2),
 	-- settings (3, always last on the right).
 	RuntimeGuard.Spawn("SettingsController.TopbarIcon", function()
@@ -290,6 +306,7 @@ function SettingsController.start()
 			end
 		end)
 		topbarIcon = icon
+		applyTutorialVisibility()
 		-- The panel may already be open/closed by the time the icon resolves.
 		syncTopbarIcon(MenuGui.IsOpen(PANEL_NAME))
 	end)
