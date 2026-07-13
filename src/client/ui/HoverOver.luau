@@ -20,6 +20,7 @@ local HOVER_Z_INDEX = 9999
 local HOVER_TEXT_Z_INDEX = 10000
 local POINTER_OFFSET = Vector2.new(6, 6)
 local TAP_MOVE_THRESHOLD = 12
+local SHOW_XP_LINE = false
 
 local player = Players.LocalPlayer
 local bindings = {}
@@ -132,7 +133,7 @@ local function ensurePopup()
 	end
 
 	-- Base sizes come from the pristine template (not the runtime clone, which
-	-- may have been shrunk by a previous XP-less payload).
+	-- may have been shrunk by the old resizing logic).
 	baseFrameSize = template.Size
 	baseLabelSizes = {}
 	local labelTemplateNames = { [itemNameLabel] = "ItemName", [rarityLabel] = "Rarity" }
@@ -155,12 +156,11 @@ local function ensurePopup()
 	return popup
 end
 
--- The Holder labels are scale-sized to fill the frame top-down, so hiding the
--- rarity or XP line would otherwise leave a blank band at the bottom. Shrink
--- the frame by the hidden lines' share and rescale the visible labels so their
--- on-screen heights match the three-line layout.
+-- Only a name-only payload resizes the popup: it shrinks to the ItemName
+-- line's share of the template so a lone line isn't floating in a tall frame.
+-- Any payload with more lines keeps the template sizes as-is.
 local function applyLineLayout(showRarity, showXP)
-	if not (popup and baseFrameSize and baseLabelSizes) then
+	if not popup then
 		return
 	end
 	if rarityLabel then
@@ -169,19 +169,21 @@ local function applyLineLayout(showRarity, showXP)
 	if xpLabel then
 		xpLabel.Visible = showXP
 	end
-	local function isShown(label)
-		if label == rarityLabel then
-			return showRarity
-		elseif label == xpLabel then
-			return showXP
+	if not (baseFrameSize and baseLabelSizes) then
+		return
+	end
+	if showRarity or showXP then
+		popup.Size = baseFrameSize
+		for label, size in pairs(baseLabelSizes) do
+			label.Size = size
 		end
-		return true
+		return
 	end
 	local total = 0
 	local visible = 0
 	for label, size in pairs(baseLabelSizes) do
 		total += size.Y.Scale
-		if isShown(label) then
+		if label == itemNameLabel then
 			visible += size.Y.Scale
 		end
 	end
@@ -300,7 +302,7 @@ local function normalizedPayload(payload)
 		rarity = Rarities.Common
 	end
 	local xp = payload.xp or payload.Xp or payload.XP
-	if type(xp) ~= "string" or xp == "" then
+	if not SHOW_XP_LINE or type(xp) ~= "string" or xp == "" then
 		xp = nil
 	end
 	return {

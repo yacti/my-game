@@ -70,6 +70,9 @@ local function ensureLabel()
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 2
 	stroke.Color = Color3.new(0, 0, 0)
+	-- Fixed-TextSize tooltip: the text never scales with the viewport, so the
+	-- stroke must stay FixedSize too.
+	stroke:SetAttribute("ResponsiveUiIgnore", true)
 	stroke.Parent = label
 
 	label.Parent = menu

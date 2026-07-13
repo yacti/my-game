@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -17,6 +18,7 @@ local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PackIconDisplay = require(script.Parent:WaitForChild("PackIconDisplay"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local SeedPackShopController = require(script.Parent:WaitForChild("SeedPackShopController"))
@@ -269,12 +271,24 @@ end
 
 local renderAllRef = nil
 local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
+-- Product id of the Robux dialog we last opened, until the engine reports it
+-- closed. While set, the engine silently drops new PromptProductPurchase
+-- calls, so surface that instead of appearing dead (closing our own UI does
+-- not close the engine dialog).
+local openPurchaseDialogProductId = nil
 
 -- Starts the preflight -> PromptProductPurchase flow for a pack; shared by the
 -- shop card buy button and the plot StarterPackPromptController. Returns
 -- false when a purchase is already pending or the pack is not buyable.
 function StarterPackController.RequestPurchase(packId)
 	local pack = ShopBalance.StarterPackForPackId(packId)
+	if openPurchaseDialogProductId ~= nil then
+		Notifications.show({
+			text = "Finish or cancel the open Robux purchase first",
+			kind = NotificationConfig.Kinds.Error,
+		})
+		return false
+	end
 	if not pack
 		or pendingRequestId ~= nil
 		or isPackOwned(pack)
@@ -403,9 +417,17 @@ function StarterPackController.start()
 		local productId = tonumber(payload.productId) or 0
 		if payload.success == true and productId > 0 then
 			RuntimeGuard.Run("StarterPackController.PromptProductPurchase", function()
+				openPurchaseDialogProductId = productId
 				MarketplaceService:PromptProductPurchase(player, productId)
 			end)
 		elseif payload.packId ~= nil and payload.packId ~= requestPackId then
+			renderAll()
+		end
+	end)
+
+	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "StarterPackController.PurchaseFinished", function(userId, productId)
+		if userId == player.UserId and productId == openPurchaseDialogProductId then
+			openPurchaseDialogProductId = nil
 			renderAll()
 		end
 	end)

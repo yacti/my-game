@@ -26,14 +26,6 @@ local function viewportSize()
 	return camera and camera.ViewportSize or Vector2.new(BASE_SHORT_SIDE, BASE_SHORT_SIDE)
 end
 
-local function strokeDivisorFor(viewport)
-	local shortSide = math.min(viewport.X, viewport.Y)
-	if type(shortSide) ~= "number" or shortSide <= 0 then
-		return 1
-	end
-	return math.clamp(math.round((BASE_SHORT_SIDE / shortSide) * 2) / 2, 1, 3)
-end
-
 local function playerGuiForHud(hud)
 	local parent = hud and hud.Parent
 	if parent and parent:IsA("PlayerGui") then
@@ -364,7 +356,6 @@ local function computeContext(record)
 		viewport = viewport,
 		shortSide = shortSide,
 		isTouch = UserInputService.TouchEnabled,
-		strokeDivisor = strokeDivisorFor(viewport),
 		satchelAllowedBottom = satchelAllowedBottom(record),
 	}
 end

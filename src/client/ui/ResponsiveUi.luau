@@ -6,16 +6,16 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local ResponsiveUi = {}
 
-local BASE_SHORT_SIDE = 853
-local MIN_DIVISOR = 1
-local MAX_DIVISOR = 6
+-- All UI thickness values are authored against a 2100x900 viewport. Template
+-- strokes are baked to StrokeSizingMode.ScaledSize (engine scales them with the
+-- parent's shortest axis), so this module only converts stragglers created at
+-- runtime with FixedSize pixel thickness.
+local DESIGN_VIEWPORT = Vector2.new(2100, 900)
 local BASE_THICKNESS_ATTR = "ResponsiveUiBaseThickness"
+local DESIGN_PX_ATTR = "ResponsiveUiDesignPx"
 local IGNORE_ATTR = "ResponsiveUiIgnore"
 
 local rootRecords = {}
-local currentCamera = nil
-local cameraViewportConnection = nil
-local cameraChangedConnection = nil
 local cleanupRoot = nil
 
 local function disconnect(connection)
@@ -24,104 +24,100 @@ local function disconnect(connection)
 	end
 end
 
-local function viewportSize()
-	local camera = Workspace.CurrentCamera
-	return camera and camera.ViewportSize or Vector2.new(BASE_SHORT_SIDE, BASE_SHORT_SIDE)
-end
-
-local function strokeDivisorFor(viewport)
-	local shortSide = math.min(viewport.X, viewport.Y)
-	if type(shortSide) ~= "number" or shortSide <= 0 then
-		return MIN_DIVISOR
-	end
-
-	-- Squared falloff: 1 at the 853pt baseline (desktop/tablet unchanged), ~4-5 on
-	-- phone short sides (~375-430pt) so strokes render at a quarter of base thickness
-	local rawDivisor = (BASE_SHORT_SIDE / shortSide) ^ 2
-	return math.clamp(math.round(rawDivisor * 2) / 2, MIN_DIVISOR, MAX_DIVISOR)
-end
-
-local function isScalableStroke(instance)
+local function isConvertibleStroke(instance)
 	return instance
 		and instance:IsA("UIStroke")
 		and instance:GetAttribute(IGNORE_ATTR) ~= true
 		and instance.StrokeSizingMode == Enum.StrokeSizingMode.FixedSize
 end
 
-local function applyStroke(stroke, divisor)
-	if not isScalableStroke(stroke) then
+-- The parent's shortest axis as it would measure on the design viewport. Root
+-- insets (topbar etc.) are constant pixels, so the design-time root rect is the
+-- design viewport minus the same inset the root currently experiences.
+local function designShortAxis(record, guiObject)
+	local root = record.root
+	local rootAbs = root.AbsoluteSize
+	if rootAbs.X <= 0 or rootAbs.Y <= 0 then
+		return nil
+	end
+
+	local camera = Workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or rootAbs
+	local inset = viewport - rootAbs
+	local designRoot = DESIGN_VIEWPORT - inset
+	if designRoot.X <= 0 or designRoot.Y <= 0 then
+		return nil
+	end
+
+	local abs = guiObject.AbsoluteSize
+	if abs.X <= 0 or abs.Y <= 0 then
+		return nil
+	end
+	return math.min(abs.X * designRoot.X / rootAbs.X, abs.Y * designRoot.Y / rootAbs.Y)
+end
+
+local function convertStroke(record, stroke)
+	if not isConvertibleStroke(stroke) then
+		return true
+	end
+	local parent = stroke.Parent
+	if not (parent and parent:IsA("GuiObject") and parent:IsDescendantOf(record.root)) then
+		return true
+	end
+
+	local shortAxis = designShortAxis(record, parent)
+	if not shortAxis then
+		return false
+	end
+
+	local basePx = stroke:GetAttribute(BASE_THICKNESS_ATTR)
+	if type(basePx) ~= "number" then
+		basePx = stroke.Thickness
+	end
+	stroke:SetAttribute(DESIGN_PX_ATTR, basePx)
+	if basePx <= 0 then
+		stroke.Thickness = 0
+	else
+		stroke.Thickness = basePx / shortAxis
+	end
+	stroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+	return true
+end
+
+-- Layout may not have resolved yet (parent just built, sizes still zero); retry
+-- once the parent's AbsoluteSize settles.
+local function convertWhenMeasurable(record, stroke)
+	if convertStroke(record, stroke) then
 		return
 	end
 
-	local baseThickness = stroke:GetAttribute(BASE_THICKNESS_ATTR)
-	if type(baseThickness) ~= "number" then
-		baseThickness = stroke.Thickness
-		stroke:SetAttribute(BASE_THICKNESS_ATTR, baseThickness)
-	end
-
-	if baseThickness <= 0 then
-		stroke.Thickness = 0
-	else
-		stroke.Thickness = math.max(1, baseThickness / divisor)
-	end
+	local parent = stroke.Parent
+	local retryConnection
+	retryConnection = RuntimeGuard.Connect(
+		parent:GetPropertyChangedSignal("AbsoluteSize"),
+		"ResponsiveUi.StrokeParentResized",
+		function()
+			if convertStroke(record, stroke) then
+				disconnect(retryConnection)
+				record.pendingConnections[stroke] = nil
+			end
+		end
+	)
+	record.pendingConnections[stroke] = retryConnection
 end
 
-local function updateRoot(record)
+local function convertDescendants(record)
 	if not (record.root and record.root.Parent) then
 		return
 	end
-
-	local divisor = strokeDivisorFor(viewportSize())
-	if isScalableStroke(record.root) then
-		applyStroke(record.root, divisor)
+	if record.root:IsA("UIStroke") then
+		convertWhenMeasurable(record, record.root)
 	end
 	for _, descendant in ipairs(record.root:GetDescendants()) do
 		if descendant:IsA("UIStroke") then
-			applyStroke(descendant, divisor)
+			convertWhenMeasurable(record, descendant)
 		end
 	end
-end
-
-local function updateAll()
-	for root, record in pairs(rootRecords) do
-		if root.Parent then
-			updateRoot(record)
-		else
-			cleanupRoot(root)
-		end
-	end
-end
-
-local function bindCurrentCamera()
-	local camera = Workspace.CurrentCamera
-	if currentCamera == camera and cameraViewportConnection then
-		return
-	end
-
-	disconnect(cameraViewportConnection)
-	cameraViewportConnection = nil
-	currentCamera = camera
-
-	if currentCamera then
-		cameraViewportConnection = RuntimeGuard.Connect(
-			currentCamera:GetPropertyChangedSignal("ViewportSize"),
-			"ResponsiveUi.CameraViewportSize",
-			updateAll
-		)
-	end
-
-	updateAll()
-end
-
-local function ensureCameraWatcher()
-	if not cameraChangedConnection then
-		cameraChangedConnection = RuntimeGuard.Connect(
-			Workspace:GetPropertyChangedSignal("CurrentCamera"),
-			"ResponsiveUi.CurrentCameraChanged",
-			bindCurrentCamera
-		)
-	end
-	bindCurrentCamera()
 end
 
 cleanupRoot = function(root)
@@ -131,6 +127,9 @@ cleanupRoot = function(root)
 	end
 
 	for _, connection in ipairs(record.connections) do
+		disconnect(connection)
+	end
+	for _, connection in pairs(record.pendingConnections) do
 		disconnect(connection)
 	end
 	rootRecords[root] = nil
@@ -144,6 +143,7 @@ function ResponsiveUi.BindRoot(root)
 	local record = {
 		root = root,
 		connections = {},
+		pendingConnections = {},
 	}
 	rootRecords[root] = record
 
@@ -152,7 +152,11 @@ function ResponsiveUi.BindRoot(root)
 		"ResponsiveUi.DescendantAdded",
 		function(descendant)
 			if descendant:IsA("UIStroke") then
-				applyStroke(descendant, strokeDivisorFor(viewportSize()))
+				task.defer(function()
+					if rootRecords[root] and descendant:IsDescendantOf(root) then
+						convertWhenMeasurable(record, descendant)
+					end
+				end)
 			end
 		end
 	)
@@ -160,8 +164,7 @@ function ResponsiveUi.BindRoot(root)
 		cleanupRoot(root)
 	end)
 
-	ensureCameraWatcher()
-	updateRoot(record)
+	convertDescendants(record)
 end
 
 return ResponsiveUi

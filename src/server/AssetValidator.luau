@@ -1,3 +1,4 @@
+local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -2499,6 +2500,49 @@ local function validateShopProductIds(errors)
 	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
 		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
 	end
+	return seenProducts
+end
+
+-- Deferred audit: every configured product id must be a developer product of
+-- THIS experience. Prompting another experience's product opens a purchase
+-- dialog whose UI never mounts (invisible, and it swallows every later
+-- purchase prompt), which presents as "all monetisation is broken" — exactly
+-- what a dev place published as a separate experience runs into.
+local function auditExperienceProducts(seenProducts)
+	local ownProducts = {}
+	local ok = pcall(function()
+		local pages = MarketplaceService:GetDeveloperProductsAsync()
+		while true do
+			for _, item in ipairs(pages:GetCurrentPage()) do
+				ownProducts[tonumber(item.ProductId)] = true
+			end
+			if pages.IsFinished then
+				break
+			end
+			pages:AdvanceToNextPageAsync()
+		end
+	end)
+	if not ok then
+		return -- offline Studio / API unavailable; nothing trustworthy to report
+	end
+
+	local missing = {}
+	for productId, source in pairs(seenProducts) do
+		if not ownProducts[productId] then
+			missing[#missing + 1] = string.format("%s (%d)", source, productId)
+		end
+	end
+	if #missing == 0 then
+		return
+	end
+	table.sort(missing)
+	warn(string.format(
+		"[AssetValidator] %d configured developer product id(s) are not registered in this experience; "
+			.. "purchase prompts for them open a blank dialog and block all later prompts. "
+			.. "This place must belong to the same experience as its products. First offenders:\n- %s",
+		#missing,
+		table.concat(missing, "\n- ", 1, math.min(#missing, 8))
+	))
 end
 
 local function addRequiredFoodId(requiredFoodIds, sourcesByFoodId, foodId, source, errors)
@@ -3054,7 +3098,8 @@ function AssetValidator.validate()
 	validateGearShopBalance(errors)
 	validateCosmeticShopBalance(errors)
 	validateShopBalance(errors)
-	validateShopProductIds(errors)
+	local seenProducts = validateShopProductIds(errors)
+	task.spawn(auditExperienceProducts, seenProducts)
 	validateCosmeticToolContract(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings, warnings)
