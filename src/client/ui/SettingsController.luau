@@ -1,7 +1,8 @@
 -- Wires the Studio-authored Menu.Settings panel: profile-backed on/off rows
 -- (music, tree fruit auto-collect, accept gifts) rendered from the replicated
 -- PlayerSettings field, plus a right-aligned TopbarPlus icon that toggles the
--- panel. Row toggles swap the template's On/Off images and StatusTxt text.
+-- panel. Each row has two overlapping On/Off ImageButtons; the one matching
+-- the current state is visible and clicking either flips the setting.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -99,27 +100,20 @@ local function requestSettings()
 	end)
 end
 
-local function setToggleVisual(toggleButton, enabled)
-	local on = toggleButton and toggleButton:FindFirstChild("On")
-	local off = toggleButton and toggleButton:FindFirstChild("Off")
-	local status = toggleButton and findDescendant(toggleButton, "StatusTxt", "TextLabel")
+local function setToggleVisual(row, enabled)
+	local on = row and row:FindFirstChild("On")
+	local off = row and row:FindFirstChild("Off")
 	if on and on:IsA("GuiObject") then
 		on.Visible = enabled
 	end
 	if off and off:IsA("GuiObject") then
 		off.Visible = not enabled
 	end
-	if status then
-		UiEffects.SetTextStack(status, enabled and "On" or "Off")
-	end
 end
 
 local function renderSettings()
 	for key, row in pairs(settingsRows) do
-		local toggleButton = findDescendant(row, "ToggleButton", "GuiButton")
-		if toggleButton then
-			setToggleVisual(toggleButton, PlayerSettings.Get(settings, key))
-		end
+		setToggleVisual(row, PlayerSettings.Get(settings, key))
 	end
 end
 
@@ -157,16 +151,18 @@ local function createSettingRow(definition)
 		UiEffects.SetTextStack(label, definition.label)
 	end
 
-	local toggleButton = findDescendant(row, "ToggleButton", "GuiButton")
-	if toggleButton then
-		toggleButton.Active = true
-		toggleButton.Selectable = true
-		UiEffects.BindButton(toggleButton)
-		RuntimeGuard.Connect(toggleButton.Activated, "SettingsController.SettingActivated", function()
-			settings[definition.key] = not PlayerSettings.Get(settings, definition.key)
-			renderSettings()
-			requestSettings()
-		end)
+	for _, buttonName in ipairs({ "On", "Off" }) do
+		local toggleButton = row:FindFirstChild(buttonName)
+		if toggleButton and toggleButton:IsA("GuiButton") then
+			toggleButton.Active = true
+			toggleButton.Selectable = true
+			UiEffects.BindButton(toggleButton)
+			RuntimeGuard.Connect(toggleButton.Activated, "SettingsController.SettingActivated", function()
+				settings[definition.key] = not PlayerSettings.Get(settings, definition.key)
+				renderSettings()
+				requestSettings()
+			end)
+		end
 	end
 
 	settingsRows[definition.key] = row

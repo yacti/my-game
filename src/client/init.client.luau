@@ -96,6 +96,7 @@ local CONTROLLERS = {
 	"AdminPartyPadController",
 	"AdminPanelController",
 	"RollController",
+	"RollBroadcastController",
 	"OnboardingController",
 	"WorksOfflineController",
 }

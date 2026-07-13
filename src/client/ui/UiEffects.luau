@@ -1,3 +1,21 @@
+-- Shared UI polish helpers, and the single owner of the world-billboard
+-- lifecycle. Every in-world BillboardGui in the game follows one pattern:
+--
+--   1. clone a Studio template from ReplicatedStorage.UI.BillboardGUIs
+--   2. set content (Text/colors) on the clone — never on the template
+--   3. UiEffects.BindBillboardPop(clone), then set Adornee and Parent
+--   4. optionally UiEffects.BindBillboardDistancePop(clone) for range gating
+--
+-- After binding, `Enabled` is the only external visibility API; UiEffects owns
+-- `Size` (pop/hide animations, distance parking) and `MaxDistance` (replaced
+-- by a managed sentinel; the authored value is kept in the
+-- UiEffectsBaseMaxDistance attribute). Do not write billboard Size directly
+-- after binding, and never size any world gui to zero — growing a TextLabel
+-- from zero size permanently breaks its glyph layout under a live engine bug
+-- (see BILLBOARD_HIDDEN_SCALE below). Hidden billboards park at a tiny
+-- non-zero size instead, and every completed pop runs a text-layout heal that
+-- rewrites any label whose TextBounds got stuck at 0/NaN.
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -27,6 +45,14 @@ local PRESS_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirect
 local BILLBOARD_POP_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local BILLBOARD_HIDE_TWEEN = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local BILLBOARD_POP_START_SCALE = 0.18
+-- Hidden billboards park at a tiny non-zero size, never zero: growing a
+-- TextLabel from zero size can permanently break its glyph layout (TextBounds
+-- sticks at 0/NaN and the text stops drawing while sibling frames render) —
+-- live engine regression as of July 2026, confirmed in-place with a 60-board
+-- park/grow rig: https://devforum.roblox.com/t/4714195. The park size is
+-- sub-pixel at every gate distance, so nothing visible changes.
+local BILLBOARD_HIDDEN_SCALE = 0.02
+local BILLBOARD_TEXT_HEAL_DELAY = 0.1
 local BILLBOARD_MANAGED_MAX_DISTANCE = 100000
 local BILLBOARD_DISTANCE_CHECK_INTERVAL = 0.15
 local GROUP_FADE_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -231,6 +257,32 @@ function UiEffects.BindAllButtons(root)
 	end
 end
 
+-- Workaround for the July 2026 zero-size text-layout engine bug (see
+-- BILLBOARD_HIDDEN_SCALE): a label that grew through a degenerate size keeps
+-- TextBounds at 0/NaN and never draws its glyphs again until the text is
+-- rewritten. After every pop lands, rewrite the text of any label stuck in
+-- that state. Labels that are legitimately tiny, hidden, faded, or empty are
+-- skipped, and the rewrite is invisible (same string back in the same frame).
+local function healBillboardTextLayout(billboard)
+	if not billboard.Parent or not billboard.Enabled then
+		return
+	end
+	for _, descendant in ipairs(billboard:GetDescendants()) do
+		if (descendant:IsA("TextLabel") or descendant:IsA("TextButton"))
+			and descendant.Visible
+			and descendant.Text ~= ""
+			and descendant.TextTransparency < 0.99
+			and descendant.AbsoluteSize.Y >= 2 then
+			local bounds = descendant.TextBounds
+			if bounds.X ~= bounds.X or bounds.Y ~= bounds.Y or bounds.X <= 0 or bounds.Y <= 0 then
+				local text = descendant.Text
+				descendant.Text = ""
+				descendant.Text = text
+			end
+		end
+	end
+end
+
 function UiEffects.PlayBillboardPop(billboard)
 	if not (billboard and billboard:IsA("BillboardGui")) then
 		return nil
@@ -249,12 +301,19 @@ function UiEffects.PlayBillboardPop(billboard)
 	local popTween = tween(billboard, BILLBOARD_POP_TWEEN, {
 		Size = baseSize,
 	})
-	RuntimeGuard.Connect(popTween.Completed, "UiEffects.BillboardPopCompleted", function()
+	RuntimeGuard.Connect(popTween.Completed, "UiEffects.BillboardPopCompleted", function(playbackState)
 		if billboardPopTokens[billboard] ~= token then
 			return
 		end
 		if billboard.Parent then
 			billboard.Size = baseSize
+		end
+		if playbackState == Enum.PlaybackState.Completed then
+			task.delay(BILLBOARD_TEXT_HEAL_DELAY, function()
+				if billboardPopTokens[billboard] == token then
+					RuntimeGuard.Run("UiEffects.HealBillboardTextLayout", healBillboardTextLayout, billboard)
+				end
+			end)
 		end
 	end)
 	return popTween
@@ -349,7 +408,7 @@ local function playBillboardHide(billboard, record)
 		end
 		record.closing = false
 		if billboard.Parent and not distanceBillboardShouldShow(billboard, record) then
-			billboard.Size = scaleUDim2(baseSize, 0)
+			billboard.Size = scaleUDim2(baseSize, BILLBOARD_HIDDEN_SCALE)
 		end
 	end)
 end
@@ -370,10 +429,14 @@ local function updateDistanceBillboard(billboard)
 	if distanceBillboardShouldShow(billboard, record) then
 		if record.visible == true and billboard.Enabled then
 			-- Self-heal: state says visible, but something external zeroed
-			-- the size (clone inheritance, lost tween, outside writer).
-			-- Re-pop instead of trusting the flag, and log the drift once so
-			-- field reports of missing billboards carry the root cause.
-			if isDegenerateSize(billboard.Size) and not isDegenerateSize(billboardBaseSize(billboard)) then
+			-- the size (clone inheritance, lost tween, outside writer) or it
+			-- is stuck at the hidden park size. Re-pop instead of trusting the
+			-- flag, and log the drift once so field reports of missing
+			-- billboards carry the root cause.
+			local baseSize = billboardBaseSize(billboard)
+			local stuckHidden = isDegenerateSize(billboard.Size)
+				or billboard.Size == scaleUDim2(baseSize, BILLBOARD_HIDDEN_SCALE)
+			if stuckHidden and not isDegenerateSize(baseSize) then
 				if not record.healWarned then
 					record.healWarned = true
 					warn("[UiEffects] Healed billboard stuck at zero size: " .. billboard:GetFullName())
@@ -392,7 +455,7 @@ local function updateDistanceBillboard(billboard)
 	elseif record.visible == true then
 		playBillboardHide(billboard, record)
 	elseif not record.closing then
-		billboard.Size = scaleUDim2(billboardBaseSize(billboard), 0)
+		billboard.Size = scaleUDim2(billboardBaseSize(billboard), BILLBOARD_HIDDEN_SCALE)
 	end
 end
 

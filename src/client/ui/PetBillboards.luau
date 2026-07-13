@@ -306,6 +306,21 @@ local function attach(pet)
 						label.Name, stroke.Transparency, baseline.strokeTransparency)
 					stroke.Transparency = baseline.strokeTransparency
 				end
+				-- Engine zero-size layout bug (see UiEffects header): a label
+				-- whose TextBounds is stuck at 0/NaN has text set but draws no
+				-- glyphs. Rewriting the text forces a fresh layout. Skip tiny
+				-- AbsoluteSize so a distance-parked billboard is not a false
+				-- positive.
+				if label.Visible and label.Text ~= "" and label.AbsoluteSize.Y >= 2 then
+					local bounds = label.TextBounds
+					if bounds.X ~= bounds.X or bounds.Y ~= bounds.Y or bounds.X <= 0 or bounds.Y <= 0 then
+						drift = drift or string.format("%s.TextBounds degenerate (%s)",
+							label.Name, tostring(bounds))
+						local text = label.Text
+						label.Text = ""
+						label.Text = text
+					end
+				end
 			end
 		end
 

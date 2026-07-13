@@ -31,9 +31,11 @@ local RESERVATION_SECONDS = 5 * 60
 -- validate with slack for movement/latency, like the other 10-stud prompts.
 local SAPLING_SKIP_DISTANCE = 14
 local MAILBOX_SKIP_DISTANCE = MailboxConfig.InteractionDistance
+local SKIP_SIGN_DISTANCE = MailboxConfig.SkipTimeSignInteractionDistance
 local EDIT_MODE_ATTR = "EditMode"
 local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
 local MAILBOX_NAME = MailboxConfig.MailboxName
+local SKIP_SIGN_NAME = MailboxConfig.SkipTimeSignName
 
 local started = false
 local snapshotProfileState = nil
@@ -164,16 +166,23 @@ local function feedByIndex(plot, feedIndex)
 	return nil
 end
 
-local function mailboxForTarget(plot, target)
+-- The plot-time skip can be bought from either station: the Mailbox (HUD
+-- buttons) or the SkipTimeSign (SurfaceGui hitboxes). Returns the matched
+-- station plus its interaction distance.
+local function skipStationForTarget(plot, target)
 	if not (plot and target and target:IsDescendantOf(plot)) then
-		return nil
+		return nil, nil
 	end
 	local signs = plot:FindFirstChild(SIGNS_FOLDER_NAME)
 	local mailbox = signs and signs:FindFirstChild(MAILBOX_NAME)
 	if mailbox and (target == mailbox or target:IsDescendantOf(mailbox)) then
-		return mailbox
+		return mailbox, MAILBOX_SKIP_DISTANCE
 	end
-	return nil
+	local skipSign = signs and signs:FindFirstChild(SKIP_SIGN_NAME)
+	if skipSign and (target == skipSign or target:IsDescendantOf(skipSign)) then
+		return skipSign, SKIP_SIGN_DISTANCE
+	end
+	return nil, nil
 end
 
 local function isMaturePatch(feed)
@@ -271,11 +280,11 @@ local function reservePlotTimeSkip(player, plot, profile, target, skipId)
 	if not config or int(config.DevProductId, 0) <= 0 or int(config.DurationSeconds, 0) <= 0 then
 		return nil, false, "invalid-product"
 	end
-	local mailbox = mailboxForTarget(plot, target)
-	if not mailbox then
+	local station, stationDistance = skipStationForTarget(plot, target)
+	if not station then
 		return nil, false, "invalid-target"
 	end
-	if not isPlayerNearInstance(player, mailbox, MAILBOX_SKIP_DISTANCE) then
+	if not isPlayerNearInstance(player, station, stationDistance) then
 		return nil, false, "too-far"
 	end
 	if player:GetAttribute(EDIT_MODE_ATTR) == true then

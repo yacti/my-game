@@ -1735,7 +1735,7 @@ local function validatePackRollFrameUi(menu, errors)
 	if not panel then return end
 
 	local itemRollHolder = child(panel, "ItemRollHolder", "GuiObject", errors)
-	child(panel, "ContinueButton", "GuiButton", errors)
+	child(panel, "Continue", "GuiButton", errors)
 	child(panel, "Slice", "GuiObject", errors)
 	child(panel, "OpenHint", "TextLabel", errors)
 	child(panel, "ConsoleIcon", "ImageLabel", errors)
@@ -1874,6 +1874,7 @@ local function validateHoverOverHud(hud, warnings)
 
 	child(holder, "ItemName", "TextLabel", warnings)
 	child(holder, "Rarity", "TextLabel", warnings)
+	child(holder, "XP", "TextLabel", warnings)
 end
 
 local function validateJoinBackShowcaseUi(hud, warnings)
@@ -2028,6 +2029,9 @@ local function validateSkipTimeButtonCard(skipButtons, cardName, errors, options
 		descendant(card, "FruitsLabel", "TextLabel", errors)
 	end
 	descendant(card, "ErrorLabel", "TextLabel", errors)
+	if options.hitbox == true then
+		descendant(card, "Hitbox", "GuiButton", errors)
+	end
 	local buyButton = descendant(card, "BuyButton", "GuiButton", errors)
 	if buyButton then
 		descendant(buyButton, "Price", "TextLabel", errors)
@@ -2053,15 +2057,10 @@ local function validateAutoRollSettingsUi(menu, errors)
 	child(list, "UIListLayout", "UIListLayout", errors)
 	local template = child(list, "Template", "GuiObject", errors)
 	if not template then return end
-	child(template, "Icon", "ImageLabel", errors)
 	child(template, "SettingName", "TextLabel", errors)
 	child(template, "Background", "GuiObject", errors)
-	local toggle = child(template, "ToggleButton", "GuiButton", errors)
-	if toggle then
-		child(toggle, "On", "ImageLabel", errors)
-		child(toggle, "Off", "ImageLabel", errors)
-		descendant(toggle, "StatusTxt", "TextLabel", errors)
-	end
+	child(template, "On", "GuiButton", errors)
+	child(template, "Off", "GuiButton", errors)
 end
 
 local function validateSettingsUi(menu, errors)
@@ -2074,15 +2073,10 @@ local function validateSettingsUi(menu, errors)
 	child(list, "UIListLayout", "UIListLayout", errors)
 	local template = child(list, "Template", "GuiObject", errors)
 	if not template then return end
-	child(template, "Icon", "ImageLabel", errors)
 	child(template, "SettingName", "TextLabel", errors)
 	child(template, "Background", "GuiObject", errors)
-	local toggle = child(template, "ToggleButton", "GuiButton", errors)
-	if toggle then
-		child(toggle, "On", "ImageLabel", errors)
-		child(toggle, "Off", "ImageLabel", errors)
-		descendant(toggle, "StatusTxt", "TextLabel", errors)
-	end
+	child(template, "On", "GuiButton", errors)
+	child(template, "Off", "GuiButton", errors)
 end
 
 local function validateRollBillboards(billboardFolder, errors)
@@ -2804,14 +2798,17 @@ local function validatePlots(errors, warnings)
 				child(mailbox, "Door", "BasePart", errors)
 			end
 
-			local skipSign = signs:FindFirstChild("SkipGrowTime")
+			local skipSign = child(signs, "SkipTimeSign", "Model", errors)
 			if skipSign then
-				if not skipSign:IsA("Model") then
-					add(errors, string.format("%s is %s, expected Model", skipSign:GetFullName(), skipSign.ClassName))
-					return
-				end
 				if not skipSign:FindFirstChildWhichIsA("BasePart", true) then
 					add(errors, skipSign:GetFullName() .. " needs at least one BasePart")
+				end
+				local signGui = descendant(skipSign, "SurfaceGui", "SurfaceGui", errors)
+				local signButtons = signGui and child(signGui, "SkipTimeButtons", "GuiObject", errors)
+				if signButtons then
+					validateSkipTimeButtonCard(signButtons, "Skip5m", errors, { skipAmount = true, hitbox = true })
+					validateSkipTimeButtonCard(signButtons, "Skip30m", errors, { skipAmount = true, hitbox = true })
+					validateSkipTimeButtonCard(signButtons, "CollectAll", errors, { fruitsLabel = true, hitbox = true })
 				end
 			end
 		end

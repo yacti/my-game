@@ -377,9 +377,10 @@ local function hidePet(pet, pivot)
 	return hidden
 end
 
+-- No Parent guard here: restoring a momentarily unparented (or even destroyed)
+-- instance is a harmless property write, while skipping one would strand its
+-- snapshot — a hidden label left at TextTransparency 1 forever.
 local function restoreInstance(instance, entry)
-	if not instance.Parent then return end
-
 	if entry.kind == "localTransparency" then
 		instance.LocalTransparencyModifier = 1
 		TweenService:Create(instance, REVEAL_TWEEN, { LocalTransparencyModifier = entry.values }):Play()

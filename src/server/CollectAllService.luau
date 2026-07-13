@@ -27,8 +27,10 @@ local CollectAllService = {}
 local REQUEST_RATE_SECONDS = 0.5
 local RESERVATION_SECONDS = 5 * 60
 local COLLECT_DISTANCE = MailboxConfig.InteractionDistance
+local SKIP_SIGN_DISTANCE = MailboxConfig.SkipTimeSignInteractionDistance
 local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
 local MAILBOX_NAME = MailboxConfig.MailboxName
+local SKIP_SIGN_NAME = MailboxConfig.SkipTimeSignName
 local EDIT_MODE_ATTR = "EditMode"
 
 local started = false
@@ -94,23 +96,30 @@ local function instancePosition(instance)
 	return part and part.Position or nil
 end
 
-local function isPlayerNearInstance(player, target)
+local function isPlayerNearInstance(player, target, maxDistance)
 	local character = player and player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	local position = root and root:IsA("BasePart") and instancePosition(target) or nil
-	return position ~= nil and (root.Position - position).Magnitude <= COLLECT_DISTANCE
+	return position ~= nil and (root.Position - position).Magnitude <= (maxDistance or COLLECT_DISTANCE)
 end
 
-local function mailboxForTarget(plot, target)
+-- Collect All can be bought from either station: the Mailbox (HUD buttons) or
+-- the SkipTimeSign (SurfaceGui hitboxes). Returns the matched station plus its
+-- interaction distance.
+local function collectStationForTarget(plot, target)
 	if not (plot and target and target:IsDescendantOf(plot)) then
-		return nil
+		return nil, nil
 	end
 	local signs = plot:FindFirstChild(SIGNS_FOLDER_NAME)
 	local mailbox = signs and signs:FindFirstChild(MAILBOX_NAME)
 	if mailbox and (target == mailbox or target:IsDescendantOf(mailbox)) then
-		return mailbox
+		return mailbox, COLLECT_DISTANCE
 	end
-	return nil
+	local skipSign = signs and signs:FindFirstChild(SKIP_SIGN_NAME)
+	if skipSign and (target == skipSign or target:IsDescendantOf(skipSign)) then
+		return skipSign, SKIP_SIGN_DISTANCE
+	end
+	return nil, nil
 end
 
 local function feedByIndex(plot, feedIndex)
@@ -279,11 +288,11 @@ local function reserveCollectAll(player, plot, profile, target)
 	if productId <= 0 then
 		return nil, false, "invalid-product"
 	end
-	local mailbox = mailboxForTarget(plot, target)
-	if not mailbox then
+	local station, stationDistance = collectStationForTarget(plot, target)
+	if not station then
 		return nil, false, "invalid-target"
 	end
-	if not isPlayerNearInstance(player, mailbox) then
+	if not isPlayerNearInstance(player, station, stationDistance) then
 		return nil, false, "too-far"
 	end
 	if player:GetAttribute(EDIT_MODE_ATTR) == true then

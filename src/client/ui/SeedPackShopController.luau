@@ -16,6 +16,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
+local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PackIconDisplay = require(script.Parent:WaitForChild("PackIconDisplay"))
@@ -33,6 +34,7 @@ local FEATURED_SECTION_NAME = "Featured"
 local SEED_PACKS_NAME = "SeedPacks"
 local CASH_PACKS_NAME = "CashPacks"
 local PACK_HOLDER_TEMPLATE_NAME = "PackHolder"
+local CONTINUE_BUTTON_NAME = "Continue"
 local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
 local RUNTIME_SLICE_NAME = "__SeedPackSlice"
 local CONSOLE_OPEN_KEYCODE = Enum.KeyCode.ButtonX
@@ -292,6 +294,7 @@ local function renderRewardSlot(slot, reward, pack)
 		return {
 			name = displayName,
 			rarity = rarity,
+			xp = FeedXPText.ForSeed(seedId),
 		}
 	end)
 end
@@ -537,7 +540,7 @@ local function buildReveal(payload)
 	end
 	local itemRollHolder = panel:FindFirstChild("ItemRollHolder")
 	local template = itemRollHolder and itemRollHolder:FindFirstChild(PACK_HOLDER_TEMPLATE_NAME)
-	local continueButton = panel:FindFirstChild("ContinueButton")
+	local continueButton = panel:FindFirstChild(CONTINUE_BUTTON_NAME)
 	local sliceTemplate = panel:FindFirstChild("Slice")
 	if not (itemRollHolder and itemRollHolder:IsA("GuiObject") and template and template:IsA("GuiObject")) then
 		warn("[SeedPackShopController] PackRollFrame missing ItemRollHolder.PackHolder")
@@ -602,7 +605,7 @@ end
 
 local function showAdvancePrompt()
 	local panel = MenuGui.GetFrame(ROLL_PANEL_NAME, "SeedPackShopController")
-	local continueButton = panel and panel:FindFirstChild("ContinueButton")
+	local continueButton = panel and panel:FindFirstChild(CONTINUE_BUTTON_NAME)
 	if continueButton and continueButton:IsA("GuiButton") then
 		continueButton.Visible = false
 		continueButton.Active = false
@@ -1193,7 +1196,7 @@ function SeedPackShopController.start()
 		end,
 	})
 
-	local continueButton = rollPanel:FindFirstChild("ContinueButton")
+	local continueButton = rollPanel:FindFirstChild(CONTINUE_BUTTON_NAME)
 	if continueButton and continueButton:IsA("GuiButton") then
 		continueButton.Visible = false
 		continueButton.Active = false

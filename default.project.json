@@ -227,6 +227,9 @@
         },
         "PlayerSettingsUpdateRequest": {
           "$className": "RemoteEvent"
+        },
+        "RollBroadcastEffect": {
+          "$className": "RemoteEvent"
         }
       },
       "Sounds": {

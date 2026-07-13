@@ -26,6 +26,9 @@ local bindings = {}
 local popup = nil
 local itemNameLabel = nil
 local rarityLabel = nil
+local xpLabel = nil
+local baseFrameSize = nil
+local baseLabelSizes = nil
 local warnedMissing = false
 local started = false
 local activeBinding = nil
@@ -121,10 +124,24 @@ local function ensurePopup()
 
 	itemNameLabel = descendant(popup, "ItemName", "TextLabel")
 	rarityLabel = descendant(popup, "Rarity", "TextLabel")
+	xpLabel = descendant(popup, "XP", "TextLabel")
 	if not (itemNameLabel and rarityLabel) then
 		warnMissing("[HoverOver] HoverOver template missing Holder.ItemName or Holder.Rarity TextLabel")
 		popup.Visible = false
 		return nil
+	end
+
+	-- Base sizes come from the pristine template (not the runtime clone, which
+	-- may have been shrunk by a previous XP-less payload).
+	baseFrameSize = template.Size
+	baseLabelSizes = {}
+	local labelTemplateNames = { [itemNameLabel] = "ItemName", [rarityLabel] = "Rarity" }
+	if xpLabel then
+		labelTemplateNames[xpLabel] = "XP"
+	end
+	for label, templateName in pairs(labelTemplateNames) do
+		local templateLabel = descendant(template, templateName, "TextLabel")
+		baseLabelSizes[label] = templateLabel and templateLabel.Size or label.Size
 	end
 
 	RuntimeGuard.Connect(popup.Destroying, "HoverOver.PopupDestroying", function()
@@ -132,9 +149,41 @@ local function ensurePopup()
 		popup = nil
 		itemNameLabel = nil
 		rarityLabel = nil
+		xpLabel = nil
 	end)
 
 	return popup
+end
+
+-- The Holder labels are scale-sized to fill the frame top-down, so hiding the
+-- XP line would otherwise leave a blank band at the bottom. Shrink the frame
+-- by the hidden line's share and rescale the visible labels so their on-screen
+-- heights match the three-line layout.
+local function applyXPLayout(showXP)
+	if not (popup and baseFrameSize and baseLabelSizes) then
+		return
+	end
+	if xpLabel then
+		xpLabel.Visible = showXP
+	end
+	local total = 0
+	local visible = 0
+	for label, size in pairs(baseLabelSizes) do
+		total += size.Y.Scale
+		if label ~= xpLabel or showXP then
+			visible += size.Y.Scale
+		end
+	end
+	local fraction = (total > 0 and visible > 0) and visible / total or 1
+	popup.Size = UDim2.new(
+		baseFrameSize.X.Scale,
+		baseFrameSize.X.Offset,
+		baseFrameSize.Y.Scale * fraction,
+		baseFrameSize.Y.Offset * fraction
+	)
+	for label, size in pairs(baseLabelSizes) do
+		label.Size = UDim2.new(size.X.Scale, size.X.Offset, size.Y.Scale / fraction, size.Y.Offset)
+	end
 end
 
 local function screenBounds()
@@ -239,9 +288,14 @@ local function normalizedPayload(payload)
 	if type(rarity) ~= "string" or not Rarities.IsValid(rarity) then
 		rarity = Rarities.Common
 	end
+	local xp = payload.xp or payload.Xp or payload.XP
+	if type(xp) ~= "string" or xp == "" then
+		xp = nil
+	end
 	return {
 		name = name,
 		rarity = rarity,
+		xp = xp,
 	}
 end
 
@@ -341,6 +395,10 @@ function HoverOver.Show(payload, anchorGuiOrPosition, mode)
 
 	UiEffects.SetTextStack(itemNameLabel, payload.name)
 	UiEffects.SetTextStack(rarityLabel, payload.rarity)
+	if xpLabel then
+		UiEffects.SetTextStack(xpLabel, payload.xp or "")
+	end
+	applyXPLayout(payload.xp ~= nil and xpLabel ~= nil)
 	activeRarity = payload.rarity
 	refreshRarityColor()
 

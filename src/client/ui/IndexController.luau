@@ -5,13 +5,11 @@
 -- previews (pets, fruited trees, patches with food), a per-tab discovered
 -- counter, and a click-to-inspect info panel. Also owns the topbar Index
 -- icon (order 1, between the edit and discord icons).
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
-local Food = require(Shared:WaitForChild("Food"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -19,9 +17,9 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local State = require(Shared:WaitForChild("State"))
 local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
+local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
-local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 
@@ -249,7 +247,6 @@ end
 -- ── Controller ────────────────────────────────────────────────────────────────
 
 function IndexController.start()
-	local player = Players.LocalPlayer
 	local indexFrame = MenuGui.GetFrame(PANEL_NAME, "IndexController")
 	if not indexFrame then
 		return
@@ -347,7 +344,6 @@ function IndexController.start()
 	local currentTab = TAB_PETS
 	local petEntries = nil
 	local feedEntries = nil
-	local classByFeedType = {}
 	local discoveredCache = PlayerStateStore.Get(PlayerStateStore.Fields.Discovered)
 	local gridRecords = {} -- array of { entry, frame, locked }
 	local selectedRecord = nil
@@ -371,14 +367,7 @@ function IndexController.start()
 			petEntries = petEntries or buildPetEntries()
 			return petEntries
 		end
-		if not feedEntries then
-			feedEntries = buildFeedEntries()
-			for _, entries in pairs(feedEntries) do
-				for _, entry in ipairs(entries) do
-					classByFeedType[entry.id] = entry.class
-				end
-			end
-		end
+		feedEntries = feedEntries or buildFeedEntries()
 		return feedEntries[CLASS_FOR_TAB[tabName]] or {}
 	end
 
@@ -532,53 +521,6 @@ function IndexController.start()
 		end
 	end
 
-	local function bestStaticXPForClass(class)
-		local plot = PlotResolver.ResolveForPlayer(player)
-		if not plot then
-			return nil
-		end
-		local best = nil
-		for _, child in ipairs(plot:GetChildren()) do
-			if (child:IsA("Model") or child:IsA("BasePart"))
-				and type(child:GetAttribute(State.Feed.Type)) == "string"
-				and child:GetAttribute(State.Feed.Index) ~= nil
-				and child:GetAttribute(State.Seed.Phase) ~= "GrowingSeed"
-				and child:GetAttribute(State.Feed.PercentageOfBest) == nil then
-				local childClass = child:GetAttribute(State.Feed.Class)
-				if type(childClass) ~= "string" or childClass == "" then
-					childClass = classByFeedType[child:GetAttribute(State.Feed.Type)]
-				end
-				if childClass == class then
-					local xp = tonumber(child:GetAttribute(State.Feed.XP)) or 1
-					if not best or xp > best then
-						best = xp
-					end
-				end
-			end
-		end
-		return best
-	end
-
-	local function feedXPText(entry)
-		if entry.class == "Tree" then
-			-- Tree XP attribute is a per-drop multiplier on the food's own XP.
-			local dropXP = Food.BaseXP(entry.foodDrop) * (entry.xp or 1)
-			return NumberFormatter.XP(dropXP, "XP per drop")
-		end
-		return NumberFormatter.XP(entry.xp or 1, "XP per grow")
-	end
-
-	-- Mirrors FeedMachines.RecomputeDynamicXP: resolved = max(pct x best
-	-- same-class static machine XP on the plot, 1).
-	local function liveXPText(entry)
-		local best = bestStaticXPForClass(entry.class)
-		local resolved = math.max(entry.pct * (best or 0), 1)
-		if entry.class == "Tree" then
-			return NumberFormatter.XP(Food.BaseXP(entry.foodDrop) * resolved, "XP per drop")
-		end
-		return NumberFormatter.XP(resolved, "XP per grow")
-	end
-
 	local function stopLiveXP()
 		liveXPToken += 1
 	end
@@ -588,7 +530,7 @@ function IndexController.start()
 		local token = liveXPToken
 		RuntimeGuard.Spawn("IndexController.LiveXP", function()
 			while token == liveXPToken and panelOpen and xpLabel.Parent do
-				local text = liveXPText(entry)
+				local text = FeedXPText.ForEntry(entry)
 				if xpLabel.Text ~= text then
 					xpLabel.Text = text
 				end
@@ -655,11 +597,11 @@ function IndexController.start()
 		if xpLabel and xpLabel:IsA("TextLabel") then
 			if locked then
 				xpLabel.Text = LOCKED_STAT_TEXT
-			elseif entry.pct then
-				xpLabel.Text = liveXPText(entry)
-				startLiveXP(entry, xpLabel)
 			else
-				xpLabel.Text = feedXPText(entry)
+				xpLabel.Text = FeedXPText.ForEntry(entry)
+				if entry.pct then
+					startLiveXP(entry, xpLabel)
+				end
 			end
 		end
 

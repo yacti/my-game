@@ -78,6 +78,7 @@ Remotes.Names = {
 	StormChaserDepositRequest = "StormChaserDepositRequest",
 	StormChaserDepositResult = "StormChaserDepositResult",
 	PlayerSettingsUpdateRequest = "PlayerSettingsUpdateRequest",
+	RollBroadcastEffect = "RollBroadcastEffect",
 }
 
 local Definitions = {
@@ -150,6 +151,7 @@ local Definitions = {
 	[Remotes.Names.StormChaserDepositRequest] = "RemoteEvent",
 	[Remotes.Names.StormChaserDepositResult] = "RemoteEvent",
 	[Remotes.Names.PlayerSettingsUpdateRequest] = "RemoteEvent",
+	[Remotes.Names.RollBroadcastEffect] = "RemoteEvent",
 }
 
 local function getFolder()

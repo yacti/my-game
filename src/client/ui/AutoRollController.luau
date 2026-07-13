@@ -120,18 +120,16 @@ local function rowEnabled(key)
 	return selectedRarities[key] == true
 end
 
-local function setToggleVisual(toggleButton, enabled)
-	local on = toggleButton and toggleButton:FindFirstChild("On")
-	local off = toggleButton and toggleButton:FindFirstChild("Off")
-	local status = toggleButton and findDescendant(toggleButton, "StatusTxt", "TextLabel")
+-- Each row has two overlapping On/Off ImageButtons; the one matching the
+-- current state is visible and clicking either flips the setting.
+local function setToggleVisual(row, enabled)
+	local on = row and row:FindFirstChild("On")
+	local off = row and row:FindFirstChild("Off")
 	if on and on:IsA("GuiObject") then
 		on.Visible = enabled
 	end
 	if off and off:IsA("GuiObject") then
 		off.Visible = not enabled
-	end
-	if status then
-		UiEffects.SetTextStack(status, enabled and "ON" or "OFF")
 	end
 end
 
@@ -164,10 +162,7 @@ end
 
 local function renderSettings()
 	for key, row in pairs(settingsRows) do
-		local toggleButton = findDescendant(row, "ToggleButton", "GuiButton")
-		if toggleButton then
-			setToggleVisual(toggleButton, rowEnabled(key))
-		end
+		setToggleVisual(row, rowEnabled(key))
 		if key ~= AUTO_PURCHASE_KEY then
 			applyRarityVisual(row, key)
 		end
@@ -278,20 +273,22 @@ local function createSettingRow(key, text, layoutOrder, rarity)
 	row.Parent = list
 	setRowName(row, text)
 
-	local toggleButton = findDescendant(row, "ToggleButton", "GuiButton")
-	if toggleButton then
-		toggleButton.Active = true
-		toggleButton.Selectable = true
-		UiEffects.BindButton(toggleButton)
-		RuntimeGuard.Connect(toggleButton.Activated, "AutoRollController.SettingActivated", function()
-			if key == AUTO_PURCHASE_KEY then
-				autoPurchase = not autoPurchase
-			else
-				selectedRarities[key] = selectedRarities[key] ~= true
-			end
-			renderSettings()
-			requestSettings()
-		end)
+	for _, buttonName in ipairs({ "On", "Off" }) do
+		local toggleButton = row:FindFirstChild(buttonName)
+		if toggleButton and toggleButton:IsA("GuiButton") then
+			toggleButton.Active = true
+			toggleButton.Selectable = true
+			UiEffects.BindButton(toggleButton)
+			RuntimeGuard.Connect(toggleButton.Activated, "AutoRollController.SettingActivated", function()
+				if key == AUTO_PURCHASE_KEY then
+					autoPurchase = not autoPurchase
+				else
+					selectedRarities[key] = selectedRarities[key] ~= true
+				end
+				renderSettings()
+				requestSettings()
+			end)
+		end
 	end
 
 	settingsRows[key] = row

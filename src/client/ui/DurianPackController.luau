@@ -23,6 +23,7 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
 local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
+local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
@@ -193,6 +194,7 @@ local function renderRewardSlot(slot, reward, pack)
 		return {
 			name = displayName,
 			rarity = Seeds.RarityFor(seedId),
+			xp = FeedXPText.ForSeed(seedId),
 		}
 	end)
 end

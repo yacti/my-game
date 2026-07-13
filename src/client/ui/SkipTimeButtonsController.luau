@@ -34,6 +34,8 @@ local PROXIMITY_CHECK_SECONDS = 0.1
 local PREVIEW_RECOMPUTE_SECONDS = 0.5
 local SIGNS_FOLDER_NAME = MailboxConfig.SignsFolderName
 local MAILBOX_NAME = MailboxConfig.MailboxName
+local SKIP_SIGN_NAME = MailboxConfig.SkipTimeSignName
+local SKIP_SIGN_DISTANCE = MailboxConfig.SkipTimeSignInteractionDistance
 local DOOR_NAME = MailboxConfig.DoorName
 local EDIT_MODE_ATTR = "EditMode"
 local DOOR_OPEN_ANGLE = math.rad(78)
@@ -41,6 +43,8 @@ local DOOR_OPEN_TWEEN = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDi
 local DOOR_CLOSE_TWEEN = TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local PROMPT_TIMEOUT_SECONDS = 20
 local SKIP_30M_GRADIENT_DEGREES_PER_SECOND = 18
+local SIGN_PRESS_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local SIGN_PRESS_SCALE = 0.94
 
 local SKIP_IDS = { "Skip5m", "Skip30m" }
 
@@ -55,6 +59,7 @@ local nextRequestId = 0
 local pendingRequestId = nil
 local pendingProductId = nil
 local pendingKind = nil
+local pendingRecord = nil
 local promptToken = 0
 
 local activeDoor = nil
@@ -121,6 +126,32 @@ local function mailboxForPlot(plot)
 	local signs = plot and plot:FindFirstChild(SIGNS_FOLDER_NAME)
 	local mailbox = signs and signs:FindFirstChild(MAILBOX_NAME)
 	return mailbox
+end
+
+local function skipSignForPlot(plot)
+	local signs = plot and plot:FindFirstChild(SIGNS_FOLDER_NAME)
+	local sign = signs and signs:FindFirstChild(SKIP_SIGN_NAME)
+	return sign
+end
+
+local function skipSignGui(sign)
+	return sign and sign:FindFirstChildWhichIsA("SurfaceGui", true) or nil
+end
+
+local function skipSignButtonsFrame(sign)
+	local gui = skipSignGui(sign)
+	local frame = gui and gui:FindFirstChild("SkipTimeButtons")
+	return frame and frame:IsA("GuiObject") and frame or nil
+end
+
+local function isNearSkipSign(sign)
+	if not (sign and sign.Parent) then
+		return false
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local position = root and root:IsA("BasePart") and StationFocus.InstancePosition(sign) or nil
+	return position ~= nil and (root.Position - position).Magnitude <= SKIP_SIGN_DISTANCE
 end
 
 local function isPlotCandidate(instance)
@@ -377,20 +408,36 @@ local function setMailboxHidden(mailbox, hidden)
 	mailboxHiddenStates[mailbox] = hidden and true or nil
 end
 
+local function setSkipSignGuiEnabled(sign, enabled)
+	local gui = skipSignGui(sign)
+	if gui and gui.Enabled ~= enabled then
+		gui.Enabled = enabled
+	end
+end
+
 local function refreshMailboxVisibility()
 	local ownedPlot = ownPlot()
 	local seen = {}
 	forEachRuntimePlot(function(plot)
+		local hidden = plot ~= ownedPlot or tutorialActive
 		local mailbox = mailboxForPlot(plot)
 		if mailbox then
 			seen[mailbox] = true
-			setMailboxHidden(mailbox, plot ~= ownedPlot or tutorialActive)
+			setMailboxHidden(mailbox, hidden)
+		end
+		local sign = skipSignForPlot(plot)
+		if sign then
+			seen[sign] = true
+			-- LocalTransparencyModifier hides the sign parts but not its
+			-- SurfaceGui, so toggle the gui alongside.
+			setMailboxHidden(sign, hidden)
+			setSkipSignGuiEnabled(sign, not hidden)
 		end
 	end)
-	for mailbox in pairs(mailboxHiddenStates) do
-		if not seen[mailbox] or mailbox.Parent == nil then
-			applyMailboxLocalTransparency(mailbox, 0)
-			mailboxHiddenStates[mailbox] = nil
+	for station in pairs(mailboxHiddenStates) do
+		if not seen[station] or station.Parent == nil then
+			applyMailboxLocalTransparency(station, 0)
+			mailboxHiddenStates[station] = nil
 		end
 	end
 end
@@ -403,17 +450,26 @@ local function requestBlocked()
 	return pendingRequestId ~= nil or pendingProductId ~= nil
 end
 
-local function canUseMailbox(mailbox)
-	return mailbox ~= nil
-		and not tutorialActive
+local function canUseStation()
+	return not tutorialActive
 		and profileReady()
 		and player:GetAttribute(State.Player.OfflineProgressPending) ~= true
 		and player:GetAttribute(EDIT_MODE_ATTR) ~= true
-		and StationFocus.IsMailboxActive()
 end
 
-local function codeToMessage(code)
+local function canUseMailbox(mailbox)
+	return mailbox ~= nil and canUseStation() and StationFocus.IsMailboxActive()
+end
+
+local function canUseSkipSign(sign)
+	return sign ~= nil and sign.Parent ~= nil and canUseStation() and isNearSkipSign(sign)
+end
+
+local function codeToMessage(code, record)
 	if code == "too-far" then
+		if record and record.station == "sign" then
+			return "Move closer to the sign."
+		end
 		return "Move closer to the mailbox."
 	end
 	if code == "profile-not-ready" or code == "no-profile" then
@@ -443,24 +499,50 @@ local function codeToMessage(code)
 	return "Could not start purchase."
 end
 
-local function bindCard(frame)
+local function bindCard(frame, buttonName)
 	if not (frame and frame:IsA("GuiObject")) then
 		return nil
 	end
-	local buyButton = findDescendant(frame, "BuyButton", "GuiButton")
+	buttonName = buttonName or "BuyButton"
+	local buyButton = findDescendant(frame, buttonName, "GuiButton")
 	if not buyButton then
-		warn("[SkipTimeButtonsController] Missing " .. frame:GetFullName() .. ".BuyButton")
+		warn("[SkipTimeButtonsController] Missing " .. frame:GetFullName() .. "." .. buttonName)
 		return nil
 	end
 	UiEffects.BindButton(buyButton)
 	return {
 		frame = frame,
 		buyButton = buyButton,
-		priceLabel = findDescendant(buyButton, "Price", "TextLabel"),
+		priceLabel = findDescendant(frame, "Price", "TextLabel"),
 		skipAmountLabel = findDescendant(frame, "SkipAmount", "TextLabel"),
 		fruitsLabel = findDescendant(frame, "FruitsLabel", "TextLabel"),
 		errorLabel = findDescendant(frame, "ErrorLabel", "TextLabel"),
 	}
+end
+
+-- The sign hitbox is invisible, so UiEffects' color/scale feedback on the
+-- button itself never shows; press-scale the whole card instead.
+local function bindSignPressEffect(record)
+	local scale = record.frame:FindFirstChild("SignPressScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Name = "SignPressScale"
+		scale.Parent = record.frame
+	end
+	local function setPressed(active)
+		TweenService:Create(scale, SIGN_PRESS_TWEEN, {
+			Scale = active and SIGN_PRESS_SCALE or 1,
+		}):Play()
+	end
+	RuntimeGuard.Connect(record.buyButton.MouseButton1Down, "SkipTimeButtonsController.SignPressDown", function()
+		setPressed(true)
+	end)
+	RuntimeGuard.Connect(record.buyButton.MouseButton1Up, "SkipTimeButtonsController.SignPressUp", function()
+		setPressed(false)
+	end)
+	RuntimeGuard.Connect(record.buyButton.MouseLeave, "SkipTimeButtonsController.SignPressLeave", function()
+		setPressed(false)
+	end)
 end
 
 local function bindSlowGradientRotation(guiObject)
@@ -643,6 +725,9 @@ function SkipTimeButtonsController.start()
 	local records = {}
 	local recordsBySkipId = {}
 	local collectAllRecord = nil
+	local signRecords = {}
+	local boundSign = nil
+	local signActive = false
 	local isOpen = false
 	local transitionToken = 0
 	local lastPreviewAt = -math.huge
@@ -650,6 +735,23 @@ function SkipTimeButtonsController.start()
 	local cachedCollectAllCount = 0
 	local cachedSkipXPById = {}
 	local render
+	local requestSkip
+	local requestCollectAll
+
+	local function forEachRecord(callback)
+		for _, record in ipairs(records) do
+			callback(record)
+		end
+		for _, record in ipairs(signRecords) do
+			callback(record)
+		end
+	end
+
+	local function clearAllErrors()
+		forEachRecord(function(record)
+			setError(record, nil)
+		end)
+	end
 
 	local function markPreviewDirty()
 		lastPreviewAt = -math.huge
@@ -742,7 +844,7 @@ function SkipTimeButtonsController.start()
 	end
 
 	local function refreshPreviewCache(plot)
-		if not isOpen or requestBlocked() or collectAllPreviewFrozen then
+		if not (isOpen or signActive) or requestBlocked() or collectAllPreviewFrozen then
 			return
 		end
 		local clock = os.clock()
@@ -751,36 +853,45 @@ function SkipTimeButtonsController.start()
 		end
 		lastPreviewAt = clock
 		cachedCollectAllCount = readyCollectAllFruitCount(plot)
-		for _, record in ipairs(records) do
-			if record.kind == "skip" then
-				cachedSkipXPById[record.skipId] = skipAddedPatchXP(plot, record.durationSeconds)
-			end
+		for _, skipId in ipairs(SKIP_IDS) do
+			local config = ShopBalance.GrowSkipForSkipId(skipId)
+			cachedSkipXPById[skipId] = skipAddedPatchXP(plot, int(config and config.DurationSeconds, 0))
 		end
 	end
 
 	render = function()
 		local plot = ownPlot()
 		refreshPreviewCache(plot)
-		for _, record in ipairs(records) do
+		forEachRecord(function(record)
+			local previewActive = if record.station == "sign" then signActive else isOpen
 			if record.priceLabel then
 				UiEffects.SetTextStack(record.priceLabel, robuxText(record.productId, render))
 			end
 			if record.kind == "skip" then
-				if isOpen and record.skipAmountLabel then
+				if previewActive and record.skipAmountLabel then
 					UiEffects.SetTextStack(record.skipAmountLabel, formatAddedXP(cachedSkipXPById[record.skipId] or 0))
 				end
-			elseif isOpen and record.kind == "collect-all" and record.fruitsLabel then
+			elseif previewActive and record.kind == "collect-all" and record.fruitsLabel then
 				local suffix = cachedCollectAllCount == 1 and " fruit" or " fruits"
 				UiEffects.SetTextStack(record.fruitsLabel, NumberFormatter.Format(cachedCollectAllCount) .. suffix)
 			end
-		end
+		end)
 	end
 
-	local function requestSkip(skipId)
-		local record = recordsBySkipId[skipId]
+	-- The remote target doubles as the station the server distance-checks:
+	-- the mailbox for HUD cards, the sign itself for sign cards.
+	local function stationTargetFor(record)
+		if record.station == "sign" then
+			local sign = boundSign
+			return canUseSkipSign(sign) and sign or nil
+		end
 		local mailbox = currentMailbox()
+		return canUseMailbox(mailbox) and mailbox or nil
+	end
+
+	requestSkip = function(record)
 		local plot = ownPlot()
-		clearErrors(records)
+		clearAllErrors()
 		if requestBlocked() then
 			setError(record, codeToMessage("pending-purchase"))
 			render()
@@ -791,8 +902,9 @@ function SkipTimeButtonsController.start()
 			render()
 			return
 		end
-		if not canUseMailbox(mailbox) then
-			setError(record, codeToMessage("too-far"))
+		local target = stationTargetFor(record)
+		if not target then
+			setError(record, codeToMessage("too-far", record))
 			render()
 			return
 		end
@@ -803,51 +915,110 @@ function SkipTimeButtonsController.start()
 		end
 		pendingRequestId = nextNegativeRequestId()
 		pendingKind = "skip"
-		growSkipRequestRemote:FireServer(pendingRequestId, mailbox, skipId)
+		pendingRecord = record
+		growSkipRequestRemote:FireServer(pendingRequestId, target, record.skipId)
 		render()
 	end
 
-	local function requestCollectAll()
-		local mailbox = currentMailbox()
+	requestCollectAll = function(record)
 		local plot = ownPlot()
-		clearErrors(records)
+		clearAllErrors()
 		if requestBlocked() then
-			setError(collectAllRecord, codeToMessage("pending-purchase"))
+			setError(record, codeToMessage("pending-purchase"))
 			render()
 			return
 		end
-		if not (collectAllRecord and collectAllRecord.productId > 0) then
-			setError(collectAllRecord, codeToMessage(nil))
+		if not (record and record.productId > 0) then
+			setError(record, codeToMessage(nil))
 			render()
 			return
 		end
-		if not canUseMailbox(mailbox) then
-			setError(collectAllRecord, codeToMessage("too-far"))
+		local target = stationTargetFor(record)
+		if not target then
+			setError(record, codeToMessage("too-far", record))
 			render()
 			return
 		end
 		local readyCount = readyCollectAllFruitCount(plot)
 		if readyCount <= 0 then
 			cachedCollectAllCount = 0
-			setError(collectAllRecord, codeToMessage("no-food"))
+			setError(record, codeToMessage("no-food"))
 			render()
 			return
 		end
 		cachedCollectAllCount = readyCount
 		pendingRequestId = nextNegativeRequestId()
 		pendingKind = "collect-all"
+		pendingRecord = record
 		collectAllPreviewFrozen = true
-		collectAllRequestRemote:FireServer(pendingRequestId, mailbox)
+		collectAllRequestRemote:FireServer(pendingRequestId, target)
 		render()
 	end
 
 	for skipId, record in pairs(recordsBySkipId) do
 		RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController." .. skipId, function()
-			requestSkip(skipId)
+			requestSkip(record)
 		end)
 	end
 	if collectAllRecord then
-		RuntimeGuard.Connect(collectAllRecord.buyButton.Activated, "SkipTimeButtonsController.CollectAll", requestCollectAll)
+		RuntimeGuard.Connect(collectAllRecord.buyButton.Activated, "SkipTimeButtonsController.CollectAll", function()
+			requestCollectAll(collectAllRecord)
+		end)
+	end
+
+	local function bindSignCards(sign)
+		signRecords = {}
+		boundSign = sign
+		if not sign then
+			return
+		end
+		local frame = skipSignButtonsFrame(sign)
+		if not frame then
+			warn("[SkipTimeButtonsController] " .. sign:GetFullName() .. " is missing SurfaceGui.SkipTimeButtons")
+			return
+		end
+		for _, skipId in ipairs(SKIP_IDS) do
+			local config = ShopBalance.GrowSkipForSkipId(skipId)
+			local record = bindCard(frame:FindFirstChild(skipId), "Hitbox")
+			if record then
+				record.kind = "skip"
+				record.station = "sign"
+				record.skipId = skipId
+				record.productId = int(config and config.DevProductId, 0)
+				record.durationSeconds = int(config and config.DurationSeconds, 0)
+				signRecords[#signRecords + 1] = record
+				bindSignPressEffect(record)
+				RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.Sign" .. skipId, function()
+					requestSkip(record)
+				end)
+				if skipId == "Skip30m" then
+					ensureMythicalTextTween(record.skipAmountLabel)
+					bindSlowGradientRotation(findDescendant(record.frame, "BuyButton", "GuiButton"))
+				end
+			end
+		end
+		do
+			local config = ShopBalance.GetCollectAll()
+			local record = bindCard(frame:FindFirstChild("CollectAll"), "Hitbox")
+			if record then
+				record.kind = "collect-all"
+				record.station = "sign"
+				record.productId = int(config and config.DevProductId, 0)
+				signRecords[#signRecords + 1] = record
+				bindSignPressEffect(record)
+				RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.SignCollectAll", function()
+					requestCollectAll(record)
+				end)
+			end
+		end
+	end
+
+	local function ensureSignBound()
+		local sign = skipSignForPlot(ownPlot())
+		if sign == boundSign and (sign == nil or sign.Parent ~= nil) then
+			return
+		end
+		bindSignCards(sign and sign.Parent and sign or nil)
 	end
 
 	RuntimeGuard.Connect(growSkipResultRemote.OnClientEvent, "SkipTimeButtonsController.GrowSkipResult", function(payload)
@@ -855,7 +1026,10 @@ function SkipTimeButtonsController.start()
 			return
 		end
 		local skipId = payload.skipId
-		local record = type(skipId) == "string" and recordsBySkipId[skipId] or nil
+		local record = pendingRecord
+		if not record then
+			record = type(skipId) == "string" and recordsBySkipId[skipId] or nil
+		end
 		if not record then
 			record = records[1]
 		end
@@ -872,12 +1046,14 @@ function SkipTimeButtonsController.start()
 				if pendingProductId == productId and promptToken == token then
 					pendingProductId = nil
 					pendingKind = nil
+					pendingRecord = nil
 					render()
 				end
 			end)
 		else
 			pendingKind = nil
-			setError(record, codeToMessage(payload.code))
+			pendingRecord = nil
+			setError(record, codeToMessage(payload.code, record))
 		end
 		markPreviewDirty()
 		render()
@@ -887,6 +1063,7 @@ function SkipTimeButtonsController.start()
 		if pendingKind ~= "collect-all" or type(payload) ~= "table" or payload.requestId ~= pendingRequestId then
 			return
 		end
+		local record = pendingRecord or collectAllRecord
 		pendingRequestId = nil
 		local productId = int(payload.productId, 0)
 		if payload.success == true and productId > 0 and type(payload.reservationId) == "string" then
@@ -900,12 +1077,14 @@ function SkipTimeButtonsController.start()
 				if pendingProductId == productId and promptToken == token then
 					pendingProductId = nil
 					pendingKind = nil
+					pendingRecord = nil
 					render()
 				end
 			end)
 		else
 			pendingKind = nil
-			setError(collectAllRecord, codeToMessage(payload.code))
+			pendingRecord = nil
+			setError(record, codeToMessage(payload.code, record))
 			thawCollectAllPreview()
 		end
 		markPreviewDirty()
@@ -920,6 +1099,7 @@ function SkipTimeButtonsController.start()
 		promptToken += 1
 		pendingProductId = nil
 		pendingKind = nil
+		pendingRecord = nil
 		if finishedKind == "collect-all" and wasPurchased ~= true then
 			thawCollectAllPreview()
 		end
@@ -946,6 +1126,11 @@ function SkipTimeButtonsController.start()
 			RuntimeGuard.Run("SkipTimeButtonsController.ProximityTick", function()
 				local mailbox = currentMailbox()
 				refreshMailboxVisibility()
+				ensureSignBound()
+				signActive = boundSign ~= nil and not tutorialActive and isNearSkipSign(boundSign)
+				if not signActive then
+					clearErrors(signRecords)
+				end
 				local near = mailbox ~= nil and not tutorialActive and StationFocus.IsMailboxActive()
 				local door = doorForMailbox(mailbox)
 				if near then

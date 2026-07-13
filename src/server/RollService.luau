@@ -10,6 +10,7 @@ local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local RollBroadcastService = require(Server:WaitForChild("RollBroadcastService"))
 local RollOfferPersistence = require(Server:WaitForChild("RollOfferPersistence"))
 local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local SeedTools = require(Server:WaitForChild("SeedTools"))
@@ -1145,6 +1146,13 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 	sendRollEffect(player, buttonPart, batchIdOrNil, effectOffers, TRACK_NORMAL)
 	task.delay(visualDuration, function()
 		RuntimeGuard.Run("RollService.SendPublicRollOffersDelayed", sendPublicRollOffers, player, batchIdOrNil, publicOffersOrNil or {}, TRACK_NORMAL)
+		-- Announce alongside the delayed public send so chat never spoils the
+		-- crate reveal. Rarity gating (Mythical+) lives in the broadcast service.
+		RuntimeGuard.Run("RollService.AnnounceRollBroadcasts", function()
+			for _, offer in ipairs(publicOffersOrNil or {}) do
+				RollBroadcastService.AnnounceOffer(player, offer)
+			end
+		end)
 	end)
 	TelemetryService.Record("crate_roll_created", TelemetryService.ForPlayer(player, {
 		batchId = batchIdOrNil,
@@ -2359,6 +2367,13 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 	sendAdminGhostRollEffect(player, effectOffer)
 	task.delay(visualDuration, function()
 		RuntimeGuard.Run("RollService.SendPublicAdminOffer", sendPublicRollOffers, player, effectOffer.rollBatchId, { publicOfferOrNil }, TRACK_ADMIN)
+		-- Rarity-pool crates guarantee their tier for every recipient, so their
+		-- reveals are intentionally silent in chat (server and global).
+		if not crate.PoolRarity then
+			RuntimeGuard.Run("RollService.AnnounceAdminRollBroadcast", function()
+				RollBroadcastService.AnnounceOffer(player, publicOfferOrNil)
+			end)
+		end
 	end)
 	RuntimeGuard.Run("RollService.NotifyAdminDrop", function()
 		NotificationService.Notify(player, {

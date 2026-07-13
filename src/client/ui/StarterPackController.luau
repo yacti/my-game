@@ -14,6 +14,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
+local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
@@ -197,9 +198,16 @@ local function renderRewardSlot(slot, reward)
 		setTextStack(amountLabel, showAmount and string.format("(%s)", NumberFormatter.Integer(amount)) or "")
 	end
 	HoverOver.Bind(slot, function()
+		local xp = nil
+		if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed then
+			xp = FeedXPText.ForSeed(reward.SeedId)
+		elseif reward and reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine then
+			xp = FeedXPText.ForFeedType(reward.FeedType)
+		end
 		return {
 			name = displayName,
 			rarity = rarity,
+			xp = xp,
 		}
 	end)
 end
