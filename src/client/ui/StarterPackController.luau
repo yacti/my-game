@@ -17,7 +17,9 @@ local FeedDisplayModel = require(script.Parent:WaitForChild("FeedDisplayModel"))
 local FeedXPText = require(script.Parent:WaitForChild("FeedXPText"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
 local HoverOver = require(script.Parent:WaitForChild("HoverOver"))
+local PackIconDisplay = require(script.Parent:WaitForChild("PackIconDisplay"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
+local SeedPackShopController = require(script.Parent:WaitForChild("SeedPackShopController"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 
@@ -160,6 +162,10 @@ local function rewardDisplayInfo(reward)
 	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
 		return nil, NumberFormatter.CurrencyExact(reward.Amount), nil
 	end
+	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack then
+		local seedPack = ShopBalance.SeedPackForPackId(reward.PackId)
+		return nil, seedPack and seedPack.DisplayName or tostring(reward.PackId), nil
+	end
 	if reward and reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine then
 		local feedType = reward.FeedType
 		local template = feedTemplateFor(feedType)
@@ -180,12 +186,17 @@ local function renderRewardSlot(slot, reward)
 	local amount = math.max(math.floor(tonumber(reward and reward.Amount) or 0), 0)
 	local template, displayName, rarity, seedPreviewOptions = rewardDisplayInfo(reward)
 	local isCash = reward ~= nil and reward.Kind == ShopBalance.StarterPackRewardKinds.Cash
+	local isSeedPack = reward ~= nil and reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack
 
 	slot.Visible = reward ~= nil
 	if icon then
 		icon.Visible = not isCash
-		local previewOptions = reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and seedPreviewOptions or PREVIEW_OPTIONS
-		ViewportPreview.Render(icon, template, previewOptions)
+		if isSeedPack then
+			PackIconDisplay.RenderViewport(icon, reward.PackId)
+		else
+			local previewOptions = reward and reward.Kind == ShopBalance.StarterPackRewardKinds.Seed and seedPreviewOptions or PREVIEW_OPTIONS
+			ViewportPreview.Render(icon, template, previewOptions)
+		end
 	end
 	if iconImage then
 		iconImage.Visible = isCash
@@ -246,10 +257,65 @@ local function activeStarterPackId()
 	return pack and pack.PackId or nil
 end
 
-local function bindCard(record, renderAll)
+-- Paid-random-items policy: restricted players see (and are granted) the
+-- deterministic cash fallback in place of the random seed pack roll.
+local function isSeedPacksAllowed()
+	return player:GetAttribute(State.Player.SeedPacksAllowed) == true
+end
+
+local function rewardsForPack(pack)
+	return ShopBalance.StarterPackRewardsForPolicy(pack, isSeedPacksAllowed())
+end
+
+local renderAllRef = nil
+local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
+
+-- Starts the preflight -> PromptProductPurchase flow for a pack; shared by the
+-- shop card buy button and the plot StarterPackPromptController. Returns
+-- false when a purchase is already pending or the pack is not buyable.
+function StarterPackController.RequestPurchase(packId)
+	local pack = ShopBalance.StarterPackForPackId(packId)
+	if not pack
+		or pendingRequestId ~= nil
+		or isPackOwned(pack)
+		or activeStarterPackId() ~= pack.PackId
+		or PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) ~= true then
+		return false
+	end
+	nextRequestId += 1
+	pendingRequestId = nextRequestId
+	pendingRequestPackId = pack.PackId
+	if renderAllRef then
+		renderAllRef()
+	end
+	requestRemote:FireServer(pendingRequestId, pack.PackId)
+	return true
+end
+
+-- Renders one reward card slot (Icon/IconImage/Name/Amount template); also
+-- used by StarterPackPromptController for the world offer billboard.
+function StarterPackController.RenderRewardSlot(slot, reward)
+	renderRewardSlot(slot, reward)
+end
+
+function StarterPackController.FormatCycleTimer()
+	return formatCycleTimer()
+end
+
+-- Cached Robux price text for a dev product; onLoaded fires once the real
+-- price arrives from MarketplaceService (the first call returns a 0 placeholder).
+function StarterPackController.RobuxPriceText(productId, onLoaded)
+	return robuxText(productId, onLoaded)
+end
+
+function StarterPackController.RewardsForPack(pack)
+	return rewardsForPack(pack)
+end
+
+local function bindCard(record)
 	local card = record.card
 	local pack = record.pack
-	local rewards = pack and pack.Rewards or {}
+	local packRewards = pack and pack.Rewards or {}
 	local buyButton = child(card, "BuyButton", "GuiButton")
 	local priceLabel = buyButton and descendant(buyButton, "Price", "TextLabel")
 	local title = child(card, "Name", "TextLabel")
@@ -257,18 +323,21 @@ local function bindCard(record, renderAll)
 	local timer = child(card, "Timer", "TextLabel")
 	local items = child(card, "Items", "GuiObject")
 	local slots = sortedGuiChildren(items, "Template")
-	if not (pack and buyButton and priceLabel and sold and items and #slots >= #rewards) then
+	if not (pack and buyButton and priceLabel and sold and items and #slots >= #packRewards) then
 		warn("[StarterPackController] " .. tostring(record.source) .. " is missing required named instances")
 		return nil
 	end
 
 	UiEffects.BindButton(buyButton)
 	setTextStack(title, pack.DisplayName or "Starter Pack")
-	for index, slot in ipairs(slots) do
-		renderRewardSlot(slot, rewards[index])
-	end
 
-	local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
+	local function applySlots()
+		local rewards = rewardsForPack(pack)
+		for index, slot in ipairs(slots) do
+			renderRewardSlot(slot, rewards[index])
+		end
+	end
+	applySlots()
 
 	local function render()
 		local active = activeStarterPackId() == pack.PackId
@@ -287,35 +356,27 @@ local function bindCard(record, renderAll)
 	end
 
 	RuntimeGuard.Connect(buyButton.Activated, "StarterPackController.Buy." .. tostring(pack.PackId), function()
-		local owned = isPackOwned(pack)
-		if pendingRequestId ~= nil
-			or owned
-			or activeStarterPackId() ~= pack.PackId
-			or PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) ~= true then
-			return
-		end
-		nextRequestId += 1
-		pendingRequestId = nextRequestId
-		pendingRequestPackId = pack.PackId
-		render()
-		requestRemote:FireServer(pendingRequestId, pack.PackId)
+		StarterPackController.RequestPurchase(pack.PackId)
 	end)
-	return render
+	return render, applySlots
 end
 
 function StarterPackController.start()
 	local renderers = {}
+	local slotAppliers = {}
 	local renderAll
 	renderAll = function()
 		for _, render in ipairs(renderers) do
 			render()
 		end
 	end
+	renderAllRef = renderAll
 
 	for _, record in ipairs(findShopCards()) do
-		local render = bindCard(record, renderAll)
+		local render, applySlots = bindCard(record)
 		if render then
 			renderers[#renderers + 1] = render
+			slotAppliers[#slotAppliers + 1] = applySlots
 		end
 	end
 	if #renderers == 0 then
@@ -323,7 +384,16 @@ function StarterPackController.start()
 	end
 
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.StarterPackPurchaseResult).OnClientEvent, "StarterPackController.PurchaseResult", function(payload)
-		if type(payload) ~= "table" or payload.requestId ~= pendingRequestId then
+		if type(payload) ~= "table" then
+			return
+		end
+		if payload.action == "reveal" then
+			-- Seed pack rewards rolled by the receipt grant play the standard
+			-- pack-opening reveal, then return to the Featured shop section.
+			SeedPackShopController.EnqueueReveal(payload)
+			return
+		end
+		if payload.requestId ~= pendingRequestId then
 			return
 		end
 		local requestPackId = pendingRequestPackId
@@ -342,6 +412,14 @@ function StarterPackController.start()
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.ProfileReady, renderAll)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Rebirths, renderAll)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.SeedPacksAllowed), "StarterPackController.SeedPacksAllowed", function()
+		-- Policy resolves asynchronously after join; swap seed pack slots for
+		-- their cash fallback (or back) once it lands.
+		for _, applySlots in ipairs(slotAppliers) do
+			applySlots()
+		end
+		renderAll()
+	end)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.StarterPackPurchased, function(purchased, previousPurchased)
 		if purchased == true and previousPurchased == false then
 			ConfettiEffect.Emit()

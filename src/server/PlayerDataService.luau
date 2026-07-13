@@ -60,6 +60,9 @@ local DATA_TEMPLATE = {
 	-- (see ShopBalance.DurianPack) is forced to the durian reward and resets
 	-- this; natural durian rolls do not.
 	DurianPackPity = 0,
+	-- Total Endless Pack track items claimed/bought (see ShopBalance.EndlessPack).
+	-- Monotonic; the next claimable position is always this + 1.
+	EndlessPackProgress = 0,
 	Currency = STARTING_CURRENCY,
 	RollLuckLevel = 0,
 	RollDropAreaLevel = 0,
@@ -660,6 +663,7 @@ local function ensureValidData(profile)
 	profile.Data.PurpleAngelCrateGuaranteeAt = math.max(math.floor(tonumber(profile.Data.PurpleAngelCrateGuaranteeAt) or 0), 0)
 	profile.Data.DurianTickets = math.max(math.floor(tonumber(profile.Data.DurianTickets) or 0), 0)
 	profile.Data.DurianPackPity = math.max(math.floor(tonumber(profile.Data.DurianPackPity) or 0), 0)
+	profile.Data.EndlessPackProgress = math.max(math.floor(tonumber(profile.Data.EndlessPackProgress) or 0), 0)
 	profile.Data.Pets = sanitizePets(profile.Data.Pets, profile.Data.Rebirths)
 
 	local placements = {}

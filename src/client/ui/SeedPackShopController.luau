@@ -33,6 +33,7 @@ local SHOP_MENU_GROUP = "Shop"
 local FEATURED_SECTION_NAME = "Featured"
 local SEED_PACKS_NAME = "SeedPacks"
 local CASH_PACKS_NAME = "CashPacks"
+local ENDLESS_PACK_NAME = "EndlessPack"
 local PACK_HOLDER_TEMPLATE_NAME = "PackHolder"
 local CONTINUE_BUTTON_NAME = "Continue"
 local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
@@ -231,21 +232,25 @@ local function shopFrames()
 	local featured = holder and holder:FindFirstChild(FEATURED_SECTION_NAME)
 	local seedPacks = holder and holder:FindFirstChild(SEED_PACKS_NAME)
 	local cashPacks = holder and holder:FindFirstChild(CASH_PACKS_NAME)
+	local endlessPack = holder and holder:FindFirstChild(ENDLESS_PACK_NAME)
 	return panel,
 		holder,
 		featured and featured:IsA("GuiObject") and featured or nil,
 		seedPacks and seedPacks:IsA("GuiObject") and seedPacks or nil,
-		cashPacks and cashPacks:IsA("GuiObject") and cashPacks or nil
+		cashPacks and cashPacks:IsA("GuiObject") and cashPacks or nil,
+		endlessPack and endlessPack:IsA("GuiObject") and endlessPack or nil
 end
 
 local function shopSection(sectionName)
-	local _, holder, featured, seedPacks, cashPacks = shopFrames()
+	local _, holder, featured, seedPacks, cashPacks, endlessPack = shopFrames()
 	if sectionName == FEATURED_SECTION_NAME then
 		return featured, holder
 	elseif sectionName == SEED_PACKS_NAME then
 		return seedPacks, holder
 	elseif sectionName == CASH_PACKS_NAME then
 		return cashPacks, holder
+	elseif sectionName == ENDLESS_PACK_NAME then
+		return endlessPack, holder
 	end
 	return nil, holder
 end
@@ -351,13 +356,20 @@ local function renderPackCard(pack)
 		return nil
 	end
 
+	local packRarityColor = Rarities.TextColorFor(pack.Rarity)
 	local title = frame:FindFirstChild("Title")
 	if title and title:IsA("TextLabel") then
 		setTextStack(title, pack.DisplayName)
+		if packRarityColor then
+			title.TextColor3 = packRarityColor
+		end
 	end
 	local nameLabel = frame:FindFirstChild("Name")
 	if nameLabel and nameLabel:IsA("TextLabel") then
 		setTextStack(nameLabel, pack.DisplayName)
+		if packRarityColor then
+			nameLabel.TextColor3 = packRarityColor
+		end
 	end
 
 	PackIconDisplay.Render(frame, pack.PackId)

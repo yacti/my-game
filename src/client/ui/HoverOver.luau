@@ -156,21 +156,32 @@ local function ensurePopup()
 end
 
 -- The Holder labels are scale-sized to fill the frame top-down, so hiding the
--- XP line would otherwise leave a blank band at the bottom. Shrink the frame
--- by the hidden line's share and rescale the visible labels so their on-screen
--- heights match the three-line layout.
-local function applyXPLayout(showXP)
+-- rarity or XP line would otherwise leave a blank band at the bottom. Shrink
+-- the frame by the hidden lines' share and rescale the visible labels so their
+-- on-screen heights match the three-line layout.
+local function applyLineLayout(showRarity, showXP)
 	if not (popup and baseFrameSize and baseLabelSizes) then
 		return
 	end
+	if rarityLabel then
+		rarityLabel.Visible = showRarity
+	end
 	if xpLabel then
 		xpLabel.Visible = showXP
+	end
+	local function isShown(label)
+		if label == rarityLabel then
+			return showRarity
+		elseif label == xpLabel then
+			return showXP
+		end
+		return true
 	end
 	local total = 0
 	local visible = 0
 	for label, size in pairs(baseLabelSizes) do
 		total += size.Y.Scale
-		if label ~= xpLabel or showXP then
+		if isShown(label) then
 			visible += size.Y.Scale
 		end
 	end
@@ -285,7 +296,7 @@ local function normalizedPayload(payload)
 		return nil
 	end
 	local rarity = payload.rarity or payload.Rarity
-	if type(rarity) ~= "string" or not Rarities.IsValid(rarity) then
+	if rarity ~= nil and (type(rarity) ~= "string" or not Rarities.IsValid(rarity)) then
 		rarity = Rarities.Common
 	end
 	local xp = payload.xp or payload.Xp or payload.XP
@@ -394,16 +405,16 @@ function HoverOver.Show(payload, anchorGuiOrPosition, mode)
 	end
 
 	UiEffects.SetTextStack(itemNameLabel, payload.name)
-	UiEffects.SetTextStack(rarityLabel, payload.rarity)
+	UiEffects.SetTextStack(rarityLabel, payload.rarity or "")
 	if xpLabel then
 		UiEffects.SetTextStack(xpLabel, payload.xp or "")
 	end
-	applyXPLayout(payload.xp ~= nil and xpLabel ~= nil)
+	applyLineLayout(payload.rarity ~= nil, payload.xp ~= nil and xpLabel ~= nil)
 	activeRarity = payload.rarity
 	refreshRarityColor()
 
 	disconnectRarityRender()
-	local definition = Rarities.Get(activeRarity)
+	local definition = activeRarity and Rarities.Get(activeRarity) or nil
 	if definition and definition.Animated then
 		rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "HoverOver.RarityRender", refreshRarityColor)
 	end

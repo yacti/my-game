@@ -67,7 +67,13 @@ local activeDoorClosedPivot = nil
 local activeDoorOpen = false
 local activeDoorTweenToken = 0
 local tutorialActive = false
-local mailboxHiddenStates = setmetatable({}, { __mode = "k" })
+-- Deliberately strong tables: weak-keyed Instance entries can be collected
+-- between proximity ticks (nothing else holds the part userdata), which
+-- both drops the hidden flag and lets the next hide pass re-capture
+-- CanCollide=false as the "authored" value. Entries are removed on restore
+-- and the refresh pass prunes destroyed stations, so growth is bounded.
+local stationHiddenStates = {}
+local stationOriginalCanCollide = {}
 
 local function int(value, minimum)
 	value = tonumber(value)
@@ -142,6 +148,15 @@ local function skipSignButtonsFrame(sign)
 	local gui = skipSignGui(sign)
 	local frame = gui and gui:FindFirstChild("SkipTimeButtons")
 	return frame and frame:IsA("GuiObject") and frame or nil
+end
+
+-- Which purchase station this player's experiment variant uses. nil / any
+-- unknown attribute value falls back to the "mailbox" control.
+local function stationVariant()
+	if player:GetAttribute(State.Player.SkipTimeStation) == "sign" then
+		return "sign"
+	end
+	return "mailbox"
 end
 
 local function isNearSkipSign(sign)
@@ -379,33 +394,56 @@ local function readyCollectAllFruitCount(plot)
 	return math.min(count, remainingSlots)
 end
 
-local function applyMailboxLocalTransparency(mailbox, transparency)
-	if not mailbox then
+local function forEachStationPart(station, callback)
+	if not station then
 		return
 	end
-	for _, descendant in ipairs(mailbox:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.LocalTransparencyModifier = transparency
-		end
+	if station:IsA("BasePart") then
+		callback(station)
 	end
-	if mailbox:IsA("BasePart") then
-		mailbox.LocalTransparencyModifier = transparency
+	for _, descendant in ipairs(station:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			callback(descendant)
+		end
 	end
 end
 
-local function setMailboxHidden(mailbox, hidden)
-	if not mailbox then
+-- Hidden stations must not block movement either. Authored CanCollide values
+-- are mixed (decor parts are already non-collidable), so remember each part's
+-- original and restore exactly that on reveal.
+local function applyStationHidden(station, hidden)
+	forEachStationPart(station, function(part)
+		if hidden then
+			part.LocalTransparencyModifier = 1
+			if stationOriginalCanCollide[part] == nil then
+				stationOriginalCanCollide[part] = part.CanCollide
+			end
+			part.CanCollide = false
+		else
+			part.LocalTransparencyModifier = 0
+			local original = stationOriginalCanCollide[part]
+			if original ~= nil then
+				part.CanCollide = original
+				stationOriginalCanCollide[part] = nil
+			end
+		end
+	end)
+end
+
+local function setStationHidden(station, hidden)
+	if not station then
 		return
 	end
-	local currentlyHidden = mailboxHiddenStates[mailbox] == true
+	local currentlyHidden = stationHiddenStates[station] == true
 	if currentlyHidden == hidden then
 		if hidden then
-			applyMailboxLocalTransparency(mailbox, 1)
+			-- Reapply so parts that streamed in after the hide are covered.
+			applyStationHidden(station, true)
 		end
 		return
 	end
-	applyMailboxLocalTransparency(mailbox, hidden and 1 or 0)
-	mailboxHiddenStates[mailbox] = hidden and true or nil
+	applyStationHidden(station, hidden)
+	stationHiddenStates[station] = hidden and true or nil
 end
 
 local function setSkipSignGuiEnabled(sign, enabled)
@@ -418,26 +456,28 @@ end
 local function refreshMailboxVisibility()
 	local ownedPlot = ownPlot()
 	local seen = {}
+	local variant = stationVariant()
 	forEachRuntimePlot(function(plot)
 		local hidden = plot ~= ownedPlot or tutorialActive
 		local mailbox = mailboxForPlot(plot)
 		if mailbox then
 			seen[mailbox] = true
-			setMailboxHidden(mailbox, hidden)
+			setStationHidden(mailbox, hidden or variant ~= "mailbox")
 		end
 		local sign = skipSignForPlot(plot)
 		if sign then
 			seen[sign] = true
+			local signHidden = hidden or variant ~= "sign"
 			-- LocalTransparencyModifier hides the sign parts but not its
 			-- SurfaceGui, so toggle the gui alongside.
-			setMailboxHidden(sign, hidden)
-			setSkipSignGuiEnabled(sign, not hidden)
+			setStationHidden(sign, signHidden)
+			setSkipSignGuiEnabled(sign, not signHidden)
 		end
 	end)
-	for station in pairs(mailboxHiddenStates) do
+	for station in pairs(stationHiddenStates) do
 		if not seen[station] or station.Parent == nil then
-			applyMailboxLocalTransparency(station, 0)
-			mailboxHiddenStates[station] = nil
+			applyStationHidden(station, false)
+			stationHiddenStates[station] = nil
 		end
 	end
 end
@@ -458,11 +498,18 @@ local function canUseStation()
 end
 
 local function canUseMailbox(mailbox)
-	return mailbox ~= nil and canUseStation() and StationFocus.IsMailboxActive()
+	return mailbox ~= nil
+		and stationVariant() == "mailbox"
+		and canUseStation()
+		and StationFocus.IsMailboxActive()
 end
 
 local function canUseSkipSign(sign)
-	return sign ~= nil and sign.Parent ~= nil and canUseStation() and isNearSkipSign(sign)
+	return sign ~= nil
+		and sign.Parent ~= nil
+		and stationVariant() == "sign"
+		and canUseStation()
+		and isNearSkipSign(sign)
 end
 
 local function codeToMessage(code, record)
@@ -1118,6 +1165,11 @@ function SkipTimeButtonsController.start()
 		refreshMailboxVisibility()
 		render()
 	end)
+	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.SkipTimeStation), "SkipTimeButtonsController.StationVariantChanged", function()
+		markPreviewDirty()
+		refreshMailboxVisibility()
+		render()
+	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "SkipTimeButtonsController.OfflineProgressChanged", render)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(EDIT_MODE_ATTR), "SkipTimeButtonsController.EditModeChanged", render)
 
@@ -1127,11 +1179,18 @@ function SkipTimeButtonsController.start()
 				local mailbox = currentMailbox()
 				refreshMailboxVisibility()
 				ensureSignBound()
-				signActive = boundSign ~= nil and not tutorialActive and isNearSkipSign(boundSign)
+				local variant = stationVariant()
+				signActive = variant == "sign"
+					and boundSign ~= nil
+					and not tutorialActive
+					and isNearSkipSign(boundSign)
 				if not signActive then
 					clearErrors(signRecords)
 				end
-				local near = mailbox ~= nil and not tutorialActive and StationFocus.IsMailboxActive()
+				local near = variant == "mailbox"
+					and mailbox ~= nil
+					and not tutorialActive
+					and StationFocus.IsMailboxActive()
 				local door = doorForMailbox(mailbox)
 				if near then
 					openPanel()

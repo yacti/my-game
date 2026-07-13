@@ -49,6 +49,10 @@ State.Player = {
 	-- refused, nil while accepted) so giver clients can hide gift prompts;
 	-- never authority, GiftService re-resolves the profile.
 	AcceptGiftsDisabled = "AcceptGiftsDisabled",
+	-- Experiment variant for the skip-time purchase station ("mailbox" or
+	-- "sign"), resolved per player by SkipTimeStationService from the
+	-- SkipTimeStation config key. nil / unset means the "mailbox" control.
+	SkipTimeStation = "SkipTimeStation",
 }
 
 State.ServerLuck = {

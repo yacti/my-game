@@ -1,10 +1,15 @@
 -- Renders rare-roll broadcasts into the chat window as system messages.
 -- Rarity styling comes from the shared Rarities module: static tiers color the
--- item name via rich text; animated tiers (Mythical) get a UIGradient attached
--- through OnChatWindowAdded whose ColorSequence is re-stamped every frame so
--- the rainbow keeps moving after the message renders.
+-- item name via a single rich-text font tag; animated tiers (Mythical,
+-- Exclusive) get a per-character rich-text gradient sampled from the tier's
+-- color cycle. The gradient is static per message by engine constraint: the
+-- default chat renderer only honors UIGradients on PrefixTextProperties, takes
+-- a one-time clone of them at mount, and the rendered label lives in CoreGui
+-- where LocalScripts cannot reach it — so neither gradient mutation nor
+-- TweenService can animate a delivered message (verified empirically 2026-07).
+-- Each message samples the cycle at its own display time, so consecutive
+-- broadcasts still shimmer relative to each other.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local TextChatService = game:GetService("TextChatService")
 
@@ -19,17 +24,11 @@ local RollBroadcastController = {}
 local METADATA_PREFIX = "RollBroadcast|"
 local GLOBAL_PREFIX = utf8.char(0x1F30D) .. " " -- globe emoji marks cross-server rolls
 local CHANNELS_WAIT_SECONDS = 10
--- Stop restamping a message's gradient once it has scrolled out of relevance;
--- also bounds the animation set so a busy chat never grows the loop.
-local GRADIENT_LIFETIME_SECONDS = 60
-local MAX_ANIMATED_GRADIENTS = 20
-local RAINBOW_KEYPOINT_COUNT = 7
-local RAINBOW_HUE_SPAN = 0.6 -- fraction of the hue wheel visible across the label
+-- Fraction of the tier's color cycle spread across the item name's characters.
+local GRADIENT_TEXT_SPAN = 0.6
 
 local generalChannel = nil
 local warnedMissingChannel = false
-local animatedGradients = {}
-local heartbeatConnection = nil
 
 local function escapeRichText(text)
 	text = string.gsub(text, "&", "&amp;")
@@ -38,30 +37,35 @@ local function escapeRichText(text)
 	return text
 end
 
-local function mythicalSequenceAt(timeSeconds)
-	local definition = Rarities.Get(Rarities.Mythical)
-	local period = (definition and definition.RainbowPeriod) or 4
-	local phase = ((tonumber(timeSeconds) or 0) / period) % 1
-	local keypoints = table.create(RAINBOW_KEYPOINT_COUNT + 1)
-	for index = 0, RAINBOW_KEYPOINT_COUNT do
-		local alpha = index / RAINBOW_KEYPOINT_COUNT
-		keypoints[index + 1] = ColorSequenceKeypoint.new(
-			alpha,
-			Color3.fromHSV((phase + alpha * RAINBOW_HUE_SPAN) % 1, 0.85, 1)
-		)
+-- Per-character gradient for animated tiers: each grapheme gets its own font
+-- tag, sampling the tier's color cycle (rainbow for Mythical, color stops for
+-- Exclusive) across GRADIENT_TEXT_SPAN of one period. Anchoring the sample at
+-- display time gives every broadcast a different phase.
+local function animatedNameMarkup(rarity, itemName, definition)
+	local period = definition.RainbowPeriod or definition.TweenPeriod or 4
+	local graphemes = {}
+	for first, last in utf8.graphemes(itemName) do
+		graphemes[#graphemes + 1] = string.sub(itemName, first, last)
 	end
-	return ColorSequence.new(keypoints)
+	local count = #graphemes
+	local now = os.clock()
+	local pieces = table.create(count)
+	for index, grapheme in ipairs(graphemes) do
+		local alpha = count > 1 and (index - 1) / (count - 1) or 0
+		local color = Rarities.TextColorFor(rarity, now + alpha * period * GRADIENT_TEXT_SPAN)
+		pieces[index] = string.format('<font color="#%s">%s</font>', color:ToHex(), escapeRichText(grapheme))
+	end
+	return table.concat(pieces)
 end
 
-local function itemNameHexFor(rarity)
+local function itemNameMarkup(rarity, itemName)
 	local definition = Rarities.Get(rarity)
 	if definition and definition.Animated then
-		-- The gradient multiplies label colors, so animated tiers stay white
-		-- and let the gradient supply the rainbow.
-		return "#FFFFFF"
+		return "<b>" .. animatedNameMarkup(rarity, itemName, definition) .. "</b>"
 	end
 	local color = Rarities.TextColorFor(rarity)
-	return color and ("#" .. color:ToHex()) or "#FFFFFF"
+	local hex = color and ("#" .. color:ToHex()) or "#FFFFFF"
+	return string.format('<font color="%s"><b>%s</b></font>', hex, escapeRichText(itemName))
 end
 
 local function flaggedPlayerName(payload)
@@ -75,60 +79,12 @@ end
 local function buildMessageText(scope, payload)
 	local prefix = scope == RollBroadcasts.Scope.Global and GLOBAL_PREFIX or ""
 	return string.format(
-		'%s<b>%s</b> rolled a <b>%s</b> <font color="%s"><b>%s</b></font>!',
+		"%s<b>%s</b> rolled a <b>%s</b> %s!",
 		prefix,
 		escapeRichText(flaggedPlayerName(payload)),
 		escapeRichText(payload.chanceText),
-		itemNameHexFor(payload.rarity),
-		escapeRichText(payload.itemName)
+		itemNameMarkup(payload.rarity, payload.itemName)
 	)
-end
-
-local function ensureAnimationLoop()
-	if heartbeatConnection then
-		return
-	end
-	heartbeatConnection = RuntimeGuard.Connect(RunService.Heartbeat, "RollBroadcastController.AnimateGradients", function()
-		local now = os.clock()
-		local sequence = mythicalSequenceAt(now)
-		for index = #animatedGradients, 1, -1 do
-			local entry = animatedGradients[index]
-			if now - entry.startedAt > GRADIENT_LIFETIME_SECONDS then
-				table.remove(animatedGradients, index)
-			else
-				entry.gradient.Color = sequence
-			end
-		end
-		if #animatedGradients == 0 and heartbeatConnection then
-			heartbeatConnection:Disconnect()
-			heartbeatConnection = nil
-		end
-	end)
-end
-
-local function trackAnimatedGradient(gradient)
-	animatedGradients[#animatedGradients + 1] = {
-		gradient = gradient,
-		startedAt = os.clock(),
-	}
-	while #animatedGradients > MAX_ANIMATED_GRADIENTS do
-		table.remove(animatedGradients, 1)
-	end
-	ensureAnimationLoop()
-end
-
-local function rarityFromMetadata(metadata)
-	if type(metadata) ~= "string" then
-		return nil
-	end
-	if string.sub(metadata, 1, #METADATA_PREFIX) ~= METADATA_PREFIX then
-		return nil
-	end
-	local rarity = string.sub(metadata, #METADATA_PREFIX + 1)
-	if not Rarities.IsValid(rarity) then
-		return nil
-	end
-	return rarity
 end
 
 local function getGeneralChannel()
@@ -166,38 +122,7 @@ local function displayMessage(scope, payload)
 	channel:DisplaySystemMessage(buildMessageText(scope, payload), METADATA_PREFIX .. payload.rarity)
 end
 
-local function bindChatWindowStyling()
-	if TextChatService.ChatVersion ~= Enum.ChatVersion.TextChatService then
-		return
-	end
-	local configuration = TextChatService:FindFirstChildOfClass("ChatWindowConfiguration")
-	if not configuration then
-		warn("[RollBroadcastController] Missing ChatWindowConfiguration; broadcasts render without gradient styling")
-		return
-	end
-	-- OnChatWindowAdded is a singleton callback on TextChatService; this
-	-- controller must stay its only owner or styling will silently break.
-	TextChatService.OnChatWindowAdded = function(textChatMessage)
-		local rarity = rarityFromMetadata(textChatMessage.Metadata)
-		if not rarity then
-			return nil
-		end
-		local definition = Rarities.Get(rarity)
-		if not (definition and definition.Animated) then
-			return nil
-		end
-		local properties = configuration:DeriveNewMessageProperties()
-		local gradient = Instance.new("UIGradient")
-		gradient.Color = mythicalSequenceAt(os.clock())
-		gradient.Parent = properties
-		trackAnimatedGradient(gradient)
-		return properties
-	end
-end
-
 function RollBroadcastController.start()
-	bindChatWindowStyling()
-
 	local remote = Remotes.get(Remotes.Names.RollBroadcastEffect)
 	RuntimeGuard.Connect(remote.OnClientEvent, "RollBroadcastController.OnBroadcast", function(data)
 		local payload = RollBroadcasts.ValidatePayload(data)

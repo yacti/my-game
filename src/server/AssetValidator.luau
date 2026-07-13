@@ -1392,6 +1392,7 @@ local function validateRobuxShopUi(menu, errors)
 		child(holder, "Featured", "GuiObject", errors)
 		child(holder, "SeedPacks", "GuiObject", errors)
 		child(holder, "CashPacks", "GuiObject", errors)
+		child(holder, "EndlessPack", "GuiObject", errors)
 	end
 end
 
@@ -1503,6 +1504,31 @@ local function validateSeedPacksUi(menu, errors)
 		if card then
 			validateSeedPackCard(card, pack, "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.SeedPacks." .. tostring(pack.PackId), errors)
 		end
+	end
+end
+
+-- EndlessPackController clones Items.Template into the runtime claim-track
+-- cards, so the template must carry the icon/buy structure the controller
+-- renders into.
+local function validateEndlessPackShopUi(menu, errors)
+	local panel = child(menu, "RobuxShop", "GuiObject", errors)
+	if not panel then return end
+	local holder = descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local section = holder and child(holder, "EndlessPack", "GuiObject", errors)
+	if not section then return end
+
+	descendant(section, "Title", "TextLabel", errors)
+	descendant(section, "Timer", "TextLabel", errors)
+	local items = descendant(section, "Items", "ScrollingFrame", errors)
+	if not items then return end
+	child(items, "UIListLayout", "UIListLayout", errors)
+	local template = child(items, "Template", "GuiObject", errors)
+	if not template then return end
+	descendant(template, "Icon", "ViewportFrame", errors)
+	descendant(template, "IconImage", "ImageLabel", errors)
+	local buyButton = descendant(template, "Buy", "GuiButton", errors)
+	if buyButton then
+		descendant(buyButton, "Price", "TextLabel", errors)
 	end
 end
 
@@ -1681,6 +1707,69 @@ local function validateStarterPackShopUi(menu, warnings)
 				end
 			end
 		end
+	end
+end
+
+-- Contract for the plot starter pack world prompt (StarterPackPromptController):
+-- offer billboard card, the prompt model with its billboard attachment, and
+-- the per-plot anchor pad.
+local function validateStarterPackPromptAssets(billboardFolder, warnings)
+	local maxRewards = 0
+	for _, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
+		maxRewards = math.max(maxRewards, #(starterPack.Rewards or {}))
+	end
+
+	local offer = billboardFolder and child(billboardFolder, "StarterPackOffer", "BillboardGui", warnings)
+	if offer then
+		local sourcePrefix = "ReplicatedStorage.UI.BillboardGUIs.StarterPackOffer"
+		local card = child(offer, "StarterPack", "GuiObject", warnings)
+		if card then
+			descendant(card, "Name", "TextLabel", warnings)
+			descendant(card, "Timer", "TextLabel", warnings)
+			descendant(card, "Price", "TextLabel", warnings)
+			local closeButton = card:FindFirstChild("CloseButton")
+			if not (closeButton and closeButton:IsA("GuiButton")) then
+				add(warnings, sourcePrefix .. ".StarterPack.CloseButton GuiButton is required")
+			end
+			local items = child(card, "Items", "GuiObject", warnings)
+			if items then
+				local templates = 0
+				for _, item in ipairs(items:GetChildren()) do
+					if item.Name == "Template" and item:IsA("GuiObject") then
+						templates += 1
+					end
+				end
+				if templates < maxRewards then
+					add(warnings, string.format(
+						"%s.StarterPack.Items needs at least %d Template GuiObjects (largest pack reward count)",
+						sourcePrefix,
+						maxRewards
+					))
+				end
+			end
+		end
+	end
+
+	local misc = Assets.Find(Assets.Names.Misc)
+	for _, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
+		local modelName = tostring(starterPack.PackId) .. "Prompt"
+		local model = misc and misc:FindFirstChild(modelName)
+		if not (model and model:IsA("Model") and model.PrimaryPart) then
+			add(warnings, "ReplicatedStorage.Assets.Misc." .. modelName .. " Model with a PrimaryPart is required")
+		elseif not model:FindFirstChild("UIAttachment", true) then
+			add(warnings, "ReplicatedStorage.Assets.Misc." .. modelName .. " is missing a UIAttachment Attachment")
+		end
+	end
+
+	local plotTemplate = misc and misc:FindFirstChild("PlotTemplate")
+	local signs = plotTemplate and plotTemplate:FindFirstChild("Signs")
+	local signPart = signs and signs:FindFirstChild("PlotStarterPackPrompt")
+	if not (signPart and signPart:IsA("BasePart")) then
+		add(warnings, "ReplicatedStorage.Assets.Misc.PlotTemplate.Signs.PlotStarterPackPrompt BasePart is required")
+	elseif not signPart.Anchored then
+		-- Unanchored loose parts fall out of the cloned plot at boot and the
+		-- prompt silently never finds its anchor pad.
+		add(warnings, signPart:GetFullName() .. " must be Anchored")
 	end
 end
 
@@ -2296,6 +2385,17 @@ local function validateShopBalance(errors)
 			add(errors, "ShopBalance.DurianPack.Rewards[" .. tostring(rewardIndex) .. "] has unknown SeedId " .. tostring(reward.SeedId))
 		end
 	end
+	local endlessPack = ShopBalance.GetEndlessPack()
+	for index, seedId in ipairs(endlessPack and endlessPack.SeedSchedule or {}) do
+		if not Seeds.GetTemplate(seedId) then
+			add(errors, "ShopBalance.EndlessPack.SeedSchedule[" .. tostring(index) .. "] has unknown SeedId " .. tostring(seedId))
+		end
+	end
+	for index, seedId in ipairs(endlessPack and endlessPack.SeedRotation or {}) do
+		if not Seeds.GetTemplate(seedId) then
+			add(errors, "ShopBalance.EndlessPack.SeedRotation[" .. tostring(index) .. "] has unknown SeedId " .. tostring(seedId))
+		end
+	end
 	for packIndex, starterPack in ipairs(ShopBalance.AllStarterPacks()) do
 		for rewardIndex, reward in ipairs(starterPack.Rewards or {}) do
 			local rewardSource = "ShopBalance.StarterPacks[" .. tostring(packIndex) .. "].Rewards[" .. tostring(rewardIndex) .. "]"
@@ -2374,6 +2474,10 @@ local function validateShopProductIds(errors)
 				errors
 			)
 		end
+	end
+	local endlessPack = ShopBalance.GetEndlessPack()
+	for index, endlessProductId in ipairs(endlessPack and endlessPack.Products or {}) do
+		addProductIdSource(seenProducts, endlessProductId, "ShopBalance.EndlessPack.Products[" .. tostring(index) .. "]", errors)
 	end
 	for index, pack in ipairs(ShopBalance.AllCashPacks()) do
 		addProductIdSource(seenProducts, pack.DevProductId, "ShopBalance.CashPacks[" .. tostring(index) .. "].DevProductId", errors)
@@ -2548,6 +2652,7 @@ local function validateUi(errors, warnings)
 		validateStarterPackShopUi(menu, warnings)
 		validateGamePassShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
+		validateEndlessPackShopUi(menu, errors)
 		validateDurianPackUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
@@ -2566,6 +2671,7 @@ local function validateUi(errors, warnings)
 			descendant(timer, "TimeLabel", "TextLabel", errors)
 		end
 		validateRollBillboards(billboardFolder, errors)
+		validateStarterPackPromptAssets(billboardFolder, warnings)
 	end
 
 	validateFeedEditUi(ui, hud, billboardFolder, errors)

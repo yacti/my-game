@@ -1,9 +1,12 @@
+local Rarities = require(script.Parent:WaitForChild("Rarities"))
+
 local ShopBalance = {}
 
 ShopBalance.SeedPacks = {
 	{
 		PackId = "SeedPack",
 		DisplayName = "Seed Pack",
+		Rarity = Rarities.Rare,
 		DevProductId = 3593513166,
 		BuyThreeDevProductId = 3593513259,
 		Products = {
@@ -19,6 +22,7 @@ ShopBalance.SeedPacks = {
 	{
 		PackId = "EpicSeedPack",
 		DisplayName = "Epic Seed Pack",
+		Rarity = Rarities.Epic,
 		DevProductId = 3593513368,
 		BuyThreeDevProductId = 3604441419,
 		Products = {
@@ -34,6 +38,7 @@ ShopBalance.SeedPacks = {
 	{
 		PackId = "SecretSeedPack",
 		DisplayName = "Secret Seed Pack",
+		Rarity = Rarities.Secret,
 		DevProductId = 3604441448,
 		BuyThreeDevProductId = 3604441467,
 		Products = {
@@ -69,12 +74,11 @@ ShopBalance.DurianPack = {
 	},
 	-- Retired shop-era DurianPack roll products. Not shown in any UI; pending
 	-- receipts convert one purchased roll into one ticket so live players are
-	-- never left with an unprocessable purchase.
+	-- never left with an unprocessable purchase. The other three shop-era ids
+	-- (3607448072/3607448274/3607448383) were recycled into
+	-- ShopBalance.EndlessPack.Products and now route there.
 	LegacyTicketProducts = {
 		{ Tickets = 1, ExtraTickets = 0, DevProductId = 3607448000 },
-		{ Tickets = 3, ExtraTickets = 0, DevProductId = 3607448072 },
-		{ Tickets = 10, ExtraTickets = 0, DevProductId = 3607448274 },
-		{ Tickets = 50, ExtraTickets = 0, DevProductId = 3607448383 },
 	},
 	Rewards = {
 		{ SeedId = "WatermelonSeed", Weight = 50 },
@@ -83,6 +87,112 @@ ShopBalance.DurianPack = {
 		{ SeedId = "DurianTreeSeed", Weight = 1 },
 	},
 }
+
+ShopBalance.EndlessPackKinds = {
+	Money1 = "Money1", -- cash worth MoneyPacks.Money1.MinutesOfIncome of pet income
+	Money2 = "Money2",
+	SeedPack = "SeedPack", -- one free roll of the matching ShopBalance.SeedPacks entry
+	EpicSeedPack = "EpicSeedPack",
+	SeedGrant = "SeedGrant", -- deterministic seed tool chosen by global SeedGrant ordinal
+	GrowSkip = "GrowSkip", -- free plot-time grow skip, best-effort (claims even with no growth)
+}
+
+-- Endless Pack: an infinite, strictly sequential claim track in the RobuxShop.
+-- The 27-entry Cycle repeats forever; every 3rd entry (Paid = true) is a Robux
+-- gate that blocks progress until purchased, everything else is a free claim.
+-- Money packs at non-paid positions grant their cash payout for free. Paid
+-- purchases map to Products by global paid ordinal, capped at the last product
+-- (the 9th product is prompted forever after the first cycle). SeedGrant
+-- entries walk SeedSchedule once by global ordinal, then loop SeedRotation.
+-- CycleSeconds only drives the visual countdown label; progress never resets.
+ShopBalance.EndlessPack = {
+	PackId = "EndlessPack",
+	DisplayName = "Endless Pack",
+	CycleSeconds = 14 * 60 * 60,
+	GrowSkipSeconds = 5 * 60,
+	Icons = {
+		Money1 = "rbxassetid://83341129100923",
+		Money2 = "rbxassetid://125623245592194",
+		GrowSkip = "rbxassetid://128769188913261",
+	},
+	MoneyPacks = {
+		Money1 = { MinutesOfIncome = 2.5, BaseReward = 250 },
+		Money2 = { MinutesOfIncome = 5, BaseReward = 500 },
+	},
+	Products = {
+		3607448072,
+		3607448274,
+		3607448383,
+		3609660089,
+		3609660117,
+		3609660137,
+		3609660179,
+		3609660205,
+		3609660281,
+	},
+	Cycle = {
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "SeedPack" },
+		{ Kind = "SeedGrant" },
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "GrowSkip" },
+		{ Kind = "Money1" },
+		{ Kind = "Money2", Paid = true },
+		{ Kind = "SeedGrant" },
+		{ Kind = "SeedPack" },
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "SeedPack" },
+		{ Kind = "GrowSkip" },
+		{ Kind = "Money2", Paid = true },
+		{ Kind = "EpicSeedPack" },
+		{ Kind = "Money1" },
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "SeedPack" },
+		{ Kind = "GrowSkip" },
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "SeedGrant" },
+		{ Kind = "SeedPack" },
+		{ Kind = "Money1", Paid = true },
+		{ Kind = "GrowSkip" },
+		{ Kind = "Money2" },
+		{ Kind = "Money2", Paid = true },
+		{ Kind = "GrowSkip" },
+		{ Kind = "EpicSeedPack" },
+	},
+	SeedSchedule = {
+		"OrangeTreeSeed",
+		"WatermelonSeed",
+		"PlumTreeSeed",
+		"CornSeed",
+		"CherryTreeSeed",
+		"MushroomSeed",
+	},
+	SeedRotation = {
+		"CherryTreeSeed",
+		"CornSeed",
+		"MushroomSeed",
+	},
+}
+
+-- Prefix counts over the Endless Pack cycle so item resolution is O(1):
+-- endlessPaidOrdinalAt[i] / endlessSeedOrdinalAt[i] = how many Paid / SeedGrant
+-- entries exist in Cycle[1..i].
+local endlessPaidOrdinalAt = {}
+local endlessSeedOrdinalAt = {}
+do
+	local paidCount = 0
+	local seedCount = 0
+	for index, entry in ipairs(ShopBalance.EndlessPack.Cycle) do
+		if type(entry) == "table" and entry.Paid == true then
+			paidCount += 1
+		end
+		if type(entry) == "table" and entry.Kind == ShopBalance.EndlessPackKinds.SeedGrant then
+			seedCount += 1
+		end
+		endlessPaidOrdinalAt[index] = paidCount
+		endlessSeedOrdinalAt[index] = seedCount
+	end
+end
 
 ShopBalance.CashPacks = {
 	{
@@ -137,6 +247,10 @@ ShopBalance.StarterPackRewardKinds = {
 	Cash = "Cash",
 	FeedMachine = "FeedMachine",
 	Seed = "Seed",
+	-- PackId names a ShopBalance.SeedPacks entry; Amount = rolls granted on
+	-- purchase. Randomized, so policy-restricted players (paid random items)
+	-- get CashFallbackAmount cash instead — see StarterPackRewardsForPolicy.
+	SeedPack = "SeedPack",
 }
 
 ShopBalance.CashRewardIcon = "rbxassetid://83341129100923"
@@ -150,8 +264,9 @@ ShopBalance.StarterPacks = {
 		DevProductId = 3604596908,
 		MinRebirths = 0,
 		MaxRebirths = 0,
+		PromptDelaySeconds = 60, -- plot prompt shows this long after tutorial completion
 		Rewards = {
-			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 10000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.SeedPack, PackId = "SeedPack", Amount = 1, CashFallbackAmount = 10000 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "WatermelonSeed", Amount = 1 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PlumTreeSeed", Amount = 1 },
 		},
@@ -162,8 +277,9 @@ ShopBalance.StarterPacks = {
 		DevProductId = 3607447742,
 		MinRebirths = 1,
 		MaxRebirths = 2,
+		PromptDelaySeconds = 30, -- plot prompt shows this long after rebirth eligibility
 		Rewards = {
-			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 100000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.SeedPack, PackId = "EpicSeedPack", Amount = 1, CashFallbackAmount = 100000 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "MushroomSeed", Amount = 1 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "CactusSeed", Amount = 1 },
 		},
@@ -174,8 +290,9 @@ ShopBalance.StarterPacks = {
 		DevProductId = 3607447786,
 		MinRebirths = 3,
 		MaxRebirths = nil,
+		PromptDelaySeconds = 30, -- plot prompt shows this long after rebirth eligibility
 		Rewards = {
-			{ Kind = ShopBalance.StarterPackRewardKinds.Cash, Amount = 2500000 },
+			{ Kind = ShopBalance.StarterPackRewardKinds.SeedPack, PackId = "EpicSeedPack", Amount = 1, CashFallbackAmount = 2500000 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "FigTreeSeed", Amount = 1 },
 			{ Kind = ShopBalance.StarterPackRewardKinds.Seed, SeedId = "PurpleShroomSeed", Amount = 1 },
 		},
@@ -398,7 +515,9 @@ local function copyStarterPackReward(reward)
 		Kind = reward and reward.Kind or nil,
 		FeedType = reward and reward.FeedType or nil,
 		SeedId = reward and reward.SeedId or nil,
+		PackId = reward and reward.PackId or nil,
 		Amount = int(reward and reward.Amount, 0),
+		CashFallbackAmount = reward and reward.CashFallbackAmount ~= nil and int(reward.CashFallbackAmount, 0) or nil,
 	}
 end
 
@@ -416,6 +535,7 @@ local function copyStarterPack(pack)
 		DevProductId = pack.DevProductId,
 		MinRebirths = int(pack.MinRebirths, 0),
 		MaxRebirths = pack.MaxRebirths ~= nil and int(pack.MaxRebirths, 0) or nil,
+		PromptDelaySeconds = int(pack.PromptDelaySeconds, 0),
 		Rewards = rewards,
 	}
 end
@@ -543,6 +663,46 @@ function ShopBalance.AllSeedPacks()
 	return packs
 end
 
+function ShopBalance.SeedPackForPackId(packId)
+	if type(packId) ~= "string" or packId == "" then
+		return nil
+	end
+	for _, pack in ipairs(ShopBalance.SeedPacks) do
+		if pack.PackId == packId then
+			return copyPack(pack)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.StarterPackHasSeedPackReward(pack)
+	for _, reward in ipairs(pack and pack.Rewards or {}) do
+		if reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack then
+			return true
+		end
+	end
+	return false
+end
+
+-- Effective reward list for a player's paid-random-items policy: SeedPack
+-- rewards swap to their CashFallbackAmount as a plain Cash reward when
+-- seedPacksAllowed is not true, so restricted players buy a fully
+-- deterministic pack.
+function ShopBalance.StarterPackRewardsForPolicy(pack, seedPacksAllowed)
+	local rewards = {}
+	for _, reward in ipairs(pack and pack.Rewards or {}) do
+		local copy = copyStarterPackReward(reward)
+		if copy.Kind == ShopBalance.StarterPackRewardKinds.SeedPack and seedPacksAllowed ~= true then
+			copy = {
+				Kind = ShopBalance.StarterPackRewardKinds.Cash,
+				Amount = int(reward.CashFallbackAmount, 0),
+			}
+		end
+		rewards[#rewards + 1] = copy
+	end
+	return rewards
+end
+
 function ShopBalance.SeedPackProductForQuantity(pack, quantity)
 	local targetQuantity = int(quantity, 0)
 	if targetQuantity <= 0 then
@@ -613,6 +773,149 @@ function ShopBalance.DurianRollCountAllowed(rollCount)
 		end
 	end
 	return false
+end
+
+function ShopBalance.GetEndlessPack()
+	local config = ShopBalance.EndlessPack
+	if type(config) ~= "table" then
+		return nil
+	end
+	local icons = {}
+	for kind, icon in pairs(config.Icons or {}) do
+		icons[kind] = tostring(icon)
+	end
+	local moneyPacks = {}
+	for kind, pack in pairs(config.MoneyPacks or {}) do
+		moneyPacks[kind] = {
+			MinutesOfIncome = finiteNumber(pack.MinutesOfIncome, 0),
+			BaseReward = int(pack.BaseReward, 0),
+		}
+	end
+	local products = {}
+	for index, id in ipairs(config.Products or {}) do
+		products[index] = int(id, 0)
+	end
+	local cycle = {}
+	for index, entry in ipairs(config.Cycle or {}) do
+		cycle[index] = {
+			Kind = entry.Kind,
+			Paid = entry.Paid == true,
+		}
+	end
+	return {
+		PackId = config.PackId,
+		DisplayName = config.DisplayName,
+		CycleSeconds = int(config.CycleSeconds, 0),
+		GrowSkipSeconds = int(config.GrowSkipSeconds, 0),
+		Icons = icons,
+		MoneyPacks = moneyPacks,
+		Products = products,
+		Cycle = cycle,
+		SeedSchedule = table.clone(config.SeedSchedule or {}),
+		SeedRotation = table.clone(config.SeedRotation or {}),
+	}
+end
+
+function ShopBalance.EndlessPackSeedIdForOrdinal(ordinal)
+	ordinal = int(ordinal, 0)
+	if ordinal <= 0 then
+		return nil
+	end
+	local schedule = ShopBalance.EndlessPack.SeedSchedule or {}
+	if ordinal <= #schedule then
+		return schedule[ordinal]
+	end
+	local rotation = ShopBalance.EndlessPack.SeedRotation or {}
+	if #rotation == 0 then
+		return nil
+	end
+	return rotation[((ordinal - #schedule - 1) % #rotation) + 1]
+end
+
+-- Resolves a 1-based global track position into the concrete item at that
+-- position: kind, whether it is a Robux gate (and which product prompts it),
+-- and the deterministic seed for SeedGrant entries.
+function ShopBalance.EndlessPackItemForPosition(position)
+	position = int(position, 0)
+	local config = ShopBalance.EndlessPack
+	local cycleLength = #config.Cycle
+	if position <= 0 or cycleLength == 0 then
+		return nil
+	end
+	local cycleIndex = ((position - 1) % cycleLength) + 1
+	local cycleNumber = math.floor((position - 1) / cycleLength)
+	local entry = config.Cycle[cycleIndex]
+	local kinds = ShopBalance.EndlessPackKinds
+	local paid = entry.Paid == true
+
+	local item = {
+		Position = position,
+		Kind = entry.Kind,
+		Paid = paid,
+		Icon = config.Icons[entry.Kind],
+	}
+	if paid then
+		local paidOrdinal = cycleNumber * endlessPaidOrdinalAt[cycleLength] + endlessPaidOrdinalAt[cycleIndex]
+		item.ProductId = int(config.Products[math.min(paidOrdinal, #config.Products)], 0)
+	end
+	if entry.Kind == kinds.SeedGrant then
+		local seedOrdinal = cycleNumber * endlessSeedOrdinalAt[cycleLength] + endlessSeedOrdinalAt[cycleIndex]
+		item.SeedId = ShopBalance.EndlessPackSeedIdForOrdinal(seedOrdinal)
+	end
+	if entry.Kind == kinds.SeedPack or entry.Kind == kinds.EpicSeedPack then
+		item.PackId = entry.Kind
+	end
+	if entry.Kind == kinds.GrowSkip then
+		item.SkipSeconds = int(config.GrowSkipSeconds, 0)
+	end
+	return item
+end
+
+-- Receipt-routing predicate/fallback: maps a developer product id to the paid
+-- cycle slot that first prompts it. The last product covers every paid ordinal
+-- past the first cycle, so its Kind is the kind of the last paid cycle slot.
+function ShopBalance.EndlessPackPaidItemForProductId(productIdValue)
+	local target = productId(productIdValue)
+	if target <= 0 then
+		return nil
+	end
+	local config = ShopBalance.EndlessPack
+	local productIndex = nil
+	for index, id in ipairs(config.Products or {}) do
+		if productId(id) == target then
+			productIndex = index
+			break
+		end
+	end
+	if not productIndex then
+		return nil
+	end
+	local paidSeen = 0
+	for cycleIndex, entry in ipairs(config.Cycle or {}) do
+		if entry.Paid == true then
+			paidSeen += 1
+			if paidSeen == productIndex then
+				return {
+					Kind = entry.Kind,
+					ProductId = target,
+					PaidOrdinal = productIndex,
+					CycleIndex = cycleIndex,
+				}
+			end
+		end
+	end
+	return nil
+end
+
+function ShopBalance.EndlessPackMoneyPayout(kind, hourlyIncome)
+	local moneyPack = (ShopBalance.EndlessPack.MoneyPacks or {})[kind]
+	if type(moneyPack) ~= "table" then
+		return 0
+	end
+	return ShopBalance.CashPackPayout({
+		HoursOfIncome = finiteNumber(moneyPack.MinutesOfIncome, 0) / 60,
+		BaseReward = int(moneyPack.BaseReward, 0),
+	}, hourlyIncome)
 end
 
 function ShopBalance.AllCashPacks()
@@ -865,9 +1168,12 @@ function ShopBalance.GrowSkipForProductId(productIdValue)
 	return nil
 end
 
-function ShopBalance.StarterPackTotalAmount(pack)
+-- Inventory slots the pack's tools occupy. seedPacksAllowed=false swaps
+-- SeedPack rewards to their cash fallback (no slot); nil/true counts them.
+function ShopBalance.StarterPackTotalAmount(pack, seedPacksAllowed)
+	local rewards = ShopBalance.StarterPackRewardsForPolicy(pack, seedPacksAllowed ~= false)
 	local total = 0
-	for _, reward in ipairs(pack and pack.Rewards or {}) do
+	for _, reward in ipairs(rewards) do
 		if reward and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
 			total += int(reward.Amount, 0)
 		end
@@ -1069,6 +1375,9 @@ function ShopBalance.Validate(errors)
 		if type(pack.DisplayName) ~= "string" or pack.DisplayName == "" then
 			add(source .. " has invalid DisplayName")
 		end
+		if not Rarities.IsValid(pack.Rarity) then
+			add(source .. " has invalid Rarity")
+		end
 
 		local products = seedPackProducts(pack)
 		local seenQuantities = {}
@@ -1180,6 +1489,11 @@ function ShopBalance.Validate(errors)
 					or starterPack.MaxRebirths % 1 ~= 0) then
 				add(source .. " has invalid MaxRebirths")
 			end
+			if type(starterPack.PromptDelaySeconds) ~= "number"
+				or starterPack.PromptDelaySeconds <= 0
+				or starterPack.PromptDelaySeconds % 1 ~= 0 then
+				add(source .. " has invalid PromptDelaySeconds")
+			end
 
 			if type(starterPack.Rewards) ~= "table" or #starterPack.Rewards == 0 then
 				add(source .. " must define Rewards")
@@ -1192,12 +1506,23 @@ function ShopBalance.Validate(errors)
 					end
 					if reward.Kind ~= ShopBalance.StarterPackRewardKinds.Seed
 						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.FeedMachine
-						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash then
+						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.Cash
+						and reward.Kind ~= ShopBalance.StarterPackRewardKinds.SeedPack then
 						add(rewardSource .. " has invalid Kind")
 					end
 					if reward.Kind == ShopBalance.StarterPackRewardKinds.Seed
 						and (type(reward.SeedId) ~= "string" or reward.SeedId == "") then
 						add(rewardSource .. " has invalid SeedId")
+					end
+					if reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack
+						and ShopBalance.SeedPackForPackId(reward.PackId) == nil then
+						add(rewardSource .. " has invalid seed pack PackId")
+					end
+					if reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack
+						and (type(reward.CashFallbackAmount) ~= "number"
+							or reward.CashFallbackAmount <= 0
+							or reward.CashFallbackAmount % 1 ~= 0) then
+						add(rewardSource .. " has invalid CashFallbackAmount")
 					end
 					if reward.Kind == ShopBalance.StarterPackRewardKinds.FeedMachine
 						and (type(reward.FeedType) ~= "string" or reward.FeedType == "") then
@@ -1298,6 +1623,118 @@ function ShopBalance.Validate(errors)
 				add("ShopBalance.DurianPack.PitySeedId must also be a configured reward")
 			end
 		end
+	end
+
+	local endlessPack = ShopBalance.EndlessPack
+	if type(endlessPack) ~= "table" then
+		add("ShopBalance.EndlessPack must be a table")
+	else
+		local kinds = ShopBalance.EndlessPackKinds
+		if type(endlessPack.PackId) ~= "string" or endlessPack.PackId == "" then
+			add("ShopBalance.EndlessPack has invalid PackId")
+		elseif seenPacks[endlessPack.PackId] then
+			add("Duplicate shop PackId " .. tostring(endlessPack.PackId))
+		else
+			seenPacks[endlessPack.PackId] = true
+		end
+		if type(endlessPack.DisplayName) ~= "string" or endlessPack.DisplayName == "" then
+			add("ShopBalance.EndlessPack has invalid DisplayName")
+		end
+		if type(endlessPack.CycleSeconds) ~= "number" or endlessPack.CycleSeconds <= 0 or endlessPack.CycleSeconds % 1 ~= 0 then
+			add("ShopBalance.EndlessPack has invalid CycleSeconds")
+		end
+		if type(endlessPack.GrowSkipSeconds) ~= "number" or endlessPack.GrowSkipSeconds <= 0 or endlessPack.GrowSkipSeconds % 1 ~= 0 then
+			add("ShopBalance.EndlessPack has invalid GrowSkipSeconds")
+		end
+
+		local seedPackIds = {}
+		for _, pack in ipairs(ShopBalance.SeedPacks or {}) do
+			if type(pack) == "table" and type(pack.PackId) == "string" then
+				seedPackIds[pack.PackId] = true
+			end
+		end
+
+		local paidPerCycle = 0
+		local cycle = endlessPack.Cycle
+		if type(cycle) ~= "table" or #cycle ~= 27 then
+			add("ShopBalance.EndlessPack.Cycle must define exactly 27 entries")
+		else
+			for index, entry in ipairs(cycle) do
+				local source = "ShopBalance.EndlessPack.Cycle[" .. tostring(index) .. "]"
+				if type(entry) ~= "table" then
+					add(source .. " must be a table")
+					continue
+				end
+				if type(entry.Kind) ~= "string" or kinds[entry.Kind] ~= entry.Kind then
+					add(source .. " has invalid Kind")
+					continue
+				end
+				local paid = entry.Paid == true
+				if paid ~= (index % 3 == 1) then
+					add(source .. " Paid flag must be set exactly on every 3rd entry (1, 4, 7, ...)")
+				end
+				if paid then
+					paidPerCycle += 1
+					if entry.Kind ~= kinds.Money1 and entry.Kind ~= kinds.Money2 then
+						add(source .. " paid entries must be money packs")
+					end
+				end
+				if (entry.Kind == kinds.SeedPack or entry.Kind == kinds.EpicSeedPack) and not seedPackIds[entry.Kind] then
+					add(source .. " Kind has no matching ShopBalance.SeedPacks PackId")
+				end
+			end
+		end
+
+		local products = endlessPack.Products
+		if type(products) ~= "table" or #products == 0 then
+			add("ShopBalance.EndlessPack.Products must define developer products")
+		else
+			if paidPerCycle > 0 and #products ~= paidPerCycle then
+				add("ShopBalance.EndlessPack.Products count must match paid entries per cycle")
+			end
+			for index, id in ipairs(products) do
+				validateProduct(id, "ShopBalance.EndlessPack.Products[" .. tostring(index) .. "]")
+			end
+		end
+
+		for kind, moneyPack in pairs(endlessPack.MoneyPacks or {}) do
+			local source = "ShopBalance.EndlessPack.MoneyPacks." .. tostring(kind)
+			if kind ~= kinds.Money1 and kind ~= kinds.Money2 then
+				add(source .. " has invalid money kind")
+			end
+			if type(moneyPack) ~= "table"
+				or type(moneyPack.MinutesOfIncome) ~= "number"
+				or moneyPack.MinutesOfIncome <= 0
+				or moneyPack.MinutesOfIncome ~= moneyPack.MinutesOfIncome
+				or math.abs(moneyPack.MinutesOfIncome) == math.huge then
+				add(source .. " has invalid MinutesOfIncome")
+			end
+			if type(moneyPack) ~= "table"
+				or type(moneyPack.BaseReward) ~= "number"
+				or moneyPack.BaseReward <= 0
+				or moneyPack.BaseReward % 1 ~= 0 then
+				add(source .. " has invalid BaseReward")
+			end
+		end
+		if type(endlessPack.MoneyPacks) ~= "table"
+			or type(endlessPack.MoneyPacks.Money1) ~= "table"
+			or type(endlessPack.MoneyPacks.Money2) ~= "table" then
+			add("ShopBalance.EndlessPack.MoneyPacks must define Money1 and Money2")
+		end
+
+		local function validateSeedList(list, sourceName)
+			if type(list) ~= "table" or #list == 0 then
+				add("ShopBalance.EndlessPack." .. sourceName .. " must define seed ids")
+				return
+			end
+			for index, seedId in ipairs(list) do
+				if type(seedId) ~= "string" or seedId == "" then
+					add("ShopBalance.EndlessPack." .. sourceName .. "[" .. tostring(index) .. "] has invalid seed id")
+				end
+			end
+		end
+		validateSeedList(endlessPack.SeedSchedule, "SeedSchedule")
+		validateSeedList(endlessPack.SeedRotation, "SeedRotation")
 	end
 
 	local foodSteal = ShopBalance.FoodSteal

@@ -458,6 +458,15 @@ local function applyPlotTimeSkip(player, plot, seconds)
 	}, "ok"
 end
 
+-- Free (non-receipt) plot time skip for reward tracks such as the Endless
+-- Pack. Same result, code contract as the paid path; "no-growth"/"edit-mode"
+-- are expected no-ops the caller may treat as claimed. Does not touch
+-- reservations or this service's receipt locks (the underlying growth credits
+-- are additive, so overlapping with a paid skip is benign).
+function GrowSkipService.ApplyFreePlotTimeSkip(player, plot, seconds)
+	return applyPlotTimeSkip(player, plot, seconds)
+end
+
 local function commitPlotTimeReservation(player, plot, profile, reservation, purchaseId)
 	if type(reservation) ~= "table" then
 		return false, "missing-reservation"

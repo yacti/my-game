@@ -17,7 +17,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local State = require(Shared:WaitForChild("State"))
 
 local StarterPackShopService = {}
 
@@ -26,9 +28,11 @@ local REQUEST_RATE_SECONDS = 0.5
 local started = false
 local locks = {}
 local lastRequest = {}
+local rng = Random.new()
 
 local purchaseRequestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
 local purchaseResultRemote = Remotes.get(Remotes.Names.StarterPackPurchaseResult)
+local promptDismissRemote = Remotes.get(Remotes.Names.StarterPackPromptDismissRequest)
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -90,6 +94,27 @@ local function markStarterPackOwned(profile, packId)
 	profile.Data.StarterPackPurchased = purchases.StarterPack == true
 end
 
+-- Permanent per-pack opt-out of the plot world prompt (the CloseButton on the
+-- StarterPackOffer billboard). Dismissing one pack never affects the next
+-- eligible pack, and the shop card stays available either way.
+local function onPromptDismiss(player, packId)
+	local pack = type(packId) == "string" and ShopBalance.StarterPackForPackId(packId) or nil
+	local profile = PlayerDataService.GetProfile(player)
+	if not (pack and profile) then
+		return
+	end
+	local dismissed = profile.Data.StarterPackPromptDismissed
+	if type(dismissed) ~= "table" then
+		dismissed = {}
+		profile.Data.StarterPackPromptDismissed = dismissed
+	end
+	if dismissed[pack.PackId] == true then
+		return
+	end
+	dismissed[pack.PackId] = true
+	PlayerReplicaService.PublishStarterPackPromptDismissed(player, profile)
+end
+
 local function sendPurchaseResult(player, requestId, success, code, payload)
 	local result = type(payload) == "table" and payload or {}
 	result.requestId = requestId
@@ -114,6 +139,15 @@ end
 
 local function addCashAmount(prepared, amount)
 	prepared.cashAmount = int(prepared.cashAmount) + int(amount)
+end
+
+-- Seed pack rewards are randomized, so a pack that contains one is a paid
+-- random item under PolicyService.ArePaidRandomItemsRestricted (mirrored onto
+-- the player by SeedPackShopService as SeedPacksAllowed). Restricted players
+-- still buy the pack: StarterPackRewardsForPolicy swaps the roll for its
+-- deterministic CashFallbackAmount, resolved at grant time.
+local function seedPacksAllowed(player)
+	return player ~= nil and player:GetAttribute(State.Player.SeedPacksAllowed) == true
 end
 
 local function destroyPrepared(prepared)
@@ -161,17 +195,45 @@ local function rollbackPrepared(player, profile, prepared)
 	destroyPrepared(prepared)
 end
 
-local function prepareRewards(pack)
+local function prepareRewards(pack, allowed)
 	local prepared = {
 		tools = {},
 		seedCounts = {},
 		feedCounts = {},
 		cashAmount = 0,
+		seedPackRolls = {},
 	}
-	for _, reward in ipairs(pack and pack.Rewards or {}) do
+	for _, reward in ipairs(ShopBalance.StarterPackRewardsForPolicy(pack, allowed)) do
 		local amount = int(reward.Amount)
 		if reward.Kind == ShopBalance.StarterPackRewardKinds.Cash then
 			addCashAmount(prepared, amount)
+		elseif reward.Kind == ShopBalance.StarterPackRewardKinds.SeedPack then
+			local seedPack = ShopBalance.SeedPackForPackId(reward.PackId)
+			if not seedPack then
+				destroyPrepared(prepared)
+				return nil, "invalid-reward"
+			end
+			for _ = 1, math.max(amount, 1) do
+				local rolled = ShopBalance.RollSeedPackReward(seedPack, rng)
+				if not (rolled and Seeds.GetTemplate(rolled.SeedId)) then
+					destroyPrepared(prepared)
+					return nil, "roll-failed"
+				end
+				local seedGrant, code = SeedTools.PrepareGrant(rolled.SeedId, 1)
+				if not seedGrant then
+					destroyPrepared(prepared)
+					return nil, code or "grant-failed"
+				end
+				for _, tool in ipairs(seedGrant.tools or {}) do
+					prepared.tools[#prepared.tools + 1] = tool
+				end
+				addSeedCount(prepared.seedCounts, rolled.SeedId, 1)
+				prepared.seedPackRolls[#prepared.seedPackRolls + 1] = {
+					packId = seedPack.PackId,
+					seedId = rolled.SeedId,
+					chanceText = rolled.ChanceText,
+				}
+			end
 		elseif reward.Kind == ShopBalance.StarterPackRewardKinds.Seed then
 			local seedGrant, code = SeedTools.PrepareGrant(reward.SeedId, amount)
 			if not seedGrant then
@@ -247,8 +309,32 @@ local function grantPrepared(player, profile, prepared)
 	return true, "ok"
 end
 
-local function requiredSlots(pack)
-	return ShopBalance.StarterPackTotalAmount(pack)
+local function requiredSlots(pack, allowed)
+	return ShopBalance.StarterPackTotalAmount(pack, allowed)
+end
+
+-- Same reveal payload shape the seed pack shop uses; StarterPackController
+-- hands it to SeedPackShopController.EnqueueReveal for the pack-opening flow.
+local function seedPackRevealPayload(prepared)
+	local rolls = prepared and prepared.seedPackRolls or {}
+	if #rolls == 0 then
+		return nil
+	end
+	local results = {}
+	for _, roll in ipairs(rolls) do
+		results[#results + 1] = {
+			seedId = roll.seedId,
+			displayName = Seeds.DisplayNameFor(roll.seedId),
+			rarity = Seeds.RarityFor(roll.seedId),
+			chanceText = roll.chanceText,
+		}
+	end
+	return {
+		action = "reveal",
+		packId = rolls[1].packId,
+		sourceSection = "Featured",
+		results = results,
+	}
 end
 
 function StarterPackShopService.HandlesProductId(productId)
@@ -299,7 +385,7 @@ local function onPurchaseRequest(player, requestId, packId)
 		return
 	end
 
-	local slots = requiredSlots(pack)
+	local slots = requiredSlots(pack, seedPacksAllowed(player))
 	if Inventory.RemainingSlots(player) < slots then
 		NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", Inventory.MAX_ITEMS))
 		sendPurchaseResult(player, requestId, false, "inventory-full", {
@@ -355,12 +441,13 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 			return
 		end
 
+		local allowed = seedPacksAllowed(player)
 		resultCode = "inventory-full"
-		if Inventory.RemainingSlots(player) < requiredSlots(pack) then
+		if Inventory.RemainingSlots(player) < requiredSlots(pack, allowed) then
 			return
 		end
 
-		prepared, resultCode = prepareRewards(pack)
+		prepared, resultCode = prepareRewards(pack, allowed)
 		if not prepared then
 			return
 		end
@@ -406,6 +493,10 @@ function StarterPackShopService.ProcessReceipt(receiptInfo)
 
 	if granted then
 		NotificationService.Success(player, string.format("Purchased %s!", pack.DisplayName or "Starter Pack"))
+		local reveal = seedPackRevealPayload(prepared)
+		if reveal then
+			purchaseResultRemote:FireClient(player, reveal)
+		end
 		return Enum.ProductPurchaseDecision.PurchaseGranted
 	end
 	if resultCode == "already-owned" then
@@ -438,6 +529,7 @@ function StarterPackShopService.Start()
 		end
 	end)
 	RuntimeGuard.Connect(purchaseRequestRemote.OnServerEvent, "StarterPackShopService.PurchaseRequest", onPurchaseRequest)
+	RuntimeGuard.Connect(promptDismissRemote.OnServerEvent, "StarterPackShopService.PromptDismiss", onPromptDismiss)
 end
 
 return StarterPackShopService

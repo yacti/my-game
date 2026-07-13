@@ -13,9 +13,12 @@
 -- after binding, and never size any world gui to zero — growing a TextLabel
 -- from zero size permanently breaks its glyph layout under a live engine bug
 -- (see BILLBOARD_HIDDEN_SCALE below). Hidden billboards park at a tiny
--- non-zero size instead, and every completed pop runs a text-layout heal that
--- rewrites any label whose TextBounds got stuck at 0/NaN.
+-- non-zero size and are additionally hidden from the local player via
+-- PlayerToHideFrom while parked (Enabled stays untouched as the external
+-- desired-visibility input), and every completed pop runs a text-layout heal
+-- that rewrites any label whose TextBounds got stuck at 0/NaN.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -49,8 +52,9 @@ local BILLBOARD_POP_START_SCALE = 0.18
 -- TextLabel from zero size can permanently break its glyph layout (TextBounds
 -- sticks at 0/NaN and the text stops drawing while sibling frames render) —
 -- live engine regression as of July 2026, confirmed in-place with a 60-board
--- park/grow rig: https://devforum.roblox.com/t/4714195. The park size is
--- sub-pixel at every gate distance, so nothing visible changes.
+-- park/grow rig: https://devforum.roblox.com/t/4714195. Parked billboards are
+-- also hidden via PlayerToHideFrom so nothing renders; the non-zero park size
+-- exists purely so the next grow never starts from zero.
 local BILLBOARD_HIDDEN_SCALE = 0.02
 local BILLBOARD_TEXT_HEAL_DELAY = 0.1
 local BILLBOARD_MANAGED_MAX_DISTANCE = 100000
@@ -393,6 +397,16 @@ local function distanceBillboardShouldShow(billboard, record)
 	return record.desiredEnabled == true and distanceBillboardInRange(billboard, record)
 end
 
+-- Parked billboards are hidden via PlayerToHideFrom so the tiny non-zero park
+-- size can never show as a speck. Deliberately NOT Enabled: that property is
+-- the external desired-visibility input, and with deferred signal behavior a
+-- gate-owned write there is indistinguishable from a controller's by the time
+-- the property signal delivers. PlayerToHideFrom is unused by the rest of the
+-- game, is client-local here, and fully stops the billboard rendering.
+local function setGateHidden(billboard, hidden)
+	billboard.PlayerToHideFrom = hidden and Players.LocalPlayer or nil
+end
+
 local function playBillboardHide(billboard, record)
 	local baseSize = billboardBaseSize(billboard)
 	local token = nextBillboardToken(billboard)
@@ -409,6 +423,7 @@ local function playBillboardHide(billboard, record)
 		record.closing = false
 		if billboard.Parent and not distanceBillboardShouldShow(billboard, record) then
 			billboard.Size = scaleUDim2(baseSize, BILLBOARD_HIDDEN_SCALE)
+			setGateHidden(billboard, true)
 		end
 	end)
 end
@@ -423,6 +438,7 @@ local function updateDistanceBillboard(billboard)
 		record.visible = false
 		record.closing = false
 		billboard.Size = billboardBaseSize(billboard)
+		setGateHidden(billboard, false)
 		return
 	end
 
@@ -447,6 +463,7 @@ local function updateDistanceBillboard(billboard)
 			end
 			return
 		end
+		setGateHidden(billboard, false)
 		record.visible = true
 		record.closing = false
 		record.allowPop = true
@@ -456,6 +473,7 @@ local function updateDistanceBillboard(billboard)
 		playBillboardHide(billboard, record)
 	elseif not record.closing then
 		billboard.Size = scaleUDim2(billboardBaseSize(billboard), BILLBOARD_HIDDEN_SCALE)
+		setGateHidden(billboard, true)
 	end
 end
 

@@ -90,10 +90,22 @@
         "DurianPackRollResult": {
           "$className": "RemoteEvent"
         },
+        "EndlessPackClaimRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
+        "EndlessPackClaimResult": {
+          "$className": "RemoteEvent"
+        },
         "StarterPackPurchaseRequest": {
           "$className": "RemoteEvent"
         },
         "StarterPackPurchaseResult": {
+          "$className": "RemoteEvent"
+        },
+        "StarterPackPromptDismissRequest": {
           "$className": "RemoteEvent"
         },
         "FoodStealRequest": {

@@ -96,6 +96,16 @@ local function copyStarterPackPurchases(map)
 	return copy
 end
 
+local function copyStarterPackPromptDismissed(map)
+	local copy = {}
+	for _, pack in ipairs(ShopBalance.AllStarterPacks()) do
+		if type(pack.PackId) == "string" and pack.PackId ~= "" then
+			copy[pack.PackId] = type(map) == "table" and map[pack.PackId] == true or false
+		end
+	end
+	return copy
+end
+
 local function vipOwnedForKey(key)
 	local vipKey = ShopBalance.GamePassKeys.VIP
 	local map = key and gamePassOwnership[key] or nil
@@ -176,8 +186,10 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.Onboarding] = copyOnboardingState(data.Onboarding),
 		[PlayerState.Fields.StarterPackPurchased] = data.StarterPackPurchased == true,
 		[PlayerState.Fields.StarterPackPurchases] = copyStarterPackPurchases(data.StarterPackPurchases),
+		[PlayerState.Fields.StarterPackPromptDismissed] = copyStarterPackPromptDismissed(data.StarterPackPromptDismissed),
 		[PlayerState.Fields.DurianTickets] = integer(data.DurianTickets, 0),
 		[PlayerState.Fields.DurianPackPity] = integer(data.DurianPackPity, 0),
+		[PlayerState.Fields.EndlessPackProgress] = integer(data.EndlessPackProgress, 0),
 		[PlayerState.Fields.StormChaser] = copyStormChaser(data.StormChaser),
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
@@ -385,11 +397,25 @@ function PlayerReplicaService.PublishStarterPackPurchased(player, profile)
 	return legacySuccess and purchasesSuccess
 end
 
+function PlayerReplicaService.PublishStarterPackPromptDismissed(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(
+		player,
+		PlayerState.Fields.StarterPackPromptDismissed,
+		copyStarterPackPromptDismissed(data.StarterPackPromptDismissed)
+	)
+end
+
 function PlayerReplicaService.PublishDurianPack(player, profile)
 	local data = profile and profile.Data or {}
 	local ticketsSuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.DurianTickets, integer(data.DurianTickets, 0))
 	local pitySuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.DurianPackPity, integer(data.DurianPackPity, 0))
 	return ticketsSuccess and pitySuccess
+end
+
+function PlayerReplicaService.PublishEndlessPack(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.EndlessPackProgress, integer(data.EndlessPackProgress, 0))
 end
 
 function PlayerReplicaService.PublishGamePassOwnership(player, ownership)

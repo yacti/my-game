@@ -39,6 +39,7 @@ local CosmeticShopService = require(Server:WaitForChild("CosmeticShopService"))
 local CollectAllService = require(Server:WaitForChild("CollectAllService"))
 local DiscoveryService  = require(Server:WaitForChild("DiscoveryService"))
 local DurianPackShopService = require(Server:WaitForChild("DurianPackShopService"))
+local EndlessPackShopService = require(Server:WaitForChild("EndlessPackShopService"))
 local FeedMachines      = require(Server:WaitForChild("feedMachines"))
 local FeedMachineTools  = require(Server:WaitForChild("FeedMachineTools"))
 local FeedEditService   = require(Server:WaitForChild("FeedEditService"))
@@ -69,6 +70,7 @@ local ServerLuckService = require(Server:WaitForChild("ServerLuckService"))
 local SeedTools         = require(Server:WaitForChild("SeedTools"))
 local ShovelService     = require(Server:WaitForChild("ShovelService"))
 local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
+local SkipTimeStationService = require(Server:WaitForChild("SkipTimeStationService"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
 local StormChaserService = require(Server:WaitForChild("StormChaserService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
@@ -225,6 +227,7 @@ RuntimeGuard.Run("AdminLuckService.Start", AdminLuckService.Start)
 -- GameEventService.Start runs later, once snapshotProfileState is defined, so
 -- no event handler can start with a nil snapshot callback.
 RuntimeGuard.Run("UpdateEventConfigService.Start", UpdateEventConfigService.Start)
+RuntimeGuard.Run("SkipTimeStationService.Start", SkipTimeStationService.Start)
 RuntimeGuard.Run("UpdateLogService.Start", UpdateLogService.Start)
 RuntimeGuard.Run("HomeTeleportService.Start", HomeTeleportService.Start)
 RuntimeGuard.Run("JoinGroupRewardService.Start", JoinGroupRewardService.Start)
@@ -248,6 +251,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		cosmeticShopService = CosmeticShopService,
 		seedPackShopService = SeedPackShopService,
 		durianPackShopService = DurianPackShopService,
+		endlessPackShopService = EndlessPackShopService,
 		cashPackShopService = CashPackShopService,
 		starterPackShopService = StarterPackShopService,
 		serverLuckService = ServerLuckService,
@@ -1529,6 +1533,12 @@ end)
 
 RuntimeGuard.Run("GrowSkipService.Start", function()
 	GrowSkipService.Start({
+		snapshotProfileState = snapshotProfileState,
+	})
+end)
+
+RuntimeGuard.Run("EndlessPackShopService.Start", function()
+	EndlessPackShopService.Start({
 		snapshotProfileState = snapshotProfileState,
 	})
 end)
