@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GrowingVisuals = require(Shared:WaitForChild("GrowingVisuals"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local MailboxConfig = require(Shared:WaitForChild("MailboxConfig"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local PatchGrowth = require(Shared:WaitForChild("PatchGrowth"))
@@ -20,6 +21,7 @@ local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local ResponsiveHud = require(script.Parent:WaitForChild("ResponsiveHud"))
@@ -556,7 +558,23 @@ local function bindCard(frame, buttonName)
 		warn("[SkipTimeButtonsController] Missing " .. frame:GetFullName() .. "." .. buttonName)
 		return nil
 	end
-	UiEffects.BindButton(buyButton)
+	if buttonName == "Hitbox" then
+		-- World-gui card: a press-shrink UIScale moves the hitbox under the
+		-- cursor mid-press, which cancels the engine click (Activated never
+		-- fires). Color feedback is invisible on the transparent hitbox anyway;
+		-- bindSignPressEffect tints the card art instead.
+		UiEffects.BindButton(buyButton, { pressScale = false, colorTween = false })
+		-- The decorative BuyButton sits above the full-card hitbox and would
+		-- swallow taps (nothing binds it); let input fall through.
+		local decorative = findDescendant(frame, "BuyButton", "GuiButton")
+		if decorative then
+			decorative.Active = false
+			decorative.Selectable = false
+			decorative.AutoButtonColor = false
+		end
+	else
+		UiEffects.BindButton(buyButton)
+	end
 	return {
 		frame = frame,
 		buyButton = buyButton,
@@ -567,14 +585,30 @@ local function bindCard(frame, buttonName)
 	}
 end
 
--- The sign hitbox is invisible, so UiEffects' color/scale feedback on the
--- button itself never shows; press-scale the whole card instead.
+-- The sign hitbox is invisible, so UiEffects' color feedback on the button
+-- itself never shows; press-scale the card art instead. The hitbox must NOT
+-- move while pressed — shifting it under the cursor mid-press cancels the
+-- engine click and Activated never fires — so the visual children are wrapped
+-- in a frame and only that wrapper scales.
 local function bindSignPressEffect(record)
-	local scale = record.frame:FindFirstChild("SignPressScale")
+	local visuals = record.frame:FindFirstChild("SignVisuals")
+	if not visuals then
+		visuals = Instance.new("Frame")
+		visuals.Name = "SignVisuals"
+		visuals.BackgroundTransparency = 1
+		visuals.Size = UDim2.fromScale(1, 1)
+		visuals.Parent = record.frame
+		for _, child in ipairs(record.frame:GetChildren()) do
+			if child ~= visuals and child ~= record.buyButton and child:IsA("GuiObject") then
+				child.Parent = visuals
+			end
+		end
+	end
+	local scale = visuals:FindFirstChild("SignPressScale")
 	if not scale then
 		scale = Instance.new("UIScale")
 		scale.Name = "SignPressScale"
-		scale.Parent = record.frame
+		scale.Parent = visuals
 	end
 	local function setPressed(active)
 		TweenService:Create(scale, SIGN_PRESS_TWEEN, {
@@ -626,7 +660,21 @@ local function bindSlowGradientRotation(guiObject)
 end
 
 local function setError(record, text)
-	if not (record and record.errorLabel) then
+	if not record then
+		return
+	end
+	-- Sign cards surface errors as regular toasts instead of on-sign labels;
+	-- there is nothing to clear, so nil/empty is a no-op for them.
+	if record.station == "sign" then
+		if text ~= nil and text ~= "" then
+			Notifications.show({
+				text = text,
+				kind = NotificationConfig.Kinds.Error,
+			})
+		end
+		return
+	end
+	if not record.errorLabel then
 		return
 	end
 	record.errorLabel.Text = text or ""

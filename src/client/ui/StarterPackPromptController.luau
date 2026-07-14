@@ -37,8 +37,9 @@ local StarterPackPromptController = {}
 local FALLBACK_MODEL_NAME = "StarterPackPrompt"
 local SIGN_PART_NAME = "PlotStarterPackPrompt"
 local BILLBOARD_TEMPLATE_NAME = "StarterPackOffer"
-local OFFER_MAX_DISTANCE = 25
+local OFFER_MAX_DISTANCE = 17
 local PROMPT_DISTANCE = 7
+local PROMPT_UI_DROP_STUDS = 2 -- prompt UI hangs this far below the model's PrimaryPart center
 local SHOW_SECONDS = 3
 local SPIN_TURNS = 2 -- full 360s beyond the final player-facing yaw
 local HIDE_SECONDS = 0.25
@@ -285,6 +286,13 @@ local function showBillboard(record)
 end
 
 local function createPrompt(record)
+	-- The prompt UI renders at its parent's position; hang it on an attachment
+	-- 2 studs below the part center so it sits low on the physical model.
+	local promptAnchor = Instance.new("Attachment")
+	promptAnchor.Name = "PromptAnchor"
+	promptAnchor.Position = Vector3.new(0, -PROMPT_UI_DROP_STUDS, 0)
+	promptAnchor.Parent = record.model.PrimaryPart
+
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "__LocalPrompt_StarterPackOffer"
 	prompt.ActionText = "Buy"
@@ -294,7 +302,7 @@ local function createPrompt(record)
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.Parent = record.model.PrimaryPart
+	prompt.Parent = promptAnchor
 	record.prompt = prompt
 	record.unregister = LocalPrompts.RegisterExternalPrompt(prompt, function()
 		return active == record and not record.hiding

@@ -171,8 +171,11 @@ function UiEffects.BindButton(button, options)
 	local colorProp, baseColor = buttonColorTarget(button)
 	local hoverColor = darken(baseColor, 0.72)
 	local useColorTween = options.colorTween ~= false
-	local uiScale = ensureScale(button)
-	local baseScale = uiScale.Scale
+	-- pressScale=false skips the press-shrink UIScale. Required for world-gui
+	-- (SurfaceGui) buttons: moving the button under the cursor mid-press makes
+	-- the engine release over a different element, so Activated never fires.
+	local uiScale = options.pressScale ~= false and ensureScale(button) or nil
+	local baseScale = uiScale and uiScale.Scale or 1
 	local hovering = false
 	local pressing = false
 
