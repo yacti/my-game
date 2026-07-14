@@ -56,17 +56,15 @@ local function playTween(instance, tweenInfo, props)
 	return tween
 end
 
-local function waitForLoadingScreenDismissed(playerGui)
-	local existing = playerGui:FindFirstChild(LOADING_SCREEN_NAME)
-	if not existing then
-		return
-	end
+-- Bounded: the loading screen has its own hard failsafe (~35s), but the
+-- showcase must never trust that — until showcaseStarted reaches the server,
+-- the offline-progress session blocks every purchase preflight.
+local LOADING_SCREEN_WAIT_SECONDS = 40
 
-	while playerGui:FindFirstChild(LOADING_SCREEN_NAME) do
-		local removed = playerGui.ChildRemoved:Wait()
-		if removed.Name == LOADING_SCREEN_NAME then
-			return
-		end
+local function waitForLoadingScreenDismissed(playerGui)
+	local deadline = os.clock() + LOADING_SCREEN_WAIT_SECONDS
+	while playerGui:FindFirstChild(LOADING_SCREEN_NAME) and os.clock() < deadline do
+		task.wait(0.25)
 	end
 end
 
@@ -217,6 +215,10 @@ local function runSequence(playerGui, requestRemote, payload)
 
 	cleanup()
 	if ok ~= true then
+		-- The sequence may have died before its own showcaseStarted fire, and
+		-- the server ignores flashComplete until the showcase is marked
+		-- started — send both so the pending session cannot be orphaned.
+		requestRemote:FireServer("showcaseStarted", seq)
 		requestRemote:FireServer("flashComplete", seq)
 	end
 end

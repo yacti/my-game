@@ -168,6 +168,21 @@ function UiEffects.BindButton(button, options)
 	options = type(options) == "table" and options or {}
 	button:SetAttribute(BUTTON_EFFECTS_ATTR, true)
 
+	-- Under a Global-ZIndexBehavior gui, a button authored below an ancestor
+	-- ScrollingFrame's ZIndex hit-tests UNDER the scroller. Mouse clicks fall
+	-- through to the button, but touch taps are captured by the Active
+	-- scroller for scroll handling and sink — the button reads as dead on
+	-- mobile only (live bug: shop/durian buy buttons at z1 under SFHolder z2;
+	-- seed pack buttons at z2 kept working). Raise the button to the
+	-- scroller's ZIndex: descendants win ties, matching the working authoring.
+	local ancestor = button.Parent
+	while ancestor and not ancestor:IsA("LayerCollector") do
+		if ancestor:IsA("ScrollingFrame") and button.ZIndex < ancestor.ZIndex then
+			button.ZIndex = ancestor.ZIndex
+		end
+		ancestor = ancestor.Parent
+	end
+
 	local colorProp, baseColor = buttonColorTarget(button)
 	local hoverColor = darken(baseColor, 0.72)
 	local useColorTween = options.colorTween ~= false

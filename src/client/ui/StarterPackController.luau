@@ -28,6 +28,10 @@ local ViewportPreview = require(script.Parent:WaitForChild("ViewportPreview"))
 local StarterPackController = {}
 
 local PANEL_NAME = "RobuxShop"
+-- Watchdogs: a purchase flow stuck waiting on a reply or dialog event must
+-- re-enable itself; every other shop controller already self-heals this way.
+local REQUEST_TIMEOUT_SECONDS = 10
+local PROMPT_DIALOG_TIMEOUT_SECONDS = 15
 local PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
 	zoom = 1.8,
@@ -276,6 +280,27 @@ local requestRemote = Remotes.get(Remotes.Names.StarterPackPurchaseRequest)
 -- calls, so surface that instead of appearing dead (closing our own UI does
 -- not close the engine dialog).
 local openPurchaseDialogProductId = nil
+local promptDialogToken = 0
+
+-- Server preflight rejections must be visible: a silent failure reads as a
+-- dead buy button, especially next to flows that skip the preflight entirely
+-- (seed packs) and keep working.
+local PURCHASE_FAILURE_MESSAGES = {
+	["offline-progress"] = "Still syncing your offline progress, try again in a few seconds",
+	["profile-not-ready"] = "Your save data is still loading, try again in a moment",
+	["rate-limited"] = "Please wait a moment and try again",
+	["busy"] = "Please wait a moment and try again",
+	["already-owned"] = "You already own this pack",
+	["inactive-pack"] = "This pack is not available right now",
+}
+
+local function purchaseFailureMessage(code)
+	-- inventory-full already gets a specific server-side notification.
+	if code == "inventory-full" then
+		return nil
+	end
+	return PURCHASE_FAILURE_MESSAGES[code] or "Purchase could not start, please try again"
+end
 
 -- Starts the preflight -> PromptProductPurchase flow for a pack; shared by the
 -- shop card buy button and the plot StarterPackPromptController. Returns
@@ -299,10 +324,22 @@ function StarterPackController.RequestPurchase(packId)
 	nextRequestId += 1
 	pendingRequestId = nextRequestId
 	pendingRequestPackId = pack.PackId
+	local requestId = pendingRequestId
 	if renderAllRef then
 		renderAllRef()
 	end
-	requestRemote:FireServer(pendingRequestId, pack.PackId)
+	requestRemote:FireServer(requestId, pack.PackId)
+	-- A lost reply (dropped remote, server error swallowed by RuntimeGuard)
+	-- must not leave the buy button disabled for the rest of the session.
+	task.delay(REQUEST_TIMEOUT_SECONDS, function()
+		if pendingRequestId == requestId then
+			pendingRequestId = nil
+			pendingRequestPackId = nil
+			if renderAllRef then
+				renderAllRef()
+			end
+		end
+	end)
 	return true
 end
 
@@ -416,17 +453,42 @@ function StarterPackController.start()
 		renderAll()
 		local productId = tonumber(payload.productId) or 0
 		if payload.success == true and productId > 0 then
+			openPurchaseDialogProductId = productId
+			promptDialogToken += 1
+			local dialogToken = promptDialogToken
 			RuntimeGuard.Run("StarterPackController.PromptProductPurchase", function()
-				openPurchaseDialogProductId = productId
 				MarketplaceService:PromptProductPurchase(player, productId)
 			end)
-		elseif payload.packId ~= nil and payload.packId ~= requestPackId then
-			renderAll()
+			-- The engine silently ignores prompts while another purchase
+			-- dialog is open (and some platforms open none at all); without a
+			-- Finished event this guard would otherwise never clear.
+			task.delay(PROMPT_DIALOG_TIMEOUT_SECONDS, function()
+				if promptDialogToken == dialogToken and openPurchaseDialogProductId ~= nil then
+					openPurchaseDialogProductId = nil
+					renderAll()
+				end
+			end)
+		else
+			local message = purchaseFailureMessage(payload.code)
+			if message then
+				Notifications.show({
+					text = message,
+					kind = NotificationConfig.Kinds.Error,
+				})
+			end
+			if payload.packId ~= nil and payload.packId ~= requestPackId then
+				renderAll()
+			end
 		end
 	end)
 
-	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "StarterPackController.PurchaseFinished", function(userId, productId)
-		if userId == player.UserId and productId == openPurchaseDialogProductId then
+	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "StarterPackController.PurchaseFinished", function(userId)
+		-- The engine has a single purchase-dialog slot, so any product dialog
+		-- closing means ours is no longer open. Requiring an exact product id
+		-- match here wedged this guard for the session whenever our prompt had
+		-- been silently ignored while another controller's dialog was up.
+		if userId == player.UserId and openPurchaseDialogProductId ~= nil then
+			promptDialogToken += 1
 			openPurchaseDialogProductId = nil
 			renderAll()
 		end

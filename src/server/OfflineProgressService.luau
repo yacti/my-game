@@ -12,6 +12,13 @@ local State = require(Shared:WaitForChild("State"))
 local OfflineProgressService = {}
 
 local FLASH_ACK_TIMEOUT_SECONDS = 10
+-- Pending gates every purchase preflight and prompt interaction, so it must
+-- have a bounded lifetime even if the client showcase never acks. The hard
+-- cap sits just past the worst-case legitimate showcase (mobile loading
+-- screen failsafe ~35s + pre-flash beats).
+local PENDING_HARD_CAP_SECONDS = 45
+local PENDING_RETRY_SECONDS = 15
+local PENDING_MAX_APPLY_ATTEMPTS = 3
 local DEFAULT_STARTER_PET_ID = "Pet1"
 
 local sessions = {}
@@ -106,6 +113,42 @@ function OfflineProgressService.RegisterSystem(name, applyCallback)
 	return true
 end
 
+-- Backstop: the showcase handshake (showcaseStarted/flashComplete from the
+-- client) is the happy path, but a client that errors before its first ack —
+-- or an apply that keeps failing — previously left the session pending
+-- forever, silently blocking every purchase preflight for the whole session.
+local function scheduleApplyBackstop(player, session, delaySeconds)
+	task.delay(delaySeconds, function()
+		RuntimeGuard.Run("OfflineProgressService.ApplyBackstop." .. userLabel(player), function()
+			if sessionFor(player) ~= session or session.applied == true then
+				return
+			end
+			session.applyAttempts = (session.applyAttempts or 0) + 1
+			local ok = OfflineProgressService.ApplyPending(player, "backstop")
+			if ok == true or session.applied == true then
+				return
+			end
+			if session.applyAttempts < PENDING_MAX_APPLY_ATTEMPTS then
+				scheduleApplyBackstop(player, session, PENDING_RETRY_SECONDS)
+				return
+			end
+			-- Give up on the failing system(s) rather than hold every purchase
+			-- hostage for the session: systems that already applied stay
+			-- applied, the rest of the offline progress is dropped.
+			warn(string.format(
+				"[OfflineProgressService] Forcing pending clear for user %s after %d failed applies",
+				userLabel(player),
+				session.applyAttempts
+			))
+			session.applied = true
+			session.appliedSeq = session.seq
+			session.applying = false
+			setPendingAttribute(player, false)
+			publish(player, session, "applied")
+		end)
+	end)
+end
+
 function OfflineProgressService.Begin(player, plot, profile)
 	local key = userKey(player)
 	if key == nil then
@@ -140,6 +183,7 @@ function OfflineProgressService.Begin(player, plot, profile)
 	}
 	sessions[key] = session
 	setPendingAttribute(player, true)
+	scheduleApplyBackstop(player, session, PENDING_HARD_CAP_SECONDS)
 	return session, "pending"
 end
 

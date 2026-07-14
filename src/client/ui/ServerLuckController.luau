@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -13,6 +14,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
 local MenuGui = require(script.Parent:WaitForChild("MenuGui"))
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
 
@@ -24,10 +26,25 @@ local PANEL_NAME = "RobuxShop"
 local CARD_NAME = "ServerLuck"
 local INACTIVE_TIMER_TEXT = "+15 Mins"
 local TIMER_UPDATE_SECONDS = 0.25
+-- A lost preflight reply must not leave the buy button disabled all session.
+local REQUEST_TIMEOUT_SECONDS = 10
 
 local productPriceById = {}
 local nextRequestId = 0
 local pendingRequestId = nil
+
+-- Server preflight rejections must be visible: a silent failure reads as a
+-- dead buy button.
+local PURCHASE_FAILURE_MESSAGES = {
+	["offline-progress"] = "Still syncing your offline progress, try again in a few seconds",
+	["profile-not-ready"] = "Your save data is still loading, try again in a moment",
+	["rate-limited"] = "Please wait a moment and try again",
+	["busy"] = "Please wait a moment and try again",
+}
+
+local function purchaseFailureMessage(code)
+	return PURCHASE_FAILURE_MESSAGES[code] or "Purchase could not start, please try again"
+end
 
 local function child(parent, name, className)
 	local found = parent and parent:FindFirstChild(name)
@@ -168,8 +185,15 @@ local function bindShopCard(card)
 		end
 		nextRequestId += 1
 		pendingRequestId = nextRequestId
+		local requestId = pendingRequestId
 		render()
-		purchaseRequestRemote:FireServer(pendingRequestId)
+		purchaseRequestRemote:FireServer(requestId)
+		task.delay(REQUEST_TIMEOUT_SECONDS, function()
+			if pendingRequestId == requestId then
+				pendingRequestId = nil
+				render()
+			end
+		end)
 	end)
 
 	RuntimeGuard.Connect(purchaseResultRemote.OnClientEvent, "ServerLuckController.PurchaseResult", function(payload)
@@ -183,6 +207,11 @@ local function bindShopCard(card)
 			RuntimeGuard.Run("ServerLuckController.PromptProductPurchase", function()
 				MarketplaceService:PromptProductPurchase(Players.LocalPlayer, productId)
 			end)
+		else
+			Notifications.show({
+				text = purchaseFailureMessage(payload.code),
+				kind = NotificationConfig.Kinds.Error,
+			})
 		end
 	end)
 
