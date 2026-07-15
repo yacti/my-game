@@ -24,6 +24,7 @@ local ShovelController = {}
 
 local DELETE_PROMPT_ATTACHMENT_NAME = "__ShovelDeletePromptAttachment"
 local DELETE_PROMPT_DISTANCE = 18
+local TREE_DELETE_PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM = 3
 local PROMPT_UPDATE_INTERVAL = 0.1
 
 local DELETE_FAILURE_MESSAGES = {
@@ -171,11 +172,16 @@ local function firstBasePartDescendant(instance)
 	return nil
 end
 
-local function targetWorldCenter(target)
+local function targetPromptWorldPosition(target)
 	if target:IsA("BasePart") then
 		return target.Position
 	end
 	if target:IsA("Model") then
+		local primary = target.PrimaryPart
+		if target:GetAttribute(State.Feed.Class) == "Tree" and primary then
+			local primaryBottom = (primary.CFrame * CFrame.new(0, -primary.Size.Y / 2, 0)).Position
+			return primaryBottom + Vector3.new(0, TREE_DELETE_PROMPT_HEIGHT_ABOVE_PRIMARY_BOTTOM, 0)
+		end
 		local cframe = target:GetBoundingBox()
 		return cframe.Position
 	end
@@ -397,7 +403,7 @@ function ShovelController.start()
 		end
 		if target ~= currentTarget then
 			currentTarget = target
-			record.attachment.WorldPosition = targetWorldCenter(target) or part.Position
+			record.attachment.WorldPosition = targetPromptWorldPosition(target) or part.Position
 		end
 	end
 

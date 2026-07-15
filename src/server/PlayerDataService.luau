@@ -74,6 +74,8 @@ local DATA_TEMPLATE = {
 		musicEnabled = true,
 		treeAutoCollect = true,
 		acceptGifts = true,
+		motionSickness = false,
+		hidePetsInEditMode = false,
 	},
 	Rebirths = 0,
 	UnlockedGridKeys = {},

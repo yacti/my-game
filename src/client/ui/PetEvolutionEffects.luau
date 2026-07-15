@@ -16,6 +16,8 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State = require(Shared:WaitForChild("State"))
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local EditModePetVisibilityController = require(script.Parent:WaitForChild("EditModePetVisibilityController"))
+local MotionSickness = require(script.Parent:WaitForChild("MotionSickness"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
@@ -238,8 +240,9 @@ local function playCharge(effect, pivot, baseScale, pet, options)
 		local elapsed = os.clock() - startedAt
 		local alpha = math.clamp(elapsed / chargeSeconds, 0, 1)
 		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		local shake = SHAKE_START + (SHAKE_END - SHAKE_START) * eased
-		local rotation = SHAKE_ROTATION * eased
+		local allowsShake = MotionSickness.AllowsShakeEffects()
+		local shake = if allowsShake then SHAKE_START + (SHAKE_END - SHAKE_START) * eased else 0
+		local rotation = if allowsShake then SHAKE_ROTATION * eased else 0
 		local flash = flashAmount(elapsed, chargeSeconds)
 
 		effect:ScaleTo(baseScale * (1 + (CHARGE_SCALE - 1) * eased))
@@ -535,6 +538,10 @@ end
 
 local function playForPet(pet)
 	if not isOwnPet(pet) then return end
+	-- Defer the cinematic while edit-mode visibility owns the pet. The cue
+	-- remains unread and the hidden attribute's change signal replays it after
+	-- the controller restores the pet's original visual properties.
+	if pet:GetAttribute(EditModePetVisibilityController.HiddenAttribute) == true then return end
 	-- Serialize cinematics per pet: a second cue arriving mid-cinematic would
 	-- snapshot the already-hidden label transparencies as the "originals" to
 	-- restore, leaving the billboard permanently invisible. The active
@@ -611,6 +618,15 @@ local function bindPet(pet)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.EvolutionSeq), "PetEvolutionEffects.EvolutionSeqChanged", function()
 		playForPet(pet)
 	end)
+	RuntimeGuard.Connect(
+		pet:GetAttributeChangedSignal(EditModePetVisibilityController.HiddenAttribute),
+		"PetEvolutionEffects.EditModePetHiddenChanged",
+		function()
+			if pet:GetAttribute(EditModePetVisibilityController.HiddenAttribute) ~= true then
+				playForPet(pet)
+			end
+		end
+	)
 	RuntimeGuard.Connect(pet.Destroying, "PetEvolutionEffects.PetDestroying", function()
 		watchedPets[pet] = nil
 		playedSeqByPet[pet] = nil

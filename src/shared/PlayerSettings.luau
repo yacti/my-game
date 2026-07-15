@@ -8,12 +8,16 @@ PlayerSettings.Keys = {
 	MusicEnabled = "musicEnabled",
 	TreeAutoCollect = "treeAutoCollect",
 	AcceptGifts = "acceptGifts",
+	MotionSickness = "motionSickness",
+	HidePetsInEditMode = "hidePetsInEditMode",
 }
 
 PlayerSettings.Defaults = {
 	musicEnabled = true,
 	treeAutoCollect = true,
 	acceptGifts = true,
+	motionSickness = false,
+	hidePetsInEditMode = false,
 }
 
 -- Returns a fresh table containing only known keys as booleans; anything

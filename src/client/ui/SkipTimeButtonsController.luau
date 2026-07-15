@@ -44,6 +44,9 @@ local DOOR_OPEN_ANGLE = math.rad(78)
 local DOOR_OPEN_TWEEN = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local DOOR_CLOSE_TWEEN = TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 local PROMPT_TIMEOUT_SECONDS = 20
+local PRODUCT_INFO_RETRY_SECONDS = 2
+local PRICE_LOADING_TEXT = "\u{E002} --"
+local SIGN_BIND_WARNING_SECONDS = 10
 local SKIP_30M_GRADIENT_DEGREES_PER_SECOND = 18
 local SIGN_PRESS_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local SIGN_PRESS_SCALE = 0.94
@@ -57,6 +60,8 @@ local collectAllRequestRemote = Remotes.get(Remotes.Names.CollectAllRequest)
 local collectAllResultRemote = Remotes.get(Remotes.Names.CollectAllResult)
 
 local productPriceById = {}
+local productPriceLoadingById = {}
+local productPriceRetryAtById = {}
 local nextRequestId = 0
 local pendingRequestId = nil
 local pendingProductId = nil
@@ -94,17 +99,27 @@ local function robuxText(productId, onLoaded)
 		return productPriceById[productId]
 	end
 
-	productPriceById[productId] = NumberFormatter.Robux(0)
+	local clock = os.clock()
+	if productPriceLoadingById[productId] or clock < (productPriceRetryAtById[productId] or 0) then
+		return PRICE_LOADING_TEXT
+	end
+	productPriceLoadingById[productId] = true
 	RuntimeGuard.Spawn("SkipTimeButtonsController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
 		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
 			productPriceById[productId] = NumberFormatter.Robux(info.PriceInRobux)
+			productPriceRetryAtById[productId] = nil
 			if onLoaded then
 				onLoaded()
 			end
+		else
+			-- A transient MarketplaceService failure during join must not leave the
+			-- authored/template price on the sign for the rest of the session.
+			productPriceRetryAtById[productId] = os.clock() + PRODUCT_INFO_RETRY_SECONDS
 		end
+		productPriceLoadingById[productId] = nil
 	end)
-	return productPriceById[productId]
+	return PRICE_LOADING_TEXT
 end
 
 local function findDescendant(root, name, className)
@@ -455,7 +470,7 @@ local function setSkipSignGuiEnabled(sign, enabled)
 	end
 end
 
-local function refreshMailboxVisibility()
+local function refreshMailboxVisibility(readySkipSign)
 	local ownedPlot = ownPlot()
 	local seen = {}
 	local variant = stationVariant()
@@ -469,7 +484,10 @@ local function refreshMailboxVisibility()
 		local sign = skipSignForPlot(plot)
 		if sign then
 			seen[sign] = true
-			local signHidden = hidden or variant ~= "sign"
+			-- Treatment signs stay hidden until the complete streamed UI tree has
+			-- been priced and wired. This prevents a visible but inert template
+			-- during the join/plot-streaming race.
+			local signHidden = hidden or variant ~= "sign" or sign ~= readySkipSign
 			-- LocalTransparencyModifier hides the sign parts but not its
 			-- SurfaceGui, so toggle the gui alongside.
 			setStationHidden(sign, signHidden)
@@ -822,6 +840,12 @@ function SkipTimeButtonsController.start()
 	local collectAllRecord = nil
 	local signRecords = {}
 	local boundSign = nil
+	local boundSignFrame = nil
+	local signBindingReady = false
+	local signRecordByHitbox = {}
+	local waitingSign = nil
+	local signWaitStartedAt = nil
+	local warnedWaitingSign = nil
 	local signActive = false
 	local isOpen = false
 	local transitionToken = 0
@@ -832,6 +856,10 @@ function SkipTimeButtonsController.start()
 	local render
 	local requestSkip
 	local requestCollectAll
+
+	local function refreshStationVisibility()
+		refreshMailboxVisibility(signBindingReady and boundSign or nil)
+	end
 
 	local function forEachRecord(callback)
 		for _, record in ipairs(records) do
@@ -934,7 +962,7 @@ function SkipTimeButtonsController.start()
 	local function applyTutorialState(state)
 		state = Onboarding.SanitizeState(state, Onboarding.CompleteState())
 		tutorialActive = Onboarding.IsActive(state.Stage)
-		refreshMailboxVisibility()
+		refreshStationVisibility()
 		render()
 	end
 
@@ -977,7 +1005,7 @@ function SkipTimeButtonsController.start()
 	-- the mailbox for HUD cards, the sign itself for sign cards.
 	local function stationTargetFor(record)
 		if record.station == "sign" then
-			local sign = boundSign
+			local sign = record.stationInstance
 			return canUseSkipSign(sign) and sign or nil
 		end
 		local mailbox = currentMailbox()
@@ -1061,59 +1089,186 @@ function SkipTimeButtonsController.start()
 		end)
 	end
 
-	local function bindSignCards(sign)
+	local function resetCurrentSignBinding(sign)
 		signRecords = {}
 		boundSign = sign
-		if not sign then
+		boundSignFrame = nil
+		signBindingReady = false
+		signActive = false
+	end
+
+	local function clearSignWait()
+		waitingSign = nil
+		signWaitStartedAt = nil
+		warnedWaitingSign = nil
+	end
+
+	local function noteSignNotReady(sign)
+		if stationVariant() ~= "sign" then
 			return
 		end
+		if waitingSign ~= sign then
+			waitingSign = sign
+			signWaitStartedAt = os.clock()
+			warnedWaitingSign = nil
+			return
+		end
+		if warnedWaitingSign ~= sign
+			and os.clock() - (signWaitStartedAt or os.clock()) >= SIGN_BIND_WARNING_SECONDS then
+			warnedWaitingSign = sign
+			warn("[SkipTimeButtonsController] Treatment SkipTimeSign UI is still incomplete after streaming wait: "
+				.. sign:GetFullName())
+		end
+	end
+
+	-- Resolve the entire dynamic card tree before mutating or binding any of it.
+	-- Streaming can expose the sign Model several frames before these descendants;
+	-- a partial bind would otherwise strand the sign with template text and no
+	-- Activated connections.
+	local function resolveReadySignCards(sign)
 		local frame = skipSignButtonsFrame(sign)
 		if not frame then
-			warn("[SkipTimeButtonsController] " .. sign:GetFullName() .. " is missing SurfaceGui.SkipTimeButtons")
-			return
+			return nil, nil
 		end
+
+		local cardsByName = {}
+		local function addCard(cardName, dynamicLabelName)
+			local card = frame:FindFirstChild(cardName)
+			if not (card and card:IsA("GuiObject")) then
+				return false
+			end
+			if not findDescendant(card, "Hitbox", "GuiButton")
+				or not findDescendant(card, "BuyButton", "GuiButton")
+				or not findDescendant(card, "Price", "TextLabel")
+				or not findDescendant(card, dynamicLabelName, "TextLabel") then
+				return false
+			end
+			cardsByName[cardName] = card
+			return true
+		end
+
+		for _, skipId in ipairs(SKIP_IDS) do
+			if not addCard(skipId, "SkipAmount") then
+				return nil, nil
+			end
+		end
+		if not addCard("CollectAll", "FruitsLabel") then
+			return nil, nil
+		end
+		return frame, cardsByName
+	end
+
+	local function cachedOrBindSignRecord(sign, card, recordName, kind)
+		local hitbox = findDescendant(card, "Hitbox", "GuiButton")
+		local record = hitbox and signRecordByHitbox[hitbox] or nil
+		if record and record.frame == card then
+			record.stationInstance = sign
+			return record
+		end
+
+		record = bindCard(card, "Hitbox")
+		if not record then
+			return nil
+		end
+		record.kind = kind
+		record.station = "sign"
+		record.stationInstance = sign
+		if kind == "skip" then
+			local config = ShopBalance.GrowSkipForSkipId(recordName)
+			record.skipId = recordName
+			record.productId = int(config and config.DevProductId, 0)
+			record.durationSeconds = int(config and config.DurationSeconds, 0)
+		else
+			local config = ShopBalance.GetCollectAll()
+			record.productId = int(config and config.DevProductId, 0)
+		end
+		signRecordByHitbox[record.buyButton] = record
+		RuntimeGuard.Connect(record.buyButton.Destroying, "SkipTimeButtonsController.SignHitboxDestroying", function()
+			if signRecordByHitbox[record.buyButton] == record then
+				signRecordByHitbox[record.buyButton] = nil
+			end
+		end)
+		bindSignPressEffect(record)
+
+		if kind == "skip" then
+			RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.Sign" .. recordName, function()
+				requestSkip(record)
+			end)
+			if recordName == "Skip30m" then
+				ensureMythicalTextTween(record.skipAmountLabel)
+				bindSlowGradientRotation(findDescendant(record.frame, "BuyButton", "GuiButton"))
+			end
+		else
+			RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.SignCollectAll", function()
+				requestCollectAll(record)
+			end)
+		end
+		return record
+	end
+
+	local function bindSignCards(sign, frame, cardsByName)
+		local nextRecords = {}
 		for _, skipId in ipairs(SKIP_IDS) do
 			local config = ShopBalance.GrowSkipForSkipId(skipId)
-			local record = bindCard(frame:FindFirstChild(skipId), "Hitbox")
-			if record then
-				record.kind = "skip"
-				record.station = "sign"
-				record.skipId = skipId
-				record.productId = int(config and config.DevProductId, 0)
-				record.durationSeconds = int(config and config.DurationSeconds, 0)
-				signRecords[#signRecords + 1] = record
-				bindSignPressEffect(record)
-				RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.Sign" .. skipId, function()
-					requestSkip(record)
-				end)
-				if skipId == "Skip30m" then
-					ensureMythicalTextTween(record.skipAmountLabel)
-					bindSlowGradientRotation(findDescendant(record.frame, "BuyButton", "GuiButton"))
-				end
+			local record = cachedOrBindSignRecord(sign, cardsByName[skipId], skipId, "skip")
+			if not record or int(config and config.DevProductId, 0) <= 0 then
+				resetCurrentSignBinding(sign)
+				return false
+			end
+			nextRecords[#nextRecords + 1] = record
+		end
+		local collectConfig = ShopBalance.GetCollectAll()
+		local collectRecord = cachedOrBindSignRecord(sign, cardsByName.CollectAll, "CollectAll", "collect-all")
+		if not collectRecord or int(collectConfig and collectConfig.DevProductId, 0) <= 0 then
+			resetCurrentSignBinding(sign)
+			return false
+		end
+		nextRecords[#nextRecords + 1] = collectRecord
+
+		signRecords = nextRecords
+		boundSign = sign
+		boundSignFrame = frame
+		signBindingReady = #signRecords == #SKIP_IDS + 1
+		clearSignWait()
+		markPreviewDirty()
+		return signBindingReady
+	end
+
+	local function signBindingIsCurrent(sign, frame)
+		if not signBindingReady or sign ~= boundSign or frame ~= boundSignFrame or #signRecords ~= #SKIP_IDS + 1 then
+			return false
+		end
+		for _, record in ipairs(signRecords) do
+			if not (record.frame.Parent
+				and record.buyButton.Parent
+				and record.frame:IsDescendantOf(frame)
+				and record.buyButton:IsDescendantOf(record.frame)) then
+				return false
 			end
 		end
-		do
-			local config = ShopBalance.GetCollectAll()
-			local record = bindCard(frame:FindFirstChild("CollectAll"), "Hitbox")
-			if record then
-				record.kind = "collect-all"
-				record.station = "sign"
-				record.productId = int(config and config.DevProductId, 0)
-				signRecords[#signRecords + 1] = record
-				bindSignPressEffect(record)
-				RuntimeGuard.Connect(record.buyButton.Activated, "SkipTimeButtonsController.SignCollectAll", function()
-					requestCollectAll(record)
-				end)
-			end
-		end
+		return true
 	end
 
 	local function ensureSignBound()
 		local sign = skipSignForPlot(ownPlot())
-		if sign == boundSign and (sign == nil or sign.Parent ~= nil) then
+		if not (sign and sign.Parent) then
+			clearSignWait()
+			if boundSign ~= nil or signBindingReady then
+				resetCurrentSignBinding(nil)
+			end
 			return
 		end
-		bindSignCards(sign and sign.Parent and sign or nil)
+
+		local frame, cardsByName = resolveReadySignCards(sign)
+		if frame and signBindingIsCurrent(sign, frame) then
+			return
+		end
+		if not frame then
+			resetCurrentSignBinding(sign)
+			noteSignNotReady(sign)
+			return
+		end
+		bindSignCards(sign, frame, cardsByName)
 	end
 
 	RuntimeGuard.Connect(growSkipResultRemote.OnClientEvent, "SkipTimeButtonsController.GrowSkipResult", function(payload)
@@ -1210,12 +1365,14 @@ function SkipTimeButtonsController.start()
 	end)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, applyTutorialState)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.AssignedPlotName), "SkipTimeButtonsController.AssignedPlotChanged", function()
-		refreshMailboxVisibility()
+		ensureSignBound()
+		refreshStationVisibility()
 		render()
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.SkipTimeStation), "SkipTimeButtonsController.StationVariantChanged", function()
 		markPreviewDirty()
-		refreshMailboxVisibility()
+		ensureSignBound()
+		refreshStationVisibility()
 		render()
 	end)
 	RuntimeGuard.Connect(player:GetAttributeChangedSignal(State.Player.OfflineProgressPending), "SkipTimeButtonsController.OfflineProgressChanged", render)
@@ -1225,10 +1382,11 @@ function SkipTimeButtonsController.start()
 		while skipButtons.Parent do
 			RuntimeGuard.Run("SkipTimeButtonsController.ProximityTick", function()
 				local mailbox = currentMailbox()
-				refreshMailboxVisibility()
 				ensureSignBound()
+				refreshStationVisibility()
 				local variant = stationVariant()
-				signActive = variant == "sign"
+				signActive = signBindingReady
+					and variant == "sign"
 					and boundSign ~= nil
 					and not tutorialActive
 					and isNearSkipSign(boundSign)
@@ -1262,7 +1420,8 @@ function SkipTimeButtonsController.start()
 		end
 	end)
 
-	refreshMailboxVisibility()
+	ensureSignBound()
+	refreshStationVisibility()
 	render()
 end
 

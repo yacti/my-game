@@ -17,6 +17,7 @@ local RollRewards = require(Shared:WaitForChild("RollRewards"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local BillboardGuiTemplates = require(script.Parent:WaitForChild("BillboardGuiTemplates"))
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
+local MotionSickness = require(script.Parent:WaitForChild("MotionSickness"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local UiEffects = require(script.Parent:WaitForChild("UiEffects"))
@@ -1270,7 +1271,9 @@ local function playSeedBeatTween(clone, floorCFrame, liftedCFrame, token, onPop)
 		end
 		local currentScale = SEED_DEFAULT_SCALE + (SEED_EXPANDED_SCALE - SEED_DEFAULT_SCALE) * eased
 		local basePosition = floorCFrame.Position:Lerp(liftedCFrame.Position, eased)
-		local shake = math.sin(alpha * math.pi * 10) * math.rad(SEED_SHAKE_DEGREES)
+		local shake = if MotionSickness.AllowsShakeEffects()
+			then math.sin(alpha * math.pi * 10) * math.rad(SEED_SHAKE_DEGREES)
+			else 0
 		local currentCFrame = CFrame.new(basePosition) * (floorCFrame - floorCFrame.Position) * CFrame.Angles(0, shake, shake * 0.35)
 		setScaleAtCFrame(clone, currentScale, currentCFrame)
 	end)

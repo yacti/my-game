@@ -1,8 +1,9 @@
 -- Wires the Studio-authored Menu.Settings panel: profile-backed on/off rows
--- (music, tree fruit auto-collect, accept gifts) rendered from the replicated
--- PlayerSettings field, plus a right-aligned TopbarPlus icon that toggles the
--- panel. Each row has two overlapping On/Off ImageButtons; the one matching
--- the current state is visible and clicking either flips the setting.
+-- (music, tree fruit auto-collect, accept gifts, motion sickness, edit-mode
+-- pet visibility) rendered from the replicated PlayerSettings field, plus a
+-- right-aligned TopbarPlus icon that toggles the panel. Each row has two
+-- overlapping On/Off ImageButtons; the one matching the current state is
+-- visible and clicking either flips the setting.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -30,6 +31,8 @@ local SETTING_ROWS = {
 	{ key = PlayerSettings.Keys.MusicEnabled, label = "Music", order = 1 },
 	{ key = PlayerSettings.Keys.TreeAutoCollect, label = "Tree Auto-Collect", order = 2 },
 	{ key = PlayerSettings.Keys.AcceptGifts, label = "Accept Gifts", order = 3 },
+	{ key = PlayerSettings.Keys.MotionSickness, label = "Motion Sickness", order = 4 },
+	{ key = PlayerSettings.Keys.HidePetsInEditMode, label = "Hide Pets in Edit Mode", order = 5 },
 }
 
 local started = false
@@ -86,6 +89,8 @@ local function sendSettings()
 		[PlayerSettings.Keys.MusicEnabled] = settings[PlayerSettings.Keys.MusicEnabled] == true,
 		[PlayerSettings.Keys.TreeAutoCollect] = settings[PlayerSettings.Keys.TreeAutoCollect] == true,
 		[PlayerSettings.Keys.AcceptGifts] = settings[PlayerSettings.Keys.AcceptGifts] == true,
+		[PlayerSettings.Keys.MotionSickness] = settings[PlayerSettings.Keys.MotionSickness] == true,
+		[PlayerSettings.Keys.HidePetsInEditMode] = settings[PlayerSettings.Keys.HidePetsInEditMode] == true,
 	})
 end
 

@@ -68,6 +68,7 @@ local CONTROLLERS = {
 	"AnimalAmbientSounds",
 	"PetEvolutionEffects",
 	"PetAnimations",
+	"EditModePetVisibilityController",
 	"ToolStatsBillboard",
 	"SlotXPBillboard",
 	"FoodStealController",

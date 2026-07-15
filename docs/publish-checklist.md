@@ -75,6 +75,14 @@ Run this checklist before publishing a live build.
   plot, character, or controller is destroyed or no longer relevant.
 - Collection renderers such as pets use one central render loop that iterates tracked
   instances and prunes invalid entries, not one render connection per object.
+- Turn on `Settings > Motion Sickness` during a roll and an active earthquake;
+  verify roll reveal/evolution jitter stops immediately, earthquake
+  `Humanoid.CameraOffset` returns to zero, and the preference persists after
+  rejoining while non-shake event ambience continues.
+- Turn on `Settings > Hide Pets in Edit Mode`, enter edit mode, and verify the
+  owning plot's pets, billboards, and pet VFX hide locally; newly spawned pets
+  also hide, and every visual restores on edit exit or when the setting is
+  switched off. Rejoin and verify the preference persists.
 
 ## Runtime Output
 

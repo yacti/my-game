@@ -27,6 +27,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
 local EventLighting = require(script.Parent:WaitForChild("EventLighting"))
+local MotionSickness = require(script.Parent:WaitForChild("MotionSickness"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local EarthquakeController = {}
@@ -244,7 +245,7 @@ local function updateEarthquake(token)
 	if not (humanoid and humanoid.Parent) then
 		return
 	end
-	local shake = intensity * shakeFactor
+	local shake = if MotionSickness.AllowsShakeEffects() then intensity * shakeFactor else 0
 	if shake <= 0 then
 		if token.offsetApplied then
 			token.offsetApplied = false
@@ -371,6 +372,17 @@ function EarthquakeController.start()
 	clearLocalFolder()
 
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, refresh)
+	PlayerStateStore.Observe(PlayerStateStore.Fields.PlayerSettings, function()
+		-- Turning the setting on during a tremor must clear the offset without
+		-- waiting for the next pulse or event cleanup.
+		if MotionSickness.IsEnabled() and activeToken then
+			local humanoid = activeToken.humanoid
+			activeToken.offsetApplied = false
+			if humanoid and humanoid.Parent then
+				humanoid.CameraOffset = Vector3.zero
+			end
+		end
+	end)
 
 	local refreshElapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "EarthquakeController.Update", function(deltaTime)
