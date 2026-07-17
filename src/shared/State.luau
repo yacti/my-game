@@ -76,6 +76,7 @@ State.AdminPanel = {
 
 State.UpdateEvent = {
 	EventId = "UpdateEventId",
+	TimerTextMode = "UpdateTimerTextMode",
 }
 
 State.GameEvent = {

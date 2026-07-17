@@ -7,7 +7,13 @@ local State = require(Shared:WaitForChild("State"))
 
 local UpdateEventConfigService = {}
 
-local CONFIG_KEY = "TimerUpdate"
+local EVENT_ID_CONFIG_KEY = "TimerUpdate"
+local TIMER_TEXT_CONFIG_KEY = "UpdateTimerText"
+local DEFAULT_TIMER_TEXT_MODE = "update"
+local VALID_TIMER_TEXT_MODES = {
+	party = true,
+	update = true,
+}
 local MAX_INITIAL_ATTEMPTS = 6
 local CONFIG_POLL_SECONDS = 180
 local RETRY_DELAYS_SECONDS = { 2, 5, 10, 20, 30 }
@@ -34,8 +40,24 @@ local function sanitizeEventId(value)
 	return eventId
 end
 
-local function publish(eventId)
+local function sanitizeTimerTextMode(value)
+	if type(value) ~= "string" then
+		return nil
+	end
+
+	local mode = string.lower(trim(value))
+	if VALID_TIMER_TEXT_MODES[mode] then
+		return mode
+	end
+	return nil
+end
+
+local function publish(eventId, timerTextMode)
 	ReplicatedStorage:SetAttribute(State.UpdateEvent.EventId, sanitizeEventId(eventId))
+	ReplicatedStorage:SetAttribute(
+		State.UpdateEvent.TimerTextMode,
+		sanitizeTimerTextMode(timerTextMode) or DEFAULT_TIMER_TEXT_MODE
+	)
 end
 
 local function warnInvalidValue(value)
@@ -48,29 +70,50 @@ local function warnInvalidValue(value)
 	end
 end
 
+local function warnInvalidTimerTextMode(value)
+	if value == nil then
+		warn("[UpdateEventConfigService] UpdateTimerText config is missing; defaulting to 'update'")
+	elseif type(value) ~= "string" then
+		warn(
+			"[UpdateEventConfigService] UpdateTimerText config must be 'update' or 'party', got " .. typeof(value)
+		)
+	else
+		warn(
+			"[UpdateEventConfigService] UpdateTimerText config must be 'update' or 'party', got " .. string.format("%q", value)
+		)
+	end
+end
+
 local function publishSnapshotValue()
 	if not snapshot then
 		publish(nil)
 		return false
 	end
 
-	local ok, value = pcall(function()
-		return snapshot:GetValue(CONFIG_KEY)
+	local ok, eventIdValue, timerTextValue = pcall(function()
+		return snapshot:GetValue(EVENT_ID_CONFIG_KEY), snapshot:GetValue(TIMER_TEXT_CONFIG_KEY)
 	end)
 	if not ok then
-		warn("[UpdateEventConfigService] Failed to read TimerUpdate config: " .. tostring(value))
-		publish(nil)
+		warn("[UpdateEventConfigService] Failed to read update timer config: " .. tostring(eventIdValue))
+		publish(nil, DEFAULT_TIMER_TEXT_MODE)
 		return false
 	end
 
-	local eventId = sanitizeEventId(value)
+	local eventId = sanitizeEventId(eventIdValue)
 	if not eventId then
-		warnInvalidValue(value)
-		publish(nil)
-		return false
+		warnInvalidValue(eventIdValue)
 	end
 
-	publish(eventId)
+	local timerTextMode = sanitizeTimerTextMode(timerTextValue)
+	if not timerTextMode then
+		warnInvalidTimerTextMode(timerTextValue)
+		timerTextMode = DEFAULT_TIMER_TEXT_MODE
+	end
+
+	publish(eventId, timerTextMode)
+	if not eventId then
+		return false
+	end
 	return true
 end
 
@@ -154,7 +197,7 @@ local function loadInitialSnapshot()
 		end
 	end
 
-	publish(nil)
+	publish(nil, DEFAULT_TIMER_TEXT_MODE)
 	warn("[UpdateEventConfigService] TimerUpdate config unavailable after retries; update timer disabled")
 end
 
@@ -164,7 +207,7 @@ function UpdateEventConfigService.Start()
 	end
 	started = true
 
-	publish(nil)
+	publish(nil, DEFAULT_TIMER_TEXT_MODE)
 	RuntimeGuard.Spawn("UpdateEventConfigService.LoadInitialSnapshot", loadInitialSnapshot)
 	RuntimeGuard.Spawn("UpdateEventConfigService.PollConfig", pollConfig)
 end

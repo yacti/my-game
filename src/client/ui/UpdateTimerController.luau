@@ -21,6 +21,11 @@ local TIMER_LABEL_NAME = "UpdateTimer"
 local HUD_WAIT_SECONDS = 10
 local TIMER_UPDATE_SECONDS = 0.5
 local EVENT_DETAILS_REFRESH_SECONDS = 180
+local DEFAULT_TIMER_TEXT_MODE = "update"
+local TIMER_TEXT_BY_MODE = {
+	party = "Admin party in:",
+	update = "Update in:",
+}
 
 local player = Players.LocalPlayer
 local warned = {}
@@ -164,6 +169,14 @@ local function formatRemaining(seconds)
 	return string.format("%dm %ds", minutes, remainder)
 end
 
+local function timerTextPrefix()
+	local mode = ReplicatedStorage:GetAttribute(State.UpdateEvent.TimerTextMode)
+	if type(mode) == "string" then
+		mode = string.lower(trim(mode))
+	end
+	return TIMER_TEXT_BY_MODE[mode] or TIMER_TEXT_BY_MODE[DEFAULT_TIMER_TEXT_MODE]
+end
+
 local function clearLoadedEvent()
 	currentStartAt = nil
 	currentRsvpStatus = nil
@@ -197,7 +210,7 @@ local function render()
 	end
 
 	frame.Visible = true
-	timerLabel.Text = "Update in: " .. formatRemaining(remaining)
+	timerLabel.Text = timerTextPrefix() .. " " .. formatRemaining(remaining)
 
 	local promptVisible = not promptBusy
 		and (
@@ -407,6 +420,11 @@ function UpdateTimerController.start()
 		ReplicatedStorage:GetAttributeChangedSignal(State.UpdateEvent.EventId),
 		"UpdateTimerController.EventIdChanged",
 		onEventIdChanged
+	)
+	RuntimeGuard.Connect(
+		ReplicatedStorage:GetAttributeChangedSignal(State.UpdateEvent.TimerTextMode),
+		"UpdateTimerController.TimerTextModeChanged",
+		render
 	)
 
 	local elapsed = 0
