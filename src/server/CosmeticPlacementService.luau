@@ -95,7 +95,7 @@ function CosmeticPlacementService.Start(config)
 		TelemetryService.Warn("cosmetic_placement_rejected", fields)
 	end
 
-	local function restoreConsumedTool(player, cosmeticId)
+	local function restoreConsumedTool(player, cosmeticId, favourite)
 		local backpack = player and player:FindFirstChildOfClass("Backpack")
 		if not backpack then
 			return false
@@ -104,6 +104,7 @@ function CosmeticPlacementService.Start(config)
 		if not replacement then
 			return false
 		end
+		ToolIdentity.SetFavourite(replacement, favourite == true)
 		return ToolGrantService.GrantTool(player, replacement)
 	end
 
@@ -161,6 +162,7 @@ function CosmeticPlacementService.Start(config)
 				return
 			end
 			local cosmeticId = CosmeticTools.CosmeticIdOf(tool)
+			local wasFavourite = ToolIdentity.IsFavourite(tool)
 			if type(cosmeticId) ~= "string" or cosmeticId == "" then
 				sendPlaceResult(player, requestId, false, "no-cosmetic-tool")
 				return
@@ -186,7 +188,7 @@ function CosmeticPlacementService.Start(config)
 			end
 			local snappedLX = math.round(localCF.X)
 			local snappedLZ = math.round(localCF.Z)
-			local _, lry, _ = localCF:ToEulerAnglesXYZ()
+			local _, lry, _ = localCF:ToOrientation()
 			local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 			local snappedWorldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(snappedLX, 0, snappedLZ))
 			if not isPlayerNearPosition(player, snappedWorldPosition, placeDistance) then
@@ -225,7 +227,7 @@ function CosmeticPlacementService.Start(config)
 				if not snapshotOk then
 					cosmetic:Destroy()
 					PetMotionService.RefreshPlotRoutes(plot)
-					restoreConsumedTool(player, cosmeticId)
+					restoreConsumedTool(player, cosmeticId, wasFavourite)
 					sendPlaceResult(player, requestId, false, "save-failed")
 					return
 				end

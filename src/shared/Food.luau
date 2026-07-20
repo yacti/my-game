@@ -398,8 +398,10 @@ function Food.FindFirstInBackpack(player, foodType)
 	return nil
 end
 
+-- Favourite food stays available for deliberate inventory uses but never
+-- enters either the held/manual or backpack/auto pet-feed candidate pool.
 local function feedCandidateXP(item)
-	if not Food.IsFood(item) then return nil end
+	if not Food.IsFood(item) or ToolIdentity.IsFavourite(item) then return nil end
 	return Food.XPOf(item)
 end
 

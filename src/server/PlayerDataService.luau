@@ -21,7 +21,7 @@ local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersis
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 11
+local CURRENT_DATA_VERSION = 12
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -46,7 +46,14 @@ local DATA_TEMPLATE = {
 	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
 	SeedInventory = STARTER_SEED_INVENTORY, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
-		FoodInventoryItems = {}, -- { { foodId = string, xp = number, guid = string?, scale = number?, mutationIds = { string }?, primaryMutationId = string? } }
+	-- Individual records preserve food XP, mutations, scale, GUID, and favourite state.
+	FoodInventoryItems = {},
+	-- Count-backed tools are otherwise identical, so favourite counts preserve their state.
+	FavouriteInventory = {
+		Feed = {},
+		Seed = {},
+		Cosmetic = {},
+	},
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
 	PendingGrowSkipReservation = nil,
@@ -175,6 +182,21 @@ end
 
 local function nonemptyString(value)
 	return type(value) == "string" and value ~= "" and value or nil
+end
+
+local function sanitizeFavouriteCountMap(value, inventory)
+	local clean = {}
+	if type(value) ~= "table" or type(inventory) ~= "table" then
+		return clean
+	end
+	for itemId, count in pairs(value) do
+		local inventoryCount = math.max(math.floor(finiteNumber(inventory[itemId]) or 0), 0)
+		local favouriteCount = math.max(math.floor(finiteNumber(count) or 0), 0)
+		if type(itemId) == "string" and itemId ~= "" and inventoryCount > 0 and favouriteCount > 0 then
+			clean[itemId] = math.min(favouriteCount, inventoryCount)
+		end
+	end
+	return clean
 end
 
 local function sanitizeStarterPackPurchases(value, legacyPurchased)
@@ -365,6 +387,14 @@ local function migrateData(data)
 		elseif nextVersion == 11 then
 			if type(data.StormChaser) ~= "table" then
 				data.StormChaser = { Tier = 1, Deposits = {} }
+			end
+		elseif nextVersion == 12 then
+			if type(data.FavouriteInventory) ~= "table" then
+				data.FavouriteInventory = {
+					Feed = {},
+					Seed = {},
+					Cosmetic = {},
+				}
 			end
 		end
 
@@ -801,6 +831,15 @@ local function ensureValidData(profile)
 		end
 	end
 	profile.Data.SeedInventory = seedInventory
+
+	local favouriteInventory = type(profile.Data.FavouriteInventory) == "table"
+		and profile.Data.FavouriteInventory
+		or {}
+	profile.Data.FavouriteInventory = {
+		Feed = sanitizeFavouriteCountMap(favouriteInventory.Feed, feedInventory),
+		Seed = sanitizeFavouriteCountMap(favouriteInventory.Seed, seedInventory),
+		Cosmetic = sanitizeFavouriteCountMap(favouriteInventory.Cosmetic, cosmeticInventory),
+	}
 
 	local foodInventoryItems = FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)
 	if #foodInventoryItems == 0 and type(profile.Data.FoodInventory) == "table" then

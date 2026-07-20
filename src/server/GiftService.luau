@@ -102,8 +102,10 @@ local function mintFromDescriptor(descriptor, forRecipient)
 	local record = table.clone(descriptor.record)
 	if forRecipient then
 		-- Fresh guid for the recipient's copy; the giver's profile still
-		-- references the old guid until their snapshot lands.
+		-- references the old guid until their snapshot lands. Favourite state is
+		-- the giver's preference, so it does not transfer to the recipient.
 		record.guid = nil
+		record.favourite = nil
 	end
 	return FoodInventoryService.MakeTool(record)
 end

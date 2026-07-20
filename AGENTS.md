@@ -27,7 +27,7 @@ The current game loop is a plot-based pet/economy game:
 - `src/server` -> `ServerScriptService.Server`
 - `src/client` -> `StarterPlayerScripts.Client`
 - inline `ReplicatedStorage.Remotes` `RemoteEvent`s declared in JSON
-- `src/satchel.rbxm` -> `ReplicatedStorage.Satchel`
+- `src/vendor/Satchel` -> `ReplicatedStorage.Satchel`
 - selected `Workspace`, `Lighting`, and `SoundService` property overrides
 
 `Workspace` gameplay geometry and most templates are not Rojo-owned today. Latest MCP inspection showed the active Studio place supplies gameplay assets under `ReplicatedStorage.Assets` (`PetModels`, `FeedMachines`, `Food`, `Crates`, `Seeds`, `Misc`, `VFX`, `FeedMachineTool`, `SeedTool`, and `Shovel`), UI under `ReplicatedStorage.UI`, and `Workspace.PlotTemplates` loading pads. Server startup clones `ReplicatedStorage.Assets.Misc.PlotTemplate` into runtime `Workspace.Plots`.
@@ -142,6 +142,7 @@ Key server modules:
 - `FeedPlacementService`: `PlaceFeedMachine` request handling.
 - `FeedEditService`: HUD-driven edit-mode toggles and authoritative in-place mature feed-machine movement.
 - `ShovelService`: server-authoritative shovel deletion for placed plant feeds.
+- `InventoryFavouriteService`: server-authoritative per-tool favourite toggles. Favourite state persists in individual food records and count-backed feed/seed/cosmetic favourite maps; favourited tools cannot be deleted or selected for pet feeding.
 - `GameEventService`: local event runner — merges scheduled weather, local command-bar records, and external/global records, applies `LayerConfigs`, publishes the replicated snapshot, and drives per-event handlers.
 - `LiveEventCommandService`: server-only global live-event control plane. DataStore `LiveEvents_v1`/`GlobalState` is durable truth (UpdateAsync-only, fail-closed); MessagingService topic `LiveEvents_v1` is the revision-gated fast path; jittered reconcile polling self-heals. Also owns global admin messages (`SendGlobalMessage`/`ClearGlobalMessages`), published to clients through the replicated `AdminMessages` folder and rendered by `src/client/ui/AdminMessageController.luau` into the Studio-owned `HUD.AdminText` frames using `src/shared/AdminMessagePresets.luau` character presets, and the admin party (`SetAdminPartyPad` durable pad toggle + `DropAdminCrate` one-shot high-luck crate broadcasts executed by `RollService`; admin-only crates in `RollChances.AdminCrates` never enter the normal roll pool). Commands run from the server command bar only (no remotes, no client UI). See `docs/live-events.md`.
 - `PromptInteractionService`: thin `PromptInteract` dispatcher.
@@ -233,14 +234,14 @@ Pet motion is visually interpolated on the client from server-published segment 
 
 `HudController`, `RebirthController`, `RollLuckController`, and `RollDropAreaController` render durable profile-backed state from `PlayerStateStore`. They still use remotes for commands/results such as rebirth requests and upgrade purchases.
 
-Satchel is Rojo-mapped through `src/satchel.rbxm` and started by `SatchelController` in the client controller loader. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
+Satchel is Rojo-mapped through `src/vendor/Satchel` and started by `SatchelController` in the client controller loader. Its inventory action rail owns Delete and Favourite modes: Favourite toggles each clicked tool immediately, persistent favourites keep a gold slot outline outside the mode, Delete skips favourites, and the shared Exit button leaves either mode. Do not replace Satchel with a Luau backpack unless that is an intentional product decision.
 
 ## Shared Contracts
 
 Important shared modules:
 
 - `Remotes.luau`: single remote registry. All current remotes are `RemoteEvent`s and must match `default.project.json`.
-- `State.luau`: central replicated runtime attribute keys.
+- `State.luau`: central replicated runtime attribute keys, including per-tool `ToolGuid`, `Rarity`, and `ToolFavourite` metadata.
 - `PlayerState.luau`: Replica token and field names for the sanitized per-player profile read model.
 - `Interactions.luau`: valid `PromptInteract` action names.
 - `Notifications.luau`: shared notification payload normalization.
@@ -278,6 +279,7 @@ Groups:
 - Placement: `PlaceFeedMachine`, `PlaceFeedMachineResult`
 - Feed editing: `FeedEditModeRequest`, `FeedMoveRequest`, `FeedMoveResult`
 - Shovel deletion: `ShovelDeleteRequest`, `ShovelDeleteResult`
+- Inventory actions: `InventoryDeleteRequest`, `InventoryDeleteResult`, `InventoryFavouriteRequest`, `InventoryFavouriteResult`
 - Interactions: `PromptInteract`
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
 - Durian Pack rolls: `DurianPackRollRequest`, `DurianPackRollResult`

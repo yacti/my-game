@@ -90,6 +90,9 @@ function FoodInventoryService.SanitizeRecord(record, seenGuids)
 	if type(scale) == "number" and scale > 0 and scale == scale and math.abs(scale) < math.huge then
 		clean.scale = scale
 	end
+	if record.favourite == true then
+		clean.favourite = true
+	end
 	return clean
 end
 
@@ -172,6 +175,9 @@ function FoodInventoryService.SerializeTool(tool)
 	if scale then
 		record.scale = scale
 	end
+	if ToolIdentity.IsFavourite(tool) then
+		record.favourite = true
+	end
 	return record
 end
 
@@ -212,6 +218,7 @@ function FoodInventoryService.MakeTool(record)
 	else
 		ToolIdentity.EnsureGuid(tool)
 	end
+	ToolIdentity.SetFavourite(tool, clean.favourite == true)
 	applyToolScale(tool, clean.scale)
 	return tool
 end

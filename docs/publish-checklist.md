@@ -52,6 +52,9 @@ Run this checklist before publishing a live build.
   pile, patch slot, or machine queue retained). A profile above 250 countable
   tools materializes up to the 1500 hard cap on join so collect-all inventory
   survives rejoin without allowing unlimited restoration.
+- Favourite one food, seed, mature feed-machine tool, and cosmetic; leave/rejoin
+  and respawn, then verify each retains its gold Satchel outline. Unfavourite each
+  item and verify that state also persists.
 
 ## Gameplay Security
 
@@ -63,6 +66,9 @@ Run this checklist before publishing a live build.
   where practical and are cleared on leave/session cleanup.
 - Tool-consuming requests use `ToolIdentity` GUIDs to resolve and delete the exact
   equipped/backpack tool instance instead of matching by name.
+- Favourited tools are rejected by server-authoritative inventory deletion, and
+  pet feed selection skips favourited food for both held/manual and backpack/auto
+  selection paths.
 - Roblox service calls, receipt paths, runtime callbacks, and long-running loops
   use validation plus `RuntimeGuard`/`pcall` style protection where an error would
   otherwise kill important gameplay behavior.
@@ -83,6 +89,9 @@ Run this checklist before publishing a live build.
   owning plot's pets, billboards, and pet VFX hide locally; newly spawned pets
   also hide, and every visual restores on edit exit or when the setting is
   switched off. Rejoin and verify the preference persists.
+- Enter Satchel Favourite mode and verify each item click toggles immediately,
+  Favourite or Exit leaves the mode, gold outlines remain outside the mode, and
+  Delete cannot select or remove a favourited item.
 
 ## Runtime Output
 

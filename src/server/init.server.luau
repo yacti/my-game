@@ -55,6 +55,7 @@ local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
 local AFKRejoinService = require(Server:WaitForChild("AFKRejoinService"))
 local HomeTeleportService = require(Server:WaitForChild("HomeTeleportService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
+local InventoryFavouriteService = require(Server:WaitForChild("InventoryFavouriteService"))
 local JoinGroupRewardService = require(Server:WaitForChild("JoinGroupRewardService"))
 local MediaRewardService = require(Server:WaitForChild("MediaRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
@@ -333,6 +334,31 @@ end
 
 -- ── Feed state save ───────────────────────────────────────────────────────────
 
+local function countFavouriteToolsById(player, isMatchingTool, idOf)
+	local counts = {}
+	local function capture(item)
+		if not ToolIdentity.IsFavourite(item) or not isMatchingTool(item) then
+			return
+		end
+		local itemId = idOf(item)
+		if type(itemId) == "string" and itemId ~= "" then
+			counts[itemId] = (counts[itemId] or 0) + 1
+		end
+	end
+
+	local backpack = player and player:FindFirstChildOfClass("Backpack")
+	if backpack then
+		for _, item in ipairs(backpack:GetChildren()) do
+			capture(item)
+		end
+	end
+	local character = player and player.Character
+	if character then
+		capture(character:FindFirstChildWhichIsA("Tool"))
+	end
+	return counts
+end
+
 local function collectFeedState(plot, player)
 	local floor = PlotService.GetFloor(plot)
 	local placements = {}
@@ -379,6 +405,10 @@ local function collectFeedState(plot, player)
 		FeedPlacements = placements,
 		FeedInventory = feedInventory,
 		SeedInventory = SeedTools.CountBySeed(player),
+		FavouriteFeedInventory = countFavouriteToolsById(player, FeedMachineTools.IsFeedTool, function(tool)
+			return tool:GetAttribute(State.Feed.Type)
+		end),
+		FavouriteSeedInventory = countFavouriteToolsById(player, SeedTools.IsSeedTool, SeedTools.SeedIdOf),
 		FoodInventoryItems = foodInventoryItems,
 		FoodInventory = FoodInventoryService.CountRecords(foodInventoryItems),
 	}
@@ -432,6 +462,11 @@ local function collectCosmeticState(plot, player)
 	return {
 		CosmeticPlacements = placements,
 		CosmeticInventory = CosmeticTools.CountByCosmetic(player),
+		FavouriteCosmeticInventory = countFavouriteToolsById(
+			player,
+			CosmeticTools.IsCosmeticTool,
+			CosmeticTools.CosmeticIdOf
+		),
 	}
 end
 
@@ -460,6 +495,11 @@ local function snapshotProfileState(player, plot, profile)
 	profile.Data.SeedInventory = feedState.SeedInventory
 	profile.Data.FoodInventoryItems = feedState.FoodInventoryItems
 	profile.Data.FoodInventory = feedState.FoodInventory
+	profile.Data.FavouriteInventory = {
+		Feed = feedState.FavouriteFeedInventory,
+		Seed = feedState.FavouriteSeedInventory,
+		Cosmetic = cosmeticState.FavouriteCosmeticInventory,
+	}
 	profile.Data.LastSeen = os.time()
 	-- Catch-all discovery sweep: covers gifting and any grant path without a
 	-- point hook (publish rides the PublishProfile below).
@@ -468,6 +508,31 @@ local function snapshotProfileState(player, plot, profile)
 	if publishRunOk and published ~= true then
 		warn("[init] Snapshot saved but PlayerState replica was not updated for user " .. userLabel(player))
 	end
+	return true
+end
+
+local function snapshotFavouriteState(player, profile)
+	if not profile or isInventoryRestorePending(player) or OfflineProgressService.IsPending(player) then
+		return false
+	end
+
+	local foodInventoryItems = FoodInventoryService.SerializeTools(player)
+	local foodInventory = FoodInventoryService.CountRecords(foodInventoryItems)
+	local favouriteInventory = {
+		Feed = countFavouriteToolsById(player, FeedMachineTools.IsFeedTool, function(tool)
+			return tool:GetAttribute(State.Feed.Type)
+		end),
+		Seed = countFavouriteToolsById(player, SeedTools.IsSeedTool, SeedTools.SeedIdOf),
+		Cosmetic = countFavouriteToolsById(
+			player,
+			CosmeticTools.IsCosmeticTool,
+			CosmeticTools.CosmeticIdOf
+		),
+	}
+	profile.Data.FoodInventoryItems = foodInventoryItems
+	profile.Data.FoodInventory = foodInventory
+	profile.Data.FavouriteInventory = favouriteInventory
+	profile.Data.LastSeen = os.time()
 	return true
 end
 
@@ -1196,6 +1261,11 @@ local function handlePlayerAdded(player)
 			-- a full rebuild would duplicate that grant.
 			local liveFoodGuids = {}
 			local liveFeedCounts = {}
+			local liveSeedCounts = {}
+			local liveCosmeticCounts = {}
+			local liveFavouriteFeedCounts = {}
+			local liveFavouriteSeedCounts = {}
+			local liveFavouriteCosmeticCounts = {}
 			local function captureLiveTool(item)
 				if not (item and item:IsA("Tool")) then
 					return
@@ -1207,14 +1277,29 @@ local function handlePlayerAdded(player)
 				if FeedMachineTools.IsFeedTool(item) then
 					local feedType = item:GetAttribute(State.Feed.Type)
 					liveFeedCounts[feedType] = (liveFeedCounts[feedType] or 0) + 1
+					if ToolIdentity.IsFavourite(item) then
+						liveFavouriteFeedCounts[feedType] = (liveFavouriteFeedCounts[feedType] or 0) + 1
+					end
+				end
+				if SeedTools.IsSeedTool(item) then
+					local seedId = SeedTools.SeedIdOf(item)
+					liveSeedCounts[seedId] = (liveSeedCounts[seedId] or 0) + 1
+					if ToolIdentity.IsFavourite(item) then
+						liveFavouriteSeedCounts[seedId] = (liveFavouriteSeedCounts[seedId] or 0) + 1
+					end
+				end
+				if CosmeticTools.IsCosmeticTool(item) then
+					local cosmeticId = CosmeticTools.CosmeticIdOf(item)
+					liveCosmeticCounts[cosmeticId] = (liveCosmeticCounts[cosmeticId] or 0) + 1
+					if ToolIdentity.IsFavourite(item) then
+						liveFavouriteCosmeticCounts[cosmeticId] = (liveFavouriteCosmeticCounts[cosmeticId] or 0) + 1
+					end
 				end
 			end
 			for _, item in ipairs(backpack:GetChildren()) do
 				captureLiveTool(item)
 			end
 			captureLiveTool(character:FindFirstChildWhichIsA("Tool"))
-			local liveSeedCounts = SeedTools.CountBySeed(player)
-			local liveCosmeticCounts = CosmeticTools.CountByCosmetic(player)
 			-- Materialize at most the hard cap; collect-all purchases can
 			-- intentionally leave a profile above the normal 250 item cap.
 			local remainingSlots = Inventory.RemainingSlots(player, Inventory.COLLECT_ALL_MAX_ITEMS)
@@ -1230,7 +1315,7 @@ local function handlePlayerAdded(player)
 				end)
 				return keys
 			end
-			local function restoreCountedTool(makeTool)
+			local function restoreCountedTool(makeTool, favourite)
 				if remainingSlots <= 0 then
 					return false
 				end
@@ -1241,20 +1326,29 @@ local function handlePlayerAdded(player)
 				if Inventory.IsCountableTool(tool) then
 					remainingSlots -= 1
 				end
+				ToolIdentity.SetFavourite(tool, favourite == true)
 				-- Parent into this spawn's backpack specifically: if a respawn
 				-- interleaves mid-loop, these tools die with the old backpack
 				-- instead of duplicating into the new one.
 				tool.Parent = backpack
 				return remainingSlots > 0
 			end
-			local function restoreMap(map, makeTool, liveCounts)
+			local function restoreMap(map, favouriteMap, makeTool, liveCounts, liveFavouriteCounts)
 				for _, itemId in ipairs(sortedKeys(map)) do
-					local count = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
-						- math.max(math.floor(tonumber(liveCounts[itemId]) or 0), 0)
-					for _ = 1, count do
+					local desiredCount = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
+					local count = desiredCount - math.max(math.floor(tonumber(liveCounts[itemId]) or 0), 0)
+					local desiredFavouriteCount = math.min(
+						math.max(math.floor(tonumber(favouriteMap[itemId]) or 0), 0),
+						desiredCount
+					)
+					local favouriteCount = math.max(
+						desiredFavouriteCount - math.max(math.floor(tonumber(liveFavouriteCounts[itemId]) or 0), 0),
+						0
+					)
+					for restoreIndex = 1, count do
 						if not restoreCountedTool(function()
 							return makeTool(itemId)
-						end) then
+						end, restoreIndex <= favouriteCount) then
 							return
 						end
 					end
@@ -1264,14 +1358,33 @@ local function handlePlayerAdded(player)
 				if not (record.guid and liveFoodGuids[record.guid]) then
 					if not restoreCountedTool(function()
 						return FoodInventoryService.MakeTool(record)
-					end) then
+					end, record.favourite == true) then
 						break
 					end
 				end
 			end
-			restoreMap(profile.Data.FeedInventory, FeedMachineTools.MakeFeedTool, liveFeedCounts)
-			restoreMap(profile.Data.SeedInventory, SeedTools.MakeSeedTool, liveSeedCounts)
-			restoreMap(profile.Data.CosmeticInventory, CosmeticTools.MakeCosmeticTool, liveCosmeticCounts)
+			local favouriteInventory = profile.Data.FavouriteInventory or {}
+			restoreMap(
+				profile.Data.FeedInventory,
+				favouriteInventory.Feed or {},
+				FeedMachineTools.MakeFeedTool,
+				liveFeedCounts,
+				liveFavouriteFeedCounts
+			)
+			restoreMap(
+				profile.Data.SeedInventory,
+				favouriteInventory.Seed or {},
+				SeedTools.MakeSeedTool,
+				liveSeedCounts,
+				liveFavouriteSeedCounts
+			)
+			restoreMap(
+				profile.Data.CosmeticInventory,
+				favouriteInventory.Cosmetic or {},
+				CosmeticTools.MakeCosmeticTool,
+				liveCosmeticCounts,
+				liveFavouriteCosmeticCounts
+			)
 			if player.Character == character then
 				setInventoryRestorePending(player, false)
 			end
@@ -1503,6 +1616,13 @@ end)
 RuntimeGuard.Run("InventoryDeleteService.Start", function()
 	InventoryDeleteService.Start({
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
+
+RuntimeGuard.Run("InventoryFavouriteService.Start", function()
+	InventoryFavouriteService.Start({
+		snapshotFavouriteState = snapshotFavouriteState,
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)

@@ -249,7 +249,7 @@ function FeedEditService.Start(config)
 
 			local snappedLX = math.round(localCF.X)
 			local snappedLZ = math.round(localCF.Z)
-			local _, lry, _ = localCF:ToEulerAnglesXYZ()
+			local _, lry, _ = localCF:ToOrientation()
 			local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 			local snappedWorldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(snappedLX, 0, snappedLZ))
 

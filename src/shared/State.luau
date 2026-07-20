@@ -107,6 +107,7 @@ State.UpdateLog = {
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",
+	Favourite = "ToolFavourite",
 }
 
 State.Grid = {

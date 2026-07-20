@@ -128,7 +128,7 @@ function FeedPlacementService.Start(config)
 		end)
 	end
 
-	local function restoreConsumedTool(player, placingSeed, seedId, feedType)
+	local function restoreConsumedTool(player, placingSeed, seedId, feedType, favourite)
 		local backpack = player and player:FindFirstChildOfClass("Backpack")
 		if not backpack then
 			return false, "no-backpack"
@@ -137,6 +137,7 @@ function FeedPlacementService.Start(config)
 		if not replacement then
 			return false, "no-replacement"
 		end
+		ToolIdentity.SetFavourite(replacement, favourite == true)
 		local granted, code = ToolGrantService.GrantTool(player, replacement)
 		if not granted then
 			replacement:Destroy()
@@ -203,6 +204,7 @@ function FeedPlacementService.Start(config)
 			end
 			local seedId = nil
 			local placingSeed = SeedTools.IsSeedTool(tool)
+			local wasFavourite = ToolIdentity.IsFavourite(tool)
 			local feedType = nil
 			if placingSeed then
 				seedId = SeedTools.SeedIdOf(tool)
@@ -241,7 +243,7 @@ function FeedPlacementService.Start(config)
 			end
 			local snappedLX  = math.round(localCF.X)
 			local snappedLZ  = math.round(localCF.Z)
-			local _, lry, _  = localCF:ToEulerAnglesXYZ()
+			local _, lry, _  = localCF:ToOrientation()
 			local snappedLRY = math.round(lry / (math.pi / 2)) * (math.pi / 2)
 			local snappedWorldPosition = floor.CFrame:PointToWorldSpace(Vector3.new(snappedLX, 0, snappedLZ))
 			if not isPlayerNearPosition(player, snappedWorldPosition, placingSeed and seedPlaceDistance or placeDistance) then
@@ -292,7 +294,13 @@ function FeedPlacementService.Start(config)
 			if profile and type(snapshotProfileState) == "function" then
 				local snapshotOk = snapshotProfileState(player, plot, profile)
 				if not snapshotOk then
-					local restored, restoreCode = restoreConsumedTool(player, placingSeed, seedId, feedType)
+					local restored, restoreCode = restoreConsumedTool(
+						player,
+						placingSeed,
+						seedId,
+						feedType,
+						wasFavourite
+					)
 					if restored then
 						feedPart:Destroy()
 						PetMotionService.RefreshPlotRoutes(plot)

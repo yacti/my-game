@@ -1002,7 +1002,8 @@ end
 -- machines and pets always rest on the floor surface.
 local function worldPivotToFloorLocal(floor, world)
 	local localCF = floor.CFrame:ToObjectSpace(world)
-	local _, lry  = localCF:ToEulerAnglesXYZ()
+	-- YXZ decomposition preserves the full planar yaw range, including 180 degrees.
+	local _, lry  = localCF:ToOrientation()
 	return localCF.X, localCF.Z, lry
 end
 

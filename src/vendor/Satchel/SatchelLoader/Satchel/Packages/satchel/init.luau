@@ -133,8 +133,12 @@ local DELETE_UI = {
 	Gap = 18,
 	Color = Color3.new(190 / 255, 45 / 255, 45 / 255),
 	SelectedColor = Color3.new(125 / 255, 20 / 255, 20 / 255),
-	ConfirmColor = Color3.new(55 / 255, 160 / 255, 80 / 255),
-	CancelColor = Color3.new(95 / 255, 95 / 255, 95 / 255),
+}
+local FAVOURITE_UI = {
+	Color = Color3.new(1, 200 / 255, 35 / 255),
+}
+local INVENTORY_ACTION_UI = {
+	ExitColor = Color3.new(95 / 255, 95 / 255, 95 / 255),
 }
 
 -- Misc
@@ -219,8 +223,14 @@ local DeleteUi = {
 	requestCounter = 0,
 	statusLabel = nil :: TextLabel?,
 	deleteButton = nil :: TextButton?,
-	confirmButton = nil :: TextButton?,
-	cancelButton = nil :: TextButton?,
+}
+local FavouriteUi = {
+	mode = false,
+	requestCounter = 0,
+	favouriteButton = nil :: TextButton?,
+}
+local InventoryActionUi = {
+	exitButton = nil :: TextButton?,
 }
 local VRInventorySelector: any = nil
 local ScrollingFrame: ScrollingFrame = nil
@@ -234,6 +244,7 @@ local Character: Model = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid: any = Character:WaitForChild("Humanoid")
 local Backpack: Instance = Player:WaitForChild("Backpack")
 local InventoryDeleteRequestRemote: RemoteEvent = Remotes.get(Remotes.Names.InventoryDeleteRequest)
+local InventoryFavouriteRequestRemote: RemoteEvent = Remotes.get(Remotes.Names.InventoryFavouriteRequest)
 
 local Slots = {} -- List of all Slots by index
 local LowestEmptySlot: any = nil
@@ -347,7 +358,13 @@ local function slotMatchesCategory(slot: any): boolean
 end
 
 function DeleteUi.isSelectableTool(tool: Tool?): boolean
-	return Inventory.IsCountableTool(tool) and ToolIdentity.GuidOf(tool) ~= nil
+	return Inventory.IsCountableTool(tool)
+		and ToolIdentity.GuidOf(tool) ~= nil
+		and not ToolIdentity.IsFavourite(tool)
+end
+
+local function isInventoryActionModeActive(): boolean
+	return DeleteUi.mode or FavouriteUi.mode
 end
 
 function DeleteUi.isGuidSelected(guid: string?): boolean
@@ -374,6 +391,16 @@ function DeleteUi.countCategoryTools(category: string): number
 	return count
 end
 
+function FavouriteUi.countFavouriteTools(): number
+	local count = 0
+	for _, slot in ipairs(Slots) do
+		if Inventory.IsCountableTool(slot.Tool) and ToolIdentity.IsFavourite(slot.Tool) then
+			count += 1
+		end
+	end
+	return count
+end
+
 function DeleteUi.categoryDisplayName(category: string): string
 	if category == CATEGORY_ALL then
 		return "All items"
@@ -387,6 +414,12 @@ function DeleteUi.updateStatusLabel(): ()
 	end
 	if DeleteUi.mode then
 		DeleteUi.statusLabel.Text = string.format("DELETE MODE %d/%d", DeleteUi.countSelectedGuids(), Inventory.MAX_ITEMS)
+	elseif FavouriteUi.mode then
+		DeleteUi.statusLabel.Text = string.format(
+			"FAVOURITE MODE %d/%d",
+			FavouriteUi.countFavouriteTools(),
+			Inventory.MAX_ITEMS
+		)
 	else
 		DeleteUi.statusLabel.Text = string.format(
 			"%s %d/%d",
@@ -402,22 +435,25 @@ function DeleteUi.updateControls(): ()
 		DeleteUi.deleteButton.BackgroundTransparency = DeleteUi.mode and BACKGROUND_TRANSPARENCY or SLOT_LOCKED_TRANSPARENCY
 		DeleteUi.deleteButton.BackgroundColor3 = DeleteUi.mode and DELETE_UI.Color or BACKGROUND_COLOR
 	end
-	local hasSelection = DeleteUi.countSelectedGuids() > 0
-	if DeleteUi.confirmButton then
-		DeleteUi.confirmButton.Visible = DeleteUi.mode
-		DeleteUi.confirmButton.Active = hasSelection
-		DeleteUi.confirmButton.AutoButtonColor = hasSelection
-		DeleteUi.confirmButton.BackgroundColor3 = hasSelection and DELETE_UI.ConfirmColor or DELETE_UI.CancelColor
+	local actionStep = CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP
+	local deleteY = DeleteUi.deleteButton and DeleteUi.deleteButton.Position.Y.Offset or 0
+	if FavouriteUi.favouriteButton then
+		FavouriteUi.favouriteButton.BackgroundTransparency = FavouriteUi.mode
+			and BACKGROUND_TRANSPARENCY
+			or SLOT_LOCKED_TRANSPARENCY
+		FavouriteUi.favouriteButton.BackgroundColor3 = FAVOURITE_UI.Color
+		FavouriteUi.favouriteButton.Position = UDim2.fromOffset(0, deleteY + (DeleteUi.mode and 2 or 1) * actionStep)
 	end
-	if DeleteUi.cancelButton then
-		DeleteUi.cancelButton.Visible = DeleteUi.mode
+	if InventoryActionUi.exitButton then
+		InventoryActionUi.exitButton.Visible = isInventoryActionModeActive()
+		InventoryActionUi.exitButton.Position = UDim2.fromOffset(0, deleteY + (DeleteUi.mode and 1 or 2) * actionStep)
 	end
 end
 
 function DeleteUi.updateAllSlotViews(): ()
 	for _, slot in ipairs(Slots) do
-		if slot.UpdateDeleteView then
-			slot:UpdateDeleteView()
+		if slot.UpdateActionView then
+			slot:UpdateActionView()
 		end
 	end
 end
@@ -444,13 +480,22 @@ function DeleteUi.pruneSelection(): ()
 	end
 end
 
-function DeleteUi.setMode(active: boolean): ()
-	DeleteUi.mode = active == true
-	if not DeleteUi.mode then
+local function setInventoryActionMode(mode: string?): ()
+	DeleteUi.mode = mode == "delete"
+	FavouriteUi.mode = mode == "favourite"
+	if mode ~= "delete" then
 		DeleteUi.selectedGuids = {}
 	end
 	DeleteUi.pruneSelection()
 	DeleteUi.refresh()
+end
+
+function DeleteUi.setMode(active: boolean): ()
+	setInventoryActionMode(active == true and "delete" or nil)
+end
+
+function FavouriteUi.setMode(active: boolean): ()
+	setInventoryActionMode(active == true and "favourite" or nil)
 end
 
 function DeleteUi.toggleSelection(slot: any): ()
@@ -463,7 +508,7 @@ function DeleteUi.toggleSelection(slot: any): ()
 	DeleteUi.refresh()
 end
 
-function DeleteUi.confirmSelection(): ()
+function DeleteUi.deleteSelection(): ()
 	DeleteUi.pruneSelection()
 	local guids = {}
 	for guid in pairs(DeleteUi.selectedGuids) do
@@ -477,6 +522,19 @@ function DeleteUi.confirmSelection(): ()
 	DeleteUi.requestCounter += 1
 	InventoryDeleteRequestRemote:FireServer(tostring(DeleteUi.requestCounter), guids)
 	DeleteUi.setMode(false)
+end
+
+function FavouriteUi.toggle(slot: any): ()
+	local tool = slot and slot.Tool
+	if not Inventory.IsCountableTool(tool) then
+		return
+	end
+	local guid = ToolIdentity.GuidOf(tool)
+	if not guid then
+		return
+	end
+	FavouriteUi.requestCounter += 1
+	InventoryFavouriteRequestRemote:FireServer(tostring(FavouriteUi.requestCounter), guid)
 end
 
 local function updateCategoryButtonStyles(): ()
@@ -670,10 +728,12 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 	local ToolMutationChangeConn: RBXScriptConnection? = nil
 	local ToolPrimaryMutationChangeConn: RBXScriptConnection? = nil
 	local ToolRarityChangeConn: RBXScriptConnection? = nil
+	local ToolFavouriteChangeConn: RBXScriptConnection? = nil
 	local ToolRarityRenderConn: RBXScriptConnection? = nil
 	local ToolMutationRenderConn: RBXScriptConnection? = nil
 	local HighlightFrame: any = nil -- UIStroke
 	local DeleteHighlightFrame: UIStroke = nil
+	local FavouriteHighlightFrame: UIStroke = nil
 	local SelectionObj: ImageLabel = nil
 
 	--NOTE: The following are only defined for Hotbar Slots
@@ -699,6 +759,19 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			DeleteHighlightFrame.Parent = SlotFrame
 		elseif DeleteHighlightFrame then
 			DeleteHighlightFrame.Parent = nil
+		end
+		local favourite = slot.Tool and ToolIdentity.IsFavourite(slot.Tool)
+		if favourite then
+			if not FavouriteHighlightFrame then
+				FavouriteHighlightFrame = Instance.new("UIStroke")
+				FavouriteHighlightFrame.Name = "FavouriteBorder"
+				FavouriteHighlightFrame.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				FavouriteHighlightFrame.Thickness = SLOT_EQUIP_THICKNESS + 2
+				FavouriteHighlightFrame.Color = FAVOURITE_UI.Color
+			end
+			FavouriteHighlightFrame.Parent = SlotFrame
+		elseif FavouriteHighlightFrame then
+			FavouriteHighlightFrame.Parent = nil
 		end
 	end
 
@@ -738,6 +811,10 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		if ToolPrimaryMutationChangeConn then
 			ToolPrimaryMutationChangeConn:Disconnect()
 			ToolPrimaryMutationChangeConn = nil
+		end
+		if ToolFavouriteChangeConn then
+			ToolFavouriteChangeConn:Disconnect()
+			ToolFavouriteChangeConn = nil
 		end
 	end
 
@@ -889,18 +966,24 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		ToolFoodTypeChangeConn = tool:GetAttributeChangedSignal(State.Food.Type):Connect(refreshToolNameRarity)
 		ToolMutationChangeConn = tool:GetAttributeChangedSignal(State.Food.MutationIds):Connect(refreshMutationBackground)
 		ToolPrimaryMutationChangeConn = tool:GetAttributeChangedSignal(State.Food.PrimaryMutationId):Connect(refreshMutationBackground)
+		ToolFavouriteChangeConn = tool:GetAttributeChangedSignal(State.Tool.Favourite):Connect(function(): ()
+			DeleteUi.pruneSelection()
+			DeleteUi.refresh()
+		end)
 		refreshToolNameRarity()
 		refreshMutationBackground()
 
 		local hotbarSlot: boolean = (self.Index <= NumberOfHotbarSlots)
 		local inventoryOpen: boolean = InventoryFrame.Visible
 
-		if (not hotbarSlot or inventoryOpen) and not UserInputService.VREnabled and not DeleteUi.mode then
+		if (not hotbarSlot or inventoryOpen)
+			and not UserInputService.VREnabled
+			and not isInventoryActionModeActive() then
 			SlotFrame.Draggable = true
 		end
 
 		self:UpdateEquipView()
-		self:UpdateDeleteView()
+		self:UpdateActionView()
 
 		if hotbarSlot then
 			FullHotbarSlots = FullHotbarSlots + 1
@@ -943,6 +1026,9 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		setToolNameColor(TEXT_COLOR)
 		if DeleteHighlightFrame then
 			DeleteHighlightFrame.Parent = nil
+		end
+		if FavouriteHighlightFrame then
+			FavouriteHighlightFrame.Parent = nil
 		end
 		if ToolTip then
 			ToolTip.Text = ""
@@ -990,9 +1076,9 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		UpdateSlotFading()
 	end
 
-	function slot:UpdateDeleteView(): ...any
+	function slot:UpdateActionView(): ...any
 		if self.Tool and not UserInputService.VREnabled then
-			if DeleteUi.mode then
+			if isInventoryActionModeActive() then
 				SlotFrame.Draggable = false
 			elseif self.Index <= NumberOfHotbarSlots then
 				SlotFrame.Draggable = InventoryFrame.Visible
@@ -1052,7 +1138,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 			if UserInputService.VREnabled then
 				SlotFrame.Draggable = false
 			else
-				SlotFrame.Draggable = (not on) and not DeleteUi.mode
+				SlotFrame.Draggable = (not on) and not isInventoryActionModeActive()
 			end
 			UpdateSlotFading()
 		end
@@ -1249,7 +1335,7 @@ local function MakeSlot(parent: Instance, initIndex: number?): GuiObject
 		local startParent: any = nil
 
 		SlotFrame.DragBegin:Connect(function(dragPoint: UDim2): ()
-			if DeleteUi.mode then
+			if isInventoryActionModeActive() then
 				return
 			end
 			Dragging[SlotFrame] = true
@@ -1808,6 +1894,10 @@ function changeSlot(slot: any): ()
 		DeleteUi.toggleSelection(slot)
 		return
 	end
+	if FavouriteUi.mode then
+		FavouriteUi.toggle(slot)
+		return
+	end
 
 	local swapInVr: boolean = not VRService.VREnabled or InventoryFrame.Visible
 
@@ -2078,7 +2168,7 @@ CategoryFilterFrame.Name = "CategoryFilters"
 CategoryFilterFrame.BackgroundTransparency = 1
 CategoryFilterFrame.Size = UDim2.fromOffset(
 	CATEGORY_BUTTON_WIDTH,
-	(6 * CATEGORY_BUTTON_HEIGHT) + (4 * CATEGORY_BUTTON_GAP) + DELETE_UI.Gap
+	(6 * CATEGORY_BUTTON_HEIGHT) + (5 * CATEGORY_BUTTON_GAP) + DELETE_UI.Gap
 )
 CategoryFilterFrame.Visible = false
 CategoryFilterFrame.Parent = MainFrame
@@ -2116,7 +2206,7 @@ for categoryIndex, category in ipairs(categoryList) do
 	CategoryButtons[category] = button
 end
 
-local function makeDeleteControl(name: string, text: string, yOffset: number, color: Color3): TextButton
+local function makeInventoryActionControl(name: string, text: string, yOffset: number, color: Color3): TextButton
 	local button: TextButton = Instance.new("TextButton")
 	button.Name = name
 	button.Text = text
@@ -2147,18 +2237,38 @@ local function makeDeleteControl(name: string, text: string, yOffset: number, co
 end
 
 local deleteY = (3 * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP)) + DELETE_UI.Gap
-DeleteUi.deleteButton = makeDeleteControl("DeleteFilter", "Delete", deleteY, BACKGROUND_COLOR)
-DeleteUi.confirmButton = makeDeleteControl("ConfirmDelete", "Confirm", deleteY + CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP, DELETE_UI.ConfirmColor)
-DeleteUi.cancelButton = makeDeleteControl("CancelDelete", "Cancel", deleteY + (2 * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP)), DELETE_UI.CancelColor)
-DeleteUi.confirmButton.Visible = false
-DeleteUi.cancelButton.Visible = false
+DeleteUi.deleteButton = makeInventoryActionControl("DeleteFilter", "Delete", deleteY, BACKGROUND_COLOR)
+FavouriteUi.favouriteButton = makeInventoryActionControl(
+	"FavouriteFilter",
+	"Favourite",
+	deleteY + CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP,
+	FAVOURITE_UI.Color
+)
+local favouriteButtonBorder = FavouriteUi.favouriteButton:FindFirstChild("Border")
+if favouriteButtonBorder and favouriteButtonBorder:IsA("UIStroke") then
+	favouriteButtonBorder.Color = FAVOURITE_UI.Color
+	favouriteButtonBorder.Transparency = 0.2
+end
+InventoryActionUi.exitButton = makeInventoryActionControl(
+	"ExitInventoryAction",
+	"Exit",
+	deleteY + (2 * (CATEGORY_BUTTON_HEIGHT + CATEGORY_BUTTON_GAP)),
+	INVENTORY_ACTION_UI.ExitColor
+)
+InventoryActionUi.exitButton.Visible = false
 
 DeleteUi.deleteButton.MouseButton1Click:Connect(function(): ()
-	DeleteUi.setMode(not DeleteUi.mode)
+	if DeleteUi.mode then
+		DeleteUi.deleteSelection()
+	else
+		DeleteUi.setMode(true)
+	end
 end)
-DeleteUi.confirmButton.MouseButton1Click:Connect(DeleteUi.confirmSelection)
-DeleteUi.cancelButton.MouseButton1Click:Connect(function(): ()
-	DeleteUi.setMode(false)
+FavouriteUi.favouriteButton.MouseButton1Click:Connect(function(): ()
+	FavouriteUi.setMode(not FavouriteUi.mode)
+end)
+InventoryActionUi.exitButton.MouseButton1Click:Connect(function(): ()
+	setInventoryActionMode(nil)
 end)
 updateCategoryButtonStyles()
 DeleteUi.refresh()
@@ -2583,8 +2693,8 @@ do -- Make the Inventory expand/collapse arrow (unless TopBar)
 			if CategoryFilterFrame then
 				CategoryFilterFrame.Visible = nowOpen
 			end
-			if not nowOpen and DeleteUi.mode then
-				DeleteUi.setMode(false)
+			if not nowOpen and isInventoryActionModeActive() then
+				setInventoryActionMode(nil)
 			end
 			AdjustHotbarFrames()
 			HotbarFrame.Active = not HotbarFrame.Active

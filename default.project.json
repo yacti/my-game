@@ -213,6 +213,12 @@
         "InventoryDeleteResult": {
           "$className": "RemoteEvent"
         },
+        "InventoryFavouriteRequest": {
+          "$className": "RemoteEvent"
+        },
+        "InventoryFavouriteResult": {
+          "$className": "RemoteEvent"
+        },
         "PromptInteract": {
           "$className": "RemoteEvent"
         },

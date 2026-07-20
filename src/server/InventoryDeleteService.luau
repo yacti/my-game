@@ -156,7 +156,7 @@ function InventoryDeleteService.Start(config)
 			local skippedCount = 0
 			for _, guid in ipairs(guids) do
 				local tool = findOwnedToolByGuid(player, guid)
-				if Inventory.IsCountableTool(tool) then
+				if Inventory.IsCountableTool(tool) and not ToolIdentity.IsFavourite(tool) then
 					tool:Destroy()
 					deletedCount += 1
 				else

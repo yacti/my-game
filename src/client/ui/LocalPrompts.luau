@@ -730,7 +730,7 @@ local function externalPromptHighlightTarget(record)
 end
 
 local function hasFeedablePetFood()
-	return Food.FindFirstInBackpack(player) ~= nil
+	return Food.FindForPetFeed(player) ~= nil
 end
 
 local function petCanGainXP(pet)

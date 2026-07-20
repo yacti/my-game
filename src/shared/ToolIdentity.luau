@@ -35,6 +35,20 @@ function ToolIdentity.EnsureGuid(tool)
 	return ToolIdentity.GuidOf(tool) or ToolIdentity.AssignGuid(tool)
 end
 
+function ToolIdentity.IsFavourite(tool)
+	return tool ~= nil
+		and tool:IsA("Tool")
+		and tool:GetAttribute(State.Tool.Favourite) == true
+end
+
+function ToolIdentity.SetFavourite(tool, favourite)
+	if not (tool and tool:IsA("Tool")) then
+		return false
+	end
+	tool:SetAttribute(State.Tool.Favourite, favourite == true or nil)
+	return true
+end
+
 function ToolIdentity.FindEquippedByGuid(player, guid, predicate)
 	if not (player and ToolIdentity.IsValidGuid(guid)) then
 		return nil
