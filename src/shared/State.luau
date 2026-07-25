@@ -13,6 +13,7 @@ State.Pet = {
 	Nickname  = "PetNickname",
 	NicknameColor = "PetNicknameColor",
 	Rarity    = "Rarity",
+	IsGolden  = "IsGolden",
 	WalkSpeed = "PetWalkSpeed",
 	MotionState = "PetMotionState",
 	SegmentData = "PetSegmentData",

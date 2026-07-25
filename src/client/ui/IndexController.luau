@@ -7,6 +7,7 @@
 -- icon (order 1, between the edit and discord icons).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
@@ -38,6 +39,12 @@ local SELECTED_TAB_COLOR = Color3.fromRGB(150, 150, 150)
 local UNSELECTED_TAB_COLOR = Color3.fromRGB(255, 255, 255)
 local DISCOVERED_TEXT_FORMAT = 'Discovered: <font color="#ABFF00">%d/%d</font>'
 local LIVE_XP_REFRESH_SECONDS = 1
+-- Golden cards: the Main.GoldenGradient overlay spins its UIGradient half a
+-- turn over one second, holds for one second, then repeats. Driven from the
+-- shared os.clock so every golden card spins in sync.
+local GOLDEN_SPIN_DEGREES = 180
+local GOLDEN_SPIN_SECONDS = 1
+local GOLDEN_PAUSE_SECONDS = 1
 local TAB_PETS = "Pets"
 local TAB_TREES = "Trees"
 local TAB_PATCHES = "Patches"
@@ -134,6 +141,7 @@ local function buildPetEntries()
 				displayName = template.Name,
 				order = tonumber(template:GetAttribute(State.Pet.Order)) or math.huge,
 				rarity = validRarityOr(template:GetAttribute(State.Pet.Rarity), Rarities.Common),
+				isGolden = template:GetAttribute(State.Pet.IsGolden) == true,
 				moneyRate = tonumber(template:GetAttribute(State.Pet.MoneyRate)) or 1,
 			}
 		end
@@ -186,6 +194,7 @@ local function buildFeedEntries()
 						),
 						chanceN = Seeds.RollChanceNForFeedType(feedType),
 						eventOnly = Seeds.IsEventOnlyFeedType(feedType),
+						isGolden = Seeds.IsGoldenFeedType(feedType),
 						pct = tonumber(template:GetAttribute(State.Feed.PercentageOfBest)),
 						foodDrop = template:GetAttribute(State.Feed.FoodDrop),
 						xp = tonumber(template:GetAttribute(State.Feed.XP)),
@@ -351,6 +360,7 @@ function IndexController.start()
 	local liveXPToken = 0
 	local animatedGradients = {} -- [UIGradient] = rarity (Mythical only)
 	local animatedLabels = {} -- [TextLabel] = rarity
+	local goldenGradients = {} -- [UIGradient] = authored base rotation
 	local rarityRenderConnection = nil
 	local topbarIcon = nil
 	local syncingIcon = false
@@ -391,9 +401,28 @@ function IndexController.start()
 		)
 	end
 
+	-- Spin-then-hold rotation shared by every golden card: eased half turn
+	-- during the spin window, flat during the pause, accumulating so the
+	-- gradient never snaps backwards.
+	local function goldenRotationFor(baseRotation, now)
+		local cycle = GOLDEN_SPIN_SECONDS + GOLDEN_PAUSE_SECONDS
+		local cycles = math.floor(now / cycle)
+		local progress = math.min((now - cycles * cycle) / GOLDEN_SPIN_SECONDS, 1)
+		local eased = TweenService:GetValue(progress, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+		return (baseRotation + (cycles + eased) * GOLDEN_SPIN_DEGREES) % 360
+	end
+
 	local function refreshAnimatedRarities()
 		local now = os.clock()
 		local hasAny = false
+		for gradient, baseRotation in pairs(goldenGradients) do
+			if gradient.Parent then
+				hasAny = true
+				gradient.Rotation = goldenRotationFor(baseRotation, now)
+			else
+				goldenGradients[gradient] = nil
+			end
+		end
 		for gradient, rarity in pairs(animatedGradients) do
 			if gradient.Parent then
 				hasAny = true
@@ -418,7 +447,8 @@ function IndexController.start()
 
 	local function ensureRarityRender()
 		if panelOpen and not rarityRenderConnection
-			and (next(animatedGradients) ~= nil or next(animatedLabels) ~= nil) then
+			and (next(animatedGradients) ~= nil or next(animatedLabels) ~= nil
+				or next(goldenGradients) ~= nil) then
 			rarityRenderConnection = RuntimeGuard.Connect(
 				RunService.RenderStepped,
 				"IndexController.RarityRender",
@@ -465,6 +495,32 @@ function IndexController.start()
 		end
 
 		background.ImageColor3 = locked and LOCKED_BACKGROUND_COLOR or UNLOCKED_BACKGROUND_COLOR
+	end
+
+	-- Golden overlay (Main.GoldenGradient): visible only on IsGolden entries,
+	-- with the same lock shade as the rarity background. Registering keeps the
+	-- clone's authored rotation as the spin base; re-renders of a live card
+	-- must not re-capture a mid-spin rotation.
+	local function applyGoldenOverlay(main, entry, locked)
+		local overlay = main:FindFirstChild("GoldenGradient")
+		if not (overlay and overlay:IsA("ImageLabel")) then
+			return
+		end
+		local show = entry.isGolden == true
+		overlay.Visible = show
+		overlay.ImageColor3 = locked and LOCKED_BACKGROUND_COLOR or UNLOCKED_BACKGROUND_COLOR
+		local gradient = overlay:FindFirstChildOfClass("UIGradient")
+		if not gradient then
+			return
+		end
+		if show then
+			if goldenGradients[gradient] == nil then
+				goldenGradients[gradient] = gradient.Rotation
+			end
+			ensureRarityRender()
+		else
+			goldenGradients[gradient] = nil
+		end
 	end
 
 	-- ── Viewport models ───────────────────────────────────────────────────
@@ -638,6 +694,9 @@ function IndexController.start()
 		local background = main and main:FindFirstChild("Background")
 		if background and background:IsA("ImageLabel") then
 			applyRarityBackground(background, entry.rarity, locked)
+		end
+		if main then
+			applyGoldenOverlay(main, entry, locked)
 		end
 
 		local icon = frame:FindFirstChild("Icon")

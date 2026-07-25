@@ -14,6 +14,8 @@ Seeds.Attributes = {
 	-- Event-exclusive seeds (e.g. StormChaser rewards) never enter the crate
 	-- roll pool and may omit RollChanceN.
 	EventOnly = "EventOnly",
+	-- Golden plant variants; drives the golden card treatment in the Index.
+	IsGolden = "IsGolden",
 }
 
 local root
@@ -183,6 +185,11 @@ end
 function Seeds.IsEventOnlyFeedType(feedType)
 	local template = Seeds.TemplateForFeedType(feedType)
 	return template ~= nil and template:GetAttribute(Seeds.Attributes.EventOnly) == true
+end
+
+function Seeds.IsGoldenFeedType(feedType)
+	local template = Seeds.TemplateForFeedType(feedType)
+	return template ~= nil and template:GetAttribute(Seeds.Attributes.IsGolden) == true
 end
 
 function Seeds.DisplayNameFor(seedId)
