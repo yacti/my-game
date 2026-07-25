@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-07-25",
+  "studio": {
+    "id": "ee81aae1-9e27-4759-a6d4-06f060c29576",
+    "name": "[DEV] Build a Pet Farm"
+  },
+  "attributes": [
+    {
+      "SeedID": "GoldenmelonSeed",
+      "FeedType": "GoldenmelonPatch",
+      "GrowTime": 3
+    },
+    {
+      "SeedID": "GoldenCactusSeed",
+      "FeedType": "GoldenCactus",
+      "GrowTime": 1200
+    },
+    {
+      "SeedID": "GoldenFigTreeSeed",
+      "FeedType": "GoldenFigTree",
+      "GrowTime": 3600
+    },
+    {
+      "SeedID": "GoldenDragonfruitSeed",
+      "FeedType": "GoldenDragonfruitTree",
+      "GrowTime": 3600
+    },
+    {
+      "SeedID": "GoldshroomSeed",
+      "FeedType": "GoldshroomPatch",
+      "GrowTime": 3
+    }
+  ]
+}

@@ -109,6 +109,11 @@ local REQUIRED_FEEDS = {
 	"LycheeTree",
 	"CoconutTree",
 	"AgavePatch",
+	"GoldenmelonPatch",
+	"GoldenCactus",
+	"GoldenFigTree",
+	"GoldenDragonfruitTree",
+	"GoldshroomPatch",
 }
 
 local REQUIRED_TOOLS = {
@@ -134,13 +139,59 @@ local DISALLOWED_FEED_PRICE_ATTRIBUTES = {
 	"PurchasePrice",
 }
 
-local EXPECTED_COMMON_SEED_ROLL_CHANCES = {
+local EXPECTED_SEED_ROLL_CHANCES = {
 	AppleTreeSeed = 2,
 	PumpkinSeed = 3,
 	CabbageSeed = 16,
 	PotatoSeed = 28,
 	OrangeTreeSeed = 45,
 	WatermelonSeed = 75,
+	PlumTreeSeed = 256,
+	CornSeed = 427,
+	CherryTreeSeed = 512,
+	MushroomSeed = 640,
+	BananaTreeSeed = 853,
+	CactusSeed = 1200,
+	PineappleSeed = 1707,
+	FigTreeSeed = 2560,
+	PurpleShroomSeed = 32000,
+	BloodOrangeTreeSeed = 42667,
+	GlowshroomSeed = 64000,
+	DragonfruitTreeSeed = 85333,
+	GoldenmelonSeed = 250000,
+	GoldenAppleTreeSeed = 1000000,
+	DurianTreeSeed = 2500000,
+	GoldenCactusSeed = 5000000,
+	GoldenFigTreeSeed = 7500000,
+	GoldenDragonfruitSeed = 15000000,
+	GoldshroomSeed = 25000000,
+}
+local EXPECTED_SEED_GROW_TIMES = {
+	AppleTreeSeed = 3,
+	PumpkinSeed = 3,
+	CabbageSeed = 3,
+	PotatoSeed = 3,
+	OrangeTreeSeed = 60,
+	WatermelonSeed = 3,
+	PlumTreeSeed = 120,
+	CornSeed = 3,
+	CherryTreeSeed = 420,
+	MushroomSeed = 3,
+	BananaTreeSeed = 900,
+	CactusSeed = 1200,
+	PineappleSeed = 3,
+	FigTreeSeed = 3600,
+	PurpleShroomSeed = 3,
+	BloodOrangeTreeSeed = 5400,
+	GlowshroomSeed = 3,
+	DragonfruitTreeSeed = 12600,
+	GoldenAppleTreeSeed = 16200,
+	DurianTreeSeed = 21600,
+	GoldenmelonSeed = 3,
+	GoldenCactusSeed = 28800,
+	GoldenFigTreeSeed = 36000,
+	GoldenDragonfruitSeed = 43200,
+	GoldshroomSeed = 3,
 }
 local EXPECTED_SEED_EXPLICIT_PROBABILITY = 0.979932
 local SEED_PROBABILITY_TOLERANCE = 0.0005
@@ -580,10 +631,20 @@ local function validatePetCatalog(errors)
 	local seenOrders = {}
 	local definitions = {}
 
-	for _, model in ipairs(petModels:GetChildren()) do
-		if not model:IsA("Model") then
-			continue
+	local catalogModels = {}
+	for _, child in ipairs(petModels:GetChildren()) do
+		if child:IsA("Model") then
+			catalogModels[#catalogModels + 1] = child
+		elseif child:IsA("Folder") then
+			for _, model in ipairs(child:GetChildren()) do
+				if model:IsA("Model") then
+					catalogModels[#catalogModels + 1] = model
+				end
+			end
 		end
+	end
+
+	for _, model in ipairs(catalogModels) do
 
 		local petId = model:GetAttribute(State.Pet.Id)
 		if type(petId) ~= "string" or petId == "" then
@@ -975,6 +1036,17 @@ local function validateSeeds(errors)
 		local growTime = template:GetAttribute(Seeds.Attributes.GrowTime)
 		if type(growTime) ~= "number" or growTime <= 0 then
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.GrowTime, tostring(growTime)))
+		else
+			local expectedGrowTime = type(seedId) == "string" and EXPECTED_SEED_GROW_TIMES[seedId] or nil
+			if expectedGrowTime ~= nil and growTime ~= expectedGrowTime then
+				add(errors, string.format(
+					"%s has %s=%s, expected %d seconds from the balance sheet",
+					template:GetFullName(),
+					Seeds.Attributes.GrowTime,
+					tostring(growTime),
+					expectedGrowTime
+				))
+			end
 		end
 
 		local isEventOnly = template:GetAttribute(Seeds.Attributes.EventOnly) == true
@@ -990,7 +1062,7 @@ local function validateSeeds(errors)
 			add(errors, string.format("%s has invalid %s %q", template:GetFullName(), Seeds.Attributes.RollChanceN, tostring(rollChanceN)))
 		else
 			explicitRollProbability += rollProbability
-			local expectedChanceN = type(seedId) == "string" and EXPECTED_COMMON_SEED_ROLL_CHANCES[seedId] or nil
+			local expectedChanceN = type(seedId) == "string" and EXPECTED_SEED_ROLL_CHANCES[seedId] or nil
 			if expectedChanceN ~= nil and rollChanceN ~= expectedChanceN then
 				add(errors, string.format(
 					"%s has %s=%s, expected %d for planned roll odds",

@@ -30,6 +30,8 @@ AdminMessagePresets.Presets = {
 		frameName = "Owner",
 		image = "rbxassetid://137249489540941",
 		textColor = Color3.fromRGB(255, 255, 255),
+		soundId = "rbxassetid://133824819874255",
+		soundVolume = 0.65,
 	},
 	[AdminMessagePresets.Ids.Alien] = {
 		presetId = AdminMessagePresets.Ids.Alien,
@@ -40,6 +42,10 @@ AdminMessagePresets.Presets = {
 		-- (see Mutations.DisplayColors).
 		nameColor = Color3.fromRGB(107, 255, 137),
 		textColor = Color3.fromRGB(107, 255, 137),
+		soundId = "rbxassetid://136287116644259",
+		soundVolume = 0.65,
+		minPlaybackSpeed = 0.7,
+		maxPlaybackSpeed = 1.3,
 	},
 }
 

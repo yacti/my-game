@@ -606,7 +606,8 @@
         "Pet32": {
           "$className": "Sound",
           "$properties": {
-            "SoundId": "rbxassetid://138088459555467"
+            "SoundId": "rbxassetid://138088459555467",
+            "Volume": 0.25
           }
         },
         "Pet33": {

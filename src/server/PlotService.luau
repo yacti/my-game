@@ -2,7 +2,6 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Assets       = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
 local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local NumberFormatter = require(ReplicatedStorage.Shared:WaitForChild("NumberFormatter"))
@@ -13,8 +12,6 @@ local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
 local FeedMachines = require(script.Parent:WaitForChild("feedMachines"))
 local PlotGridService = require(script.Parent:WaitForChild("PlotGridService"))
 local InstanceVisibility = require(script.Parent:WaitForChild("InstanceVisibility"))
-
-local PetModels = Assets.WaitFor(Assets.Names.PetModels)
 
 local FOOTPRINT_BOUNDS_EPSILON = 0.001
 local OVERLAP_QUERY_INSET = 0.05
@@ -718,13 +715,7 @@ local function petVisualForId(petId)
 	local definition = PetCatalog.GetDefinition(petId)
 	if not definition then return nil, nil end
 
-	local visual = definition.Visual
-	local modelName = visual and visual.ModelName
-	if type(modelName) ~= "string" or modelName == "" then
-		return nil, definition
-	end
-
-	local template = PetModels:FindFirstChild(modelName)
+	local template = PetCatalog.TemplateForPetId(petId)
 	if not (template and template:IsA("Model")) then
 		return nil, definition
 	end

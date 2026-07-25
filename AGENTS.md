@@ -82,7 +82,7 @@ Do not migrate `ReplicatedStorage.UI` into Rojo. `src/client/ui` is controller a
 
 Current Studio asset shape observed through MCP:
 
-- `ReplicatedStorage.Assets.PetModels` contains the active pet progression templates, keyed by `PetID` and ordered by `Order`; a previous Workspace duplicate cleanup is documented under `asset-backups/`.
+- `ReplicatedStorage.Assets.PetModels` contains one-level `Normal` and `Golden` visual folders. Their active pet templates are keyed by `PetID` and ordered by `Order`; `PetCatalog` and template consumers resolve models through that grouped hierarchy. A previous Workspace duplicate cleanup is documented under `asset-backups/`.
 - `ReplicatedStorage.Assets.FeedMachines` contains `Processor1`, `PumpkinPatch`, and tree templates such as `AppleTree`, `CherryTree`, `BananaTree`, `FigTree`, and `OrangeTree`. `FeedClass`, not folder name, is authoritative.
 - `ReplicatedStorage.Assets.Food` contains recursive food template folders. Food identity is `FoodId`; broad matching uses `FoodType`.
 - `ReplicatedStorage.Assets.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.

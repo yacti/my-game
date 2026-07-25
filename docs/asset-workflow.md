@@ -23,6 +23,12 @@ These gameplay assets live under `ReplicatedStorage.Assets` and are required by 
 - `ReplicatedStorage.Assets.VFX` (`RarityParticle`)
 - `ReplicatedStorage.UI`
 
+`PetModels` is organized one level deep into `Normal` and `Golden` visual
+folders. Each pet model, rather than its containing folder, owns the catalog
+attributes (`PetID`, `Order`, `MoneyRate`, `MaxXP`, `Rarity`, movement, and
+animation metadata). Golden templates also own a centered `GoldEffect`
+attachment beneath their `PrimaryPart`.
+
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
 

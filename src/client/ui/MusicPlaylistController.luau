@@ -30,6 +30,12 @@ local rng = Random.new()
 local started = false
 local musicEnabled = true
 local activeSound = nil
+local playbackSuppressors = {}
+local playbackRevision = 0
+
+local function playbackAllowed()
+	return musicEnabled and next(playbackSuppressors) == nil
+end
 
 local function waitForLoadingScreenDismissed()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -125,8 +131,15 @@ local function stopActiveTrack()
 	end)
 end
 
+local function interruptibleWait(seconds, revision)
+	local deadline = os.clock() + math.max(tonumber(seconds) or 0, 0)
+	while playbackRevision == revision and os.clock() < deadline do
+		task.wait(math.min(0.25, math.max(deadline - os.clock(), 0)))
+	end
+end
+
 local function playTrack(template)
-	if not musicEnabled then
+	if not playbackAllowed() then
 		return false
 	end
 
@@ -180,7 +193,7 @@ local function runPlaylist()
 
 	local playlist = getPlaylist()
 	while true do
-		while not musicEnabled do
+		while not playbackAllowed() do
 			task.wait(0.5)
 		end
 
@@ -193,11 +206,34 @@ local function runPlaylist()
 			warn("[MusicPlaylistController] ReplicatedStorage.Sounds.MusicPlaylist has no playable tracks")
 		end
 
+		local revision = playbackRevision
 		if completed then
-			task.wait(rng:NextNumber(MIN_SILENCE_SECONDS, MAX_SILENCE_SECONDS))
+			interruptibleWait(rng:NextNumber(MIN_SILENCE_SECONDS, MAX_SILENCE_SECONDS), revision)
 		else
-			task.wait(1)
+			interruptibleWait(1, revision)
 		end
+	end
+end
+
+-- Event soundtracks can temporarily own the music channel without changing
+-- the player's persisted Music setting. Multiple suppressors compose safely.
+function MusicPlaylistController.SetPlaybackSuppressed(suppressorId, suppressed)
+	if type(suppressorId) ~= "string" or suppressorId == "" then
+		return
+	end
+	if suppressed then
+		if playbackSuppressors[suppressorId] then
+			return
+		end
+		playbackSuppressors[suppressorId] = true
+		playbackRevision += 1
+		stopActiveTrack()
+	else
+		if not playbackSuppressors[suppressorId] then
+			return
+		end
+		playbackSuppressors[suppressorId] = nil
+		playbackRevision += 1
 	end
 end
 
@@ -213,7 +249,8 @@ function MusicPlaylistController.start()
 			return
 		end
 		musicEnabled = enabled
-		if not enabled then
+		playbackRevision += 1
+		if not playbackAllowed() then
 			stopActiveTrack()
 		end
 	end

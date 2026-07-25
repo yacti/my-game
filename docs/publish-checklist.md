@@ -200,6 +200,17 @@ Run this checklist before publishing a live build.
   35 studs even for the plot owner, wind lines/audio/cloud speed/cloud update rate
   ramp down for 4 seconds, and local wind trail attachments do not affect collision,
   placement, edit, or tree click raycasts.
+- Start Alien from the admin panel and verify it remains active until Alien Stop,
+  with a hidden 30-minute failsafe; `HUD.TopBar` always shows the Alien frame and
+  `ADMIN PARTY NOW!` even while another event is active. With players joining,
+  leaving, and rejoining, verify the rolling queue holds at most one pending turn
+  per player, refreshes after every visit, gives newly eligible players a prompt
+  turn, and continues polling/zapping for the whole active window. Verify regular
+  playlist music fades out, Alien tracks `1836594449`, `1835904215`, and
+  `1838209880` play in order without intentional gaps and repeat, then regular
+  music resumes after stop. Send Alien and Owner admin messages and verify sounds
+  `136287116644259` (random 0.7–1.3 playback speed per message) and
+  `133824819874255` (normal speed) play exactly once when each message appears.
 - Click `HUD.TopBar.Home` from away from the plot spawn and verify the player is
   server-teleported to their assigned plot `SpawnLocation`.
 - With dense feeds/cosmetics, verify pet navigation still routes around placements

@@ -1,0 +1,19 @@
+{
+  "capturedAt": "2026-07-25",
+  "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Golden Cactus",
+  "reason": "Checkpoint before adding the missing tree click target",
+  "modelBoundingBox": {
+    "position": [-90.63394165039063, 6.141261100769043, 94.1870346069336],
+    "size": [8.886150360107422, 10.378808975219727, 7.7632832527160645]
+  },
+  "primaryPart": {
+    "name": "PrimaryPart",
+    "size": [8, 10, 6],
+    "anchored": true,
+    "transparency": 1,
+    "canCollide": false,
+    "canQuery": true,
+    "canTouch": true
+  },
+  "leafShake": null
+}

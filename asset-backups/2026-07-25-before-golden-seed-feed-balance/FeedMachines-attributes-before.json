@@ -1,0 +1,53 @@
+{
+  "capturedAt": "2026-07-25",
+  "scope": "ReplicatedStorage.Assets.FeedMachines attribute-only snapshot before golden progression XP reconciliation",
+  "templates": [
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Goldenmelon Patch",
+      "attributes": {
+        "FeedClass": "Patch",
+        "FeedType": "Goldenmelon Patch",
+        "FoodDrop": "Goldenmelon",
+        "GrowRate": 1,
+        "XP": 7
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Golden Cactus",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "GoldenCactus",
+        "FoodDrop": "GoldenPricklyPear",
+        "XP": 175
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Tree.GoldenFigTree",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "GoldenFigTree",
+        "FoodDrop": "GoldenFig",
+        "XP": 900
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Tree.Golden Dragonfruit Tree",
+      "attributes": {
+        "FeedClass": "Tree",
+        "FeedType": "GoldenDragonfruitTree",
+        "FoodDrop": "GoldenDragonfruit",
+        "XP": 8500
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.FeedMachines.Patch.Goldshroom Patch",
+      "attributes": {
+        "FeedClass": "Patch",
+        "FeedType": "GoldshroomPatch",
+        "FoodDrop": "Goldshroom",
+        "GrowRate": 1,
+        "XP": 2000
+      }
+    }
+  ]
+}

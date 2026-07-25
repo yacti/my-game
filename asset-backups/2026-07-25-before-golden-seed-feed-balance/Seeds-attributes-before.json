@@ -1,0 +1,83 @@
+{
+  "capturedAt": "2026-07-25",
+  "scope": "ReplicatedStorage.Assets.Seeds attribute-only snapshot before golden progression balance reconciliation",
+  "templates": [
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Patches.Goldenmelon Seed",
+      "attributes": {
+        "FeedType": "GoldenmelonPatch",
+        "GrowTime": 3,
+        "Price": 3000,
+        "Rarity": "Rare",
+        "RollChanceN": 75,
+        "SeedID": "GoldenmelonSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Golden Apple Tree Seed",
+      "attributes": {
+        "FeedType": "GoldenAppleTree",
+        "GrowTime": 16200,
+        "Price": 100000,
+        "Rarity": "Secret",
+        "RollChanceN": 1200000,
+        "SeedID": "GoldenAppleTreeSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Durian Tree Seed",
+      "attributes": {
+        "FeedType": "DurianTree",
+        "GrowTime": 21600,
+        "Price": 120000,
+        "Rarity": "Secret",
+        "RollChanceN": 5120000,
+        "SeedID": "DurianTreeSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Golden Cactus Seed",
+      "attributes": {
+        "FeedType": "GoldenCactus",
+        "GrowTime": 1200,
+        "Price": 15000,
+        "Rarity": "Epic",
+        "RollChanceN": 1200,
+        "SeedID": "GoldenCactusSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Golden Fig Tree Seed",
+      "attributes": {
+        "FeedType": "GoldenFigTree",
+        "GrowTime": 3600,
+        "Price": 35000,
+        "Rarity": "Legendary",
+        "RollChanceN": 2560,
+        "SeedID": "GoldenFigTreeSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Trees.Golden Dragonfruit Seed",
+      "attributes": {
+        "FeedType": "GoldenDragonfruitTree",
+        "GrowTime": 3600,
+        "Price": 35000,
+        "Rarity": "Legendary",
+        "RollChanceN": 2560,
+        "SeedID": "GoldenDragonfruitSeed"
+      }
+    },
+    {
+      "path": "ReplicatedStorage.Assets.Seeds.Patches.Goldshroom Seed",
+      "attributes": {
+        "FeedType": "GoldshroomPatch",
+        "GrowTime": 3600,
+        "Price": 35000,
+        "Rarity": "Legendary",
+        "RollChanceN": 2560,
+        "SeedID": "GoldshroomSeed"
+      }
+    }
+  ]
+}

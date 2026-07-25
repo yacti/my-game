@@ -58,6 +58,20 @@ RebirthBalance.Tiers = {
 		},
 		SkipProductId = 0,
 	},
+	[7] = {
+		Price = 1000000000,
+		PetRewards = {
+			{ petId = "Pet1", amount = 1 },
+		},
+		SkipProductId = 0,
+	},
+	[8] = {
+		Price = 4500000000,
+		PetRewards = {
+			{ petId = "Pet1", amount = 1 },
+		},
+		SkipProductId = 0,
+	},
 }
 
 local function integer(value, fallback)

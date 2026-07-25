@@ -21,6 +21,7 @@ local SUNNY_FRAME_NAME = "Sunny"
 local ACTIVE_TIMER_TEXT = "NOW"
 local IDLE_TIMER_TITLE = "Next event:"
 local ACTIVE_TIMER_TITLE = "Current event"
+local ADMIN_PARTY_TEXT = "ADMIN PARTY NOW!"
 local EVENT_CYCLE_SECONDS = 3
 local REFRESH_SECONDS = 0.25
 local RUNTIME_WAIT_SECONDS = 15
@@ -136,6 +137,17 @@ local function activeRecords()
 	return records
 end
 
+local function displayedRecords(records)
+	-- Alien is the admin party presentation. It must remain on screen instead
+	-- of participating in the normal three-second active-event carousel.
+	for _, record in ipairs(records) do
+		if record.eventId == GameEvents.Ids.Alien then
+			return { record }
+		end
+	end
+	return records
+end
+
 local function setCurrentEventFrame(container, frameName)
 	local found = false
 	for _, childInstance in ipairs(container:GetChildren()) do
@@ -171,7 +183,7 @@ local function render()
 		return
 	end
 
-	local records = activeRecords()
+	local records = displayedRecords(activeRecords())
 	if #records == 0 then
 		setCurrentEventFrame(hud.currentEvent, SUNNY_FRAME_NAME)
 		hud.titleLabel.Text = IDLE_TIMER_TITLE
@@ -187,7 +199,9 @@ local function render()
 	hud.titleLabel.Text = ACTIVE_TIMER_TITLE
 	hud.timerLabel.Text = ACTIVE_TIMER_TEXT
 	hud.currentEventTimer.Visible = true
-	if #records == 1 then
+	if record.eventId == GameEvents.Ids.Alien then
+		hud.currentEventTimer.Text = ADMIN_PARTY_TEXT
+	elseif #records == 1 then
 		hud.currentEventTimer.Text = displayNameFor(record) .. " ends in " .. GameEvents.FormatDuration(longestRemaining(records))
 	else
 		hud.currentEventTimer.Text = "Events end in " .. GameEvents.FormatDuration(longestRemaining(records))

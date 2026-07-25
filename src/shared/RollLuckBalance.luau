@@ -103,6 +103,37 @@ RollLuckBalance.Upgrades = {
 	[100] = { price = 6000000, luckPercent = 500 },
 }
 
+local LEGACY_MAX_LEVEL = 100
+local MAX_LEVEL = 200
+local LUCK_PERCENT_PER_LEVEL = 5
+local LATE_PRICE_EXPONENT = 4
+local LATE_PRICE_ROUNDING = 100000
+local LATE_MAX_PRICE_MULTIPLIER = 3
+
+-- Preserve the original five-percentage-point cadence through the new cap.
+local function roundToIncrement(value, increment)
+	return math.floor(value / increment + 0.5) * increment
+end
+
+local function latePriceMultiplierForLevel(level)
+	if level <= LEGACY_MAX_LEVEL then
+		return 1
+	end
+	local progress = (level - LEGACY_MAX_LEVEL) / (MAX_LEVEL - LEGACY_MAX_LEVEL)
+	return 1 + (LATE_MAX_PRICE_MULTIPLIER - 1) * progress
+end
+
+local legacyMaxUpgrade = RollLuckBalance.Upgrades[LEGACY_MAX_LEVEL]
+for level = LEGACY_MAX_LEVEL + 1, MAX_LEVEL do
+	local rawPrice = legacyMaxUpgrade.price
+		* (level / LEGACY_MAX_LEVEL) ^ LATE_PRICE_EXPONENT
+		* latePriceMultiplierForLevel(level)
+	RollLuckBalance.Upgrades[level] = {
+		price = roundToIncrement(rawPrice, LATE_PRICE_ROUNDING),
+		luckPercent = level * LUCK_PERCENT_PER_LEVEL,
+	}
+end
+
 local function isFiniteNumber(value)
 	value = tonumber(value)
 	return type(value) == "number" and value == value and math.abs(value) ~= math.huge
@@ -141,6 +172,15 @@ function RollLuckBalance.CurrentLuckPercent(level)
 	return upgrade and math.max(tonumber(upgrade.luckPercent) or 0, 0) or 0
 end
 
+function RollLuckBalance.MultiplierForLevel(level)
+	return 1 + RollLuckBalance.CurrentLuckPercent(level) / 100
+end
+
+function RollLuckBalance.PriceMultiplierForLevel(level)
+	level = RollLuckBalance.LevelFor(level)
+	return latePriceMultiplierForLevel(level)
+end
+
 function RollLuckBalance.NextUpgrade(level)
 	local nextLevel = RollLuckBalance.LevelFor(level) + 1
 	return RollLuckBalance.Upgrades[nextLevel], nextLevel
@@ -150,13 +190,19 @@ function RollLuckBalance.ToState(level, currency)
 	level = RollLuckBalance.LevelFor(level)
 	local nextUpgrade, nextLevel = RollLuckBalance.NextUpgrade(level)
 	local currentLuck = RollLuckBalance.CurrentLuckPercent(level)
+	local currentMultiplier = RollLuckBalance.MultiplierForLevel(level)
+	local nextLuck = nextUpgrade
+		and (tonumber(nextUpgrade.luckPercent) or currentLuck)
+		or currentLuck
 
 	return {
 		level = level,
 		maxLevel = RollLuckBalance.MaxLevel(),
 		currentLuckPercent = currentLuck,
+		currentLuckMultiplier = currentMultiplier,
 		nextLevel = nextUpgrade and nextLevel or nil,
-		nextLuckPercent = nextUpgrade and (tonumber(nextUpgrade.luckPercent) or currentLuck) or currentLuck,
+		nextLuckPercent = nextLuck,
+		nextLuckMultiplier = 1 + nextLuck / 100,
 		price = nextUpgrade and math.max(math.floor(tonumber(nextUpgrade.price) or 0), 0) or nil,
 		currency = nonNegativeInteger(currency),
 		isMaxLevel = nextUpgrade == nil,
@@ -166,9 +212,11 @@ end
 function RollLuckBalance.Validate(errors)
 	errors = errors or {}
 	local maxLevel = RollLuckBalance.MaxLevel()
-	if maxLevel ~= 100 then
-		errors[#errors + 1] = "RollLuckBalance must define levels 1 through 100"
+	if maxLevel ~= MAX_LEVEL then
+		errors[#errors + 1] = string.format("RollLuckBalance must define levels 1 through %d", MAX_LEVEL)
 	end
+	local previousPrice = -1
+	local previousLuckPercent = -1
 	for level = 1, maxLevel do
 		local upgrade = RollLuckBalance.Upgrades[level]
 		if type(upgrade) ~= "table" then
@@ -180,7 +228,34 @@ function RollLuckBalance.Validate(errors)
 			if type(upgrade.luckPercent) ~= "number" or upgrade.luckPercent < 0 then
 				errors[#errors + 1] = string.format("RollLuckBalance.Upgrades[%d] has invalid luckPercent", level)
 			end
+			if upgrade.luckPercent ~= level * LUCK_PERCENT_PER_LEVEL then
+				errors[#errors + 1] = string.format(
+					"RollLuckBalance.Upgrades[%d] must provide %d%% luck",
+					level,
+					level * LUCK_PERCENT_PER_LEVEL
+				)
+			end
+			if type(upgrade.price) == "number" and upgrade.price < previousPrice then
+				errors[#errors + 1] = string.format("RollLuckBalance.Upgrades[%d] price must not decrease", level)
+			end
+			if type(upgrade.luckPercent) == "number" and upgrade.luckPercent <= previousLuckPercent then
+				errors[#errors + 1] = string.format("RollLuckBalance.Upgrades[%d] luckPercent must increase", level)
+			end
+			previousPrice = type(upgrade.price) == "number" and upgrade.price or previousPrice
+			previousLuckPercent = type(upgrade.luckPercent) == "number" and upgrade.luckPercent or previousLuckPercent
 		end
+	end
+	if RollLuckBalance.CurrentLuckPercent(MAX_LEVEL) ~= 1000 then
+		errors[#errors + 1] = "RollLuckBalance level 200 must resolve to 1000% luck"
+	end
+	if RollLuckBalance.PriceMultiplierForLevel(LEGACY_MAX_LEVEL) ~= 1 then
+		errors[#errors + 1] = "RollLuckBalance level 100 must retain a 1x price multiplier"
+	end
+	if RollLuckBalance.PriceMultiplierForLevel(MAX_LEVEL) ~= LATE_MAX_PRICE_MULTIPLIER then
+		errors[#errors + 1] = "RollLuckBalance level 200 must use the maximum late price multiplier"
+	end
+	if RollLuckBalance.Upgrades[MAX_LEVEL].price ~= 288000000 then
+		errors[#errors + 1] = "RollLuckBalance level 200 must cost 288,000,000"
 	end
 	return #errors == 0
 end

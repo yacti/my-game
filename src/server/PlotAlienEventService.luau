@@ -88,8 +88,7 @@ local function settingsFor()
 		windDownSeconds = windDownSeconds,
 		totalSeconds = totalSeconds,
 		plotVisitSeconds = math.max(numberValue(alien.plotVisitSeconds, 8), 0),
-		maxVisitsPerPlayer = integerValue(alien.maxVisitsPerPlayer, 3),
-		maxTotalVisits = integerValue(alien.maxTotalVisits, 24),
+		maxQueuedTurns = math.max(integerValue(alien.maxQueuedTurns, 8), 1),
 		minZapsPerVisit = minZaps,
 		maxZapsPerVisit = maxZaps,
 		zapAppearSeconds = math.max(numberValue(alien.zapAppearSeconds, 0.25), 0),
@@ -185,33 +184,6 @@ local function eligibleEntries(mutationId)
 	end
 	shuffle(entries)
 	return entries
-end
-
-local function appendEligibleEntries(settings, queue, visitsByUserId, maxToAdd)
-	local added = 0
-	for _, entry in ipairs(eligibleEntries(settings.mutationId)) do
-		if #queue >= settings.maxTotalVisits or added >= maxToAdd then
-			return added
-		end
-		local currentVisits = visitsByUserId[entry.userId] or 0
-		if currentVisits < settings.maxVisitsPerPlayer then
-			visitsByUserId[entry.userId] = currentVisits + 1
-			queue[#queue + 1] = entry
-			added += 1
-		end
-	end
-	return added
-end
-
-local function buildVisitQueue(settings)
-	local queue = {}
-	local visitsByUserId = {}
-	for _ = 1, settings.maxVisitsPerPlayer do
-		if appendEligibleEntries(settings, queue, visitsByUserId, math.huge) == 0 or #queue >= settings.maxTotalVisits then
-			break
-		end
-	end
-	return queue, visitsByUserId
 end
 
 local function fireViewer(player, command, payload)
@@ -336,17 +308,66 @@ local function entryStillEligible(session, entry)
 	return context and context.plot == entry.plot
 end
 
-local function canScheduleEntry(session)
+local function canRefreshQueue(session)
 	return sessionActive(session)
-		and #session.entries < session.settings.maxTotalVisits
 		and serverNow() < session.endsAt - session.settings.windDownSeconds
 end
 
-local function scheduleNewlyEligibleEntries(session)
-	if not canScheduleEntry(session) then
+-- Refresh the queue from current plot/player truth after every turn. Queued
+-- entries are replaced with fresh Player/plot references on rejoin, leavers
+-- and exhausted plots are removed, and players with fewer completed turns are
+-- appended first. This gives late joiners a prompt first turn without starving
+-- players whose plots still have Alien-eligible targets.
+local function refreshVisitQueue(session)
+	if not canRefreshQueue(session) then
 		return 0
 	end
-	return appendEligibleEntries(session.settings, session.entries, session.visitsByUserId, math.huge)
+
+	local currentEntries = eligibleEntries(session.settings.mutationId)
+	local currentByUserId = {}
+	for _, entry in ipairs(currentEntries) do
+		currentByUserId[entry.userId] = entry
+	end
+
+	for index = #session.entries, 1, -1 do
+		local queuedEntry = session.entries[index]
+		local currentEntry = currentByUserId[queuedEntry.userId]
+		if currentEntry then
+			-- A rejoin creates a new Player instance and can recreate the plot.
+			-- Preserve the fair queue position while refreshing both references.
+			session.entries[index] = currentEntry
+			session.queuedUserIds[currentEntry.userId] = true
+		else
+			session.queuedUserIds[queuedEntry.userId] = nil
+			table.remove(session.entries, index)
+		end
+	end
+
+	local candidates = {}
+	for _, entry in ipairs(currentEntries) do
+		if not session.queuedUserIds[entry.userId] then
+			candidates[#candidates + 1] = entry
+		end
+	end
+	table.sort(candidates, function(left, right)
+		local leftTurns = session.completedTurnsByUserId[left.userId] or 0
+		local rightTurns = session.completedTurnsByUserId[right.userId] or 0
+		if leftTurns ~= rightTurns then
+			return leftTurns < rightTurns
+		end
+		return left.userId < right.userId
+	end)
+
+	local added = 0
+	for _, entry in ipairs(candidates) do
+		if #session.entries >= session.settings.maxQueuedTurns then
+			break
+		end
+		session.entries[#session.entries + 1] = entry
+		session.queuedUserIds[entry.userId] = true
+		added += 1
+	end
+	return added
 end
 
 local function chooseVisitTarget(session, entry)
@@ -359,10 +380,9 @@ local function chooseVisitTarget(session, entry)
 end
 
 local function nextQueuedEntry(session)
-	local index = session.nextEntryIndex or 1
-	local entry = session.entries[index]
+	local entry = table.remove(session.entries, 1)
 	if entry then
-		session.nextEntryIndex = index + 1
+		session.queuedUserIds[entry.userId] = nil
 	end
 	return entry
 end
@@ -463,7 +483,7 @@ local function runPlotVisit(session, entry)
 			), 5)
 			fireViewers(session, "zap", {
 				instanceId = session.instanceId,
-				zapId = string.format("%s_%d_%d_%d", session.instanceId, entry.userId, session.nextEntryIndex or 0, zapIndex),
+				zapId = string.format("%s_%d_%d_%d", session.instanceId, entry.userId, session.visitSequence or 0, zapIndex),
 				serverTime = serverNow(),
 				mutationId = session.settings.mutationId,
 				targetPosition = targetPosition,
@@ -479,24 +499,17 @@ local function runPlotVisit(session, entry)
 	return ranAnyZap
 end
 
--- The alien window is fixed (global/admin record), so with no visits queued
--- the UFO idles and keeps polling for new entrants -- fresh joiners, or
--- players newly under their visit cap -- until the window closes or the
--- visit budget is spent, instead of winding down for good on a lull.
+-- The global/admin record owns the fixed 30-minute failsafe. With no turns
+-- queued the UFO idles and keeps polling for fresh joiners or newly-grown
+-- targets instead of winding down before the operator stops it.
 local ENTRY_POLL_SECONDS = 1
 local function waitForNewEntries(session)
-	if #session.entries >= session.settings.maxTotalVisits then
-		return false
-	end
 	session.phase = "waitingForPlayers"
 	session.currentPlotCenter = nil
 	session.currentVisitEndsAt = nil
 	while sessionActive(session) and serverNow() < session.endsAt - session.settings.windDownSeconds do
-		if scheduleNewlyEligibleEntries(session) > 0 then
+		if refreshVisitQueue(session) > 0 then
 			return true
-		end
-		if #session.entries >= session.settings.maxTotalVisits then
-			return false
 		end
 		task.wait(ENTRY_POLL_SECONDS)
 	end
@@ -522,11 +535,15 @@ local function runAlien(session)
 		if serverNow() >= session.endsAt - session.settings.windDownSeconds then
 			break
 		end
-		scheduleNewlyEligibleEntries(session)
+		refreshVisitQueue(session)
 
 		local entry = nextQueuedEntry(session)
 		if entry then
-			ranAnyVisit = runPlotVisit(session, entry) or ranAnyVisit
+			session.visitSequence += 1
+			if entryStillEligible(session, entry) then
+				ranAnyVisit = runPlotVisit(session, entry) or ranAnyVisit
+				session.completedTurnsByUserId[entry.userId] = (session.completedTurnsByUserId[entry.userId] or 0) + 1
+			end
 		elseif not waitForNewEntries(session) then
 			break
 		end
@@ -602,7 +619,6 @@ function PlotAlienEventService.StartAlien(eventRecord, callbacks)
 	local settings = settingsFor()
 	local startsAt = numberValue(eventRecord.startsAt, serverNow())
 	local endsAt = numberValue(eventRecord.endsAt, startsAt + settings.totalSeconds)
-	local entries, visitsByUserId = buildVisitQueue(settings)
 	local session = {
 		instanceId = tostring(eventRecord.instanceId or ""),
 		startsAt = startsAt,
@@ -619,9 +635,10 @@ function PlotAlienEventService.StartAlien(eventRecord, callbacks)
 			zapSoundRange = settings.zapSoundRange,
 		},
 		mapCenter = mapCenter(),
-		entries = entries,
-		visitsByUserId = visitsByUserId,
-		nextEntryIndex = 1,
+		entries = {},
+		queuedUserIds = {},
+		completedTurnsByUserId = {},
+		visitSequence = 0,
 		syncedViewers = {},
 		snapshotProfileState = callbacks.snapshotProfileState,
 		snapshotTokens = {},
@@ -654,6 +671,7 @@ function PlotAlienEventService.StartAlien(eventRecord, callbacks)
 		end
 	end
 	activeSession = session
+	refreshVisitQueue(session)
 	printAlienLifecycle("start", session, string.format("visits=%d", #session.entries))
 	notifyLoadedNonOnboarding("Aliens are invading...", 5)
 

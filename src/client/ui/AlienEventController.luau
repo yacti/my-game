@@ -1,4 +1,5 @@
 local Debris = game:GetService("Debris")
+local ContentProvider = game:GetService("ContentProvider")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -14,6 +15,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local CloudController = require(script.Parent:WaitForChild("CloudController"))
 local EventLighting = require(script.Parent:WaitForChild("EventLighting"))
+local MusicPlaylistController = require(script.Parent:WaitForChild("MusicPlaylistController"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local AlienEventController = {}
@@ -24,8 +26,15 @@ local AlienEventController = {}
 local ALIEN_LIGHTING_PRIORITY = tonumber((GameEvents.GetEvent(GameEvents.Ids.Alien) or {}).priority) or 0
 
 local LOCAL_FOLDER_NAME = "__LocalAlienEvent"
-local BACKING_TRACK_SOUND_ID = "rbxassetid://1841164614"
-local BACKING_TRACK_VOLUME = 0.35
+local MUSIC_SUPPRESSOR_ID = "AlienEvent"
+local ALIEN_MUSIC_TRACKS = {
+	"rbxassetid://1836594449",
+	"rbxassetid://1835904215",
+	"rbxassetid://1838209880",
+}
+local ALIEN_MUSIC_VOLUME = 0.35
+local ALIEN_TRACK_LOAD_TIMEOUT_SECONDS = 15
+local ALIEN_TRACK_END_PADDING_SECONDS = 5
 local ZAP_SOUND_ID = "rbxassetid://2674547670"
 local DEFAULT_SOUND_RANGE = 500
 local WAIT_SECONDS = 10
@@ -36,6 +45,7 @@ local player = Players.LocalPlayer
 local started = false
 local activeToken = nil
 local pendingEffect = nil
+local alienMusicTemplates = nil
 
 local function warnAlien(message)
 	warn("[AlienEventController] " .. message)
@@ -411,20 +421,74 @@ local function emitBurst(instance)
 	end
 end
 
+local function ensureAlienMusicTemplates()
+	if alienMusicTemplates then
+		return alienMusicTemplates
+	end
+	alienMusicTemplates = {}
+	for index, soundId in ipairs(ALIEN_MUSIC_TRACKS) do
+		local sound = Instance.new("Sound")
+		sound.Name = "AlienMusicTrack" .. tostring(index)
+		sound.SoundId = soundId
+		sound.Looped = false
+		sound.Volume = ALIEN_MUSIC_VOLUME
+		alienMusicTemplates[index] = sound
+	end
+	return alienMusicTemplates
+end
+
+local function preloadAlienMusic()
+	local ok, err = pcall(function()
+		ContentProvider:PreloadAsync(ensureAlienMusicTemplates())
+	end)
+	if not ok then
+		warnAlien("Music preload failed: " .. tostring(err))
+	end
+end
+
+local function releaseRegularMusic(token)
+	-- A stale token must never unsuppress regular music underneath a newer
+	-- Alien session that reused the same suppressor id.
+	if activeToken == nil or activeToken == token then
+		MusicPlaylistController.SetPlaybackSuppressed(MUSIC_SUPPRESSOR_ID, false)
+	end
+end
+
+local function destroyAlienMusicSounds(token)
+	for _, sound in ipairs(token.musicSounds or {}) do
+		if sound.Parent then
+			sound:Stop()
+			sound:Destroy()
+		end
+	end
+	token.musicSounds = {}
+	token.backingTrack = nil
+end
+
 local function stopBackingTrack(token, seconds)
-	local sound = token and token.backingTrack
-	if not sound then
+	if not token then
 		return
 	end
+	seconds = math.max(tonumber(seconds) or 0, 0)
+	if token.musicStopping and seconds > 0 then
+		return
+	end
+	token.musicStopping = true
+	token.musicRunToken = nil
+	local sound = token.backingTrack
 	if token.backingTween then
 		token.backingTween:Cancel()
 		token.backingTween = nil
 	end
-	seconds = math.max(tonumber(seconds) or 0, 0)
-	if seconds <= 0 then
-		sound:Stop()
-		sound:Destroy()
-		token.backingTrack = nil
+	if seconds <= 0 or not (sound and sound.Parent) then
+		destroyAlienMusicSounds(token)
+		if seconds <= 0 then
+			releaseRegularMusic(token)
+		else
+			task.delay(seconds, function()
+				releaseRegularMusic(token)
+			end)
+		end
 		return
 	end
 	local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
@@ -433,42 +497,99 @@ local function stopBackingTrack(token, seconds)
 	token.backingTween = tween
 	token.tweens[#token.tweens + 1] = tween
 	tween.Completed:Connect(function()
-		if token.backingTrack == sound then
-			token.backingTrack = nil
-			token.backingTween = nil
-		end
-		if sound.Parent then
-			sound:Stop()
-			sound:Destroy()
-		end
+		token.backingTween = nil
+		destroyAlienMusicSounds(token)
+		releaseRegularMusic(token)
 	end)
 	tween:Play()
 end
 
-local function startBackingTrack(token, seconds)
-	if token.backingTrack then
-		return
+local function waitForAlienTrackLoaded(token, runToken, sound)
+	local deadline = os.clock() + ALIEN_TRACK_LOAD_TIMEOUT_SECONDS
+	while token.musicRunToken == runToken and not token.musicStopping and sound.Parent and not sound.IsLoaded do
+		if os.clock() >= deadline then
+			return false
+		end
+		task.wait(0.1)
 	end
-	local sound = Instance.new("Sound")
-	sound.Name = "__AlienBackingTrack"
-	sound.SoundId = BACKING_TRACK_SOUND_ID
-	sound.Volume = 0
-	sound.Looped = true
-	sound.Parent = SoundService
-	token.backingTrack = sound
-	sound:Play()
+	return token.musicRunToken == runToken and not token.musicStopping and sound.Parent ~= nil and sound.IsLoaded
+end
 
-	seconds = math.max(tonumber(seconds) or 0, 0)
-	if seconds <= 0 then
-		sound.Volume = BACKING_TRACK_VOLUME
+local function startBackingTrack(token, seconds)
+	if token.musicRunToken then
 		return
 	end
-	local tween = TweenService:Create(sound, TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-		Volume = BACKING_TRACK_VOLUME,
-	})
-	token.backingTween = tween
-	token.tweens[#token.tweens + 1] = tween
-	tween:Play()
+	MusicPlaylistController.SetPlaybackSuppressed(MUSIC_SUPPRESSOR_ID, true)
+	token.musicStopping = false
+	token.musicSounds = {}
+	for _, template in ipairs(ensureAlienMusicTemplates()) do
+		local sound = template:Clone()
+		sound.Volume = 0
+		sound.Parent = SoundService
+		token.musicSounds[#token.musicSounds + 1] = sound
+	end
+	seconds = math.max(tonumber(seconds) or 0, 0)
+	local runToken = {}
+	token.musicRunToken = runToken
+	RuntimeGuard.Spawn("AlienEventController.MusicPlaylist", function()
+		local trackIndex = 1
+		local firstTrack = true
+		while token.musicRunToken == runToken and not token.musicStopping do
+			local sound = token.musicSounds[trackIndex]
+			if not sound then
+				break
+			end
+			if not waitForAlienTrackLoaded(token, runToken, sound) then
+				if token.musicRunToken == runToken and not token.musicStopping then
+					warnAlien("Music track failed to load: " .. sound.SoundId)
+				end
+			else
+				sound.TimePosition = 0
+				sound.Volume = firstTrack and 0 or ALIEN_MUSIC_VOLUME
+				token.backingTrack = sound
+				local ended = false
+				local endedConnection = sound.Ended:Connect(function()
+					ended = true
+				end)
+				sound:Play()
+				if firstTrack then
+					if seconds <= 0 then
+						sound.Volume = ALIEN_MUSIC_VOLUME
+					else
+						local tween = TweenService:Create(
+							sound,
+							TweenInfo.new(seconds, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+							{ Volume = ALIEN_MUSIC_VOLUME }
+						)
+						token.backingTween = tween
+						token.tweens[#token.tweens + 1] = tween
+						tween:Play()
+					end
+				end
+
+				local timeLength = math.max(tonumber(sound.TimeLength) or 0, 0)
+				local deadline = os.clock() + math.max(timeLength + ALIEN_TRACK_END_PADDING_SECONDS, ALIEN_TRACK_LOAD_TIMEOUT_SECONDS)
+				while token.musicRunToken == runToken
+					and not token.musicStopping
+					and sound.Parent
+					and not ended
+					and os.clock() < deadline do
+					task.wait(0.05)
+				end
+				endedConnection:Disconnect()
+				if token.backingTrack == sound then
+					token.backingTrack = nil
+				end
+				if sound.Parent then
+					sound:Stop()
+					sound.Volume = 0
+				end
+			end
+
+			firstTrack = false
+			trackIndex = (trackIndex % #token.musicSounds) + 1
+		end
+	end)
 end
 
 local function cloneMiscTemplate(name)
@@ -881,6 +1002,7 @@ function AlienEventController.start()
 	end
 	started = true
 	clearLocalFolder()
+	RuntimeGuard.Spawn("AlienEventController.PreloadMusic", preloadAlienMusic)
 	RuntimeGuard.Connect(Remotes.get(Remotes.Names.AlienEventEffect).OnClientEvent, "AlienEventController.Effect", onEffect)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, function()
 		if hasOnboardingState() and onboardingComplete() and pendingEffect then

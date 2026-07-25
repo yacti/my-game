@@ -96,7 +96,7 @@ end
 local function maturePreviewScaleForPetId(petId, fallbackScale)
 	local visual = PetCatalog.VisualForPetId(petId)
 	local models = petModels()
-	local template = visual and models and models:FindFirstChild(visual.ModelName)
+	local template = visual and models and PetCatalog.TemplateForPetId(petId)
 	if template and template:IsA("Model") then
 		local baseScale = template:GetScale()
 		if finitePositiveNumber(baseScale) then
@@ -187,7 +187,7 @@ end
 local function cloneOldVisual(petId)
 	local visual = PetCatalog.VisualForPetId(petId)
 	local models = petModels()
-	local template = visual and models and models:FindFirstChild(visual.ModelName)
+	local template = visual and models and PetCatalog.TemplateForPetId(petId)
 	if not (template and template:IsA("Model")) then return nil end
 
 	local clone = template:Clone()

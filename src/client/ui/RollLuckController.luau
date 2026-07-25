@@ -53,7 +53,7 @@ local function updateUpgradeButton(button, cannotAffordImage, enabled, showCanno
 end
 
 local function formatPercent(value)
-	return NumberFormatter.Percent(value)
+	return NumberFormatter.IntegerWithSeparators(value) .. "%"
 end
 
 local function codeToMessage(code)

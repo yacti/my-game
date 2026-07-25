@@ -49,27 +49,75 @@ local function petModelDefinition(model)
 end
 
 local cachedDefinitions = nil
-local cachedChildCount = -1
+local cachedDefinitionsById = nil
+local cachedTemplatesById = nil
+local observedFolder = nil
+local hierarchyConnections = {}
+local cacheDirty = true
+
+local function disconnectHierarchyConnections()
+	for _, connection in ipairs(hierarchyConnections) do
+		connection:Disconnect()
+	end
+	table.clear(hierarchyConnections)
+end
+
+local function observeFolder(folder)
+	if observedFolder == folder then
+		return
+	end
+
+	disconnectHierarchyConnections()
+	observedFolder = folder
+	cacheDirty = true
+
+	if folder then
+		hierarchyConnections[#hierarchyConnections + 1] = folder.DescendantAdded:Connect(function()
+			cacheDirty = true
+		end)
+		hierarchyConnections[#hierarchyConnections + 1] = folder.DescendantRemoving:Connect(function()
+			cacheDirty = true
+		end)
+	end
+end
+
+local function catalogModels(folder)
+	local models = {}
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("Model") then
+			models[#models + 1] = child
+		elseif child:IsA("Folder") then
+			for _, model in ipairs(child:GetChildren()) do
+				if model:IsA("Model") then
+					models[#models + 1] = model
+				end
+			end
+		end
+	end
+	return models
+end
 
 local function allDefinitions()
 	local definitions = {}
 	local folder = petModelsFolder()
 	if not folder then return definitions end
+	observeFolder(folder)
 
-	-- Rebuilding walks every model and re-sorts, and callers hit this per
-	-- billboard render. Cache until the folder's child count changes (covers
-	-- late replication of pet models on the client).
-	local childCount = #folder:GetChildren()
-	if cachedDefinitions and childCount == cachedChildCount then
+	-- Templates are grouped one folder deep (for example Normal/Golden).
+	-- Descendant signals invalidate the cache when late replication changes
+	-- either group, without walking the full hierarchy on every billboard render.
+	if cachedDefinitions and not cacheDirty then
 		return cachedDefinitions
 	end
 
-	for _, model in ipairs(folder:GetChildren()) do
-		if model:IsA("Model") then
-			local definition = petModelDefinition(model)
-			if definition then
-				definitions[#definitions + 1] = definition
-			end
+	local definitionsById = {}
+	local templatesById = {}
+	for _, model in ipairs(catalogModels(folder)) do
+		local definition = petModelDefinition(model)
+		if definition then
+			definitions[#definitions + 1] = definition
+			definitionsById[definition.Id] = definition
+			templatesById[definition.Id] = model
 		end
 	end
 
@@ -83,17 +131,20 @@ local function allDefinitions()
 	end)
 
 	cachedDefinitions = definitions
-	cachedChildCount = childCount
+	cachedDefinitionsById = definitionsById
+	cachedTemplatesById = templatesById
+	cacheDirty = false
 	return definitions
 end
 
 function PetCatalog.GetDefinition(petId)
-	for _, definition in ipairs(allDefinitions()) do
-		if definition.Id == petId then
-			return definition
-		end
-	end
-	return nil
+	allDefinitions()
+	return cachedDefinitionsById and cachedDefinitionsById[petId] or nil
+end
+
+function PetCatalog.TemplateForPetId(petId)
+	allDefinitions()
+	return cachedTemplatesById and cachedTemplatesById[petId] or nil
 end
 
 function PetCatalog.AllPetIds()

@@ -201,13 +201,18 @@ GameEvents.EventConfigs = {
 		displayFrame = "Alien",
 		priority = 100,
 		displayPriority = 100,
-		maxGlobalDurationSeconds = 10 * 60,
+		-- Admin-party Aliens run until explicitly stopped. This is both the
+		-- default record length and the hidden failsafe ceiling.
+		maxGlobalDurationSeconds = 30 * 60,
 		appliedMutationId = "Alien",
 		alien = {
+			failsafeDurationSeconds = 30 * 60,
 			windUpSeconds = 10,
 			plotVisitSeconds = 20,
-			maxVisitsPerPlayer = 3,
-			maxTotalVisits = 24,
+			-- Keep at most one pending turn per player and refresh this rolling
+			-- queue after every visit. Eight matches the live server size while
+			-- still allowing fair rotation if that size changes.
+			maxQueuedTurns = 8,
 			windDownSeconds = 6,
 			minZapsPerVisit = 1,
 			maxZapsPerVisit = 3,
@@ -428,10 +433,9 @@ function GameEvents.AlienTimings(config)
 	local alien = type(config) == "table" and config.alien or nil
 	alien = type(alien) == "table" and alien or {}
 	local windUp = math.max(numeric(alien.windUpSeconds, 10), 0)
-	local visit = math.max(numeric(alien.plotVisitSeconds, 8), 0)
-	local maxVisits = math.max(math.floor(numeric(alien.maxTotalVisits, 24)), 0)
 	local windDown = math.max(numeric(alien.windDownSeconds, 6), 0)
-	return windUp, visit * maxVisits, windDown, windUp + (visit * maxVisits) + windDown
+	local total = math.max(numeric(alien.failsafeDurationSeconds, 30 * 60), windUp + windDown)
+	return windUp, math.max(total - windUp - windDown, 0), windDown, total
 end
 
 local function compareLayerRecords(left, right)

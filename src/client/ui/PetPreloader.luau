@@ -102,9 +102,8 @@ local function preloadPetId(petId)
 	end
 
 	local visual = PetCatalog.VisualForPetId(petId)
-	local modelName = visual and visual.ModelName
 	local models = petModels()
-	local template = models and type(modelName) == "string" and models:FindFirstChild(modelName) or nil
+	local template = models and PetCatalog.TemplateForPetId(petId) or nil
 	if not template then
 		return
 	end

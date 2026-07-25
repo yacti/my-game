@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -122,21 +123,19 @@ local function buildPetEntries()
 	end
 
 	local entries = {}
-	for _, template in ipairs(petModels:GetChildren()) do
-		if template:IsA("Model") then
-			local petId = template:GetAttribute(State.Pet.Id)
-			if type(petId) == "string" and petId ~= "" then
-				entries[#entries + 1] = {
-					kind = "Pet",
-					key = "Pet:" .. petId,
-					id = petId,
-					template = template,
-					displayName = template.Name,
-					order = tonumber(template:GetAttribute(State.Pet.Order)) or math.huge,
-					rarity = validRarityOr(template:GetAttribute(State.Pet.Rarity), Rarities.Common),
-					moneyRate = tonumber(template:GetAttribute(State.Pet.MoneyRate)) or 1,
-				}
-			end
+	for _, petId in ipairs(PetCatalog.AllPetIds()) do
+		local template = PetCatalog.TemplateForPetId(petId)
+		if template and template:IsA("Model") then
+			entries[#entries + 1] = {
+				kind = "Pet",
+				key = "Pet:" .. petId,
+				id = petId,
+				template = template,
+				displayName = template.Name,
+				order = tonumber(template:GetAttribute(State.Pet.Order)) or math.huge,
+				rarity = validRarityOr(template:GetAttribute(State.Pet.Rarity), Rarities.Common),
+				moneyRate = tonumber(template:GetAttribute(State.Pet.MoneyRate)) or 1,
+			}
 		end
 	end
 	table.sort(entries, function(a, b)

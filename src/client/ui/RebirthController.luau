@@ -98,14 +98,8 @@ local function robuxText(productId, onLoaded)
 end
 
 local function petTemplateFor(petId)
-	local visual = PetCatalog.VisualForPetId(petId)
-	local modelName = visual and visual.ModelName
-	if type(modelName) ~= "string" or modelName == "" then
-		return nil
-	end
-
 	local petModels = Assets.Find(Assets.Names.PetModels)
-	local template = petModels and petModels:FindFirstChild(modelName)
+	local template = petModels and PetCatalog.TemplateForPetId(petId)
 	return template and template:IsA("Model") and template or nil
 end
 

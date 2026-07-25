@@ -8,8 +8,10 @@
 -- the tutorial and shown afterwards if their receivable window is still open.
 -- Each messageId displays at most once per client.
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -29,8 +31,10 @@ local FOLDER_WAIT_SECONDS = 30
 local FADE_SECONDS = 0.35
 local TYPE_SECONDS_PER_GRAPHEME = 0.04
 local MAX_TYPE_SECONDS = 2.5
+local SOUND_CLEANUP_SECONDS = 15
 
 local PENDING_SWEEP_SECONDS = 5
+local rng = Random.new()
 
 local player = Players.LocalPlayer
 local started = false
@@ -171,6 +175,22 @@ local function playTypewriter(textLabel, text)
 	}):Play()
 end
 
+local function playPresetSound(preset)
+	if type(preset.soundId) ~= "string" or preset.soundId == "" then
+		return
+	end
+	local minPlaybackSpeed = math.max(tonumber(preset.minPlaybackSpeed) or 1, 0.01)
+	local maxPlaybackSpeed = math.max(tonumber(preset.maxPlaybackSpeed) or minPlaybackSpeed, minPlaybackSpeed)
+	local sound = Instance.new("Sound")
+	sound.Name = "__AdminMessageSound"
+	sound.SoundId = preset.soundId
+	sound.Volume = math.max(tonumber(preset.soundVolume) or 0.65, 0)
+	sound.PlaybackSpeed = rng:NextNumber(minPlaybackSpeed, maxPlaybackSpeed)
+	sound.Parent = SoundService
+	sound:Play()
+	Debris:AddItem(sound, SOUND_CLEANUP_SECONDS)
+end
+
 local function showRecord(record)
 	if seenMessageIds[record.messageId] then
 		return
@@ -244,6 +264,7 @@ local function showRecord(record)
 		removeDisplay(oldest)
 	end
 
+	playPresetSound(preset)
 	playTypewriter(textLabel, record.text)
 	task.delay(AdminMessagePresets.DisplaySeconds, function()
 		RuntimeGuard.Run("AdminMessageController.ExpireDisplay", fadeOutDisplay, display)

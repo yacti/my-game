@@ -1964,7 +1964,10 @@ function RollService.PurchaseLuckUpgrade(player, profile, plot, requestId)
 
 	if success then
 		local updatedLuck = RollLuckBalance.CurrentLuckPercent(profile.Data.RollLuckLevel)
-		NotificationService.Success(player, "Luck upgraded to +" .. NumberFormatter.Percent(updatedLuck) .. "!")
+		NotificationService.Success(
+			player,
+			"Luck upgraded to +" .. NumberFormatter.IntegerWithSeparators(updatedLuck) .. "%!"
+		)
 		PlayerReplicaService.PublishProfile(player, profile)
 		sendLuckResult(player, requestId, true, "ok")
 		TelemetryService.Record("roll_luck_upgrade_succeeded", TelemetryService.ForPlayer(player, {
