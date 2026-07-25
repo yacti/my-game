@@ -51,7 +51,11 @@ end
 function PatchGrowth.ComputeScaleForFood(food, machine, now)
 	local xp = PatchGrowth.ComputeXPForFood(food, machine, now)
 	local patchXP = machine and machine:GetAttribute(State.Feed.XP)
-	return PatchScale.ComputeScale(xp, patchXP)
+	local foodId = food:GetAttribute(State.Food.Id)
+	if type(foodId) ~= "string" then
+		foodId = machine and machine:GetAttribute(State.Feed.FoodDrop) or nil
+	end
+	return PatchScale.ComputeScale(xp, patchXP, foodId)
 end
 
 return PatchGrowth

@@ -207,7 +207,7 @@ local function spawnFoodAtSlot(slot)
 		end
 		clone:PivotTo(slot.anchor.CFrame)
 		-- Initialize before parenting so clients never see a full-size flash.
-		clone:ScaleTo(PatchScale.ComputeScale(slot.baseXP or 0, slot.patchXP))
+		clone:ScaleTo(PatchScale.ComputeScale(slot.baseXP or 0, slot.patchXP, foodId))
 		-- Stream the fruit as one unit so clients never ScaleTo a model whose
 		-- remaining parts arrive later at server geometry.
 		clone.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
@@ -264,10 +264,10 @@ local function emptySlot(slot, respawnAt)
 	publishSlotRespawn(slot)
 end
 
-local function scaleToolToXP(tool, xp, patchXP)
+local function scaleToolToXP(tool, xp, patchXP, foodId)
 	-- Tool inherits from Model, so :ScaleTo works on the whole Tool —
 	-- handle + welded sub-parts scale together.
-	tool:ScaleTo(PatchScale.ComputeScale(xp, patchXP))
+	tool:ScaleTo(PatchScale.ComputeScale(xp, patchXP, foodId))
 end
 
 local function harvest(machine, s, slotIndex, player)
@@ -282,7 +282,7 @@ local function harvest(machine, s, slotIndex, player)
 	local xp = slotXPNow(machine, slot, serverNow())
 	local tool = Food.MakeTool(foodId, xp, slot.mutationIds, slot.primaryMutationId)
 	if not tool then return false end
-	scaleToolToXP(tool, xp, slot.patchXP)
+	scaleToolToXP(tool, xp, slot.patchXP, foodId)
 	if not ToolGrantService.GrantTool(player, tool, {
 		deferAutoEquip = true,
 		autoEquipPolicy = "firstInBurst",
@@ -599,7 +599,7 @@ local function reserveSlotForCollectAll(machine, slot, slotIndex, reservationId,
 		sourceSlotIndex = slotIndex,
 		foodId = foodId,
 		xp = xp,
-		scale = PatchScale.ComputeScale(xp, slot.patchXP),
+		scale = PatchScale.ComputeScale(xp, slot.patchXP, foodId),
 		mutationIds = slot.mutationIds,
 		primaryMutationId = slot.primaryMutationId,
 	}
@@ -685,7 +685,7 @@ function Patches.ReserveStealTarget(anchor, player, reservationId, expiresAt)
 	return true, {
 		foodId = foodId,
 		xp = xp,
-		scale = PatchScale.ComputeScale(xp, slot.patchXP),
+		scale = PatchScale.ComputeScale(xp, slot.patchXP, foodId),
 		mutationIds = slot.mutationIds,
 		primaryMutationId = slot.primaryMutationId,
 		sourceKind = "Patch",
@@ -863,7 +863,7 @@ function Patches.BlocksPetNavigation(machine, now)
 
 		if not slot.respawnAt then
 			if slot.foodPart and slot.foodPart.Parent then
-				local scale = PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP)
+				local scale = PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP, slot.foodId)
 				if scale >= NAV_BLOCK_SCALE_THRESHOLD then
 					return true, "block"
 				end
@@ -886,7 +886,7 @@ function Patches.ResyncVisualScales(machine)
 	for _, slot in ipairs(s.slots) do
 		local food = slot.foodPart
 		if food and food:IsA("Model") and food.Parent then
-			food:ScaleTo(PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP))
+			food:ScaleTo(PatchScale.ComputeScale(slotXPNow(machine, slot, now), slot.patchXP, slot.foodId))
 		end
 	end
 end
