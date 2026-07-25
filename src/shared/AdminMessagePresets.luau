@@ -30,7 +30,7 @@ AdminMessagePresets.Presets = {
 		frameName = "Owner",
 		image = "rbxassetid://137249489540941",
 		textColor = Color3.fromRGB(255, 255, 255),
-		soundId = "rbxassetid://133824819874255",
+		soundId = "rbxassetid://136001454409424",
 		soundVolume = 0.65,
 	},
 	[AdminMessagePresets.Ids.Alien] = {
