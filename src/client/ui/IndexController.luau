@@ -576,6 +576,17 @@ function IndexController.start()
 		end
 	end
 
+	-- GOLDEN banner (authored hidden in both info frames): shown for IsGolden
+	-- entries whether or not they are discovered, same as the grid's golden card
+	-- overlay. In PatchTreeInfoFrame it shares its slot with PercentageOfBest;
+	-- no golden feed carries that attribute today.
+	local function applyGoldenLabel(parent, entry)
+		local label = parent:FindFirstChild("IsGolden")
+		if label and label:IsA("TextLabel") then
+			label.Visible = entry.isGolden == true
+		end
+	end
+
 	local function stopLiveXP()
 		liveXPToken += 1
 	end
@@ -605,6 +616,7 @@ function IndexController.start()
 			setLabelText(petInfoFrame, "Name", locked and LOCKED_NAME_TEXT or entry.displayName)
 			setLabelText(petInfoFrame, "PetOrder", string.format("%d/%d", entry.order, #entriesForTab(TAB_PETS)))
 			applyRarityLabel(petInfoFrame, entry.rarity)
+			applyGoldenLabel(petInfoFrame, entry)
 			setLabelText(petInfoFrame, "CashEarned",
 				locked and LOCKED_STAT_TEXT or (NumberFormatter.Currency(entry.moneyRate) .. "/ second"))
 			local icon = petInfoFrame:FindFirstChild("Icon")
@@ -618,6 +630,7 @@ function IndexController.start()
 		patchTreeInfoFrame.Visible = true
 		setLabelText(patchTreeInfoFrame, "Name", locked and LOCKED_NAME_TEXT or entry.displayName)
 		applyRarityLabel(patchTreeInfoFrame, entry.rarity)
+		applyGoldenLabel(patchTreeInfoFrame, entry)
 
 		local chanceLabel = patchTreeInfoFrame:FindFirstChild("Chance")
 		if chanceLabel and chanceLabel:IsA("TextLabel") then
