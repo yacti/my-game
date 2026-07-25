@@ -21,6 +21,7 @@ PlayerState.Fields = {
 	DurianPackPity = "DurianPackPity",
 	EndlessPackProgress = "EndlessPackProgress",
 	StormChaser = "StormChaser",
+	BeeEvent = "BeeEvent",
 	StarterPackPurchases = "StarterPackPurchases",
 	StarterPackPromptDismissed = "StarterPackPromptDismissed",
 	GamePassOwnership = "GamePassOwnership",

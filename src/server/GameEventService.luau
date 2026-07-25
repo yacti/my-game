@@ -3,6 +3,7 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
+local PlotBeeService = require(Server:WaitForChild("PlotBeeService"))
 local PlotEarthquakeService = require(Server:WaitForChild("PlotEarthquakeService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotTornadoService = require(Server:WaitForChild("PlotTornadoService"))
@@ -322,6 +323,13 @@ local handlers = {
 			PlotAlienEventService.StartAlien(record, callbacks)
 		end,
 		stop = PlotAlienEventService.StopAlien,
+	},
+	[GameEvents.Ids.Bee] = {
+		start = function(record, callbacks)
+			PlotBeeService.StartBee(record, callbacks)
+		end,
+		stop = PlotBeeService.StopBee,
+		preNotice = PlotBeeService.NotifyBeesApproaching,
 	},
 }
 

@@ -32,8 +32,18 @@ CosmeticShopBalance.Items = {
 		DevProductId = 0,
 	},
 	{
+		ItemID = "Bench",
+		Price = 500000,
+		DevProductId = 0,
+	},
+	{
 		ItemID = "Fountain",
 		Price = 1000000,
+		DevProductId = 0,
+	},
+	{
+		ItemID = "Pond",
+		Price = 50000000,
 		DevProductId = 0,
 	},
 	{

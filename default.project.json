@@ -243,6 +243,15 @@
         "StormChaserDepositResult": {
           "$className": "RemoteEvent"
         },
+        "BeeEventEffect": {
+          "$className": "RemoteEvent"
+        },
+        "BeeDepositRequest": {
+          "$className": "RemoteEvent"
+        },
+        "BeeDepositResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerSettingsUpdateRequest": {
           "$className": "RemoteEvent"
         },
@@ -252,6 +261,12 @@
       },
       "Sounds": {
         "$className": "Folder",
+        "BeeBuzz": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://127842099060677"
+          }
+        },
         "UiOpen": {
           "$className": "Sound",
           "$properties": {

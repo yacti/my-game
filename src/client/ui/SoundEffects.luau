@@ -31,6 +31,7 @@ SoundEffects.Names = {
 	Wind = "Wind",
 	ThunderStrike = "ThunderStrike",
 	CrateDeposit = "CrateDeposit",
+	BeeBuzz = "BeeBuzz",
 }
 
 local function getSoundsFolder()

@@ -602,6 +602,9 @@ local function setupRadar(activeFolder)
 end
 
 function StormChaserController.start()
+	if not StormChaser.Enabled then
+		return
+	end
 	RuntimeGuard.Connect(resultRemote.OnClientEvent, "StormChaserController.Result", function(payload)
 		if type(payload) ~= "table" or payload.requestId ~= pendingRequestId then
 			return

@@ -582,6 +582,30 @@ function PlotGridService.GetUnlockedLocalBounds(plot, paddingX, paddingZ)
 	return minX, maxX, minZ, maxZ
 end
 
+-- Floor-local rects of every unlocked cell, shrunk inward by `padding` studs
+-- (cells too small to survive the padding are skipped). Used to author
+-- client-deterministic wander areas (bee event).
+function PlotGridService.UnlockedCellBounds(plot, padding)
+	local state = stateForPlot(plot)
+	if not state then return nil end
+
+	padding = math.max(tonumber(padding) or 0, 0)
+	local rects = {}
+	for _, cell in ipairs(state.index.cells) do
+		if isUnlocked(state.unlockedKeys, cell)
+			and cell.minX and cell.maxX - cell.minX > padding * 2
+			and cell.maxZ - cell.minZ > padding * 2 then
+			rects[#rects + 1] = {
+				minX = cell.minX + padding,
+				maxX = cell.maxX - padding,
+				minZ = cell.minZ + padding,
+				maxZ = cell.maxZ - padding,
+			}
+		end
+	end
+	return rects
+end
+
 function PlotGridService.NearestUnlockedPoint(plot, lx, lz, paddingX, paddingZ)
 	if type(lx) ~= "number" or type(lz) ~= "number" then return nil, nil end
 

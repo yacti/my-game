@@ -85,6 +85,8 @@ local CONTROLLERS = {
 	"EarthquakeController",
 	"PlotWindController",
 	"StormChaserController",
+	"BeeEventController",
+	"BeeCampController",
 	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",

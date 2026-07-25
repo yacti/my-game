@@ -24,6 +24,7 @@ GameEvents.Ids = {
 	Tsunami = "Tsunami",
 	Earthquake = "Earthquake",
 	Alien = "Alien",
+	Bee = "Bee",
 }
 
 GameEvents.LayerConfigs = {
@@ -70,6 +71,10 @@ GameEvents.EventConfigs = {
 		layer = GameEvents.Layers.Weather,
 		source = GameEvents.Sources.Schedule,
 		displayFrame = "Stormy",
+		-- DisasterPool member: scheduled through GameEvents.DisasterPool (one
+		-- disaster per hour at :30, fixed rotation), not by cadence/offset.
+		-- cadenceSeconds kept for reference/manual paths only.
+		pooled = true,
 		cadenceSeconds = 60 * 60,
 		offsetSeconds = 30 * 60,
 		priority = 2,
@@ -102,8 +107,8 @@ GameEvents.EventConfigs = {
 		layer = GameEvents.Layers.Weather,
 		source = GameEvents.Sources.Schedule,
 		displayFrame = "Tornado",
-		-- StormChaser rotation: Earthquake -> Tsunami -> Tornado, one per epoch
-		-- hour (slot = hour % 3), so each event recurs every 3 hours.
+		-- DisasterPool member (see Stormy comment).
+		pooled = true,
 		cadenceSeconds = 3 * 60 * 60,
 		offsetSeconds = 2 * 60 * 60,
 		priority = 3,
@@ -140,7 +145,8 @@ GameEvents.EventConfigs = {
 		layer = GameEvents.Layers.Weather,
 		source = GameEvents.Sources.Schedule,
 		displayFrame = "Tsunami",
-		-- StormChaser rotation slot 1 (see Tornado comment).
+		-- DisasterPool member (see Stormy comment).
+		pooled = true,
 		cadenceSeconds = 3 * 60 * 60,
 		offsetSeconds = 60 * 60,
 		priority = 4,
@@ -170,7 +176,8 @@ GameEvents.EventConfigs = {
 		layer = GameEvents.Layers.Weather,
 		source = GameEvents.Sources.Schedule,
 		displayFrame = "Earthquake",
-		-- StormChaser rotation slot 0 (see Tornado comment).
+		-- DisasterPool member (see Stormy comment).
+		pooled = true,
 		cadenceSeconds = 3 * 60 * 60,
 		offsetSeconds = 0,
 		priority = 5,
@@ -223,7 +230,88 @@ GameEvents.EventConfigs = {
 			zapSoundRange = 500,
 		},
 	},
+	[GameEvents.Ids.Bee] = {
+		eventId = GameEvents.Ids.Bee,
+		layer = GameEvents.Layers.Weather,
+		source = GameEvents.Sources.Schedule,
+		displayFrame = "Bee",
+		-- Hourly at :00. Outranks the coinciding Windy occurrence (Weather is
+		-- Single stacking); the :30 disaster-pool slot never intersects.
+		cadenceSeconds = 60 * 60,
+		offsetSeconds = 0,
+		priority = 6,
+		displayPriority = 6,
+		preNoticeSeconds = 5,
+		preNoticeText = "You hear buzzing in the distance...",
+		appliedMutationId = "Pollinated",
+		bee = {
+			windUpSeconds = 5,
+			-- One 60s turn per queued farm ("the bees stay for a minute"), up
+			-- to 8. The session timer sizes itself to the turn queue like the
+			-- tornado; travelEstimateSeconds is the per-turn scheduling
+			-- estimate for the swarm's farm-to-farm transit -- real legs are
+			-- distance-based at transitSpeedStuds, clamped below.
+			plotTurnSeconds = 60,
+			maxPlotTurns = 8,
+			travelEstimateSeconds = 9,
+			transitSpeedStuds = 18,
+			travelMinSeconds = 3,
+			travelMaxSeconds = 30,
+			emptyQueueGraceSeconds = 10,
+			-- Covers the return flight to the hive plus the tween-out.
+			windDownSeconds = 13,
+			minPollinationsPerPlot = 4,
+			maxPollinationsPerPlot = 6,
+			hoverSeconds = 15,
+			hoverHeightStuds = 2,
+			hoverOrbitRadius = 1.2,
+			hoverOrbitPeriod = 3,
+			beesPerSwarm = 9,
+			altitudeMin = 3,
+			altitudeMax = 6,
+			bobAmplitude = 0.5,
+			bobPeriod = 1.6,
+			roamSpeedStuds = 9,
+			waypointPauseChance = 0.25,
+			pauseSecondsMin = 0.5,
+			pauseSecondsMax = 1.5,
+			segmentSecondsMin = 1.5,
+			segmentSecondsMax = 4,
+			wingFlapHz = 13,
+			wingFlapRadians = math.rad(55),
+			maxBankRadians = math.rad(35),
+			cellPaddingStuds = 2,
+			targetRetrySeconds = 2,
+			-- Per-bee one-shot buzz (ReplicatedStorage.Sounds.BeeBuzz), played
+			-- once every buzzMin..buzzMax seconds per bee, no loop.
+			buzzMinSeconds = 10,
+			buzzMaxSeconds = 30,
+			buzzSoundRange = 70,
+		},
+	},
 }
+
+-- One disaster per epoch hour at :30, rotating in fixed order (slot = epoch
+-- hour, members[slot % 4 + 1]) -- pure math so every server independently
+-- agrees, same style as the old StormChaser cycle. Members carry
+-- `pooled = true` in EventConfigs, which removes them from per-config
+-- cadence scheduling in WeatherSnapshot; manual/live-event paths are
+-- unaffected.
+GameEvents.DisasterPool = {
+	slotSeconds = 60 * 60,
+	offsetSeconds = 30 * 60,
+	members = {
+		GameEvents.Ids.Stormy,
+		GameEvents.Ids.Earthquake,
+		GameEvents.Ids.Tsunami,
+		GameEvents.Ids.Tornado,
+	},
+}
+
+function GameEvents.DisasterForSlot(slotIndex)
+	local members = GameEvents.DisasterPool.members
+	return members[math.floor(tonumber(slotIndex) or 0) % #members + 1]
+end
 
 local function numeric(value, fallback)
 	value = tonumber(value)
@@ -259,7 +347,28 @@ function GameEvents.TotalDuration(config)
 	if type(config.alien) == "table" then
 		return select(4, GameEvents.AlienTimings(config))
 	end
+	if type(config.bee) == "table" then
+		return select(4, GameEvents.BeeTimings(config))
+	end
 	return math.max(numeric(config.durationSeconds, 0), 0)
+end
+
+-- windUp, active, windDown, total. The active window is the config-max turn
+-- queue (turn + per-turn transit estimate, times maxPlotTurns); the live
+-- session floats its endsAt below this cap as the queue grows and shrinks,
+-- exactly like the tornado. Total = 5 + 8 * (60 + 9) + 13 = 570s (9.5 min),
+-- ending 30s before the :10 Windy slot even fully extended.
+function GameEvents.BeeTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Bee)
+	local bee = type(config) == "table" and config.bee or nil
+	bee = type(bee) == "table" and bee or {}
+	local windUp = math.max(numeric(bee.windUpSeconds, 5), 0)
+	local turn = math.max(numeric(bee.plotTurnSeconds, 60), 0)
+	local travel = math.max(numeric(bee.travelEstimateSeconds, 9), 0)
+	local maxTurns = math.max(math.floor(numeric(bee.maxPlotTurns, 8)), 0)
+	local windDown = math.max(numeric(bee.windDownSeconds, 13), 0)
+	local active = (turn + travel) * maxTurns
+	return windUp, active, windDown, windUp + active + windDown
 end
 
 function GameEvents.WindTimings(config)
@@ -558,28 +667,52 @@ function GameEvents.WeatherSnapshot(now, suppressedInstanceIds, completionBlocks
 	local active = nil
 	local nextWeather = nil
 
+	local function considerCandidate(current)
+		if not suppressedInstanceIds[current.instanceId]
+			and now >= current.startsAt
+			and now < current.endsAt
+			and not completionBlockApplies(current, completionBlocksByLayer)
+			and comparePriority(current, active) then
+			active = current
+		end
+	end
+
+	local function considerNext(nextCandidate)
+		if not completionBlockApplies(nextCandidate, completionBlocksByLayer)
+			and compareNext(nextCandidate, nextWeather) then
+			nextWeather = nextCandidate
+		end
+	end
+
 	for _, config in pairs(GameEvents.EventConfigs) do
-		if config.layer == GameEvents.Layers.Weather and config.cadenceSeconds then
+		-- DisasterPool members are scheduled through the pool below, never by
+		-- their own cadence/offset.
+		if config.layer == GameEvents.Layers.Weather and config.cadenceSeconds and not config.pooled then
 			local start = scheduledStartAt(config, now)
-			local current = scheduledInstance(config, start)
-			if not suppressedInstanceIds[current.instanceId]
-				and now >= current.startsAt
-				and now < current.endsAt
-				and not completionBlockApplies(current, completionBlocksByLayer)
-				and comparePriority(current, active) then
-				active = current
-			end
+			considerCandidate(scheduledInstance(config, start))
 
 			local nextStart = start
 			if now >= start then
 				nextStart = start + math.max(numeric(config.cadenceSeconds, 0), 1)
 			end
-			local nextCandidate = scheduledInstance(config, nextStart)
-			if not completionBlockApplies(nextCandidate, completionBlocksByLayer)
-				and compareNext(nextCandidate, nextWeather) then
-				nextWeather = nextCandidate
-			end
+			considerNext(scheduledInstance(config, nextStart))
 		end
+	end
+
+	-- Disaster pool: one member per slot, chosen by the deterministic
+	-- fixed rotation in DisasterForSlot.
+	local pool = GameEvents.DisasterPool
+	local slotSeconds = math.max(numeric(pool.slotSeconds, 3600), 1)
+	local poolOffset = numeric(pool.offsetSeconds, 0)
+	local slotStart = math.floor((now - poolOffset) / slotSeconds) * slotSeconds + poolOffset
+	local currentConfig = GameEvents.GetEvent(GameEvents.DisasterForSlot(math.floor(slotStart / slotSeconds)))
+	if currentConfig then
+		considerCandidate(scheduledInstance(currentConfig, slotStart))
+	end
+	local nextSlotStart = slotStart + slotSeconds
+	local nextConfig = GameEvents.GetEvent(GameEvents.DisasterForSlot(math.floor(nextSlotStart / slotSeconds)))
+	if nextConfig then
+		considerNext(scheduledInstance(nextConfig, nextSlotStart))
 	end
 
 	local activeRecords = {}

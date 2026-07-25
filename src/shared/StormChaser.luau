@@ -9,6 +9,14 @@ local Workspace = game:GetService("Workspace")
 
 local StormChaser = {}
 
+-- Master switch: false retires the StormChaser camp -- no crate prompts,
+-- Scientist dialogue, or NextStorm timer on clients, and the server refuses
+-- deposits -- without tearing out the feature or player progress. The
+-- Earthquake/Tsunami/Tornado weather events themselves now run through
+-- GameEvents.DisasterPool (with Stormy, hourly at :30) and are unaffected by
+-- this flag. profile.Data.StormChaser is preserved for a future return.
+StormChaser.Enabled = false
+
 StormChaser.SlotSeconds = 60 * 60
 
 -- Slot index (hour % 3) -> weather eventId. Must stay in lockstep with the

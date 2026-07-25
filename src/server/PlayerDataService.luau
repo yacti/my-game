@@ -16,12 +16,13 @@ local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 local PlayerSettings = require(ReplicatedStorage.Shared:WaitForChild("PlayerSettings"))
 local StormChaser = require(ReplicatedStorage.Shared:WaitForChild("StormChaser"))
+local BeeEvent = require(ReplicatedStorage.Shared:WaitForChild("BeeEvent"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersistence"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 12
+local CURRENT_DATA_VERSION = 13
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -97,6 +98,9 @@ local DATA_TEMPLATE = {
 	-- StormChaser event: current reward tier and per-mutation crate deposits,
 	-- e.g. { Tier = 1, Deposits = { Twisted = 3 } }. Tiers loop 1 -> 2 -> 1.
 	StormChaser = { Tier = 1, Deposits = {} },
+	-- Bee event: current reward tier and the single Jar deposit counter,
+	-- e.g. { Tier = 2, Deposits = 17 }. Tiers loop 1 -> 2 -> 3 -> 1.
+	BeeEvent = { Tier = 1, Deposits = 0 },
 	Onboarding = Onboarding.DefaultState(),
 	-- Index/codex discovery sets: { Pets = { [PetID] = true }, Feed = { [FeedType] = true } }.
 	Discovered = { Pets = {}, Feed = {} },
@@ -396,6 +400,10 @@ local function migrateData(data)
 					Cosmetic = {},
 				}
 			end
+		elseif nextVersion == 13 then
+			if type(data.BeeEvent) ~= "table" then
+				data.BeeEvent = { Tier = 1, Deposits = 0 }
+			end
 		end
 
 		version = nextVersion
@@ -657,6 +665,18 @@ local function sanitizeStormChaser(value)
 	return clean
 end
 
+local function sanitizeBeeEvent(value)
+	local clean = { Tier = 1, Deposits = 0 }
+	if type(value) ~= "table" then
+		return clean
+	end
+	clean.Tier = BeeEvent.NormalizeTier(value.Tier)
+	local required = BeeEvent.RequiredFor(clean.Tier) or 0
+	local count = math.floor(tonumber(value.Deposits) or 0)
+	clean.Deposits = math.clamp(count, 0, required)
+	return clean
+end
+
 local function sanitizeDiscoveredSet(value)
 	local clean = {}
 	if type(value) == "table" then
@@ -886,6 +906,7 @@ local function ensureValidData(profile)
 		profile.Data.Onboarding = Onboarding.CompleteState()
 	end
 	profile.Data.StormChaser = sanitizeStormChaser(profile.Data.StormChaser)
+	profile.Data.BeeEvent = sanitizeBeeEvent(profile.Data.BeeEvent)
 	profile.Data.Discovered = sanitizeDiscovered(profile.Data.Discovered)
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
 	profile.Data.MediaRewardCollected = profile.Data.MediaRewardCollected == true

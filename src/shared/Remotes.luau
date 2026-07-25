@@ -82,6 +82,9 @@ Remotes.Names = {
 	GiftResult = "GiftResult",
 	StormChaserDepositRequest = "StormChaserDepositRequest",
 	StormChaserDepositResult = "StormChaserDepositResult",
+	BeeEventEffect = "BeeEventEffect",
+	BeeDepositRequest = "BeeDepositRequest",
+	BeeDepositResult = "BeeDepositResult",
 	PlayerSettingsUpdateRequest = "PlayerSettingsUpdateRequest",
 	RollBroadcastEffect = "RollBroadcastEffect",
 }
@@ -160,6 +163,9 @@ local Definitions = {
 	[Remotes.Names.GiftResult] = "RemoteEvent",
 	[Remotes.Names.StormChaserDepositRequest] = "RemoteEvent",
 	[Remotes.Names.StormChaserDepositResult] = "RemoteEvent",
+	[Remotes.Names.BeeEventEffect] = "RemoteEvent",
+	[Remotes.Names.BeeDepositRequest] = "RemoteEvent",
+	[Remotes.Names.BeeDepositResult] = "RemoteEvent",
 	[Remotes.Names.PlayerSettingsUpdateRequest] = "RemoteEvent",
 	[Remotes.Names.RollBroadcastEffect] = "RemoteEvent",
 }

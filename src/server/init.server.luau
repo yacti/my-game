@@ -74,6 +74,7 @@ local ShovelTools       = require(Server:WaitForChild("ShovelTools"))
 local SkipTimeStationService = require(Server:WaitForChild("SkipTimeStationService"))
 local StarterPackShopService = require(Server:WaitForChild("StarterPackShopService"))
 local StormChaserService = require(Server:WaitForChild("StormChaserService"))
+local BeeEventService = require(Server:WaitForChild("BeeEventService"))
 local TelemetryService  = require(Server:WaitForChild("TelemetryService"))
 local UpdateEventConfigService = require(Server:WaitForChild("UpdateEventConfigService"))
 local UpdateLogService = require(Server:WaitForChild("UpdateLogService"))
@@ -1646,6 +1647,13 @@ end)
 
 RuntimeGuard.Run("StormChaserService.Start", function()
 	StormChaserService.Start({
+		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
+
+RuntimeGuard.Run("BeeEventService.Start", function()
+	BeeEventService.Start({
 		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})

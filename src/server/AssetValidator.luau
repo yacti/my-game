@@ -30,6 +30,7 @@ local Shovel = require(Shared:WaitForChild("Shovel"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
+local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
 
 local AssetValidator = {}
 
@@ -73,6 +74,7 @@ local REQUIRED_CLIENT_SOUNDS = {
 	"MailboxClose",
 	"BirdBackingTrack",
 	"Wind",
+	"BeeBuzz",
 }
 
 local MUSIC_TRACK_VOLUME = 0.1
@@ -2808,9 +2810,96 @@ end
 local function validateEventTeleportPart(warnings)
 	local map = child(Workspace, "Map", nil, warnings)
 	if not map then return end
-	local eventFolder = child(map, StormChaser.MapFolderName, nil, warnings)
+	local eventFolder = child(map, BeeEvent.MapFolderName, nil, warnings)
 	if not eventFolder then return end
-	child(eventFolder, StormChaser.TeleportPartName, "BasePart", warnings)
+	child(eventFolder, BeeEvent.TeleportPartName, "BasePart", warnings)
+end
+
+-- Bee event templates: mutation visuals, the swarm bee model, the lighting
+-- preset, and the tier reward seeds.
+local function validateBeeAssets(errors)
+	local lightingRoot = child(ReplicatedStorage, "Lighting", "Folder", errors)
+	if lightingRoot then
+		validateLightingPreset(lightingRoot, "Bees", errors)
+	end
+
+	local mutations = assetChild(Assets.Names.Mutations, "Folder", errors)
+	local pollinated = child(mutations, BeeEvent.MutationId, nil, errors)
+	if pollinated then
+		local xpMultiplier = Mutations.XPMultiplier(Mutations.Ids.Pollinated)
+		if type(xpMultiplier) ~= "number" or xpMultiplier <= 0 or xpMultiplier ~= xpMultiplier or math.abs(xpMultiplier) == math.huge then
+			add(errors, string.format("%s has invalid configured %s %q", pollinated:GetFullName(), State.Feed.XPMultiplier, tostring(xpMultiplier)))
+		end
+		if not hasDescendantOfClass(pollinated, "ParticleEmitter") then
+			add(errors, pollinated:GetFullName() .. " must contain a ParticleEmitter for mutation visuals")
+		end
+	end
+
+	local misc = assetChild(Assets.Names.Misc, "Folder", errors)
+	local bee = child(misc, BeeEvent.BeeTemplateName, "Model", errors)
+	if bee then
+		if not bee.PrimaryPart then
+			add(errors, bee:GetFullName() .. " must have a PrimaryPart for swarm flight pivots")
+		end
+		local animated = child(bee, "Animated", "Folder", errors)
+		if animated then
+			child(animated, "Wing1", "BasePart", errors)
+			child(animated, "Wing2", "BasePart", errors)
+		end
+	end
+
+	for _, tier in ipairs(BeeEvent.Tiers) do
+		if not Seeds.GetTemplate(tier.rewardSeedId) then
+			add(errors, string.format("Missing Bee event reward seed template for SeedID %q", tostring(tier.rewardSeedId)))
+		end
+	end
+end
+
+-- The Honeycomb camp is Studio-authored world structure; missing pieces warn
+-- and degrade (No-Fallback UI Policy) rather than blocking startup.
+local function validateBeeCamp(warnings)
+	local map = child(Workspace, "Map", nil, warnings)
+	if not map then return end
+	local eventFolder = child(map, BeeEvent.MapFolderName, nil, warnings)
+	if not eventFolder then return end
+
+	local hive = child(eventFolder, BeeEvent.HiveModelName, nil, warnings)
+	local hiveMesh = hive and child(hive, BeeEvent.HiveMeshName, "BasePart", warnings)
+	if hiveMesh then
+		for index = 1, BeeEvent.BeeCount do
+			child(hiveMesh, BeeEvent.BeeSpawnPrefix .. tostring(index), "Attachment", warnings)
+		end
+		local timerGui = child(hiveMesh, BeeEvent.HiveTimerGuiName, "BillboardGui", warnings)
+		local timerFrame = timerGui and child(timerGui, "Frame", "GuiObject", warnings)
+		if timerFrame then
+			child(timerFrame, "Timer", "TextLabel", warnings)
+		end
+	end
+
+	local activeFolder = child(eventFolder, BeeEvent.ActiveFolderName, nil, warnings)
+	if not activeFolder then return end
+	child(activeFolder, BeeEvent.EventInactiveName, nil, warnings)
+	local jar = child(activeFolder, BeeEvent.JarName, nil, warnings)
+	local glass = jar and child(jar, BeeEvent.JarGlassName, "BasePart", warnings)
+	if jar then
+		child(jar, "Fill", "BasePart", warnings)
+	end
+	if glass then
+		local billboard = descendant(glass, BeeEvent.JarBillboardName, "BillboardGui", warnings)
+		if billboard then
+			descendant(billboard, "Amount", "TextLabel", warnings)
+		end
+	end
+	local beekeeper = child(activeFolder, BeeEvent.BeekeeperName, nil, warnings)
+	local rig = beekeeper and child(beekeeper, BeeEvent.BeekeeperName, "Model", warnings)
+	local torso = rig and child(rig, "Torso", "BasePart", warnings)
+	if torso then
+		local dialogue = child(torso, BeeEvent.BeekeeperDialogueGuiName, "BillboardGui", warnings)
+		local dialogueFrame = dialogue and child(dialogue, "Frame", "GuiObject", warnings)
+		if dialogueFrame then
+			child(dialogueFrame, "Dialogue", "TextLabel", warnings)
+		end
+	end
 end
 
 local function validateGroupReward(errors)
@@ -3150,6 +3239,7 @@ function AssetValidator.validate()
 	validateTornadoAssets(errors)
 	validateTsunamiAssets(errors)
 	validateEarthquakeAssets(errors)
+	validateBeeAssets(errors)
 	validateReplica(errors)
 	for _, toolName in ipairs(REQUIRED_TOOLS) do
 		validateTool(assetRoot and assetRoot:FindFirstChild(toolName), errors)
@@ -3177,6 +3267,7 @@ function AssetValidator.validate()
 	validateUi(warnings, warnings)
 	validateRobuxShopPart(warnings)
 	validateEventTeleportPart(warnings)
+	validateBeeCamp(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)
 	validatePlots(errors, warnings)

@@ -1,0 +1,51 @@
+{
+  "note": "Pre-Bee-event asset state: flower patch attrs (PercentageOfBest 1 -> 0.5/0.75/1.25), Pollinated emitter (Alien-clone colors -> golden pollen), Workspace.Map.BeeEvent ModelStreamingMode (Default -> Persistent on camp models).",
+  "date": "2026-07-25",
+  "patches": {
+    "Wildflower Patch": {
+      "FeedType": "WildflowerPatch",
+      "FeedClass": "Patch",
+      "GrowRate": 1,
+      "PercentageOfBest": 1,
+      "FoodDrop": "Wildflowers"
+    },
+    "Sunflower Patch": {
+      "FeedType": "SunflowerPatch",
+      "FeedClass": "Patch",
+      "GrowRate": 1,
+      "PercentageOfBest": 1,
+      "FoodDrop": "Sunflower"
+    },
+    "Rose Patch": {
+      "FeedType": "RosePatch",
+      "FeedClass": "Patch",
+      "GrowRate": 1,
+      "PercentageOfBest": 1,
+      "FoodDrop": "Rose"
+    }
+  },
+  "pollinated": {
+    "attrs": {
+      "XPMultiplier": 2
+    },
+    "emitters": [
+      {
+        "name": "AlienGlow",
+        "color": "ColorSequence 0 (0, 0.168627, 1) -> 0.473457 (0, 1, 0.168627) -> 1 (0.473457, 0, 1)",
+        "lightEmission": 0.5,
+        "size": "0 2 0 / 1 2 0",
+        "texture": "rbxassetid://123026651024544",
+        "rate": 4,
+        "lifetime": "0.6 0.6",
+        "speed": "0.1 0.1"
+      }
+    ]
+  },
+  "streaming": {
+    "Workspace.Map.BeeEvent (all descendant Models)": "Enum.ModelStreamingMode.Default"
+  },
+  "beekeeperRig": {
+    "note": "Before rig fix: every BasePart Anchored=true, decorations (hat/antenna/visor/overlays, 42 parts) had no welds. Fix welded each decoration to its carrier limb (__BeekeeperRigWeld WeldConstraints), unanchored all parts except HumanoidRootPart, added IdleAnimationId rbxassetid://180435571 (copied from Scientist).",
+    "previous": "all parts Anchored=true, no IdleAnimationId attribute"
+  }
+}

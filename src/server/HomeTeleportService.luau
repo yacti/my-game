@@ -6,9 +6,9 @@ local Server = script.Parent
 local PlotService = require(Server:WaitForChild("PlotService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
-local StormChaser = require(Shared:WaitForChild("StormChaser"))
 
 local HomeTeleportService = {}
 
@@ -123,9 +123,8 @@ local function teleportHome(player)
 end
 
 local function eventTeleportPart()
-	local map = Workspace:FindFirstChild("Map")
-	local eventFolder = map and map:FindFirstChild(StormChaser.MapFolderName)
-	local part = eventFolder and eventFolder:FindFirstChild(StormChaser.TeleportPartName)
+	local eventFolder = BeeEvent.FindMapFolder()
+	local part = eventFolder and eventFolder:FindFirstChild(BeeEvent.TeleportPartName)
 	if part and part:IsA("BasePart") then
 		return part
 	end

@@ -11,6 +11,7 @@ Mutations.Ids = {
 	Twisted = "Twisted",
 	Aqua = "Aqua",
 	Shaken = "Shaken",
+	Pollinated = "Pollinated",
 }
 
 Mutations.DisplayColors = {
@@ -19,6 +20,7 @@ Mutations.DisplayColors = {
 	[Mutations.Ids.Twisted] = Color3.fromRGB(163, 171, 184),
 	[Mutations.Ids.Aqua] = Color3.fromRGB(0, 157, 255),
 	[Mutations.Ids.Shaken] = Color3.fromRGB(191, 0, 255),
+	[Mutations.Ids.Pollinated] = Color3.fromRGB(255, 200, 40),
 }
 
 Mutations.XPMultipliers = {
@@ -27,6 +29,7 @@ Mutations.XPMultipliers = {
 	[Mutations.Ids.Twisted] = 2,
 	[Mutations.Ids.Aqua] = 2,
 	[Mutations.Ids.Shaken] = 2,
+	[Mutations.Ids.Pollinated] = 2,
 }
 
 Mutations.MaxPerCrop = 3
