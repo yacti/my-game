@@ -16,7 +16,16 @@ local MutationVisuals = {}
 
 local FOLDER_NAME = "__MutationVisuals"
 local OVERLAY_NAME = "ForceFieldOverlay"
-local OVERLAY_SCALE = 1.1
+-- Shell thickness per face, as a fraction of the food's overall extent. Kept
+-- additive rather than a Size multiplier: multiplying gives an elongated part
+-- (a sunflower stalk block) a thick sleeve on its long axis and a hairline on
+-- the short ones, which reads as a lopsided, one-axis stretch. The ratio is the
+-- additive equivalent of a 1.05 Size multiplier on a roughly cubic food; the
+-- ceiling is what stops a maxed sunflower from wearing a jelly coat, since that
+-- same percentage of an 8x food is a far thicker shell than it is of an apple.
+local OVERLAY_MARGIN_RATIO = 0.025
+local OVERLAY_MARGIN_MIN = 0.025
+local OVERLAY_MARGIN_MAX = 0.3
 local OVERLAY_COLOR = Color3.fromRGB(107, 206, 255)
 local OVERLAY_TRANSPARENCY = 0.25
 local MAX_VISUAL_DISTANCE = 80
@@ -149,6 +158,20 @@ end
 
 local function maxDimension(size)
 	return math.max(size.X, size.Y, size.Z)
+end
+
+-- Derived from the food's extent rather than fixed, so an 8x sunflower gets a
+-- proportionally thicker shell instead of a hairline and a seedling does not
+-- get a jelly coat. Clamped at both ends to keep the extremes sane.
+local function overlayMarginFor(extent)
+	if not finitePositiveNumber(extent) then
+		extent = DEFAULT_EFFECT_REFERENCE_EXTENT
+	end
+	return math.clamp(extent * OVERLAY_MARGIN_RATIO, OVERLAY_MARGIN_MIN, OVERLAY_MARGIN_MAX)
+end
+
+local function overlayPartSize(sourcePart, margin)
+	return sourcePart.Size + Vector3.one * (margin * 2)
 end
 
 local function visualExtent(instance)
@@ -340,59 +363,26 @@ local function cloneForOverlay(source)
 	return clone
 end
 
-local function scaleOverlayClone(clone)
-	local ok, currentScale = pcall(function()
-		return clone:GetScale()
-	end)
-	if ok and finitePositiveNumber(currentScale) then
-		local scaled = pcall(function()
-			clone:ScaleTo(currentScale * OVERLAY_SCALE)
-		end)
-		if scaled then
-			return true
-		end
-	end
-	return false
-end
+-- Every overlay part is outset about its own centre and left on the source's
+-- own CFrame. Scaling the clone about the model pivot instead (ScaleTo, or the
+-- equivalent by hand) displaced each part by its distance from that pivot, so
+-- on a tall multi-part food at high scale the shell visibly came apart from the
+-- geometry. Sitting the clone exactly on the source also makes the weld offset
+-- zero, so the shell can never drift as the food moves or grows.
+local function fitOverlayPart(sourcePart, clonePart, margin)
+	clonePart.CFrame = sourcePart.CFrame
+	clonePart.Size = overlayPartSize(sourcePart, margin)
 
-local function pivotForOverlay(source)
-	if source:IsA("BasePart") then
-		return source.CFrame
-	end
-
-	local ok, pivot = pcall(function()
-		return source:GetPivot()
-	end)
-	if ok and typeof(pivot) == "CFrame" then
-		return pivot
-	end
-
-	local boundsOk, boundsCF = pcall(function()
-		return source:GetBoundingBox()
-	end)
-	if boundsOk and typeof(boundsCF) == "CFrame" then
-		return boundsCF
-	end
-
-	-- Tools have no GetPivot/GetBoundingBox; anchor the overlay to the handle
-	-- rather than falling back to the world origin, which strands the shell
-	-- 10% of the origin distance away from the tool.
-	local part = firstBasePart(source)
-	if part then
-		return part.CFrame
-	end
-
-	return CFrame.new()
-end
-
-local function manuallyScaleOverlayPart(sourcePart, clonePart, pivot)
-	local relative = pivot:ToObjectSpace(sourcePart.CFrame)
-	clonePart.CFrame = pivot * CFrame.new(relative.Position * OVERLAY_SCALE) * (relative - relative.Position)
-	clonePart.Size = sourcePart.Size * OVERLAY_SCALE
-
-	for _, descendant in ipairs(clonePart:GetDescendants()) do
-		if descendant:IsA("SpecialMesh") then
-			descendant.Scale *= OVERLAY_SCALE
+	-- A SpecialMesh set to FileMesh renders from Scale alone and ignores the
+	-- part Size we just grew, so it needs the equivalent multiplier (the part
+	-- size stands in for the mesh's own bounds). Every other MeshType renders
+	-- as Size * Scale, where the Size outset above is already the whole job --
+	-- touching Scale as well used to double-apply it.
+	local mesh = clonePart:FindFirstChildWhichIsA("SpecialMesh")
+	if mesh and mesh.MeshType == Enum.MeshType.FileMesh then
+		local extent = maxDimension(sourcePart.Size)
+		if finitePositiveNumber(extent) then
+			mesh.Scale *= 1 + (margin * 2) / extent
 		end
 	end
 end
@@ -411,7 +401,7 @@ local function overlayColorFor(primaryMutationId)
 	return OVERLAY_COLOR
 end
 
-local function createForceFieldOverlay(source, folder, primaryMutationId)
+local function createForceFieldOverlay(source, folder, primaryMutationId, margin)
 	local sourceParts = sourcePartsForOverlay(source)
 	if #sourceParts == 0 then
 		return nil
@@ -422,7 +412,6 @@ local function createForceFieldOverlay(source, folder, primaryMutationId)
 		return nil
 	end
 
-	local scaledWithInstance = scaleOverlayClone(clone)
 	local cloneParts = sourcePartsForOverlay(clone)
 	if #cloneParts ~= #sourceParts then
 		clone:Destroy()
@@ -435,13 +424,10 @@ local function createForceFieldOverlay(source, folder, primaryMutationId)
 	overlay.Parent = folder
 
 	local color = overlayColorFor(primaryMutationId)
-	local pivot = scaledWithInstance and nil or pivotForOverlay(source)
 	local overlayPairs = table.create(#cloneParts)
 	for index, clonePart in ipairs(cloneParts) do
 		local sourcePart = sourceParts[index]
-		if not scaledWithInstance then
-			manuallyScaleOverlayPart(sourcePart, clonePart, pivot)
-		end
+		fitOverlayPart(sourcePart, clonePart, margin)
 		configureOverlayPart(clonePart, color)
 		clonePart.Name = sourcePart.Name .. "_MutationOverlay"
 		clonePart.Parent = overlay
@@ -482,18 +468,22 @@ local function registerScalableEmitters(record, root, referenceExtent)
 	end
 end
 
--- Model hosts rescale their overlay clones automatically (ScaleTo cascades to
--- all descendants), so this is a no-op there; BasePart hosts resize via Size
--- tweens the welded clone does not follow, so re-derive it from the source.
-local function syncOverlayPartSizes(record)
+-- Re-derives every shell size from its source, and is the sole authority on it.
+-- Both host kinds need this: BasePart hosts resize via Size tweens the welded
+-- clone does not follow, and Model hosts growing via ScaleTo multiply the clone
+-- sizes, which would compound the additive margin. Only Size is touched --
+-- the clone sits at zero weld offset, so it tracks position for free, and
+-- resizing about a part's centre leaves its origin (and that offset) alone.
+local function syncOverlayPartSizes(record, extent)
 	local overlayPairs = record.overlayPairs
 	if not overlayPairs then
 		return
 	end
+	local margin = overlayMarginFor(extent)
 	for index = #overlayPairs, 1, -1 do
 		local entry = overlayPairs[index]
 		if entry.source.Parent and entry.clone.Parent then
-			local desired = entry.source.Size * OVERLAY_SCALE
+			local desired = overlayPartSize(entry.source, margin)
 			if (entry.clone.Size - desired).Magnitude > EFFECT_EXTENT_EPSILON then
 				entry.clone.Size = desired
 			end
@@ -510,7 +500,7 @@ local function applyEffectScale(record)
 	end
 	record.effectExtent = extent
 
-	syncOverlayPartSizes(record)
+	syncOverlayPartSizes(record, extent)
 
 	for index = #record.scaledEmitters, 1, -1 do
 		local entry = record.scaledEmitters[index]
@@ -639,7 +629,8 @@ local function render(record)
 	clearRecord(record)
 
 	local folder = visualFolder(record, host)
-	local overlay, overlayPairs = createForceFieldOverlay(host, folder, primaryMutationId)
+	local margin = overlayMarginFor(targetEffectExtent(target, host))
+	local overlay, overlayPairs = createForceFieldOverlay(host, folder, primaryMutationId, margin)
 	record.overlayPairs = overlayPairs
 	if overlay and #mutationIds >= 2 then
 		local overlayParts = {}
