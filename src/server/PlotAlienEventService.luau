@@ -88,6 +88,7 @@ local function settingsFor()
 		windDownSeconds = windDownSeconds,
 		totalSeconds = totalSeconds,
 		plotVisitSeconds = math.max(numberValue(alien.plotVisitSeconds, 8), 0),
+		interVisitRoamSeconds = math.max(numberValue(alien.interVisitRoamSeconds, 0), 0),
 		maxQueuedTurns = math.max(integerValue(alien.maxQueuedTurns, 8), 1),
 		minZapsPerVisit = minZaps,
 		maxZapsPerVisit = maxZaps,
@@ -209,6 +210,7 @@ local function syncPayload(session)
 		mapCenter = session.mapCenter,
 		currentPlotCenter = session.currentPlotCenter,
 		currentVisitEndsAt = session.currentVisitEndsAt,
+		currentRoamEndsAt = session.currentRoamEndsAt,
 	}
 end
 
@@ -499,6 +501,35 @@ local function runPlotVisit(session, entry)
 	return ranAnyZap
 end
 
+-- Runs after every consumed turn -- including skipped/ineligible ones, so a
+-- server full of saturated plots cannot degenerate into rapid-fire visits.
+-- The UFO breaks off and laps the map, throttling the mutation rate without
+-- shortening the hover itself. Clamped so it never eats into the wind-down.
+local function runInterVisitRoam(session)
+	local roamSeconds = session.settings.interVisitRoamSeconds
+	if roamSeconds <= 0 then
+		return
+	end
+	local roamEndsAt = math.min(serverNow() + roamSeconds, session.endsAt - session.settings.windDownSeconds)
+	if roamEndsAt <= serverNow() then
+		return
+	end
+	session.phase = "roam"
+	session.currentPlotCenter = nil
+	session.currentVisitEndsAt = nil
+	session.currentRoamEndsAt = roamEndsAt
+	fireViewers(session, "roam", {
+		instanceId = session.instanceId,
+		startsAt = serverNow(),
+		endsAt = roamEndsAt,
+		roamSeed = session.visitSequence,
+		mapCenter = session.mapCenter,
+		settings = session.publicSettings,
+	})
+	cancellableWait(session, math.max(roamEndsAt - serverNow(), 0))
+	session.currentRoamEndsAt = nil
+end
+
 -- The global/admin record owns the fixed 30-minute failsafe. With no turns
 -- queued the UFO idles and keeps polling for fresh joiners or newly-grown
 -- targets instead of winding down before the operator stops it.
@@ -507,6 +538,7 @@ local function waitForNewEntries(session)
 	session.phase = "waitingForPlayers"
 	session.currentPlotCenter = nil
 	session.currentVisitEndsAt = nil
+	session.currentRoamEndsAt = nil
 	while sessionActive(session) and serverNow() < session.endsAt - session.settings.windDownSeconds do
 		if refreshVisitQueue(session) > 0 then
 			return true
@@ -544,6 +576,7 @@ local function runAlien(session)
 				ranAnyVisit = runPlotVisit(session, entry) or ranAnyVisit
 				session.completedTurnsByUserId[entry.userId] = (session.completedTurnsByUserId[entry.userId] or 0) + 1
 			end
+			runInterVisitRoam(session)
 		elseif not waitForNewEntries(session) then
 			break
 		end
@@ -555,6 +588,7 @@ local function runAlien(session)
 	session.phase = "windDown"
 	session.currentPlotCenter = nil
 	session.currentVisitEndsAt = nil
+	session.currentRoamEndsAt = nil
 	-- One shot per server: an early wind-down suppresses this instance locally
 	-- until endsAt whether or not any zaps landed, so a still-active global
 	-- record cannot restart the alien on this server.
@@ -628,6 +662,7 @@ function PlotAlienEventService.StartAlien(eventRecord, callbacks)
 			windUpSeconds = settings.windUpSeconds,
 			windDownSeconds = settings.windDownSeconds,
 			plotVisitSeconds = settings.plotVisitSeconds,
+			interVisitRoamSeconds = settings.interVisitRoamSeconds,
 			ufoTravelSeconds = settings.ufoTravelSeconds,
 			ufoMaxTiltDegrees = settings.ufoMaxTiltDegrees,
 			zapAppearSeconds = settings.zapAppearSeconds,
@@ -691,10 +726,25 @@ function PlotAlienEventService.StopAlien(instanceId)
 		session.loggedEnd = true
 		printAlienLifecycle("end", session, "stopped")
 	end
-	fireViewers(session, "end", {
+	-- Operator stops fade out like a natural wind-down instead of hard-cutting.
+	-- The delayed "end" is instanceId-guarded on the client, so a new alien
+	-- starting inside the fade window is not torn down by the old instance.
+	local windDownSeconds = session.settings.windDownSeconds
+	session.phase = "windDown"
+	session.currentPlotCenter = nil
+	session.currentVisitEndsAt = nil
+	session.currentRoamEndsAt = nil
+	fireViewers(session, "windDown", {
 		instanceId = session.instanceId,
+		startsAt = serverNow(),
+		endsAt = serverNow() + windDownSeconds,
 	})
 	activeSession = nil
+	task.delay(windDownSeconds, function()
+		fireViewers(session, "end", {
+			instanceId = session.instanceId,
+		})
+	end)
 end
 
 return PlotAlienEventService

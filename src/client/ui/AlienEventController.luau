@@ -32,7 +32,7 @@ local ALIEN_MUSIC_TRACKS = {
 	"rbxassetid://1835904215",
 	"rbxassetid://1838209880",
 }
-local ALIEN_MUSIC_VOLUME = 0.35
+local ALIEN_MUSIC_VOLUME = 0.2625
 local ALIEN_TRACK_LOAD_TIMEOUT_SECONDS = 15
 local ALIEN_TRACK_END_PADDING_SECONDS = 5
 local ZAP_SOUND_ID = "rbxassetid://2674547670"
@@ -40,6 +40,8 @@ local DEFAULT_SOUND_RANGE = 500
 local WAIT_SECONDS = 10
 local LEVEL_SECONDS = 0.25
 local PROP_ROTATION_RADIANS_PER_SECOND = math.rad(18)
+local ROAM_MIN_RADIUS = 30
+local ROAM_DEFAULT_LAP_SECONDS = 30
 
 local player = Players.LocalPlayer
 local started = false
@@ -580,7 +582,9 @@ local function startBackingTrack(token, seconds)
 				if token.backingTrack == sound then
 					token.backingTrack = nil
 				end
-				if sound.Parent then
+				-- On a fade-out stop the volume tween owns this sound's
+				-- teardown; hard-stopping here would cut the fade short.
+				if sound.Parent and not token.musicStopping then
 					sound:Stop()
 					sound.Volume = 0
 				end
@@ -863,6 +867,10 @@ local function cleanupToken(token)
 		token.propsConnection:Disconnect()
 		token.propsConnection = nil
 	end
+	if token.roamConnection then
+		token.roamConnection:Disconnect()
+		token.roamConnection = nil
+	end
 	stopBackingTrack(token, 0)
 	CloudController.SetTransparencyOverride(nil, 0.35)
 	EventLighting.Release(GameEvents.Ids.Alien, 0.35)
@@ -896,6 +904,7 @@ local function beginAlien(payload)
 		cancelled = false,
 		ambientRevealed = false,
 		zapSequence = 0,
+		roamSequence = 0,
 	}
 	activeToken = token
 	local origin = payload and payload.mapCenter or Vector3.zero
@@ -915,12 +924,76 @@ local function ensureAlien(payload)
 	return activeToken
 end
 
+local function stopRoam(token)
+	if not token then
+		return
+	end
+	token.roamSequence = (token.roamSequence or 0) + 1
+	if token.roamConnection then
+		token.roamConnection:Disconnect()
+		token.roamConnection = nil
+	end
+end
+
+-- Between visits the UFO breaks off and banks a lazy lap around the map.
+-- Purely cosmetic -- the server just idles for the same window. The orbit
+-- passes through the UFO's current offset from the map centre so the break
+-- blends smoothly out of the last visit, and roamSeed keeps the lap
+-- direction consistent across clients.
+local function handleRoam(payload)
+	local token = ensureAlien(payload)
+	if type(payload) ~= "table" or not (token and token.ufo and token.ufo.Parent) then
+		return
+	end
+	revealAmbient(token, 0.5)
+	stopRoam(token)
+	local sequence = token.roamSequence
+	local endsAt = tonumber(payload.endsAt) or 0
+	if endsAt <= serverNow() then
+		return
+	end
+	local center = typeof(payload.mapCenter) == "Vector3" and payload.mapCenter or Vector3.zero
+	local lapSeconds = math.max(tonumber(token.settings.interVisitRoamSeconds) or ROAM_DEFAULT_LAP_SECONDS, 1)
+	local current = pivotOf(token.ufo).Position
+	local offset = Vector3.new(current.X - center.X, 0, current.Z - center.Z)
+	local radius = math.max(offset.Magnitude, ROAM_MIN_RADIUS)
+	local angle = math.atan2(offset.Z, offset.X)
+	local direction = (tonumber(payload.roamSeed) or 0) % 2 == 0 and 1 or -1
+	if token.ufoTween then
+		token.ufoTween:Cancel()
+		token.ufoTween = nil
+	end
+	local connection
+	connection = RuntimeGuard.Connect(RunService.Heartbeat, "AlienEventController.Roam", function(deltaTime)
+		if token.cancelled
+			or token.roamSequence ~= sequence
+			or serverNow() >= endsAt
+			or not (token.ufo and token.ufo.Parent) then
+			connection:Disconnect()
+			if token.roamConnection == connection then
+				token.roamConnection = nil
+			end
+			return
+		end
+		angle += direction * deltaTime * (2 * math.pi) / lapSeconds
+		local position = Vector3.new(
+			center.X + math.cos(angle) * radius,
+			token.ufoHeight or current.Y,
+			center.Z + math.sin(angle) * radius
+		)
+		local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle)) * direction
+		setPivot(token.ufo, ufoCFrame(token, position, tangent, true))
+	end)
+	token.roamConnection = connection
+end
+
 local function handlePlotVisit(payload)
 	local token = ensureAlien(payload)
 	if type(payload) ~= "table" then
 		return
 	end
 	revealAmbient(token, 0.5)
+	stopRoam(token)
 	if typeof(payload.plotCenter) ~= "Vector3" then
 		return
 	end
@@ -941,6 +1014,7 @@ local function handleWindDown(payload)
 	if not activeToken then
 		return
 	end
+	stopRoam(activeToken)
 	local endsAt = type(payload) == "table" and tonumber(payload.endsAt) or nil
 	local seconds = math.max(endsAt and (endsAt - serverNow()) or 0, 0)
 	fadeOutToken(activeToken, seconds)
@@ -960,6 +1034,15 @@ local function handleSync(payload)
 		if typeof(payload.currentPlotCenter) == "Vector3" then
 			moveUfoTo(activeToken, payload.currentPlotCenter, 0, false, false)
 		end
+	elseif payload.phase == "roam" then
+		ensureAlien(payload)
+		revealAmbient(activeToken, 0)
+		handleRoam({
+			instanceId = payload.instanceId,
+			endsAt = payload.currentRoamEndsAt,
+			mapCenter = payload.mapCenter,
+			settings = payload.settings,
+		})
 	else
 		ensureAlien(payload)
 	end
@@ -983,12 +1066,18 @@ local function onEffect(command, payload)
 		beginAlien(payload or {})
 	elseif command == "plotVisit" then
 		handlePlotVisit(payload or {})
+	elseif command == "roam" then
+		handleRoam(payload or {})
 	elseif command == "zap" then
 		handleZap(payload or {})
 	elseif command == "windDown" then
 		handleWindDown(payload or {})
 	elseif command == "end" then
-		if activeToken then
+		-- Operator stops deliver "end" on a delay (after the wind-down fade),
+		-- so only honour it for the instance it belongs to -- a new alien may
+		-- have started inside that window.
+		local endInstanceId = type(payload) == "table" and payload.instanceId or nil
+		if activeToken and (endInstanceId == nil or activeToken.instanceId == endInstanceId) then
 			cleanupToken(activeToken)
 		end
 	elseif command == "sync" then

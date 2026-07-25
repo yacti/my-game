@@ -216,11 +216,17 @@ GameEvents.EventConfigs = {
 			failsafeDurationSeconds = 30 * 60,
 			windUpSeconds = 10,
 			plotVisitSeconds = 20,
+			-- After each consumed turn the UFO breaks off and laps the map
+			-- before the next visit. Throttles the overall mutation rate
+			-- without shortening the hover; 0 disables the break.
+			interVisitRoamSeconds = 30,
 			-- Keep at most one pending turn per player and refresh this rolling
 			-- queue after every visit. Eight matches the live server size while
 			-- still allowing fair rotation if that size changes.
 			maxQueuedTurns = 8,
-			windDownSeconds = 6,
+			-- Both the failsafe expiry and an operator stop fade the sky,
+			-- lighting and UFO out over this window.
+			windDownSeconds = 20,
 			minZapsPerVisit = 1,
 			maxZapsPerVisit = 3,
 			zapAppearSeconds = 0.25,
