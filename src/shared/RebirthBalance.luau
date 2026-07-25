@@ -56,19 +56,25 @@ RebirthBalance.Tiers = {
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
-		SkipProductId = 0,
+		SkipProductId = 3611611378,
 	},
 	[7] = {
 		Price = 1000000000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
 		},
-		SkipProductId = 0,
+		Rewards = {
+			{ kind = "Seed", seedId = "GlowshroomSeed", amount = 1 },
+		},
+		SkipProductId = 3611611441,
 	},
 	[8] = {
-		Price = 4500000000,
+		Price = 5000000000,
 		PetRewards = {
 			{ petId = "Pet1", amount = 1 },
+		},
+		Rewards = {
+			{ kind = "Seed", seedId = "GoldenmelonSeed", amount = 1 },
 		},
 		SkipProductId = 0,
 	},

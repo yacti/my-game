@@ -43,7 +43,7 @@ local MAX_TYPE_SECONDS = 3
 local RESULT_TIMEOUT_SECONDS = 5
 local DIALOGUE_TIMEOUT_SECONDS = 10
 local DIALOGUE_LINE_COUNT = 3
-local SEED_PREVIEW_DISTANCE_STUDS = 4
+local SEED_PREVIEW_RIGHT_STUDS = 3
 local SEED_PREVIEW_HEIGHT_STUDS = -1.5
 local SEED_PREVIEW_REVOLUTION_SECONDS = 3
 local SEED_PREVIEW_UI_SCALE = 0.5
@@ -535,7 +535,7 @@ local function setupBeekeeper(activeFolder)
 			clone.CanTouch = false
 			clone.CanQuery = false
 		end
-		local base = torso.CFrame * CFrame.new(0, SEED_PREVIEW_HEIGHT_STUDS, -SEED_PREVIEW_DISTANCE_STUDS)
+		local base = torso.CFrame * CFrame.new(SEED_PREVIEW_RIGHT_STUDS, SEED_PREVIEW_HEIGHT_STUDS, 0)
 		clone:PivotTo(base)
 		clone.Parent = Workspace
 
@@ -636,7 +636,7 @@ local function setupBeekeeper(activeFolder)
 			text = string.format("Fill the jar with Pollinated food and receive %s %s!", article, rewardName)
 			showSeedPreview(rewardSeedId)
 		elseif lineIndex == 2 then
-			text = "My bees visit every hour — let them pollinate your crops!"
+			text = "My bees visit every hour, let them pollinate your crops!"
 		else
 			-- Tease the tier after the current one; NextTier loops the last
 			-- tier back to 1, so the preview always has a reward to show.

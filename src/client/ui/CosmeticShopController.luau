@@ -12,6 +12,14 @@ local COSMETIC_PREVIEW_OPTIONS = {
 	targetMaxDimension = 5,
 	zoom = 1.755,
 }
+-- Per-item camera overrides. Preview size on screen scales with zoom (the
+-- camera pulls in by 1/zoom), so doubling it doubles the rendered item.
+local COSMETIC_PREVIEW_OVERRIDES = {
+	Pond = {
+		targetMaxDimension = COSMETIC_PREVIEW_OPTIONS.targetMaxDimension,
+		zoom = COSMETIC_PREVIEW_OPTIONS.zoom * 2,
+	},
+}
 
 local function templateFor(item)
 	return Cosmetics.GetTemplate(item and item.ItemID)
@@ -48,8 +56,8 @@ function CosmeticShopController.start()
 			return item.DevProductId
 		end,
 		getPreviewTemplate = templateFor,
-		getPreviewOptions = function()
-			return COSMETIC_PREVIEW_OPTIONS
+		getPreviewOptions = function(item)
+			return COSMETIC_PREVIEW_OVERRIDES[item and item.ItemID] or COSMETIC_PREVIEW_OPTIONS
 		end,
 	})
 end
