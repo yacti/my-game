@@ -961,6 +961,22 @@ function TreeClicker.TriggerDrop(machine, player, effectOptions)
 	return onTreeClicked(machine, s, player, effectOptions)
 end
 
+-- Cheap "would a wave find anything?" probe. Wave drivers use it to skip trees
+-- mid-respawn without spending their per-frame drop budget on a call that can
+-- only come back "no-ready-slots".
+function TreeClicker.HasReadyFruit(machine)
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then
+		return false
+	end
+	for _, slot in ipairs(s.slots) do
+		if slot.foodPart and not slot.respawnAt then
+			return true
+		end
+	end
+	return false
+end
+
 function TreeClicker.TriggerWindWave(machine, player, amount, effectOptions)
 	local s = machine and state[machine]
 	if not (s and machine.Parent) then

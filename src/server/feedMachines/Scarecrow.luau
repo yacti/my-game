@@ -18,6 +18,12 @@
 -- then, so overlapping radii extend coverage but never multiply income.
 -- Only successful shakes mark the tree — a fruitless tree stays eligible.
 --
+-- Every tree in range is visited once per wave, and a wave that runs out of
+-- per-frame budget resumes from its cursor on the next heartbeat — keeping
+-- that cursor across boundaries too. The tree list is a stable FeedIndex-
+-- ordered cache, so restarting it at the front each boundary would shake the
+-- same prefix forever and permanently starve everything past the budget.
+--
 -- No offline progress by design: fruit ready-state is capped by tree slots,
 -- so an offline scarecrow would only move fruit into unclaimed ground piles.
 --
@@ -43,16 +49,24 @@ local DEFAULT_JUMP_RADIUS  = 35
 local MIN_JUMP_SECONDS     = 1
 
 -- Sync makes every scarecrow come due on the same frame; budgets spread the
--- burst over following heartbeats (past-due jumps carry over) so one boundary
--- never spikes a frame. A couple frames of delay is invisible.
+-- burst over following heartbeats (past-due jumps and unfinished shake waves
+-- both carry over) so one boundary never spikes a frame. A couple frames of
+-- delay is invisible.
 local MAX_JUMPS_PER_HEARTBEAT       = 4
 local MAX_TREE_SHAKES_PER_HEARTBEAT = 25
+-- Visiting a tree with nothing ready costs a handful of table reads, nowhere
+-- near a real drop, so the scan gets its own far looser cap; uncapped, a plot
+-- of fruitless trees would still be rescanned in full every frame.
+local MAX_TREE_VISITS_PER_HEARTBEAT = 250
 -- Tolerates the small processing drift budgets introduce so the no-stack gate
 -- doesn't skip a tree that is due "in spirit".
 local GATE_EPSILON = 0.5
--- Player-to-tree distance for the nearby-only TreeClickerEffect fan-out,
--- matching player clicks and PlotWindService waves.
-local EFFECT_RADIUS = 35
+-- Floor for the player-to-tree distance of the nearby-only TreeClickerEffect
+-- fan-out (matching player clicks and PlotWindService waves). The effective
+-- radius is the scarecrow's own JumpRadius: a player standing at the machine
+-- has to see fruit drop at the far edge of the advertised range, or a wide
+-- scarecrow reads as much shorter-ranged than it is.
+local MIN_EFFECT_RADIUS = 35
 -- TriggerWindWave clamps the requested amount to the tree's ready slots.
 local ALL_READY_FRUIT = 1e9
 -- Shake when the client-rendered hop lands, not at takeoff: tick boundaries
@@ -103,47 +117,86 @@ local function treesInRadius(record)
 	return trees
 end
 
-local function processJump(record, now, shakeBudget)
-	local shakes = 0
-	for _, tree in ipairs(treesInRadius(record)) do
-		if shakes >= shakeBudget then
-			break
-		end
+-- Drains as much of the current wave as the budgets allow, from wherever the
+-- last heartbeat stopped. Returns what it spent so the caller can keep the
+-- per-frame totals across every scarecrow.
+local function processJump(record, now, newWave, shakeBudget, visitBudget)
+	local trees = treesInRadius(record)
+	local count = #trees
+	if count == 0 then
+		record.pending = 0
+		return 0, 0
+	end
+	if newWave then
+		-- Leftovers from an unfinished wave are simply the first trees this
+		-- one visits: the cursor is deliberately not reset.
+		record.pending = count
+	elseif record.pending > count then
+		record.pending = count
+	end
+	if record.cursor > count then
+		record.cursor = 1
+	end
+
+	local shakes, visits = 0, 0
+	while record.pending > 0 and shakes < shakeBudget and visits < visitBudget do
+		local tree = trees[record.cursor]
+		record.cursor = (record.cursor % count) + 1
+		record.pending -= 1
+		visits += 1
 		if tree.Parent then
 			local last = lastTreeShakeAt[tree]
-			if not last or (now - last) >= (record.jumpSeconds - GATE_EPSILON) then
+			local due = not last or (now - last) >= (record.jumpSeconds - GATE_EPSILON)
+			-- Probing first keeps trees mid-respawn (and saplings still
+			-- growing, which carry FeedClass=Tree but have no slots yet) from
+			-- burning drop budget on a wave that would find nothing.
+			if due and TreeClicker.HasReadyFruit(tree) then
 				shakes += 1
 				local ok, dropped = RuntimeGuard.Run("Scarecrow.Shake",
-					TreeClicker.TriggerWindWave, tree, record.owner, ALL_READY_FRUIT, {
-						effectRadius = EFFECT_RADIUS,
-						includeTriggeringPlayer = false,
-					})
+					TreeClicker.TriggerWindWave, tree, record.owner, ALL_READY_FRUIT, record.effectOptions)
 				if ok and dropped then
 					lastTreeShakeAt[tree] = now
 				end
 			end
 		end
 	end
-	return shakes
+	return shakes, visits
 end
 
 local function onHeartbeat()
 	local now = serverNow()
-	local jumps, shakes = 0, 0
+	local jumps, shakes, visits = 0, 0, 0
 	for machine, record in pairs(actives) do
-		if jumps >= MAX_JUMPS_PER_HEARTBEAT or shakes >= MAX_TREE_SHAKES_PER_HEARTBEAT then
+		if jumps >= MAX_JUMPS_PER_HEARTBEAT
+			or shakes >= MAX_TREE_SHAKES_PER_HEARTBEAT
+			or visits >= MAX_TREE_VISITS_PER_HEARTBEAT then
 			break
 		end
 		if not machine.Parent or not record.primary.Parent then
 			continue -- Destroying teardown is imminent
 		end
 		local boundary = math.floor((now - LANDING_DELAY) / record.jumpSeconds)
-		if boundary > record.lastTick then
+		local newWave = boundary > record.lastTick
+		if newWave then
 			jumps += 1
 			record.lastTick = boundary
+		end
+		if newWave or record.pending > 0 then
 			local owner = record.owner
 			if owner.Parent == Players and owner:GetAttribute("EditMode") ~= true then
-				shakes += processJump(record, now, MAX_TREE_SHAKES_PER_HEARTBEAT - shakes)
+				local waveShakes, waveVisits = processJump(
+					record,
+					now,
+					newWave,
+					MAX_TREE_SHAKES_PER_HEARTBEAT - shakes,
+					MAX_TREE_VISITS_PER_HEARTBEAT - visits
+				)
+				shakes += waveShakes
+				visits += waveVisits
+			else
+				-- Owner away or editing: abandon the wave rather than banking
+				-- it, so nothing fires late once they come back.
+				record.pending = 0
 			end
 		end
 	end
@@ -178,14 +231,23 @@ function Scarecrow.Setup(machine, plot, owner)
 		numberAttribute(machine, State.Feed.JumpSeconds, DEFAULT_JUMP_SECONDS),
 		MIN_JUMP_SECONDS
 	)
+	local jumpRadius = math.max(numberAttribute(machine, State.Feed.JumpRadius, DEFAULT_JUMP_RADIUS), 0)
 	actives[machine] = {
 		plot = plot,
 		owner = owner,
 		primary = machine.PrimaryPart,
 		jumpSeconds = jumpSeconds,
-		jumpRadius = math.max(numberAttribute(machine, State.Feed.JumpRadius, DEFAULT_JUMP_RADIUS), 0),
+		jumpRadius = jumpRadius,
+		-- Shared across every shake; TriggerWindWave only ever reads it.
+		effectOptions = {
+			effectRadius = math.max(jumpRadius, MIN_EFFECT_RADIUS),
+			includeTriggeringPlayer = false,
+		},
 		-- Wait for the next global boundary rather than jumping on placement.
 		lastTick = math.floor((serverNow() - LANDING_DELAY) / jumpSeconds),
+		-- Trees left to visit in the current wave, and where to resume.
+		pending = 0,
+		cursor = 1,
 		trees = nil,
 		treeCacheVersion = nil,
 	}
