@@ -11,7 +11,7 @@ PatchScale.MAX_BASE_XP_MULTIPLIER = 2500
 -- range, so overridden foods grow at the same scale-per-XP rate as everything
 -- else and simply keep growing longer before capping.
 PatchScale.FoodMaxOverrides = {
-	Sunflower = 8,
+	Sunflower = 6,
 }
 
 local function boundsFor(foodId)
