@@ -12,6 +12,7 @@ local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard
 local ShopBalance = require(ReplicatedStorage.Shared:WaitForChild("ShopBalance"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
+local Food = require(ReplicatedStorage.Shared:WaitForChild("Food"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 local PlayerSettings = require(ReplicatedStorage.Shared:WaitForChild("PlayerSettings"))
@@ -699,6 +700,53 @@ local function sanitizeDiscovered(value)
 	}
 end
 
+-- TEST FIXTURE -- remove before publishing.
+-- Stocks fresh Studio profiles with Pollinated Durians so the Bee jar tier-1
+-- reward (BeeEvent.Tiers[1].required = 10 deposits) can be exercised in a
+-- single Play Solo. Studio-gated, and only on a profile that has never been
+-- snapshotted, so it can never reach a live save.
+local STARTER_POLLINATED_DURIAN_COUNT = 10
+-- FoodId is a Studio-owned string and this game uses both plain ("Sunflower")
+-- and suffixed ("Pumpkin1") conventions, so resolve against the real templates
+-- instead of hardcoding one -- a wrong id would be silently dropped by
+-- SanitizeRecord and stock nothing.
+local STARTER_DURIAN_FOOD_ID_CANDIDATES = { "Durian", "Durian1" }
+
+local function studioStarterFoodRecords()
+	local foodId = nil
+	for _, candidate in ipairs(STARTER_DURIAN_FOOD_ID_CANDIDATES) do
+		if Food.GetTemplate(candidate) then
+			foodId = candidate
+			break
+		end
+	end
+	if not foodId then
+		warn(string.format(
+			"[PlayerDataService] Studio starter stock: no Durian food template matched %s; stocking nothing",
+			table.concat(STARTER_DURIAN_FOOD_ID_CANDIDATES, "/")
+		))
+		return nil
+	end
+
+	-- Resolved once: BaseXP re-runs the template lookup on every call.
+	local baseXP = Food.BaseXP(foodId)
+	local records = {}
+	for _ = 1, STARTER_POLLINATED_DURIAN_COUNT do
+		records[#records + 1] = {
+			foodId = foodId,
+			xp = baseXP,
+			mutationIds = { Mutations.Ids.Pollinated },
+			primaryMutationId = Mutations.Ids.Pollinated,
+		}
+	end
+	print(string.format(
+		"[PlayerDataService] Studio starter stock: %d Pollinated %s",
+		#records,
+		foodId
+	))
+	return records
+end
+
 local function ensureValidData(profile)
 	migrateData(profile.Data)
 	profile:Reconcile()
@@ -865,6 +913,15 @@ local function ensureValidData(profile)
 	if #foodInventoryItems == 0 and type(profile.Data.FoodInventory) == "table" then
 		foodInventoryItems = FoodInventoryService.RecordsFromCountMap(profile.Data.FoodInventory)
 	end
+	-- TEST FIXTURE -- remove before publishing. LastSeen is still 0 until the
+	-- first snapshot, so this only ever hits a brand-new profile.
+	if IS_STUDIO and (tonumber(profile.Data.LastSeen) or 0) == 0 then
+		for _, record in ipairs(studioStarterFoodRecords() or {}) do
+			foodInventoryItems[#foodInventoryItems + 1] = record
+		end
+		foodInventoryItems = FoodInventoryService.SanitizeRecords(foodInventoryItems)
+	end
+
 	profile.Data.FoodInventoryItems = foodInventoryItems
 	profile.Data.FoodInventory = FoodInventoryService.CountRecords(foodInventoryItems)
 
