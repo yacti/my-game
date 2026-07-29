@@ -14,6 +14,7 @@ local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local ReceiptService = require(Server:WaitForChild("ReceiptService"))
+local StealSettingService = require(Server:WaitForChild("StealSettingService"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -55,9 +56,24 @@ local function int(value, minimum)
 	return math.max(math.floor(value), minimum or 0)
 end
 
-local function productId()
+local function controlProductId()
 	local config = ShopBalance.GetFoodSteal()
 	return int(config and config.DevProductId, 0)
+end
+
+-- StealSetting A/B test: the "normal" control charges one product for every
+-- food, the "tiered" treatment charges by the stolen food's rarity. The
+-- resolved id is stored on the reservation, so a variant change mid-session
+-- never invalidates a steal the player already started.
+local function resolveProductId(player, foodId)
+	if not StealSettingService.IsTiered(player) then
+		return controlProductId()
+	end
+	local tierProductId = int(ShopBalance.FoodStealProductIdForRarity(Food.RarityFor(foodId)), 0)
+	if tierProductId > 0 then
+		return tierProductId
+	end
+	return controlProductId()
 end
 
 local function now()
@@ -161,7 +177,9 @@ local function pendingReservation(profile)
 	if type(reservation) ~= "table" then
 		return nil
 	end
-	if int(reservation.productId, 0) ~= productId() then
+	-- Any configured steal product (control or tier) keeps the reservation
+	-- valid; one written against a since-removed product id does not.
+	if ShopBalance.FoodStealForProductId(reservation.productId) == nil then
 		return nil
 	end
 	return reservation
@@ -180,12 +198,11 @@ local function clearExpiredReservation(player, profile)
 	return saveProfile(profile)
 end
 
-local function normalizeReservation(snapshot, reservationId)
+local function normalizeReservation(snapshot, reservationId, reservedProductId)
 	local createdAt = now()
-	local configProductId = productId()
 	return {
 		reservationId = reservationId,
-		productId = configProductId,
+		productId = int(reservedProductId, 0),
 		foodId = snapshot.foodId,
 		xp = math.max(tonumber(snapshot.xp) or 0, 0),
 			scale = tonumber(snapshot.scale),
@@ -313,8 +330,7 @@ local function onStealRequest(player, requestId, target)
 		sendResult(player, requestId, false, "invalid-target")
 		return
 	end
-	local configProductId = productId()
-	if configProductId <= 0 then
+	if ShopBalance.GetFoodSteal() == nil then
 		sendResult(player, requestId, false, "invalid-product")
 		return
 	end
@@ -369,9 +385,14 @@ local function onStealRequest(player, requestId, target)
 			resultCode = snapshotOrCode or "invalid-target"
 			return
 		end
-		reservation = normalizeReservation(snapshotOrCode, reservationId)
+		reservation = normalizeReservation(snapshotOrCode, reservationId, resolveProductId(player, snapshotOrCode.foodId))
 		reservation.expiresAt = expiresAt
 		machine = reservedMachine
+		if reservation.productId <= 0 then
+			resultCode = "invalid-product"
+			FeedMachines.ReleaseSteal(machine, reservation, reservationId)
+			return
+		end
 		local sourcePlayer = Players:GetPlayerByUserId(reservation.sourceOwnerUserId)
 		if sourcePlayer and OfflineProgressService.IsPending(sourcePlayer) then
 			resultCode = "source-busy"
@@ -406,7 +427,7 @@ local function onStealRequest(player, requestId, target)
 	end
 
 	sendResult(player, requestId, true, "ok", {
-		productId = configProductId,
+		productId = reservation.productId,
 		reservationId = reservation.reservationId,
 		expiresAt = reservation.expiresAt,
 	})
@@ -524,6 +545,15 @@ function FoodStealService.ProcessReceipt(receiptInfo)
 	local ok, err = pcall(function()
 		if not reservation then
 			resultCode = "missing-reservation"
+			return
+		end
+
+		-- Clients can prompt any product directly, so a cheaper tier's receipt
+		-- must never redeem a reservation priced at a higher tier. Left
+		-- unprocessed like a stray no-reservation receipt; the reservation
+		-- stays live so the correct product still completes the steal.
+		if int(reservation.productId, 0) ~= int(receiptInfo.ProductId, 0) then
+			resultCode = "product-mismatch"
 			return
 		end
 
@@ -668,10 +698,16 @@ function FoodStealService.Start(config)
 		end
 	end)
 	RuntimeGuard.Connect(MarketplaceService.PromptProductPurchaseFinished, "FoodStealService.PromptFinished", function(playerOrUserId, finishedProductId, wasPurchased)
+		if wasPurchased == true then
+			return
+		end
 		local userId = typeof(playerOrUserId) == "Instance" and playerOrUserId.UserId or playerOrUserId
 		local player = Players:GetPlayerByUserId(userId)
-		if player and int(finishedProductId, 0) == productId() and wasPurchased ~= true then
-			cancelReservation(player)
+		local reservation = pendingReservation(player and PlayerDataService.GetProfile(player))
+		-- Only the reservation's own product declining releases it; a stray
+		-- prompt for a different steal tier must not free reserved food.
+		if reservation and int(reservation.productId, 0) == int(finishedProductId, 0) then
+			cancelReservation(player, reservation.reservationId)
 		end
 	end)
 end

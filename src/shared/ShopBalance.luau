@@ -300,8 +300,21 @@ ShopBalance.StarterPacks = {
 }
 ShopBalance.StarterPack = ShopBalance.StarterPacks[1]
 
+-- StealSetting A/B test. The "normal" control charges DevProductId for every
+-- steal; the "tiered" treatment charges the product matching the stolen food's
+-- rarity. Foods whose rarity cannot be resolved fall back to FallbackTierRarity.
 ShopBalance.FoodSteal = {
 	DevProductId = 3604630642,
+	TierDevProductIds = {
+		[Rarities.Common] = 3612202316,
+		[Rarities.Rare] = 3612202346,
+		[Rarities.Epic] = 3612202363,
+		[Rarities.Legendary] = 3612202372,
+		[Rarities.Mythical] = 3612202401,
+		[Rarities.Secret] = 3612202439,
+		[Rarities.Exclusive] = 3612203098,
+	},
+	FallbackTierRarity = Rarities.Common,
 }
 
 ShopBalance.GrowSkip = {
@@ -558,8 +571,14 @@ local function copyFoodSteal(config)
 	if type(config) ~= "table" then
 		return nil
 	end
+	local tiers = {}
+	for rarity, tierProductId in pairs(config.TierDevProductIds or {}) do
+		tiers[rarity] = int(tierProductId, 0)
+	end
 	return {
 		DevProductId = int(config.DevProductId, 0),
+		TierDevProductIds = tiers,
+		FallbackTierRarity = config.FallbackTierRarity,
 	}
 end
 
@@ -989,6 +1008,22 @@ function ShopBalance.GetFoodSteal()
 	return copyFoodSteal(ShopBalance.FoodSteal)
 end
 
+-- Tiered-variant steal product for a food rarity. Unknown or unconfigured
+-- rarities fall back to the configured fallback tier; returns 0 when neither
+-- resolves so callers can drop back to the single control product.
+function ShopBalance.FoodStealProductIdForRarity(rarity)
+	local config = ShopBalance.FoodSteal
+	local tiers = type(config) == "table" and config.TierDevProductIds or nil
+	if type(tiers) ~= "table" then
+		return 0
+	end
+	local tierProductId = int(tiers[rarity], 0)
+	if tierProductId > 0 then
+		return tierProductId
+	end
+	return int(tiers[config.FallbackTierRarity], 0)
+end
+
 function ShopBalance.GetGrowSkip()
 	return copyGrowSkip(ShopBalance.GrowSkip)
 end
@@ -1130,10 +1165,18 @@ end
 function ShopBalance.FoodStealForProductId(productIdValue)
 	local target = productId(productIdValue)
 	local config = ShopBalance.FoodSteal
-	if target <= 0 or type(config) ~= "table" or productId(config.DevProductId) ~= target then
+	if target <= 0 or type(config) ~= "table" then
 		return nil
 	end
-	return copyFoodSteal(config)
+	if productId(config.DevProductId) == target then
+		return copyFoodSteal(config)
+	end
+	for _, tierProductId in pairs(config.TierDevProductIds or {}) do
+		if productId(tierProductId) == target then
+			return copyFoodSteal(config)
+		end
+	end
+	return nil
 end
 
 function ShopBalance.CollectAllForProductId(productIdValue)
@@ -1742,6 +1785,28 @@ function ShopBalance.Validate(errors)
 		add("ShopBalance.FoodSteal must be a table")
 	else
 		validateProduct(foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId")
+		local tiers = foodSteal.TierDevProductIds
+		if type(tiers) ~= "table" then
+			add("ShopBalance.FoodSteal.TierDevProductIds must be a table")
+		else
+			for rarity in pairs(tiers) do
+				if not Rarities.IsValid(rarity) then
+					add("ShopBalance.FoodSteal.TierDevProductIds has invalid rarity " .. tostring(rarity))
+				end
+			end
+			-- Every rarity needs its own tier product; a missing one would
+			-- silently charge stolen food at the fallback tier's price.
+			for _, rarity in ipairs(Rarities.Order) do
+				if tiers[rarity] == nil then
+					add("ShopBalance.FoodSteal.TierDevProductIds is missing " .. rarity)
+				else
+					validateProduct(tiers[rarity], "ShopBalance.FoodSteal.TierDevProductIds." .. rarity)
+				end
+			end
+		end
+		if not Rarities.IsValid(foodSteal.FallbackTierRarity) then
+			add("ShopBalance.FoodSteal has invalid FallbackTierRarity")
+		end
 	end
 
 	local collectAll = ShopBalance.CollectAll

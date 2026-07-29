@@ -2563,6 +2563,17 @@ local function validateShopProductIds(errors)
 	local foodSteal = ShopBalance.GetFoodSteal()
 	if foodSteal then
 		addProductIdSource(seenProducts, foodSteal.DevProductId, "ShopBalance.FoodSteal.DevProductId", errors)
+		for _, rarity in ipairs(Rarities.Order) do
+			local tierProductId = foodSteal.TierDevProductIds and foodSteal.TierDevProductIds[rarity]
+			if tierProductId then
+				addProductIdSource(
+					seenProducts,
+					tierProductId,
+					"ShopBalance.FoodSteal.TierDevProductIds." .. rarity,
+					errors
+				)
+			end
+		end
 	end
 	local collectAll = ShopBalance.GetCollectAll()
 	if collectAll then

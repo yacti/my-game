@@ -54,6 +54,10 @@ State.Player = {
 	-- "sign"), resolved per player by SkipTimeStationService from the
 	-- SkipTimeStation config key. nil / unset means the "mailbox" control.
 	SkipTimeStation = "SkipTimeStation",
+	-- Experiment variant for food-steal pricing ("normal" or "tiered"),
+	-- resolved per player by StealSettingService from the StealSetting config
+	-- key. nil / unset means the "normal" control.
+	StealSetting = "StealSetting",
 }
 
 State.ServerLuck = {
