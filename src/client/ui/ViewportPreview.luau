@@ -126,6 +126,14 @@ local function pivotPreview(instance, cframe)
 	end
 end
 
+local function translatePreview(instance, offset)
+	if instance:IsA("Model") then
+		instance:PivotTo(instance:GetPivot() + offset)
+	elseif instance:IsA("BasePart") then
+		instance.CFrame += offset
+	end
+end
+
 local function centerAtOrigin(instance)
 	if instance:IsA("Model") then
 		local boundsCF, boundsSize = instance:GetBoundingBox()
@@ -199,6 +207,13 @@ function ViewportPreview.Render(viewport, template, options)
 	scalePreview(clone, options.targetMaxDimension)
 	clone.Parent = world
 	local size = centerAtOrigin(clone)
+	-- verticalOffset: studs to lift the model above the camera's aim point,
+	-- which raises the preview in the frame (negative drops it). Applied after
+	-- centering so the turntable still spins around the model's own axis.
+	local verticalOffset = tonumber(options.verticalOffset) or 0
+	if verticalOffset ~= 0 then
+		translatePreview(clone, Vector3.new(0, verticalOffset, 0))
+	end
 	local rig = makeRotationRig(world, clone)
 
 	local camera = Instance.new("Camera")

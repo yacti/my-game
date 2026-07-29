@@ -32,6 +32,11 @@ local HUD_REBIRTH_ALERT_NAME = "Alert"
 local MENU_REBIRTH_FRAME_NAME = "Rebirth"
 local REBIRTH_AFFORDABLE_NOTIFICATION = "You can now afford to rebirth!"
 local SEED_REWARD_VIEWPORT_ZOOM = 3
+-- Per-seed camera overrides. Preview size on screen scales with zoom (the
+-- camera pulls in by 1/zoom), so lowering it shrinks the rendered item.
+local SEED_REWARD_VIEWPORT_ZOOM_OVERRIDES = {
+	GoldenmelonSeed = 2,
+}
 local STATE_RETRY_SECONDS = 2
 local productPriceById = {}
 
@@ -407,7 +412,8 @@ function RebirthController.start()
 			UiEffects.SetTextStack(row, rewardText(reward))
 			local template, viewportOptions
 			if type(reward) == "table" and reward.kind == "Seed" then
-				template, viewportOptions = FeedDisplayModel.SeedPreview(reward.seedId, { zoom = SEED_REWARD_VIEWPORT_ZOOM })
+				local zoom = SEED_REWARD_VIEWPORT_ZOOM_OVERRIDES[reward.seedId] or SEED_REWARD_VIEWPORT_ZOOM
+				template, viewportOptions = FeedDisplayModel.SeedPreview(reward.seedId, { zoom = zoom })
 			else
 				template = rewardTemplateFor(reward)
 				viewportOptions = rewardViewportOptions(reward)

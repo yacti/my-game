@@ -18,6 +18,8 @@ local COSMETIC_PREVIEW_OVERRIDES = {
 	Pond = {
 		targetMaxDimension = COSMETIC_PREVIEW_OPTIONS.targetMaxDimension,
 		zoom = COSMETIC_PREVIEW_OPTIONS.zoom * 2,
+		-- The pond is flat and wide, so it frames low; lift it in the viewport.
+		verticalOffset = 0.6,
 	},
 }
 
