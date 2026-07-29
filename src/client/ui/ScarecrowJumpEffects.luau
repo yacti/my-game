@@ -11,6 +11,12 @@
 -- Presentation is plot-scoped via PlotScope and distance-gated per model;
 -- one shared RenderStepped connection exists only while any scarecrow is
 -- tracked (idle self-disconnect).
+--
+-- The head is moved separately from the body, and PumpkinHead is a Model with
+-- no PrimaryPart, so its Model.WorldPivot is not derived from its parts — it is
+-- only ever what someone last assigned. Both its rest offset and its per-frame
+-- move are therefore taken from an anchor BasePart inside it, never from that
+-- pivot; see resolveHead.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -47,12 +53,49 @@ local DEFAULT_JUMP_SECONDS = 10
 
 local ScarecrowJumpEffects = {}
 
--- [model] = { jumpSeconds, head, active = { basePivot, headBaseOffset } | nil }
+-- [model] = { jumpSeconds, headSettle, head, headAnchor,
+--             active = { basePivot, headBaseOffset } | nil }
 local tracked = {}
 local renderConnection = nil
 
 local function serverNow()
 	return Workspace:GetServerTimeNow()
+end
+
+-- The scarecrow Model has a PrimaryPart, so its pivot is always re-derived from
+-- replicated part data. PumpkinHead does not, so its Model.WorldPivot is only
+-- whatever we last wrote — and every reposition of the parent (an edit-mode
+-- drag, the server's commit PivotTo) moves the head's parts while leaving that
+-- write behind. Reading it afterwards yields an offset stale by exactly the
+-- move distance, which then gets baked in on the next hop and leaves the head
+-- floating off the body. Everything here anchors to a real part instead.
+local function resolveHead(model, record)
+	local head = record.head
+	if not (head and head.Parent) then
+		-- Resolved lazily, never cached as "missing": ChildAdded can fire
+		-- before the model's own descendants have finished replicating.
+		head = model:FindFirstChild("PumpkinHead") or model:FindFirstChild("PumpkinHead", true)
+		record.head = head
+		record.headAnchor = nil
+	end
+	if not head then return nil, nil end
+
+	local anchor = record.headAnchor
+	if not (anchor and anchor.Parent) then
+		anchor = head:FindFirstChild("Body")
+		if not (anchor and anchor:IsA("BasePart")) then
+			anchor = head:FindFirstChildWhichIsA("BasePart", true)
+		end
+		record.headAnchor = anchor
+	end
+	return head, anchor
+end
+
+-- Restates the pivot from the anchor part before every move, so the head shifts
+-- by exactly (target - anchor) no matter what the stored WorldPivot says.
+local function pivotHead(head, anchor, target)
+	head.WorldPivot = anchor.CFrame
+	head:PivotTo(target)
 end
 
 local function restore(model, record)
@@ -61,8 +104,10 @@ local function restore(model, record)
 	record.active = nil
 	if not model.Parent then return end
 	model:PivotTo(active.basePivot)
-	if record.head and record.head.Parent then
-		record.head:PivotTo(active.basePivot * active.headBaseOffset)
+	if not active.headBaseOffset then return end
+	local head, anchor = resolveHead(model, record)
+	if head and anchor then
+		pivotHead(head, anchor, active.basePivot * active.headBaseOffset)
 	end
 end
 
@@ -103,9 +148,10 @@ local function updateModel(model, record, now, cameraPosition)
 			return
 		end
 		local basePivot = model:GetPivot()
+		local _, anchor = resolveHead(model, record)
 		record.active = {
 			basePivot = basePivot,
-			headBaseOffset = record.head and basePivot:ToObjectSpace(record.head:GetPivot()) or nil,
+			headBaseOffset = anchor and basePivot:ToObjectSpace(anchor.CFrame) or nil,
 		}
 	end
 
@@ -124,16 +170,18 @@ local function updateModel(model, record, now, cameraPosition)
 		swing = LANDING_SWING * math.cos(BOUNCE_FREQUENCY * settleTime) * math.exp(-BOUNCE_DAMPING * settleTime)
 	end
 	model:PivotTo(pivot)
-	if record.head and record.head.Parent and active.headBaseOffset then
-		-- The PumpkinHead Model has no PrimaryPart, so its pivot orientation is
-		-- the rotated Body union's — offsets must NOT be applied in head-local
+	if not active.headBaseOffset then return end
+	local head, anchor = resolveHead(model, record)
+	if head and anchor then
+		-- The offset is the anchor part's rest frame, whose orientation is the
+		-- rotated Body union's — offsets must NOT be applied in head-local
 		-- space. Lift is world-up; the nod pitches around the scarecrow's arm
 		-- axis (model-local Z; the face looks along model-local X).
 		local headCF = pivot * active.headBaseOffset
 		local nodded = CFrame.fromAxisAngle(pivot.ZVector, HEAD_NOD_RADIANS * swing) * headCF.Rotation
 			+ headCF.Position
 			+ Vector3.new(0, HEAD_AMPLITUDE * swing, 0)
-		record.head:PivotTo(nodded)
+		pivotHead(head, anchor, nodded)
 	end
 end
 
@@ -177,7 +225,8 @@ local function track(model)
 		-- Cap the settle so the animation window always closes before the
 		-- next boundary opens.
 		headSettle = math.clamp(jumpSeconds - JUMP_DURATION - 0.05, 0, HEAD_SETTLE_SECONDS),
-		head = model:FindFirstChild("PumpkinHead") or model:FindFirstChild("PumpkinHead", true),
+		head = nil,
+		headAnchor = nil,
 		active = nil,
 	}
 	ensureRenderConnection()
