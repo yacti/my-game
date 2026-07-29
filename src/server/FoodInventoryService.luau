@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
@@ -28,11 +29,6 @@ local function isRestorableFoodId(foodId)
 		return true
 	end
 	return Food.IsJamFoodId(foodId)
-end
-
-local function equippedTool(player)
-	local character = player and player.Character
-	return character and character:FindFirstChildWhichIsA("Tool") or nil
 end
 
 local function toolScale(tool)
@@ -183,20 +179,12 @@ end
 
 function FoodInventoryService.SerializeTools(player)
 	local records = {}
-	local backpack = player and player:FindFirstChildOfClass("Backpack")
-	if backpack then
-		for _, item in ipairs(backpack:GetChildren()) do
-			local record = FoodInventoryService.SerializeTool(item)
-			if record then
-				records[#records + 1] = record
-			end
+	Inventory.ForEachTool(player, function(item)
+		local record = FoodInventoryService.SerializeTool(item)
+		if record then
+			records[#records + 1] = record
 		end
-	end
-	local equipped = equippedTool(player)
-	local record = FoodInventoryService.SerializeTool(equipped)
-	if record then
-		records[#records + 1] = record
-	end
+	end)
 	return FoodInventoryService.SanitizeRecords(records)
 end
 

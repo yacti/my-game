@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local NotificationService = require(script.Parent:WaitForChild("NotificationService"))
+local TelemetryService = require(script.Parent:WaitForChild("TelemetryService"))
 
 local Inventory = require(ReplicatedStorage.Shared:WaitForChild("Inventory"))
 local RuntimeGuard = require(ReplicatedStorage.Shared:WaitForChild("RuntimeGuard"))
@@ -41,6 +42,10 @@ local function autoEquipBurstGap(options)
 	return gap
 end
 
+-- The requested cap, clamped to the physical ceiling. No caller may mint above
+-- Inventory.HARD_MAX_ITEMS: the per-spawn re-materialization in
+-- init.server.luau can only rebuild that many tools, so anything granted above
+-- it is dropped on the next respawn. There is deliberately no bypass option.
 local function maxItems(options)
 	if type(options) ~= "table" then
 		return Inventory.MAX_ITEMS
@@ -49,11 +54,7 @@ local function maxItems(options)
 	if type(cap) ~= "number" or cap ~= cap or math.abs(cap) == math.huge then
 		return Inventory.MAX_ITEMS
 	end
-	return math.max(math.floor(cap), 0)
-end
-
-local function ignoresInventoryCap(options)
-	return type(options) == "table" and options.ignoreInventoryCap == true
+	return math.clamp(math.floor(cap), 0, Inventory.HARD_MAX_ITEMS)
 end
 
 local function userKey(player)
@@ -134,6 +135,12 @@ local function notifyInventoryCapReached(player, cap)
 	end
 	inventoryCapNotifiedAtByUserId[key] = now
 	cap = math.max(math.floor(tonumber(cap) or Inventory.MAX_ITEMS), 0)
+	-- Shares the notification's cooldown so cap-blocked pickup spam does not
+	-- flood telemetry either.
+	TelemetryService.Warn("inventory_grant_blocked", TelemetryService.ForPlayer(player, {
+		cap = cap,
+		liveTools = Inventory.CountTools(player),
+	}))
 	NotificationService.Error(player, string.format("Inventory full (%d max). Delete or use some items first", cap))
 end
 
@@ -156,7 +163,7 @@ function ToolGrantService.GrantTool(player, tool, options)
 		return false, "no-backpack"
 	end
 	local cap = maxItems(options)
-	if not ignoresInventoryCap(options) and Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player, cap) <= 0 then
+	if Inventory.IsCountableTool(tool) and Inventory.RemainingSlots(player, cap) <= 0 then
 		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end
@@ -178,7 +185,7 @@ function ToolGrantService.GrantTools(player, tools, options)
 	end
 	local count = countGrantTools(tools)
 	local cap = maxItems(options)
-	if not ignoresInventoryCap(options) and count > Inventory.RemainingSlots(player, cap) then
+	if count > Inventory.RemainingSlots(player, cap) then
 		notifyInventoryCapReached(player, cap)
 		return false, "inventory-full"
 	end

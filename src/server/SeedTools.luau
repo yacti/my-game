@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Assets = require(ReplicatedStorage.Shared:WaitForChild("Assets"))
+local Inventory = require(ReplicatedStorage.Shared:WaitForChild("Inventory"))
 local Rarities = require(ReplicatedStorage.Shared:WaitForChild("Rarities"))
 local Seeds = require(ReplicatedStorage.Shared:WaitForChild("Seeds"))
 local State = require(ReplicatedStorage.Shared:WaitForChild("State"))
@@ -135,18 +136,12 @@ end
 
 function SeedTools.CountBySeed(player)
 	local counts = {}
-	local function add(item)
+	Inventory.ForEachTool(player, function(item)
 		local seedId = SeedTools.SeedIdOf(item)
 		if seedId then
 			counts[seedId] = (counts[seedId] or 0) + 1
 		end
-	end
-	for _, item in ipairs(player.Backpack:GetChildren()) do
-		add(item)
-	end
-	if player.Character then
-		add(player.Character:FindFirstChildWhichIsA("Tool"))
-	end
+	end)
 	return counts
 end
 

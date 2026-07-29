@@ -124,6 +124,9 @@ local PET_EVOLUTION_IDLE_HOLD_SECONDS = 4
 local OFFLINE_PET_EARN_FRACTION = 0.01
 local FOOD_PICKUP_PROMPT_DISTANCE = 8
 local EDIT_MODE_ATTR = "EditMode"
+-- Watchdog for a re-materialization that never cleared InventoryRestorePending.
+local INVENTORY_RESTORE_RETRIES = 3
+local INVENTORY_RESTORE_RETRY_SECONDS = 10
 local FOOD_COLLECTION_SNAPSHOT = "FoodCollection"
 local PET_FEED_SNAPSHOT = "PetFeed"
 local PET_FEED_SNAPSHOT_DEBOUNCE_SECONDS = 1
@@ -152,6 +155,114 @@ local function setInventoryRestorePending(player, pending)
 	if player and player:IsDescendantOf(Players) then
 		player:SetAttribute(State.Player.InventoryRestorePending, pending == true or nil)
 	end
+end
+
+-- Tools the profile holds that the last re-materialization could not mint,
+-- either because the 1500 ceiling was reached or because a tool template
+-- failed to build. The snapshot rebuilds the inventory maps wholesale from the
+-- live Backpack, so without this the unminted remainder is deleted from the
+-- profile on the next snapshot. Counts are added back at snapshot time rather
+-- than freezing the whole map, so items the player legitimately spends during
+-- the session still decrement (a frozen map would re-mint them on respawn).
+-- Favourite state for an unminted item is not carried: it degrades to
+-- non-favourite rather than being lost outright.
+local unrestoredInventory = {} -- [userId] = { Feed/Seed/Cosmetic = {[id]=n}, Food = {record...} }
+
+local function setUnrestoredInventory(player, record)
+	local key = userKey(player)
+	if key ~= nil then
+		unrestoredInventory[key] = record
+	end
+end
+
+local function unrestoredCounts(player, mapName)
+	local key = userKey(player)
+	local record = key and unrestoredInventory[key]
+	local counts = record and record[mapName]
+	if type(counts) == "table" and next(counts) ~= nil then
+		return counts
+	end
+	return nil
+end
+
+-- Live counts plus anything the restore still owes, so the snapshot narrows a
+-- map only by what the player actually spent.
+local function mergeUnrestoredCounts(player, mapName, liveCounts)
+	local remainder = unrestoredCounts(player, mapName)
+	if not remainder then
+		return liveCounts
+	end
+	local merged = {}
+	for itemId, count in pairs(liveCounts or {}) do
+		merged[itemId] = count
+	end
+	for itemId, count in pairs(remainder) do
+		merged[itemId] = (merged[itemId] or 0) + count
+	end
+	return merged
+end
+
+local function mergeUnrestoredFoodRecords(player, liveRecords)
+	local key = userKey(player)
+	local record = key and unrestoredInventory[key]
+	local pending = record and record.Food
+	if type(pending) ~= "table" or #pending == 0 then
+		return liveRecords
+	end
+	local merged = {}
+	local seenGuids = {}
+	for _, entry in ipairs(liveRecords or {}) do
+		merged[#merged + 1] = entry
+		if entry.guid then
+			seenGuids[entry.guid] = true
+		end
+	end
+	for _, entry in ipairs(pending) do
+		-- A GUID that came back to life since the restore is already counted.
+		if not (entry.guid and seenGuids[entry.guid]) then
+			merged[#merged + 1] = entry
+		end
+	end
+	return merged
+end
+
+-- The live food records plus anything the restore still owes. Every path that
+-- writes FoodInventoryItems must go through this, not SerializeTools directly.
+local function serializeFoodRecords(player)
+	return mergeUnrestoredFoodRecords(player, FoodInventoryService.SerializeTools(player))
+end
+
+-- Detection only, deliberately not a refusal. A stocked count map going empty
+-- is usually legitimate (the player planted or deleted their last one), and
+-- refusing the write there would leave a phantom count in the profile that the
+-- next respawn re-mints -- duplication is worse than the loss this would
+-- catch. The known loss paths are handled deterministically by the unrestored
+-- remainder above; this is here to surface any path that is not.
+local COUNT_COLLAPSE_MIN_ENTRIES = 5
+
+local function totalCount(map)
+	local total = 0
+	if type(map) == "table" then
+		for _, count in pairs(map) do
+			total += math.max(math.floor(tonumber(count) or 0), 0)
+		end
+	end
+	return total
+end
+
+local function warnOnInventoryCollapse(player, field, existing, incoming)
+	local existingTotal = totalCount(existing)
+	if existingTotal < COUNT_COLLAPSE_MIN_ENTRIES then
+		return
+	end
+	if totalCount(incoming) > 0 then
+		return
+	end
+	TelemetryService.Warn("inventory_count_collapse", TelemetryService.ForPlayer(player, {
+		field = field,
+		previousTotal = existingTotal,
+		liveTools = Inventory.CountTools(player),
+	}))
 end
 
 local function isInventoryGameplayBlocked(player)
@@ -337,7 +448,7 @@ end
 
 local function countFavouriteToolsById(player, isMatchingTool, idOf)
 	local counts = {}
-	local function capture(item)
+	Inventory.ForEachTool(player, function(item)
 		if not ToolIdentity.IsFavourite(item) or not isMatchingTool(item) then
 			return
 		end
@@ -345,18 +456,7 @@ local function countFavouriteToolsById(player, isMatchingTool, idOf)
 		if type(itemId) == "string" and itemId ~= "" then
 			counts[itemId] = (counts[itemId] or 0) + 1
 		end
-	end
-
-	local backpack = player and player:FindFirstChildOfClass("Backpack")
-	if backpack then
-		for _, item in ipairs(backpack:GetChildren()) do
-			capture(item)
-		end
-	end
-	local character = player and player.Character
-	if character then
-		capture(character:FindFirstChildWhichIsA("Tool"))
-	end
+	end)
 	return counts
 end
 
@@ -391,15 +491,11 @@ local function collectFeedState(plot, player)
 	end
 
 	local feedInventory = {}
-	local function captureTool(item)
+	Inventory.ForEachTool(player, function(item)
 		if not FeedMachineTools.IsFeedTool(item) then return end
 		local ft = item:GetAttribute(State.Feed.Type)
 		feedInventory[ft] = (feedInventory[ft] or 0) + 1
-	end
-	for _, item in pairs(player.Backpack:GetChildren()) do captureTool(item) end
-	if player.Character then
-		captureTool(player.Character:FindFirstChildWhichIsA("Tool"))
-	end
+	end)
 
 	local foodInventoryItems = FoodInventoryService.SerializeTools(player)
 	return {
@@ -474,6 +570,11 @@ end
 local function snapshotProfileState(player, plot, profile)
 	if not plot or not profile then return false end
 	if isInventoryRestorePending(player) then
+		-- Expected briefly around every spawn. Sustained runs of this mean the
+		-- re-materialization never completed and nothing is being saved.
+		TelemetryService.Warn("snapshot_skipped_restore_pending", TelemetryService.ForPlayer(player, {
+			liveTools = Inventory.CountTools(player),
+		}))
 		return false
 	end
 	if OfflineProgressService.IsPending(player) then
@@ -488,14 +589,22 @@ local function snapshotProfileState(player, plot, profile)
 	if not (petsOk and feedOk and cosmeticOk) then
 		return false
 	end
+	local cosmeticInventory = mergeUnrestoredCounts(player, "Cosmetic", cosmeticState.CosmeticInventory)
+	local feedInventory = mergeUnrestoredCounts(player, "Feed", feedState.FeedInventory)
+	local seedInventory = mergeUnrestoredCounts(player, "Seed", feedState.SeedInventory)
+	local foodInventoryItems = mergeUnrestoredFoodRecords(player, feedState.FoodInventoryItems)
+	warnOnInventoryCollapse(player, "CosmeticInventory", profile.Data.CosmeticInventory, cosmeticInventory)
+	warnOnInventoryCollapse(player, "FeedInventory", profile.Data.FeedInventory, feedInventory)
+	warnOnInventoryCollapse(player, "SeedInventory", profile.Data.SeedInventory, seedInventory)
+
 	profile.Data.Pets = pets
 	profile.Data.FeedPlacements = feedState.FeedPlacements
 	profile.Data.CosmeticPlacements = cosmeticState.CosmeticPlacements
-	profile.Data.CosmeticInventory = cosmeticState.CosmeticInventory
-	profile.Data.FeedInventory = feedState.FeedInventory
-	profile.Data.SeedInventory = feedState.SeedInventory
-	profile.Data.FoodInventoryItems = feedState.FoodInventoryItems
-	profile.Data.FoodInventory = feedState.FoodInventory
+	profile.Data.CosmeticInventory = cosmeticInventory
+	profile.Data.FeedInventory = feedInventory
+	profile.Data.SeedInventory = seedInventory
+	profile.Data.FoodInventoryItems = foodInventoryItems
+	profile.Data.FoodInventory = FoodInventoryService.CountRecords(foodInventoryItems)
 	profile.Data.FavouriteInventory = {
 		Feed = feedState.FavouriteFeedInventory,
 		Seed = feedState.FavouriteSeedInventory,
@@ -517,7 +626,7 @@ local function snapshotFavouriteState(player, profile)
 		return false
 	end
 
-	local foodInventoryItems = FoodInventoryService.SerializeTools(player)
+	local foodInventoryItems = serializeFoodRecords(player)
 	local foodInventory = FoodInventoryService.CountRecords(foodInventoryItems)
 	local favouriteInventory = {
 		Feed = countFavouriteToolsById(player, FeedMachineTools.IsFeedTool, function(tool)
@@ -553,7 +662,7 @@ local function snapshotFoodCollection(player, plot, profile, feed)
 	end
 	profile.Data.FeedPlacements = profile.Data.FeedPlacements or {}
 	profile.Data.FeedPlacements[feedIndex] = placement
-	profile.Data.FoodInventoryItems = FoodInventoryService.SerializeTools(player)
+	profile.Data.FoodInventoryItems = serializeFoodRecords(player)
 	profile.Data.FoodInventory = FoodInventoryService.CountRecords(profile.Data.FoodInventoryItems)
 	profile.Data.LastSeen = os.time()
 	local publishRunOk, published = RuntimeGuard.Run(
@@ -573,7 +682,7 @@ local function snapshotFoodInventory(player, profile, context)
 	if isInventoryRestorePending(player) then
 		return false
 	end
-	profile.Data.FoodInventoryItems = FoodInventoryService.SerializeTools(player)
+	profile.Data.FoodInventoryItems = serializeFoodRecords(player)
 	profile.Data.FoodInventory = FoodInventoryService.CountRecords(profile.Data.FoodInventoryItems)
 	profile.Data.LastSeen = os.time()
 	local label = type(context) == "string" and context or "snapshotFoodInventory"
@@ -1093,6 +1202,7 @@ local function teardownPlayerState(player, plot, profile, options)
 	local key = userKey(player)
 	if key then
 		minimumPetSnapshotCounts[key] = nil
+		unrestoredInventory[key] = nil
 	end
 end
 
@@ -1300,9 +1410,15 @@ local function handlePlayerAdded(player)
 			for _, item in ipairs(backpack:GetChildren()) do
 				captureLiveTool(item)
 			end
-			captureLiveTool(character:FindFirstChildWhichIsA("Tool"))
-			-- Materialize at most the hard cap; collect-all purchases can
-			-- intentionally leave a profile above the normal 250 item cap.
+			-- Every character-parented tool counts, not just the first: an
+			-- under-count here inflates the deficit and mints a duplicate.
+			-- Deliberately iterated against this spawn's resolved backpack
+			-- above rather than re-resolving it mid-restore.
+			for _, item in ipairs(character:GetChildren()) do
+				captureLiveTool(item)
+			end
+			-- Materialize at most the hard cap; collect-all and pack purchases
+			-- can intentionally leave a profile above the normal 250 item cap.
 			local remainingSlots = Inventory.RemainingSlots(player, Inventory.COLLECT_ALL_MAX_ITEMS)
 			local function sortedKeys(map)
 				local keys = {}
@@ -1316,13 +1432,17 @@ local function handlePlayerAdded(player)
 				end)
 				return keys
 			end
+			-- Returns minted, canContinue. The two are distinct: a template that
+			-- fails to build mints nothing but leaves room for the next item,
+			-- and the mint that consumes the final slot succeeds. Callers must
+			-- record every unminted item so the snapshot cannot delete it.
 			local function restoreCountedTool(makeTool, favourite)
 				if remainingSlots <= 0 then
-					return false
+					return false, false
 				end
 				local tool = makeTool()
 				if not tool then
-					return remainingSlots > 0
+					return false, remainingSlots > 0
 				end
 				if Inventory.IsCountableTool(tool) then
 					remainingSlots -= 1
@@ -1332,12 +1452,40 @@ local function handlePlayerAdded(player)
 				-- interleaves mid-loop, these tools die with the old backpack
 				-- instead of duplicating into the new one.
 				tool.Parent = backpack
-				return remainingSlots > 0
+				return true, remainingSlots > 0
 			end
-			local function restoreMap(map, favouriteMap, makeTool, liveCounts, liveFavouriteCounts)
+			-- Every item the profile holds that this run could not mint, keyed
+			-- the same way the profile stores it. Handed to the snapshot so a
+			-- truncated or template-broken restore narrows nothing.
+			local unrestored = { Feed = {}, Seed = {}, Cosmetic = {}, Food = {} }
+			local function noteUnrestored(mapName, itemId, count, reason)
+				if count <= 0 then
+					return
+				end
+				unrestored[mapName][itemId] = (unrestored[mapName][itemId] or 0) + count
+				TelemetryService.Warn("inventory_restore_incomplete", TelemetryService.ForPlayer(player, {
+					map = mapName,
+					itemId = itemId,
+					count = count,
+					reason = reason,
+					liveTools = Inventory.CountTools(player),
+					hardMax = Inventory.HARD_MAX_ITEMS,
+				}))
+			end
+			local function restoreMap(mapName, map, favouriteMap, makeTool, liveCounts, liveFavouriteCounts)
+				local outOfSlots = false
 				for _, itemId in ipairs(sortedKeys(map)) do
 					local desiredCount = math.max(math.floor(tonumber(map[itemId]) or 0), 0)
 					local count = desiredCount - math.max(math.floor(tonumber(liveCounts[itemId]) or 0), 0)
+					if count <= 0 then
+						continue
+					end
+					if outOfSlots then
+						-- The ceiling was hit earlier in this map; everything
+						-- still owed stays owed instead of silently vanishing.
+						noteUnrestored(mapName, itemId, count, "item-cap")
+						continue
+					end
 					local desiredFavouriteCount = math.min(
 						math.max(math.floor(tonumber(favouriteMap[itemId]) or 0), 0),
 						desiredCount
@@ -1346,26 +1494,51 @@ local function handlePlayerAdded(player)
 						desiredFavouriteCount - math.max(math.floor(tonumber(liveFavouriteCounts[itemId]) or 0), 0),
 						0
 					)
+					local minted = 0
 					for restoreIndex = 1, count do
-						if not restoreCountedTool(function()
+						local didMint, canContinue = restoreCountedTool(function()
 							return makeTool(itemId)
-						end, restoreIndex <= favouriteCount) then
-							return
+						end, restoreIndex <= favouriteCount)
+						if didMint then
+							minted += 1
 						end
+						if not canContinue then
+							outOfSlots = true
+							break
+						end
+					end
+					noteUnrestored(mapName, itemId, count - minted, outOfSlots and "item-cap" or "tool-build-failed")
+				end
+			end
+			local outOfFoodSlots = false
+			for _, record in ipairs(FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)) do
+				if not (record.guid and liveFoodGuids[record.guid]) then
+					local didMint, canContinue = false, false
+					if not outOfFoodSlots then
+						didMint, canContinue = restoreCountedTool(function()
+							return FoodInventoryService.MakeTool(record)
+						end, record.favourite == true)
+					end
+					if not didMint then
+						unrestored.Food[#unrestored.Food + 1] = record
+					end
+					if not canContinue then
+						outOfFoodSlots = true
 					end
 				end
 			end
-			for _, record in ipairs(FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)) do
-				if not (record.guid and liveFoodGuids[record.guid]) then
-					if not restoreCountedTool(function()
-						return FoodInventoryService.MakeTool(record)
-					end, record.favourite == true) then
-						break
-					end
-				end
+			if #unrestored.Food > 0 then
+				TelemetryService.Warn("inventory_restore_incomplete", TelemetryService.ForPlayer(player, {
+					map = "Food",
+					count = #unrestored.Food,
+					reason = outOfFoodSlots and "item-cap" or "tool-build-failed",
+					liveTools = Inventory.CountTools(player),
+					hardMax = Inventory.HARD_MAX_ITEMS,
+				}))
 			end
 			local favouriteInventory = profile.Data.FavouriteInventory or {}
 			restoreMap(
+				"Feed",
 				profile.Data.FeedInventory,
 				favouriteInventory.Feed or {},
 				FeedMachineTools.MakeFeedTool,
@@ -1373,6 +1546,7 @@ local function handlePlayerAdded(player)
 				liveFavouriteFeedCounts
 			)
 			restoreMap(
+				"Seed",
 				profile.Data.SeedInventory,
 				favouriteInventory.Seed or {},
 				SeedTools.MakeSeedTool,
@@ -1380,6 +1554,7 @@ local function handlePlayerAdded(player)
 				liveFavouriteSeedCounts
 			)
 			restoreMap(
+				"Cosmetic",
 				profile.Data.CosmeticInventory,
 				favouriteInventory.Cosmetic or {},
 				CosmeticTools.MakeCosmeticTool,
@@ -1387,6 +1562,7 @@ local function handlePlayerAdded(player)
 				liveFavouriteCosmeticCounts
 			)
 			if player.Character == character then
+				setUnrestoredInventory(player, unrestored)
 				setInventoryRestorePending(player, false)
 			end
 		end
@@ -1439,6 +1615,34 @@ local function handlePlayerAdded(player)
 					end)
 				end
 				restoreBackpackTools(character)
+
+				-- Watchdog. restoreBackpackTools returns early on several
+				-- legitimate paths (a respawn during its wait), and the next
+				-- spawn owns the retry there. But if the flag is still set for
+				-- a live character that nothing else will replace, no snapshot
+				-- runs again for the rest of the session -- including the leave
+				-- snapshot -- so that session's pets, currency, and placements
+				-- are lost too. Retrying is safe: the restore is deficit-based
+				-- and mints only what the profile holds beyond the live tools.
+				for _ = 1, INVENTORY_RESTORE_RETRIES do
+					if not isInventoryRestorePending(player) or player.Character ~= character then
+						break
+					end
+					task.wait(INVENTORY_RESTORE_RETRY_SECONDS)
+					local liveHumanoid = character:FindFirstChildOfClass("Humanoid")
+					if not isInventoryRestorePending(player)
+						or player.Character ~= character
+						or not player:IsDescendantOf(Players)
+						or PlayerDataService.GetProfile(player) ~= profile
+						or not liveHumanoid
+						or liveHumanoid.Health <= 0 then
+						break
+					end
+					TelemetryService.Warn("inventory_restore_retry", TelemetryService.ForPlayer(player, {
+						liveTools = Inventory.CountTools(player),
+					}))
+					restoreBackpackTools(character)
+				end
 			end)
 		end
 

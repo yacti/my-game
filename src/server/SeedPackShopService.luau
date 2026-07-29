@@ -13,6 +13,7 @@ local SeedTools = require(Server:WaitForChild("SeedTools"))
 local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -160,9 +161,12 @@ local function grantPrepared(player, profile, prepared)
 		return false, "no-backpack"
 	end
 
+	-- Paid packs grant above the normal 250 soft cap, but never above the
+	-- physical ceiling the per-spawn restore can rebuild. A blocked grant
+	-- returns NotProcessedYet below, so the player is not charged.
 	local granted, code = ToolGrantService.GrantTools(player, prepared.tools, {
 		autoEquip = false,
-		ignoreInventoryCap = true,
+		maxItems = Inventory.HARD_MAX_ITEMS,
 	})
 	if not granted then
 		destroyPrepared(prepared)

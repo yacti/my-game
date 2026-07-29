@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
@@ -164,18 +165,12 @@ end
 
 function CosmeticTools.CountByCosmetic(player)
 	local counts = {}
-	local function add(item)
+	Inventory.ForEachTool(player, function(item)
 		local cosmeticId = CosmeticTools.CosmeticIdOf(item)
 		if cosmeticId then
 			counts[cosmeticId] = (counts[cosmeticId] or 0) + 1
 		end
-	end
-	for _, item in ipairs(player.Backpack:GetChildren()) do
-		add(item)
-	end
-	if player.Character then
-		add(player.Character:FindFirstChildWhichIsA("Tool"))
-	end
+	end)
 	return counts
 end
 
