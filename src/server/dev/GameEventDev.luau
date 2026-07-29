@@ -11,7 +11,11 @@
 -- Actions: start (eventId, startsAtOffset?, durationSeconds?),
 -- stop (instanceId), complete (instanceId), disable-tutorial (all players),
 -- grant-currency (amount, userId? defaults to the first player),
--- grant-durian-tickets (amount, pity?, userId? defaults to the first player).
+-- grant-durian-tickets (amount, pity?, userId? defaults to the first player),
+-- pinata-spawn (variant), pinata-clear, pinata-debug,
+-- pinata-damage (pinataId, amount, userId? defaults to the first player) --
+-- which bypasses the swing cooldown so the break/split/drop/collect path can
+-- be driven without hundreds of real swings.
 -- Each command's outcome is JSON-encoded into the GameEventDevResult
 -- attribute for the caller to read back.
 local HttpService = game:GetService("HttpService")
@@ -24,6 +28,7 @@ local Workspace = game:GetService("Workspace")
 local Server = script.Parent.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
+local PinataService = require(Server:WaitForChild("PinataService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
 
@@ -117,6 +122,41 @@ local function runCommand(command)
 		end
 		PlayerReplicaService.PublishDurianPack(player, profile)
 		return { ok = true, durianTickets = profile.Data.DurianTickets, durianPackPity = profile.Data.DurianPackPity }
+	elseif action == "pinata-spawn" then
+		local ok, idOrCode = PinataService.Spawn(command.variant)
+		return { ok = ok == true, result = idOrCode }
+	elseif action == "pinata-clear" then
+		return { ok = true, cleared = PinataService.ClearAll() }
+	elseif action == "pinata-damage" then
+		-- Bypasses the swing cooldown so the break/split/drop path is testable
+		-- without hundreds of real swings. Studio-only inside PinataService.
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+		local userId = tonumber(command.userId) or (player and player.UserId)
+		local ok, result = PinataService.DebugDamage(command.pinataId, userId, command.amount)
+		return { ok = ok == true, result = result }
+	elseif action == "pinata-debug" then
+		-- Includes the target player's profile figures so an MCP/command-bar VM
+		-- (which holds its own stateless module copies and therefore sees no
+		-- profiles) can still observe reward grants landing.
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+		local profile = player and PlayerDataService.GetProfile(player)
+		return {
+			ok = true,
+			debug = PinataService.Debug(),
+			userId = player and player.UserId or nil,
+			currency = profile and profile.Data.Currency or nil,
+			durianTickets = profile and profile.Data.DurianTickets or nil,
+		}
 	end
 	return { ok = false, code = "unknown-action" }
 end

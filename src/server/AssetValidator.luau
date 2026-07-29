@@ -31,6 +31,7 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
+local Pinata = require(Shared:WaitForChild("Pinata"))
 
 local AssetValidator = {}
 
@@ -2868,6 +2869,75 @@ end
 
 -- The Honeycomb camp is Studio-authored world structure; missing pieces warn
 -- and degrade (No-Fallback UI Policy) rather than blocking startup.
+-- Deliberately warn-and-skip rather than hard-fail, unlike the other non-UI
+-- gameplay assets (see AGENTS.md "No-Fallback UI Policy"): pinatas are an
+-- admin-only, ephemeral toy with no persistence, so a missing template should
+-- disable the feature, not brick startup on a live server. PinataService.Spawn
+-- returns a code the admin panel surfaces as a toast.
+local function validatePinataAssets(warnings)
+	local misc = assetChild(Assets.Names.Misc, "Folder", warnings)
+	if misc then
+		for _, variantId in ipairs(Pinata.VariantIds) do
+			local config = Pinata.VariantConfig(variantId)
+			local model = child(misc, config.ModelName, "Model", warnings)
+			if model and not model.PrimaryPart then
+				add(warnings, model:GetFullName() .. " has no PrimaryPart; pinata spawns will fall back to an arbitrary part")
+			end
+		end
+
+		local stick = child(misc, Pinata.StickModelName, "Model", warnings)
+		if stick then
+			-- The weld anchor. Never derive a pivot from a PrimaryPart-less Model.
+			if not stick.PrimaryPart then
+				add(warnings, stick:GetFullName() .. " needs PrimaryPart set (expected " .. Pinata.StickHandleName .. ") for the hand weld")
+			end
+			for _, attributeName in ipairs(Pinata.SwingAnimationAttributes) do
+				validateAnimationId(stick:GetFullName(), attributeName, stick:GetAttribute(attributeName), warnings)
+			end
+		end
+
+		local rewards = child(misc, Pinata.RewardsFolderName, "Folder", warnings)
+		if rewards then
+			local seen = {}
+			for _, variantId in ipairs(Pinata.VariantIds) do
+				for _, entry in ipairs(Pinata.VariantConfig(variantId).Pool) do
+					if not seen[entry.Id] then
+						seen[entry.Id] = true
+						child(rewards, entry.Id, "BasePart", warnings)
+					end
+				end
+			end
+		end
+	end
+
+	-- Break confetti burst.
+	local vfx = assetChild(Assets.Names.VFX, "Folder", warnings)
+	local confetti = vfx and child(vfx, Pinata.BreakVfxName, "BasePart", warnings)
+	if confetti and not confetti:FindFirstChildWhichIsA("ParticleEmitter", true) then
+		add(warnings, confetti:GetFullName() .. " has no ParticleEmitter; pinata break confetti will be empty")
+	end
+
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	local billboards = ui and child(ui, "BillboardGUIs", "Folder", warnings)
+	local board = billboards and child(billboards, Pinata.BillboardTemplateName, "BillboardGui", warnings)
+	local healthFrame = board and child(board, "Health", "GuiObject", warnings)
+	if healthFrame then
+		child(healthFrame, "Fill", "GuiObject", warnings)
+		child(healthFrame, "Health", "TextLabel", warnings)
+	end
+
+	local map = Workspace:FindFirstChild("Map")
+	local spawnFolder = map and child(map, Pinata.SpawnFolderName, "Folder", warnings)
+	if spawnFolder then
+		-- The floor slab lives in this folder and must NOT be counted as a
+		-- spawn marker; its top surface is the plane every pinata rests on.
+		child(spawnFolder, Pinata.FloorPartName, "BasePart", warnings)
+		if #Pinata.SpawnMarkers() == 0 then
+			add(warnings, spawnFolder:GetFullName() .. " has no BasePart spawn markers; pinatas cannot spawn")
+		end
+	end
+end
+
 local function validateBeeCamp(warnings)
 	local map = child(Workspace, "Map", nil, warnings)
 	if not map then return end
@@ -3279,6 +3349,7 @@ function AssetValidator.validate()
 	validateRobuxShopPart(warnings)
 	validateEventTeleportPart(warnings)
 	validateBeeCamp(warnings)
+	validatePinataAssets(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)
 	validatePlots(errors, warnings)

@@ -937,6 +937,28 @@ function ShopBalance.EndlessPackMoneyPayout(kind, hourlyIncome)
 	}, hourlyIncome)
 end
 
+-- Cash dropped by admin-spawned pinatas, scaled to the collecting player's own
+-- pet income at the moment the pinata broke. BaseReward floors follow the same
+-- 100/minute curve as the Endless Pack money packs (2.5min -> 250, 5min -> 500)
+-- so a brand-new player with almost no income still gets something meaningful.
+ShopBalance.Pinata = {
+	CashPacks = {
+		Small = { MinutesOfIncome = 10, BaseReward = 1000 },
+		Medium = { MinutesOfIncome = 25, BaseReward = 2500 },
+	},
+}
+
+function ShopBalance.PinataCashPayout(cashId, hourlyIncome)
+	local pack = (ShopBalance.Pinata.CashPacks or {})[cashId]
+	if type(pack) ~= "table" then
+		return 0
+	end
+	return ShopBalance.CashPackPayout({
+		HoursOfIncome = finiteNumber(pack.MinutesOfIncome, 0) / 60,
+		BaseReward = int(pack.BaseReward, 0),
+	}, hourlyIncome)
+end
+
 function ShopBalance.AllCashPacks()
 	local packs = {}
 	for _, pack in ipairs(ShopBalance.CashPacks or {}) do

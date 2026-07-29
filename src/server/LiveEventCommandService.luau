@@ -39,6 +39,7 @@ local Workspace = game:GetService("Workspace")
 local Server = script.Parent
 local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
+local PinataService = require(Server:WaitForChild("PinataService"))
 local RollService = require(Server:WaitForChild("RollService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -562,6 +563,20 @@ local function onMessage(message)
 				RollService.DropAdminCrate(data.crateId)
 			end)
 		end
+	elseif data.action == "pinataSpawn" then
+		-- One-shot, same semantics as adminDrop: applied on delta receipt only,
+		-- never replayed from reconcile. A server that misses this message
+		-- simply has no pinata. Re-validated here because a delta from a stale
+		-- or rogue server is still untrusted input.
+		if AdminPanelConfig.IsAllowedPinataVariant(data.variant) then
+			RuntimeGuard.Run("LiveEventCommandService.ApplyPinataSpawn", function()
+				PinataService.Spawn(data.variant)
+			end)
+		end
+	elseif data.action == "pinataClear" then
+		RuntimeGuard.Run("LiveEventCommandService.ApplyPinataClear", function()
+			PinataService.ClearAll()
+		end)
 	else
 		scheduleReconcile("unknown-delta-action")
 		return
@@ -1382,6 +1397,92 @@ function LiveEventCommandService.DropAdminCrate(crateId, options)
 		return true, 0, 0
 	end
 	return true, droppedOrCode, skipped
+end
+
+-- Spawns one pinata at a random free Workspace.Map.PinataSpawn slot on every
+-- server. One-shot: this is NOT durable, so a server that misses the broadcast
+-- has no pinata and servers booting later do not get one. Each server picks its
+-- own slot, so the delta deliberately carries only the variant -- occupancy
+-- differs per server. Pinatas expire on their own after 30 minutes.
+function LiveEventCommandService.SpawnPinata(variant, options)
+	if not AdminPanelConfig.IsAllowedPinataVariant(variant) then
+		return false, "unknown-pinata-variant"
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "pinata-spawn", note)
+	auditEntry.variant = variant
+
+	-- The hash MUST encode the variant: a retried commandId whose hash ignored
+	-- it would silently no-op onto the wrong variant instead of conflicting.
+	local ok, result = runCommandWrite(commandId, "pinataSpawn:" .. variant, auditEntry, function()
+		-- No durable mutation; the write still bumps revision and records
+		-- idempotency + audit.
+		return true, {
+			action = "pinataSpawn",
+			variant = variant,
+		}
+	end)
+
+	if not ok then
+		return false, result
+	end
+	if result == "idempotent" then
+		return true, "already-processed"
+	end
+	-- Apply locally: applyState bumps localRevision before publishDelta, so this
+	-- server's own broadcast is dropped by the revision gate and would never
+	-- come back to us.
+	local spawnOk, idOrCode = PinataService.Spawn(variant)
+	if not spawnOk then
+		warn("[LiveEventCommandService] Local pinata spawn skipped: " .. tostring(idOrCode))
+		return true, tostring(idOrCode)
+	end
+	return true, idOrCode
+end
+
+-- Removes every pinata and every uncollected drop, on every server, with no
+-- payout. This is the admin kill switch, deliberately not a break.
+function LiveEventCommandService.ClearPinatas(options)
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "pinata-clear", note)
+
+	local ok, result = runCommandWrite(commandId, "pinataClear", auditEntry, function()
+		return true, { action = "pinataClear" }
+	end)
+
+	if not ok then
+		return false, result
+	end
+	if result == "idempotent" then
+		return true, "already-processed"
+	end
+	return true, PinataService.ClearAll()
 end
 
 function LiveEventCommandService.ListGlobalEvents()

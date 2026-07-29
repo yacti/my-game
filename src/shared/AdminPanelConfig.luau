@@ -16,6 +16,28 @@ AdminPanelConfig.MaxLuckDurationSeconds = 72 * 3600
 AdminPanelConfig.LuckSmallStepSeconds = 30 * 60
 AdminPanelConfig.LuckLargeStepSeconds = 6 * 3600
 
+-- Pinata variants the panel may spawn, mirrored by the Pinata row's buttons.
+-- SpawnPinata rejects anything else, so a forged remote cannot spawn an
+-- arbitrary model name. Kept here (not in Pinata.luau) for the same reason
+-- AllowedLuckMultipliers lives here: it is the shared client/server allowlist
+-- that AdminPanelService and LiveEventCommandService both validate against.
+AdminPanelConfig.PinataButtons = {
+	{ button = "SpawnOneDefault", variant = "Default" },
+	{ button = "SpawnOneGold", variant = "Golden" },
+}
+
+function AdminPanelConfig.IsAllowedPinataVariant(variant)
+	if type(variant) ~= "string" then
+		return false
+	end
+	for _, entry in ipairs(AdminPanelConfig.PinataButtons) do
+		if entry.variant == variant then
+			return true
+		end
+	end
+	return false
+end
+
 AdminPanelConfig.Actions = {
 	SendOwnerMessage = "SendOwnerMessage",
 	SendAlienMessage = "SendAlienMessage",
@@ -26,6 +48,9 @@ AdminPanelConfig.Actions = {
 	PadOn = "PadOn",
 	PadOff = "PadOff",
 	DropCrate = "DropCrate",
+	-- One-shot pinata spawn / global clear (see docs/live-events.md).
+	SpawnPinata = "SpawnPinata",
+	ClearPinatas = "ClearPinatas",
 	-- Panel closed client-side (X button / switching menus): disarms the
 	-- panel server-side so armed state always matches what is on screen.
 	ClosePanel = "ClosePanel",

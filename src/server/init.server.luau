@@ -61,6 +61,7 @@ local MediaRewardService = require(Server:WaitForChild("MediaRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
+local PinataService     = require(Server:WaitForChild("PinataService"))
 local PromptInteractionService = require(Server:WaitForChild("PromptInteractionService"))
 local RebirthService    = require(Server:WaitForChild("RebirthService"))
 local ReceiptService    = require(Server:WaitForChild("ReceiptService"))
@@ -703,6 +704,15 @@ end
 RuntimeGuard.Run("GameEventService.Start", function()
 	GameEventService.Start({
 		snapshotProfileState = snapshotProfileState,
+	})
+end)
+-- Must start BEFORE the control plane: LiveEventCommandService.Start subscribes
+-- immediately, and a pinataSpawn delta from another server can land within
+-- milliseconds. That broadcast is one-shot with no reconcile path, so a delta
+-- arriving before PinataService is live would be lost for good.
+RuntimeGuard.Run("PinataService.Start", function()
+	PinataService.Start({
+		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)
 RuntimeGuard.Run("LiveEventCommandService.Start", LiveEventCommandService.Start)
@@ -1686,6 +1696,10 @@ end
 RuntimeGuard.Connect(Players.PlayerRemoving, "Players.PlayerRemoving", handlePlayerRemoving)
 
 game:BindToClose(function()
+	-- Stop the pinata sweeps and tear down live pinatas/drops first, so no
+	-- reward grant can race the per-player teardown snapshots below.
+	RuntimeGuard.Run("BindToClose.PinataShutdown", PinataService.Shutdown)
+
 	for _, player in pairs(Players:GetPlayers()) do
 		RuntimeGuard.Run("BindToClose.Player." .. userLabel(player), function()
 			local plot    = PlotService.GetPlayerPlot(player)

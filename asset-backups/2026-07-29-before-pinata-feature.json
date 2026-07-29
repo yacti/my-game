@@ -1,0 +1,33 @@
+{
+  "note": "Pre-Pinata-feature asset state. Property-only changes applied by the Pinata feature: PinataStick.PrimaryPart (NONE -> Handle, needed as the weld anchor; never derive a pivot from a PrimaryPart-less Model), and DefaultPinata/GoldenPinata ModelStreamingMode (Default -> Persistent, so clients reliably hold the model at the 75-stud PinataBillboard range under StreamingEnabled). No geometry, hierarchy or attribute changes. Part Anchored/CanCollide are left as authored (unanchored, collidable) and are overridden at runtime on the spawned clone by PinataService, not on the template.",
+  "date": "2026-07-29",
+  "path": "ReplicatedStorage.Assets.Misc",
+  "assets": {
+    "DefaultPinata": {
+      "className": "Model",
+      "primaryPart": "Mesh",
+      "modelStreamingMode": "Default",
+      "parts": [
+        { "name": "Mesh", "anchored": false, "canCollide": true, "massless": false }
+      ]
+    },
+    "GoldenPinata": {
+      "className": "Model",
+      "primaryPart": "Mesh",
+      "modelStreamingMode": "Default",
+      "parts": [
+        { "name": "Mesh", "anchored": false, "canCollide": true, "massless": false }
+      ]
+    },
+    "PinataStick": {
+      "className": "Model",
+      "primaryPart": "NONE",
+      "modelStreamingMode": "Default",
+      "parts": [
+        { "name": "Meshes/pinata_PinataStick", "anchored": false, "canCollide": true, "massless": false },
+        { "name": "Handle", "anchored": false, "canCollide": true, "massless": false }
+      ]
+    }
+  },
+  "rollback": "Set PinataStick.PrimaryPart = nil and both pinata models' ModelStreamingMode = Enum.ModelStreamingMode.Default."
+}

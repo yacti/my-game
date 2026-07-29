@@ -14,6 +14,13 @@ Run this checklist before publishing a live build.
   `UI`, `Assets.Cosmetics`, `Assets.CosmeticTool`, `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
   `Assets.Seeds`, `Assets.Misc.Sapling`, `Assets.Misc.Brick`, and
   `Assets.VFX.RarityParticle`.
+- Pinata assets exist (warn-and-skip, so a miss disables the feature silently
+  rather than failing startup): `Assets.Misc.DefaultPinata` and
+  `Assets.Misc.GoldenPinata` (PrimaryPart set, `ModelStreamingMode = Persistent`),
+  `Assets.Misc.PinataStick` (PrimaryPart = `Handle`, with valid
+  `SwingAnimationId1`/`SwingAnimationId2` attributes), the five
+  `Assets.Misc.PhysicalRewards` parts, `UI.BillboardGUIs.PinataBillboard` with
+  `Health.Fill` and `Health.Health`, and `Workspace.Map.PinataSpawn` markers.
 - Studio-owned `ReplicatedFirst.LoadingScreen` exists with `Root`,
   `Root.LoadingBar.Fill`, `Root.PercentLabel`, `Root.TapToPlayLabel`, and
   `Root.TapCaptureButton`; `ReplicatedFirst.LoadingScreenLoader` is present and

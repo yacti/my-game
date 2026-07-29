@@ -79,6 +79,27 @@ State.AdminPanel = {
 	Enabled = "AdminPanelEnabled",
 }
 
+-- Admin-spawned pinatas. Server writes these onto the live pinata Model (and
+-- onto each dropped PhysicalRewards part) in Workspace; clients read them to
+-- render the health bar, the phase-locked drop-in, and their own drop icons.
+-- HP is server-wide truth and is never mutated client-side.
+State.Pinata = {
+	Id = "PinataId",
+	Variant = "PinataVariant",
+	Hp = "PinataHp",
+	MaxHp = "PinataMaxHp",
+	-- Workspace:GetServerTimeNow() at spawn. The drop animation is derived from
+	-- this rather than from ChildAdded, so stream-in never replays the fall.
+	DropAt = "PinataDropAt",
+	ExpiresAt = "PinataExpiresAt",
+	-- Per-drop: which player it belongs to, which reward it is, where it burst
+	-- from, and when it landed (clients animate the arc from these).
+	DropOwner = "PinataDropOwner",
+	DropReward = "PinataDropReward",
+	DropOrigin = "PinataDropOrigin",
+	DropSpawnedAt = "PinataDropSpawnedAt",
+}
+
 State.UpdateEvent = {
 	EventId = "UpdateEventId",
 	TimerTextMode = "UpdateTimerTextMode",

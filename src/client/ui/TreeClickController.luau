@@ -9,6 +9,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Pinata = require(Shared:WaitForChild("Pinata"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -46,6 +47,15 @@ end
 local function equippedTool()
 	local character = player.Character
 	return character and character:FindFirstChildWhichIsA("Tool") or nil
+end
+
+-- The pinata stick is a welded Model, not a Tool, so it does not register as an
+-- equipped tool here. Guard explicitly anyway: InputBegan fans out to every
+-- connection with no arbitration or sinking, so a swing next to a plot would
+-- otherwise also fire a tree shake.
+local function pinataStickHeld()
+	local character = player.Character
+	return character ~= nil and character:FindFirstChild(Pinata.StickAccessoryName) ~= nil
 end
 
 local function getPlot()
@@ -243,6 +253,9 @@ function TreeClickController.start()
 			return
 		end
 		if not equippedTool() then
+			return
+		end
+		if pinataStickHeld() then
 			return
 		end
 		if gameProcessed then

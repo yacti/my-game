@@ -47,6 +47,11 @@ Remotes.Names = {
 	FoodStealCancel = "FoodStealCancel",
 	GrowSkipRequest = "GrowSkipRequest",
 	GrowSkipResult = "GrowSkipResult",
+	-- Client intent only, and deliberately argument-free: the server resolves
+	-- the nearest pinata within reach itself. "Tap anywhere on screen" means
+	-- the client cannot raycast a target on mobile, so accepting one would add
+	-- a forgeable field for no benefit.
+	PinataSwingRequest = "PinataSwingRequest",
 	CollectAllRequest = "CollectAllRequest",
 	CollectAllResult = "CollectAllResult",
 	ServerLuckPurchaseRequest = "ServerLuckPurchaseRequest",
@@ -128,6 +133,7 @@ local Definitions = {
 	[Remotes.Names.FoodStealCancel] = "RemoteEvent",
 	[Remotes.Names.GrowSkipRequest] = "RemoteEvent",
 	[Remotes.Names.GrowSkipResult] = "RemoteEvent",
+	[Remotes.Names.PinataSwingRequest] = "RemoteEvent",
 	[Remotes.Names.CollectAllRequest] = "RemoteEvent",
 	[Remotes.Names.CollectAllResult] = "RemoteEvent",
 	[Remotes.Names.ServerLuckPurchaseRequest] = "RemoteEvent",

@@ -132,6 +132,12 @@
         "GrowSkipResult": {
           "$className": "RemoteEvent"
         },
+        "PinataSwingRequest": {
+          "$className": "RemoteEvent",
+          "$properties": {
+            "Sandboxed": true
+          }
+        },
         "CollectAllRequest": {
           "$className": "RemoteEvent",
           "$properties": {
@@ -301,6 +307,12 @@
           "$className": "Sound",
           "$properties": {
             "SoundId": "rbxassetid://136154958168323"
+          }
+        },
+        "PinataHit": {
+          "$className": "Sound",
+          "$properties": {
+            "SoundId": "rbxassetid://139520673393967"
           }
         },
         "PetFed": {

@@ -144,7 +144,7 @@ Key server modules:
 - `ShovelService`: server-authoritative shovel deletion for placed plant feeds.
 - `InventoryFavouriteService`: server-authoritative per-tool favourite toggles. Favourite state persists in individual food records and count-backed feed/seed/cosmetic favourite maps; favourited tools cannot be deleted or selected for pet feeding.
 - `GameEventService`: local event runner — merges scheduled weather, local command-bar records, and external/global records, applies `LayerConfigs`, publishes the replicated snapshot, and drives per-event handlers.
-- `LiveEventCommandService`: server-only global live-event control plane. DataStore `LiveEvents_v1`/`GlobalState` is durable truth (UpdateAsync-only, fail-closed); MessagingService topic `LiveEvents_v1` is the revision-gated fast path; jittered reconcile polling self-heals. Also owns global admin messages (`SendGlobalMessage`/`ClearGlobalMessages`), published to clients through the replicated `AdminMessages` folder and rendered by `src/client/ui/AdminMessageController.luau` into the Studio-owned `HUD.AdminText` frames using `src/shared/AdminMessagePresets.luau` character presets, and the admin party (`SetAdminPartyPad` durable pad toggle + `DropAdminCrate` one-shot high-luck crate broadcasts executed by `RollService`; admin-only crates in `RollChances.AdminCrates` never enter the normal roll pool). Commands run from the server command bar only (no remotes, no client UI). See `docs/live-events.md`.
+- `LiveEventCommandService`: server-only global live-event control plane. DataStore `LiveEvents_v1`/`GlobalState` is durable truth (UpdateAsync-only, fail-closed); MessagingService topic `LiveEvents_v1` is the revision-gated fast path; jittered reconcile polling self-heals. Also owns global admin messages (`SendGlobalMessage`/`ClearGlobalMessages`), published to clients through the replicated `AdminMessages` folder and rendered by `src/client/ui/AdminMessageController.luau` into the Studio-owned `HUD.AdminText` frames using `src/shared/AdminMessagePresets.luau` character presets, and the admin party (`SetAdminPartyPad` durable pad toggle + `DropAdminCrate` one-shot high-luck crate broadcasts executed by `RollService`, plus `SpawnPinata`/`ClearPinatas` one-shot pinata broadcasts executed by `PinataService`; admin-only crates in `RollChances.AdminCrates` never enter the normal roll pool). Commands run from the server command bar only (no remotes, no client UI). See `docs/live-events.md`.
 - `PromptInteractionService`: thin `PromptInteract` dispatcher.
 - `RollService`: server-authoritative crate reward rolls, roll cooldowns, pending roll offers, roll purchases, notifications, and roll VFX payloads.
 - `ReceiptService`: `MarketplaceService.ProcessReceipt` routing and processed receipt idempotency.
@@ -154,6 +154,7 @@ Key server modules:
 - `FeedRewardService`: prepares/applies mature feed-machine rewards for rebirth and other non-seed grants.
 - `FeedMachineTools`: feed tool cloning and attributes.
 - `ShovelTools`: non-persisted utility shovel cloning and identity.
+- `PinataService`: admin-spawned pinatas — spawn-slot occupancy in `Workspace.Pinatas`, server-wide HP, the per-`UserId` damage ledger, the largest-remainder reward split, owner-tagged `PhysicalRewards` drops collected by a bounded proximity sweep, and the welded `PinataStick` proximity loop. One-shot and non-durable; driven by `LiveEventCommandService.SpawnPinata`/`ClearPinatas`. The stick is a welded Model, never a `Tool`, so it cannot displace the equipped tool that `Food.GetEquipped` and the deposit prompts read.
 - `NotificationService`: `PlayerNotification` wrapper.
 - `AssetValidator`: startup contracts for remotes, Replica native modules, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
@@ -207,7 +208,7 @@ Controller categories:
 - Remote-driven events/panels: `Notifications` (at start it lifts the Studio-authored `HUD.Notifications` container into a runtime `NotificationsOverlay` ScreenGui with DisplayOrder 50, so toasts stay visible while `MenuGui` disables the HUD for open menu panels)
 - Attribute/render-only presentation: `PetBillboards`, `PetPreloader`, `PetAnimations`, `ToolStatsBillboard`, `SlotXPBillboard`
 - Hybrid systems: `FeedPlacement`, `FeedEditController`, `ShovelController`, `LocalPrompts`, `PlacementGrid`
-- VFX/polish: `ProcessorVisuals`, `AppleTreeSlotVisuals` (generic `FeedClass = "Tree"` presentation despite the legacy file name), `RollController`
+- VFX/polish: `PinataController` (phase-locked drop-in + shake in one render loop, per-variant health billboard, throttled hit polish, cross-platform swing input), `ProcessorVisuals`, `AppleTreeSlotVisuals` (generic `FeedClass = "Tree"` presentation despite the legacy file name), `RollController`
 - shared helpers: `UiEffects`
 
 Clients clone Studio UI templates, watch replicated attributes, run local-only presentation, and send intent remotes. Client placement checks, prompt visibility, viewport previews, and button enablement are UX only; server validation remains definitive.
@@ -284,6 +285,7 @@ Groups:
 - Roll effects/purchases: `CrateRollEffect`, `CrateRollPurchaseRequest`, `CrateRollPurchaseResult`
 - Durian Pack rolls: `DurianPackRollRequest`, `DurianPackRollResult`
 - Endless Pack claims: `EndlessPackClaimRequest`, `EndlessPackClaimResult`
+- Pinata swings: `PinataSwingRequest` (argument-free client intent; the server picks the nearest pinata)
 - Rebirth: `RebirthRequest`, `RebirthResult`
 - Gifting: `GiftRequest`, `GiftResult`
 

@@ -13,6 +13,9 @@
 --   PadToggle                    -> admin party pad on/off (all servers)
 --   CrateDrops                   -> one-shot admin crate drops (luck crates
 --                                   plus the Secret/Mythic rarity-pool blocks)
+--   Pinata                       -> one-shot pinata spawn (Default / Golden,
+--                                   one per press, every server) and a global
+--                                   CLEAR that removes them with no payout
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -295,6 +298,16 @@ local function bindPanel(panelFrame)
 		for _, crateId in ipairs({ "InfernoCrate", "SaturnCrate", "UFOCrate", "MythicLuckyBlock", "SecretLuckyBlock" }) do
 			bindSimpleButton(crateDrops, crateId, Actions.DropCrate, { crateId = crateId })
 		end
+	end
+
+	local pinata = section(panel, "Pinata")
+	if pinata then
+		-- One press spawns one pinata on every server, at that server's own
+		-- free spawn slot. The server re-validates the variant.
+		for _, entry in ipairs(AdminPanelConfig.PinataButtons) do
+			bindSimpleButton(pinata, entry.button, Actions.SpawnPinata, { variant = entry.variant })
+		end
+		bindSimpleButton(pinata, "ClearAll", Actions.ClearPinatas)
 	end
 
 	renderAll = function()

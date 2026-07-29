@@ -206,6 +206,23 @@ local function runAction(player, payload)
 		return false, tostring(droppedOrCode)
 	end
 
+	if action == Actions.SpawnPinata then
+		-- Client-supplied discriminator: re-validate against the shared
+		-- allowlist before it reaches the control plane, same as DropCrate.
+		if not AdminPanelConfig.IsAllowedPinataVariant(payload.variant) then
+			return false, "unknown-pinata-variant"
+		end
+		local ok, result = LiveEventCommandService.SpawnPinata(payload.variant, {
+			operatorNote = note,
+		})
+		return ok, ok and ("pinata-spawned (" .. tostring(result) .. ")") or tostring(result)
+	end
+
+	if action == Actions.ClearPinatas then
+		local ok, result = LiveEventCommandService.ClearPinatas({ operatorNote = note })
+		return ok, ok and ("pinatas-cleared (" .. tostring(result) .. ")") or tostring(result)
+	end
+
 	return false, "unknown-action"
 end
 

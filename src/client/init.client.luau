@@ -87,6 +87,7 @@ local CONTROLLERS = {
 	"StormChaserController",
 	"BeeEventController",
 	"BeeCampController",
+	"PinataController",
 	"TimerBillboards",
 	"ProcessorVisuals",
 	"CloudController",
