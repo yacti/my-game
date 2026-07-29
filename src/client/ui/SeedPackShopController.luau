@@ -1,4 +1,3 @@
-local ContextActionService = game:GetService("ContextActionService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -40,8 +39,8 @@ local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
 local RUNTIME_SLICE_NAME = "__SeedPackSlice"
 local CONSOLE_OPEN_KEYCODE = Enum.KeyCode.ButtonX
 local FALLBACK_CONSOLE_OPEN_ICON = "rbxasset://textures/ui/Controls/xboxX.png"
-local SLICE_CAMERA_SINK_ACTION = "SeedPackShopController.SliceCameraSink"
-local SLICE_CAMERA_SINK_PRIORITY = Enum.ContextActionPriority.High.Value + 20
+local CATCHER_GUI_NAME = "PackRollInputCatcher"
+local CATCHER_BUTTON_NAME = "Catcher"
 local MAX_REVEAL_BATCH_SIZE = 3
 local ADVANCE_INPUT_GRACE_SECONDS = 0.12
 local DURIAN_REVEAL_SOURCE_SECTION = "DurianPack"
@@ -86,7 +85,7 @@ local pendingSliced = {}
 local packOpenFtueCompleted = false
 local activeFtueDrag = nil
 local ftueToken = 0
-local cameraSinkBound = false
+local catcherButton = nil
 local productPriceById = {}
 local awaitingAdvance = false
 local advanceReadyAt = 0
@@ -176,31 +175,13 @@ local function robuxText(productId, onLoaded)
 	return productPriceById[productId]
 end
 
-local function releaseSliceCameraSink()
-	if not cameraSinkBound then
-		return
+-- Toggles the reveal press catcher (created in start). Hiding it, rather than
+-- disabling its ScreenGui, keeps WorksOfflineController's blanket
+-- ScreenGui.Enabled save/restore from ever handing back a live screen-wide sink.
+local function setCatcherActive(active)
+	if catcherButton and catcherButton.Parent then
+		catcherButton.Visible = active == true
 	end
-	ContextActionService:UnbindAction(SLICE_CAMERA_SINK_ACTION)
-	cameraSinkBound = false
-end
-
-local function bindSliceCameraSink()
-	if cameraSinkBound then
-		return
-	end
-	cameraSinkBound = true
-	ContextActionService:BindActionAtPriority(
-		SLICE_CAMERA_SINK_ACTION,
-		function(_, _, inputObject)
-			if dragging and activeInputType == Enum.UserInputType.Touch and inputObject == activeInput then
-				return Enum.ContextActionResult.Sink
-			end
-			return Enum.ContextActionResult.Pass
-		end,
-		false,
-		SLICE_CAMERA_SINK_PRIORITY,
-		Enum.UserInputType.Touch
-	)
 end
 
 local function resetDragState()
@@ -209,7 +190,6 @@ local function resetDragState()
 	activeInputType = nil
 	dragStartPosition = nil
 	lastPosition = nil
-	releaseSliceCameraSink()
 end
 
 local function setRarityLabel(label, rarity)
@@ -964,9 +944,6 @@ local function beginDrag(input)
 	lastPosition = position
 	activeSlice = createSliceFrame(position, position)
 	pendingSliced = {}
-	if activeInputType == Enum.UserInputType.Touch then
-		bindSliceCameraSink()
-	end
 end
 
 local function continueDrag(input)
@@ -1080,6 +1057,7 @@ function showNextReveal()
 	if not nextPayload then
 		activeReveal = nil
 		awaitingAdvance = false
+		setCatcherActive(false)
 		-- Durian Pack rolls return to the standalone Durian panel; shop
 		-- purchases return to the RobuxShop at their source section.
 		if lastRevealSourceSection == DURIAN_REVEAL_SOURCE_SECTION then
@@ -1094,6 +1072,7 @@ function showNextReveal()
 	lastRevealSourceSection = nextPayload.sourceSection or SEED_PACKS_NAME
 	if buildReveal(nextPayload) then
 		MenuGui.OpenPanel(ROLL_PANEL_NAME)
+		setCatcherActive(true)
 		task.delay(0.3, startFtueCue)
 	else
 		showNextReveal()
@@ -1132,6 +1111,69 @@ function SeedPackShopController.EnqueueReveal(payload)
 	enqueueReveal(payload)
 end
 
+-- Every reveal press is routed through a screen-sized Active button so the
+-- camera never sees it. The pack buttons are deliberately inactive (see
+-- configureHolder) so a swipe reaches this controller instead of being eaten by
+-- the button, which also means the default camera registers the finger as an
+-- unsunk pan touch and rotates the world behind the blurred menu for the whole
+-- drag. PlayerModule caches that sunk flag when the touch *begins*
+-- (CameraInput's touches[input] = sunk), so nothing bound mid-drag can take it
+-- back: the press has to land on an Active GuiObject in the first place. The
+-- catcher lives one DisplayOrder below the Menu, so menu buttons still win the
+-- hit test and only presses nothing else claimed -- pack swipes, tap-anywhere
+-- to continue -- are sunk here. It is only visible while a reveal is on screen,
+-- so it also blocks walking for those few seconds, which is what a modal
+-- reveal wants anyway.
+local function onRevealPress(input)
+	if not (isPressInput(input) and activeReveal) then
+		return
+	end
+	if awaitingAdvance then
+		advanceReveal()
+	else
+		beginDrag(input)
+	end
+end
+
+local function ensureCatcher()
+	if catcherButton and catcherButton.Parent then
+		return
+	end
+
+	local menu = currentMenu()
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	if not (menu and playerGui) then
+		return
+	end
+
+	local gui = playerGui:FindFirstChild(CATCHER_GUI_NAME)
+	if not (gui and gui:IsA("ScreenGui")) then
+		gui = Instance.new("ScreenGui")
+		gui.Name = CATCHER_GUI_NAME
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = menu.DisplayOrder - 1
+		gui.Parent = playerGui
+	end
+
+	local button = gui:FindFirstChild(CATCHER_BUTTON_NAME)
+	if not (button and button:IsA("TextButton")) then
+		button = Instance.new("TextButton")
+		button.Name = CATCHER_BUTTON_NAME
+		button.Size = UDim2.fromScale(1, 1)
+		button.BackgroundTransparency = 1
+		button.BorderSizePixel = 0
+		button.AutoButtonColor = false
+		button.Selectable = false
+		button.Text = ""
+		button.Visible = false
+		button.Parent = gui
+		RuntimeGuard.Connect(button.InputBegan, "SeedPackShopController.CatcherInputBegan", onRevealPress)
+	end
+
+	catcherButton = button
+end
+
 local function bindHeaderScrollButtons()
 	local panel = MenuGui.GetFrame(ROBUX_PANEL_NAME, "SeedPackShopController")
 	local header = panel and findDescendant(panel, "Header", "GuiObject")
@@ -1162,6 +1204,7 @@ function SeedPackShopController.start()
 
 	applySeedPacksVisibility()
 	bindHeaderScrollButtons()
+	ensureCatcher()
 
 	local rows = {}
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
@@ -1193,6 +1236,7 @@ function SeedPackShopController.start()
 		close = function(switching)
 			rollOpen = false
 			resetDragState()
+			setCatcherActive(false)
 			if switching then
 				rollPanel.Visible = false
 				rollPanel.Position = rollPanelState.closedPosition
@@ -1226,11 +1270,9 @@ function SeedPackShopController.start()
 				openAllWithKeybind()
 			end
 		elseif isPressInput(input) then
-			if awaitingAdvance then
-				advanceReveal()
-			else
-				beginDrag(input)
-			end
+			-- Fallback for the rare run where the catcher could not be created:
+			-- while it is up these presses arrive gameProcessed and stop above.
+			onRevealPress(input)
 		end
 	end)
 	RuntimeGuard.Connect(UserInputService.InputChanged, "SeedPackShopController.InputChanged", continueDrag)
