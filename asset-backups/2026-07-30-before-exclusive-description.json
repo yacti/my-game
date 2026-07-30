@@ -1,0 +1,22 @@
+{
+  "date": "2026-07-30",
+  "change": "Add ExclusiveDescription attribute to Exclusive feed machines and an ExclusiveDescription label to the Index PatchTreeInfoFrame",
+  "rollback": "Delete the listed attributes, delete ReplicatedStorage.UI.Menu.Index.PatchTreeInfoFrame.ExclusiveDescription, restore PetInfoFrame.ExclusiveDescription.Visible = true",
+  "priorState": {
+    "ReplicatedStorage.Assets.FeedMachines.Tree.Coconut Tree": { "ExclusiveDescription": null },
+    "ReplicatedStorage.Assets.FeedMachines.Tree.Lychee Tree": { "ExclusiveDescription": null },
+    "ReplicatedStorage.Assets.FeedMachines.Patch.Agave Patch": { "ExclusiveDescription": null },
+    "ReplicatedStorage.Assets.FeedMachines.Patch.Wildflower Patch": { "ExclusiveDescription": null },
+    "ReplicatedStorage.Assets.FeedMachines.Patch.Rose Patch": { "ExclusiveDescription": null },
+    "ReplicatedStorage.Assets.FeedMachines.Patch.Sunflower Patch": { "ExclusiveDescription": null },
+    "ReplicatedStorage.UI.Menu.Index.PetInfoFrame.ExclusiveDescription": {
+      "Visible": true,
+      "Text": "Stormchaser Event",
+      "Position": "{0.5, 0}, {0.827412486, 0}",
+      "Size": "{1, 0}, {0.0856983662, 0}",
+      "ZIndex": 2,
+      "note": "authored visible with placeholder text; nothing drove it before this change, so every pet card showed 'Stormchaser Event'"
+    },
+    "ReplicatedStorage.UI.Menu.Index.PatchTreeInfoFrame.ExclusiveDescription": null
+  }
+}

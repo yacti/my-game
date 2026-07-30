@@ -14,6 +14,9 @@ State.Pet = {
 	NicknameColor = "PetNicknameColor",
 	Rarity    = "Rarity",
 	IsGolden  = "IsGolden",
+	-- Display-only source blurb for Exclusive pets, e.g. "Bee Event"; shown in
+	-- the Index info panel. Same attribute name as State.Feed.
+	ExclusiveDescription = "ExclusiveDescription",
 	WalkSpeed = "PetWalkSpeed",
 	MotionState = "PetMotionState",
 	SegmentData = "PetSegmentData",
@@ -149,6 +152,9 @@ State.Feed = {
 	Index = "FeedIndex",
 	Class = "FeedClass", -- broad behavior class, e.g. Patch, Processor, Tree
 	Rarity = "ItemRarity", -- display-only feed-machine rarity; roll odds use RollChanceN
+	-- Display-only source blurb for Exclusive machines, e.g. "Bee Event";
+	-- shown in the Index info panel.
+	ExclusiveDescription = "ExclusiveDescription",
 	RollChanceN = "RollChanceN", -- roll odds denominator, e.g. 50 means base weight 1/50
 	Price = "Price",
 	Plot  = "Plot",

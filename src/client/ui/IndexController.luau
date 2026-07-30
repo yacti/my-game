@@ -120,6 +120,16 @@ local function rarityOrderIndex(rarity)
 	return #Rarities.Order + 1
 end
 
+-- Optional source blurb for event-exclusive entries, e.g. "Bee Event". Authored
+-- per template; entries without one hide the info-panel label.
+local function exclusiveDescriptionOf(template, attributeName)
+	local description = template:GetAttribute(attributeName)
+	if type(description) == "string" and description ~= "" then
+		return description
+	end
+	return nil
+end
+
 -- ── Catalog builders ──────────────────────────────────────────────────────────
 
 local function buildPetEntries()
@@ -142,6 +152,7 @@ local function buildPetEntries()
 				order = tonumber(template:GetAttribute(State.Pet.Order)) or math.huge,
 				rarity = validRarityOr(template:GetAttribute(State.Pet.Rarity), Rarities.Common),
 				isGolden = template:GetAttribute(State.Pet.IsGolden) == true,
+				exclusiveDescription = exclusiveDescriptionOf(template, State.Pet.ExclusiveDescription),
 				moneyRate = tonumber(template:GetAttribute(State.Pet.MoneyRate)) or 1,
 			}
 		end
@@ -195,6 +206,7 @@ local function buildFeedEntries()
 						chanceN = Seeds.RollChanceNForFeedType(feedType),
 						eventOnly = Seeds.IsEventOnlyFeedType(feedType),
 						isGolden = Seeds.IsGoldenFeedType(feedType),
+						exclusiveDescription = exclusiveDescriptionOf(template, State.Feed.ExclusiveDescription),
 						pct = tonumber(template:GetAttribute(State.Feed.PercentageOfBest)),
 						foodDrop = template:GetAttribute(State.Feed.FoodDrop),
 						xp = tonumber(template:GetAttribute(State.Feed.XP)),
@@ -587,6 +599,17 @@ function IndexController.start()
 		end
 	end
 
+	-- Event source blurb (authored hidden in both info frames): static template
+	-- metadata, so it shows for event-exclusive entries whether or not they are
+	-- discovered, same as PercentageOfBest.
+	local function applyExclusiveDescription(parent, entry)
+		local label = parent:FindFirstChild("ExclusiveDescription")
+		if label and label:IsA("TextLabel") then
+			label.Text = entry.exclusiveDescription or ""
+			label.Visible = entry.exclusiveDescription ~= nil
+		end
+	end
+
 	local function stopLiveXP()
 		liveXPToken += 1
 	end
@@ -617,6 +640,7 @@ function IndexController.start()
 			setLabelText(petInfoFrame, "PetOrder", string.format("%d/%d", entry.order, #entriesForTab(TAB_PETS)))
 			applyRarityLabel(petInfoFrame, entry.rarity)
 			applyGoldenLabel(petInfoFrame, entry)
+			applyExclusiveDescription(petInfoFrame, entry)
 			setLabelText(petInfoFrame, "CashEarned",
 				locked and LOCKED_STAT_TEXT or (NumberFormatter.Currency(entry.moneyRate) .. "/ second"))
 			local icon = petInfoFrame:FindFirstChild("Icon")
@@ -631,6 +655,7 @@ function IndexController.start()
 		setLabelText(patchTreeInfoFrame, "Name", locked and LOCKED_NAME_TEXT or entry.displayName)
 		applyRarityLabel(patchTreeInfoFrame, entry.rarity)
 		applyGoldenLabel(patchTreeInfoFrame, entry)
+		applyExclusiveDescription(patchTreeInfoFrame, entry)
 
 		local chanceLabel = patchTreeInfoFrame:FindFirstChild("Chance")
 		if chanceLabel and chanceLabel:IsA("TextLabel") then
