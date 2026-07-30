@@ -28,10 +28,16 @@ local started = false
 local container = nil
 local template = nil
 local active = {}
--- Mythical-kind notifications animate their text colour with the Mythical
--- rarity rainbow. One shared heartbeat runs only while any are on screen.
-local rainbowEntries = {}
-local rainbowConnection = nil
+-- Some kinds animate their text colour: Mythical rides the Mythical rarity
+-- rainbow, Golden shimmers between the two golds in NotificationConfig. One
+-- shared heartbeat runs only while at least one such toast is on screen.
+local animatedEntries = {} -- [entry] = kind
+local animatedConnection = nil
+
+local ANIMATED_KINDS = {
+	[NotificationConfig.Kinds.Mythical] = true,
+	[NotificationConfig.Kinds.Golden] = true,
+}
 
 local function findContainer(hud)
 	local found = hud:FindFirstChild(CONTAINER_NAME, true)
@@ -69,27 +75,36 @@ local function applyItemStyle(label, payload)
 	label.Visible = true
 end
 
-local function stopRainbowIfIdle()
-	if rainbowConnection and next(rainbowEntries) == nil then
-		rainbowConnection:Disconnect()
-		rainbowConnection = nil
+local function stopAnimationIfIdle()
+	if animatedConnection and next(animatedEntries) == nil then
+		animatedConnection:Disconnect()
+		animatedConnection = nil
 	end
 end
 
-local function ensureRainbowLoop()
-	if rainbowConnection then
+-- At most MaxVisible toasts exist, so sampling per entry is cheaper than
+-- caching a colour per kind each frame.
+local function animatedColor(kind, clock)
+	if kind == NotificationConfig.Kinds.Golden then
+		return NotificationConfig.GoldenColorAt(clock)
+	end
+	return Rarities.ColorFor(Rarities.Mythical, clock)
+end
+
+local function ensureAnimationLoop()
+	if animatedConnection then
 		return
 	end
-	rainbowConnection = RuntimeGuard.Connect(RunService.Heartbeat, "Notifications.MythicalRainbow", function()
-		local color = Rarities.ColorFor(Rarities.Mythical, os.clock())
-		for entry in pairs(rainbowEntries) do
+	animatedConnection = RuntimeGuard.Connect(RunService.Heartbeat, "Notifications.AnimatedColors", function()
+		local clock = os.clock()
+		for entry, kind in pairs(animatedEntries) do
 			if entry.removing or not entry.label.Parent then
-				rainbowEntries[entry] = nil
+				animatedEntries[entry] = nil
 			else
-				entry.label.TextColor3 = color
+				entry.label.TextColor3 = animatedColor(kind, clock)
 			end
 		end
-		stopRainbowIfIdle()
+		stopAnimationIfIdle()
 	end)
 end
 
@@ -114,8 +129,8 @@ end
 local function destroyEntry(entry, animate)
 	if entry.removing then return end
 	entry.removing = true
-	rainbowEntries[entry] = nil
-	stopRainbowIfIdle()
+	animatedEntries[entry] = nil
+	stopAnimationIfIdle()
 	forget(entry)
 
 	local label = entry.label
@@ -169,9 +184,9 @@ function Notifications.show(payload)
 	reflow()
 	trimToMaxVisible()
 
-	if normalized.kind == NotificationConfig.Kinds.Mythical then
-		rainbowEntries[entry] = true
-		ensureRainbowLoop()
+	if ANIMATED_KINDS[normalized.kind] then
+		animatedEntries[entry] = normalized.kind
+		ensureAnimationLoop()
 	end
 
 	TweenService:Create(label, SHOW_TWEEN, { TextTransparency = 0 }):Play()

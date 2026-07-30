@@ -12,6 +12,9 @@ Notifications.Kinds = {
 	-- Text colour animates with the Mythical rarity rainbow (see Rarities)
 	-- while the notification is on screen.
 	Mythical = "mythical",
+	-- Text colour shimmers between the two golds below (see GoldenColorAt)
+	-- while the notification is on screen. Used by the Golden Pinata spawn toast.
+	Golden = "golden",
 }
 
 Notifications.TextColors = {
@@ -20,7 +23,32 @@ Notifications.TextColors = {
 	[Notifications.Kinds.Error] = Color3.fromRGB(255, 105, 105),
 	[Notifications.Kinds.Rebirth] = Color3.fromRGB(210, 80, 255),
 	[Notifications.Kinds.Mythical] = Color3.fromRGB(255, 0, 255),
+	-- First stop of the shimmer, so the frame before the animation loop's first
+	-- tick is already gold rather than a flash of another colour.
+	[Notifications.Kinds.Golden] = Color3.fromRGB(255, 184, 0),
 }
+
+-- The Golden shimmer: one period travels to the second gold and back. Pure and
+-- clock-driven, matching Rarities.ColorFor, so the client can sample it per
+-- frame with no per-toast state.
+Notifications.GoldenTweenColors = {
+	Color3.fromRGB(255, 184, 0),
+	Color3.fromRGB(255, 241, 0),
+}
+Notifications.GoldenTweenPeriod = 1.5
+
+function Notifications.GoldenColorAt(timeSeconds)
+	local from, to = Notifications.GoldenTweenColors[1], Notifications.GoldenTweenColors[2]
+	local period = Notifications.GoldenTweenPeriod
+	local clock = tonumber(timeSeconds) or 0
+	if clock ~= clock or period <= 0 then
+		return from
+	end
+	-- Cosine ping-pong: 0 at both ends of the period, 1 at the midpoint, so the
+	-- two stops ease into each other instead of snapping back.
+	local alpha = 0.5 - 0.5 * math.cos((clock / period) * math.pi * 2)
+	return from:Lerp(to, alpha)
+end
 
 local DEFAULT_KIND = Notifications.Kinds.Info
 

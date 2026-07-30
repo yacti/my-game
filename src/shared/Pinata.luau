@@ -16,6 +16,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local NotificationConfig = require(ReplicatedStorage.Shared:WaitForChild("Notifications"))
 local ShopBalance = require(ReplicatedStorage.Shared:WaitForChild("ShopBalance"))
 
 local Pinata = {}
@@ -193,6 +194,8 @@ Pinata.Variants = {
 		ModelName = "DefaultPinata",
 		DisplayName = "Pinata",
 		MaxHp = 5, -- TEST VALUE, ships as 250
+		-- Notification kind for the spawn toast: the rarity rainbow.
+		ToastKind = NotificationConfig.Kinds.Mythical,
 		-- Billboard sits above a ~9.5 stud model.
 		BillboardStudsOffsetY = 6,
 		Pool = {
@@ -207,6 +210,8 @@ Pinata.Variants = {
 		ModelName = "GoldenPinata",
 		DisplayName = "Golden Pinata",
 		MaxHp = 5, -- TEST VALUE, ships as 1000
+		-- Gold shimmer instead of the rainbow, so the rarer variant reads as gold.
+		ToastKind = NotificationConfig.Kinds.Golden,
 		-- Golden is ~17.2 studs tall, so the authored 6-stud offset would put
 		-- the health bar inside the model.
 		BillboardStudsOffsetY = 10,

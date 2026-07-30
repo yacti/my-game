@@ -199,12 +199,14 @@ local function setParticles(model, enabled)
 end
 
 local function announceSpawn(config)
-	local text = string.format("A %s has appeared! Grab a stick!", config.DisplayName)
+	-- DisplayName carries the variant ("Pinata" / "Golden Pinata"), so one format
+	-- string covers both and the Golden toast animates via its ToastKind.
+	local text = string.format("A %s has appeared!", config.DisplayName)
 	for _, player in ipairs(Players:GetPlayers()) do
 		if EventEligibility.IsEligible(player) then
 			RuntimeGuard.Run("PinataService.AnnounceSpawn", function()
 				NotificationService.Notify(player, {
-					kind = NotificationConfig.Kinds.Mythical,
+					kind = config.ToastKind or NotificationConfig.Kinds.Mythical,
 					text = text,
 					lifetime = SPAWN_TOAST_LIFETIME,
 				})
