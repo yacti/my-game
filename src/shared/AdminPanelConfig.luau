@@ -45,6 +45,9 @@ AdminPanelConfig.Actions = {
 	RemoveAdminLuck = "RemoveAdminLuck",
 	AlienStart = "AlienStart",
 	AlienStop = "AlienStop",
+	-- Sprinkle runs until Stop with a hidden failsafe, same shape as Alien.
+	SprinkleStart = "SprinkleStart",
+	SprinkleStop = "SprinkleStop",
 	PadOn = "PadOn",
 	PadOff = "PadOff",
 	DropCrate = "DropCrate",

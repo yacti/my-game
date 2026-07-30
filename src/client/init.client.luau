@@ -92,6 +92,7 @@ local CONTROLLERS = {
 	"ProcessorVisuals",
 	"CloudController",
 	"AlienEventController",
+	"SprinkleEventController",
 	"FeedPlacement",
 	"TreeClickController",
 	"RebirthController",

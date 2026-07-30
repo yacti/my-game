@@ -186,6 +186,22 @@ local function runAction(player, payload)
 		return false, tostring(countOrCode)
 	end
 
+	if action == Actions.SprinkleStart then
+		local ok, result = LiveEventCommandService.StartGlobalEvent("Sprinkle", { operatorNote = note })
+		if ok then
+			return true, "sprinkle-started"
+		end
+		return false, tostring(result)
+	end
+
+	if action == Actions.SprinkleStop then
+		local ok, countOrCode = LiveEventCommandService.StopGlobalEventsByEventId("Sprinkle")
+		if ok then
+			return true, "sprinkle-stopped (" .. tostring(countOrCode) .. ")"
+		end
+		return false, tostring(countOrCode)
+	end
+
 	if action == Actions.PadOn or action == Actions.PadOff then
 		local ok, result = LiveEventCommandService.SetAdminPartyPad(action == Actions.PadOn, {
 			operatorNote = note,

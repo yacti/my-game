@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 local Server = script.Parent
 local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
 local PlotBeeService = require(Server:WaitForChild("PlotBeeService"))
+local PlotSprinkleService = require(Server:WaitForChild("PlotSprinkleService"))
 local PlotEarthquakeService = require(Server:WaitForChild("PlotEarthquakeService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotTornadoService = require(Server:WaitForChild("PlotTornadoService"))
@@ -330,6 +331,12 @@ local handlers = {
 		end,
 		stop = PlotBeeService.StopBee,
 		preNotice = PlotBeeService.NotifyBeesApproaching,
+	},
+	[GameEvents.Ids.Sprinkle] = {
+		start = function(record, callbacks)
+			PlotSprinkleService.StartSprinkle(record, callbacks)
+		end,
+		stop = PlotSprinkleService.StopSprinkle,
 	},
 }
 

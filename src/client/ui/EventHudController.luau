@@ -36,6 +36,14 @@ local EVENT_TIMER_NAMES = {
 	[GameEvents.Ids.Bee] = "Bees",
 }
 
+-- Events deliberately kept out of the TopBar because Studio has no frame for
+-- them. Sprinkle announces itself with toasts instead; authoring a Sprinkle
+-- frame under HUD.TopBar.CurrentEvent and deleting this entry is all it takes
+-- to promote it.
+local HIDDEN_EVENT_IDS = {
+	[GameEvents.Ids.Sprinkle] = true,
+}
+
 local player = Players.LocalPlayer
 local started = false
 local warned = {}
@@ -139,14 +147,24 @@ local function activeRecords()
 end
 
 local function displayedRecords(records)
+	-- Events with no authored HUD.TopBar.CurrentEvent frame never enter the
+	-- carousel. Filtering here (rather than letting setCurrentEventFrame warn and
+	-- blank the bar) keeps the top bar showing whatever else is running.
+	local visible = {}
+	for _, record in ipairs(records) do
+		if not HIDDEN_EVENT_IDS[record.eventId] then
+			visible[#visible + 1] = record
+		end
+	end
+
 	-- Alien is the admin party presentation. It must remain on screen instead
 	-- of participating in the normal three-second active-event carousel.
-	for _, record in ipairs(records) do
+	for _, record in ipairs(visible) do
 		if record.eventId == GameEvents.Ids.Alien then
 			return { record }
 		end
 	end
-	return records
+	return visible
 end
 
 local function setCurrentEventFrame(container, frameName)

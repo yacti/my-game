@@ -263,6 +263,9 @@
         },
         "RollBroadcastEffect": {
           "$className": "RemoteEvent"
+        },
+        "SprinkleEventEffect": {
+          "$className": "RemoteEvent"
         }
       },
       "Sounds": {

@@ -895,6 +895,80 @@ function TreeClicker.ApplyMutation(machine, targetKey, mutationId)
 	}
 end
 
+-- Growth-boost targets (Sprinkle event). Unlike mutation targets these carry no
+-- mutation gate -- a boost is a plain XP multiply that leaves no permanent tag,
+-- so an already-mutated pile is still eligible.
+function TreeClicker.CollectBoostTargets(machine)
+	local s = machine and state[machine]
+	if not (s and machine.Parent) then
+		return {}
+	end
+	local targets = {}
+	for _, slot in ipairs(s.slots) do
+		clearExpiredGroundStealReservation(slot)
+		-- A live steal reservation locked this pile's price at reservation time;
+		-- moving its XP underneath the thief would desync what they were quoted.
+		if slot.ground and slot.ground.stealReservationId == nil then
+			targets[#targets + 1] = {
+				kind = "Tree",
+				machine = machine,
+				targetKey = slot.n,
+				position = slot.marker.Position,
+				foodId = slot.ground.foodId,
+			}
+		end
+	end
+	return targets
+end
+
+function TreeClicker.ApplyGrowthBoost(machine, targetKey, multiplier)
+	local s = machine and state[machine]
+	if not s then
+		return false, "not-ready"
+	end
+	multiplier = tonumber(multiplier)
+	if not multiplier or multiplier ~= multiplier or multiplier <= 0 then
+		return false, "invalid-multiplier"
+	end
+	targetKey = tonumber(targetKey)
+	local slot = nil
+	for _, candidate in ipairs(s.slots) do
+		if candidate.n == targetKey then
+			slot = candidate
+			break
+		end
+	end
+	if not (slot and slot.ground) then
+		return false, "no-food"
+	end
+	clearExpiredGroundStealReservation(slot)
+	if slot.ground.stealReservationId ~= nil then
+		return false, "reserved"
+	end
+
+	-- Ground pile XP is a plain accumulated number (see addXPToSlotGround), so
+	-- the boost is a straight multiply and republish -- exactly what
+	-- ApplyMutation does, and deliberately NOT rounded. A stepped ramp uses
+	-- per-step multipliers near 1.04, and flooring each step pins any small pile
+	-- to its current integer forever: measured, a 2 XP pile took ten steps of
+	-- x1.0413 and came out still worth 2. Fractional pile XP is already normal
+	-- here (mutation multipliers produce it and Food.MakeTool carries it).
+	slot.ground.xp = slot.ground.xp * multiplier
+	setGroundMarkerState(
+		slot.ground.marker,
+		slot,
+		slot.ground.foodId,
+		slot.ground.xp,
+		slot.ground.mutationIds,
+		slot.ground.primaryMutationId
+	)
+	return true, {
+		position = slot.ground.marker.Position,
+		foodId = slot.ground.foodId,
+		xp = slot.ground.xp,
+	}
+end
+
 function TreeClicker.ReserveStealTarget(ground, player, reservationId, expiresAt)
 	if type(reservationId) ~= "string" or reservationId == "" then return false, "invalid-reservation" end
 	local record = recordForGround(ground)

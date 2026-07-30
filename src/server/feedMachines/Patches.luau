@@ -772,6 +772,76 @@ function Patches.ApplyMutation(machine, targetKey, mutationId)
 	}
 end
 
+-- Growth-boost targets (Sprinkle event). No mutation gate: a boost is a plain
+-- XP multiply that leaves no permanent tag, so already-mutated fruit is still
+-- eligible. Respawning slots have nothing to boost.
+function Patches.CollectBoostTargets(machine)
+	local s = state[machine]
+	if not (s and machine.Parent) then
+		return {}
+	end
+	local targets = {}
+	for slotIndex, slot in ipairs(s.slots) do
+		clearExpiredSlotStealReservation(slot)
+		-- A live steal reservation locked this fruit's price at reservation time;
+		-- moving its XP underneath the thief would desync what they were quoted.
+		if not slot.respawnAt and slot.foodPart and slot.stealReservationId == nil then
+			local position = slotPosition(slot)
+			if position then
+				targets[#targets + 1] = {
+					kind = "Patch",
+					machine = machine,
+					targetKey = slotIndex,
+					position = position,
+					foodId = slot.foodId,
+				}
+			end
+		end
+	end
+	return targets
+end
+
+-- Re-anchors the slot exactly the way ApplyMutation does, minus every piece of
+-- mutation bookkeeping. Patch XP is never ticked or replicated per interval --
+-- it is derived from (baseXP, growthStart) by PatchGrowth.ComputeXPFromState --
+-- so the boost is "bake the current derived XP times the multiplier into
+-- baseXP, then restart the growth clock mid-interval".
+--
+-- Preserving `residual` is what keeps natural growth intact: without it every
+-- boost would also silently reset the player's progress toward the next XP tick.
+--
+-- Because PatchSlotVisuals recomputes ScaleTo from these same attributes every
+-- heartbeat, a stepped ramp of these calls makes the fruit visibly swell with no
+-- client-side code at all.
+function Patches.ApplyGrowthBoost(machine, targetKey, multiplier)
+	local s = state[machine]
+	local slot = s and s.slots[tonumber(targetKey) or 0]
+	if not (slot and slot.foodPart and not slot.respawnAt) then
+		return false, "no-food"
+	end
+	multiplier = tonumber(multiplier)
+	if not multiplier or multiplier ~= multiplier or multiplier <= 0 then
+		return false, "invalid-multiplier"
+	end
+	clearExpiredSlotStealReservation(slot)
+	if slot.stealReservationId ~= nil then
+		return false, "reserved"
+	end
+
+	local now = serverNow()
+	local growRate = growRateFor(machine)
+	local elapsed = type(slot.growthStart) == "number" and math.max(now - slot.growthStart, 0) or 0
+	local residual = elapsed - (math.floor(elapsed / growRate) * growRate)
+	slot.baseXP = slotXPNow(machine, slot, now) * multiplier
+	slot.growthStart = now - residual
+	publishSlotGrowth(slot)
+	return true, {
+		position = slotPosition(slot),
+		foodId = slot.foodId,
+		xp = slot.baseXP,
+	}
+end
+
 function Patches.ReleaseSteal(machine, reservation, reservationId)
 	local s = machine and state[machine]
 	if not s then return false end

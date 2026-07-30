@@ -1,0 +1,35 @@
+{
+  "date": "2026-07-30",
+  "change": "Sprinkle chaos event: rename the AdminPanel row frame SpinkleGrowth -> SprinkleGrowth (authored typo), set MagicWand.PrimaryPart = Handle so the client weld can find the grip, and author IdleAnimationId / WalkAnimationId attributes on the yactiNPC template (its bundled Animate LocalScript cannot run on a client-rendered NPC).",
+  "rollback": "Rename ReplicatedStorage.UI.Menu.AdminPanel.Panel.SprinkleGrowth back to SpinkleGrowth, set ReplicatedStorage.Assets.Misc.MagicWand.PrimaryPart = nil, and delete both attributes from ReplicatedStorage.Assets.Misc.yactiNPC.",
+  "priorState": {
+    "ReplicatedStorage.UI.Menu.AdminPanel.Panel.SpinkleGrowth": {
+      "Name": "SpinkleGrowth",
+      "ClassName": "Frame",
+      "children": ["Title", "Start", "Stop"]
+    },
+    "ReplicatedStorage.Assets.Misc.MagicWand": {
+      "PrimaryPart": null,
+      "children": ["Handle (Part)", "Union (UnionOperation) -> Emit (Attachment)"]
+    },
+    "ReplicatedStorage.Assets.Misc.yactiNPC": {
+      "IdleAnimationId": null,
+      "WalkAnimationId": null,
+      "PrimaryPart": "HumanoidRootPart"
+    }
+  },
+  "newState": {
+    "ReplicatedStorage.UI.Menu.AdminPanel.Panel.SprinkleGrowth": { "Name": "SprinkleGrowth" },
+    "ReplicatedStorage.Assets.Misc.MagicWand": { "PrimaryPart": "Handle" },
+    "ReplicatedStorage.Assets.Misc.yactiNPC": {
+      "IdleAnimationId": "",
+      "WalkAnimationId": "rbxassetid://507777826",
+      "Scale": "ScaleTo(4) — was authored ScaleTo(6). Player avatars measure 5.783 studs, so this is 4x player scale. The MagicWand clone is scaled by rigScale/6 at runtime (SprinkleEvent.AssetsAuthoredAtRigScale) so it stays in proportion, and the walk animation rate is divided by rig scale, so both follow any future rescale with no code change."
+    }
+  },
+  "notes": [
+    "IdleAnimationId is deliberately BLANK. The stock R15 idle (507766666) retargets onto this ~4x-scale rig as a splay-legged crouch: measured root-to-feet is 20.1 in the rig's neutral pose but 26.2-28.0 through that idle cycle, with the feet 9 studs apart. With the attribute blank, SprinkleEventController calibrates and holds the neutral standing pose instead; the wand arm is driven by code, not by a track, so the performance is unaffected. Set a suitable idle id here and it will be picked up with no code change.",
+    "The walk id is Roblox's stock R15 walk. It also retargets imperfectly (root-to-feet swings 14.2-21.2 across the cycle, so he floats a little mid-stride) but reads acceptably; the controller calibrates whatever is set here.",
+    "SprinkleSparklesParticle deliberately keeps Enabled = true in the template. The client clone disables it and uses :Emit(), matching how Assets.VFX.Confetti is handled."
+  ]
+}

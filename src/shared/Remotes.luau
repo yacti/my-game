@@ -92,6 +92,7 @@ Remotes.Names = {
 	BeeDepositResult = "BeeDepositResult",
 	PlayerSettingsUpdateRequest = "PlayerSettingsUpdateRequest",
 	RollBroadcastEffect = "RollBroadcastEffect",
+	SprinkleEventEffect = "SprinkleEventEffect",
 }
 
 local Definitions = {
@@ -174,6 +175,7 @@ local Definitions = {
 	[Remotes.Names.BeeDepositResult] = "RemoteEvent",
 	[Remotes.Names.PlayerSettingsUpdateRequest] = "RemoteEvent",
 	[Remotes.Names.RollBroadcastEffect] = "RemoteEvent",
+	[Remotes.Names.SprinkleEventEffect] = "RemoteEvent",
 }
 
 local function getFolder()

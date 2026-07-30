@@ -324,6 +324,29 @@ function FeedMachines.ApplyMutation(machine, targetKey, mutationId)
 	return false, "unsupported"
 end
 
+function FeedMachines.CollectBoostTargets(machine)
+	local mod = impl(machine)
+	if mod and mod.CollectBoostTargets then
+		local ok, targets = RuntimeGuard.Run("FeedMachines.CollectBoostTargets", mod.CollectBoostTargets, machine)
+		if ok and type(targets) == "table" then
+			return targets
+		end
+	end
+	return {}
+end
+
+function FeedMachines.ApplyGrowthBoost(machine, targetKey, multiplier)
+	local mod = impl(machine)
+	if mod and mod.ApplyGrowthBoost then
+		local results = table.pack(RuntimeGuard.Run("FeedMachines.ApplyGrowthBoost", mod.ApplyGrowthBoost, machine, targetKey, multiplier))
+		if results[1] ~= true then
+			return false, "apply-failed"
+		end
+		return table.unpack(results, 2, results.n)
+	end
+	return false, "unsupported"
+end
+
 function FeedMachines.ReserveCollectAll(machine, player, reservationId, expiresAt, limit)
 	local mod = impl(machine)
 	if mod and mod.ReserveCollectAll then

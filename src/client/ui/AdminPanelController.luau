@@ -16,6 +16,8 @@
 --   Pinata                       -> one-shot pinata spawn (Default / Golden,
 --                                   one per press, every server) and a global
 --                                   CLEAR that removes them with no payout
+--   SprinkleGrowth               -> global Sprinkle start/stop (yactiNPC tours
+--                                   farms boosting food XP)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -308,6 +310,13 @@ local function bindPanel(panelFrame)
 			bindSimpleButton(pinata, entry.button, Actions.SpawnPinata, { variant = entry.variant })
 		end
 		bindSimpleButton(pinata, "ClearAll", Actions.ClearPinatas)
+	end
+
+	local sprinkleGrowth = section(panel, "SprinkleGrowth")
+	if sprinkleGrowth then
+		-- Runs until Stop, with a hidden 30-minute failsafe (same shape as Alien).
+		bindSimpleButton(sprinkleGrowth, "Start", Actions.SprinkleStart)
+		bindSimpleButton(sprinkleGrowth, "Stop", Actions.SprinkleStop)
 	end
 
 	renderAll = function()

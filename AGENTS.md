@@ -155,6 +155,7 @@ Key server modules:
 - `FeedMachineTools`: feed tool cloning and attributes.
 - `ShovelTools`: non-persisted utility shovel cloning and identity.
 - `PinataService`: admin-spawned pinatas — spawn-slot occupancy in `Workspace.Pinatas`, server-wide HP, the per-`UserId` damage ledger, the largest-remainder reward split, owner-tagged `PhysicalRewards` drops collected by a bounded proximity sweep, and the welded `PinataStick` proximity loop. One-shot and non-durable; driven by `LiveEventCommandService.SpawnPinata`/`ClearPinatas`. The stick is a welded Model, never a `Tool`, so it cannot displace the equipped tool that `Food.GetEquipped` and the deposit prompts read.
+- `PlotSprinkleService`: the Sprinkle chaos event — yactiNPC tours eligible farms and multiplies nearby patch-slot and tree-ground-pile XP by 1.5x per 5-second wave, applied as ten ramp steps whose product is exactly the target multiplier. Same eligibility as `PlotAlienEventService`, but **turn-based**: one turn per player, never a revisit, late joiners append to the end of an 8-deep queue, and the event completes itself once the queue drains (plus a short grace). Stops are chosen by greedy maximum coverage over food standing on unlocked grid cells. Publishes one client "stage" (phase + two positions + two server timestamps) over `SprinkleEventEffect`; `src/client/ui/SprinkleEventController.luau` renders the NPC, wand, sparkles and sound entirely client-side. Admin-toggled from the panel's `SprinkleGrowth` row. See `docs/live-events.md`.
 - `NotificationService`: `PlayerNotification` wrapper.
 - `AssetValidator`: startup contracts for remotes, Replica native modules, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
@@ -286,6 +287,7 @@ Groups:
 - Durian Pack rolls: `DurianPackRollRequest`, `DurianPackRollResult`
 - Endless Pack claims: `EndlessPackClaimRequest`, `EndlessPackClaimResult`
 - Pinata swings: `PinataSwingRequest` (argument-free client intent; the server picks the nearest pinata)
+- Sprinkle event: `SprinkleEventEffect` (one-way push; `start`/`sync`/`stage`/`end`)
 - Rebirth: `RebirthRequest`, `RebirthResult`
 - Gifting: `GiftRequest`, `GiftResult`
 

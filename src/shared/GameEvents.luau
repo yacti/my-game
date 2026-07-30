@@ -25,6 +25,7 @@ GameEvents.Ids = {
 	Earthquake = "Earthquake",
 	Alien = "Alien",
 	Bee = "Bee",
+	Sprinkle = "Sprinkle",
 }
 
 GameEvents.LayerConfigs = {
@@ -295,6 +296,112 @@ GameEvents.EventConfigs = {
 			buzzSoundRange = 70,
 		},
 	},
+	[GameEvents.Ids.Sprinkle] = {
+		eventId = GameEvents.Ids.Sprinkle,
+		layer = GameEvents.Layers.Chaos,
+		source = GameEvents.Sources.AdminCommand,
+		-- No Sprinkle frame is authored under HUD.TopBar.CurrentEvent, so
+		-- EventHudController skips this event entirely (see its HIDDEN_EVENT_IDS).
+		-- Player feedback is toasts. Authoring a frame later is a one-line change.
+		displayFrame = nil,
+		-- Below Alien so a concurrent admin party keeps the TopBar and the Chaos
+		-- layer's displacement ordering; Chaos.maxActive = 3 fits both.
+		priority = 99,
+		displayPriority = 99,
+		-- Turn-based: a normal run ends on its own once every queued player has had
+		-- their single turn. This is the record length and the hidden failsafe
+		-- ceiling only -- the operator's Stop and the drained queue both finish it
+		-- long before this in practice.
+		maxGlobalDurationSeconds = 30 * 60,
+		-- Sprinkle boosts XP in place and leaves no permanent tag on the food.
+		appliedMutationId = nil,
+		sprinkle = {
+			failsafeDurationSeconds = 30 * 60,
+			-- Covers the 200-stud entrance fall plus the landing settle.
+			windUpSeconds = 4,
+			-- Covers the 200-stud exit rise plus the transparency fade, paced so
+			-- players can actually watch him leave (~33 studs/s) rather than
+			-- having him vanish upward in a second.
+			windDownSeconds = 6,
+			entranceFallStuds = 200,
+			exitRiseStuds = 200,
+
+			walkSpeedStuds = 20,
+			travelMinSeconds = 3,
+			travelMaxSeconds = 25,
+			turnRateDegrees = 360,
+			-- Ease applied at both ends of every move so arriving at a stop
+			-- decelerates instead of stopping dead.
+			phaseEaseSeconds = 0.4,
+
+			-- A grid cell is 16x16 and a full plot is only ~80x176, so a radius
+			-- much above this would cover the whole plot from anywhere on it and
+			-- make the stops invisible. Separation matches the radius so the
+			-- chosen areas never overlap.
+			--
+			-- Stop COUNT is driven by how much plot the player has bought, not by
+			-- crop layout: at or below singleStopMaxCells a farm always gets
+			-- exactly one sprinkle (a starter plot fits inside one wave anyway),
+			-- and above it the turn gets a random 1..maxStopsPerPlot so repeat
+			-- events do not play out identically.
+			singleStopMaxCells = 4,
+			maxStopsPerPlot = 3,
+			waveRadiusStuds = 24,
+			minStopSeparationStuds = 24,
+			standOffsetStuds = 6,
+
+			waveSeconds = 5,
+			waveXPMultiplier = 1.5,
+			-- The boost is applied as this many equal steps across waveSeconds so
+			-- patch fruit visibly swells (clients derive scale from the replicated
+			-- XP anchor, so the ramp needs no client code). See RampStepMultiplier.
+			waveRampSteps = 10,
+			waveRaiseSeconds = 0.6,
+			waveLowerSeconds = 0.6,
+			armRaiseDegrees = 100,
+			-- The wave is a two-axis stir, not a flat wiper: waveSwingDegrees is
+			-- the lateral sweep and waveForeAftDegrees the fore/aft component 90
+			-- degrees out of phase, so the wand tip traces an ellipse. Elbow,
+			-- wrist, head and waist read the same wave through SprinkleEvent.WaveLag
+			-- and therefore trail it, which is what makes the arm whip and the head
+			-- follow the wand instead of everything moving as one rigid piece.
+			waveSwingDegrees = 38,
+			waveForeAftDegrees = 20,
+			elbowSwingDegrees = 24,
+			wristSwingDegrees = 30,
+			headSwingDegrees = 18,
+			headNodDegrees = 7,
+			waistSwingDegrees = 9,
+			waveSwingHz = 1.15,
+
+			-- Tuned down from 12-per-0.15s, which put ~400 live particles on screen
+			-- at once (the emitter's authored Lifetime is 5-10s, so bursts stack)
+			-- and whited out the whole farm. ~14 bursts of 4 reads as a sprinkle.
+			sparkleBurstCount = 4,
+			sparkleBurstSeconds = 0.35,
+			magicSoundSeconds = 1,
+			-- MagicSound is authored RollOffMaxDistance = 10000 (audible map-wide);
+			-- SoundEffects.Play must be given this explicit range.
+			magicSoundRange = 200,
+			magicSoundPitchVariance = 0.3,
+
+			-- Turn-based: ONE turn (1-3 stops) per player, never a revisit, and the
+			-- event ends once everyone queued has had theirs. Eight matches the live
+			-- server size. failsafeDurationSeconds is only the ceiling -- a normal
+			-- run completes early, as soon as the queue drains.
+			maxQueuedTurns = 8,
+			-- Short linger after the last turn so someone who becomes eligible just
+			-- as the queue empties still gets a turn (same idea as the storm's and
+			-- the bee's emptyQueueGraceSeconds). New joiners go on the END of the
+			-- queue, and a new arrival restarts this grace.
+			--
+			-- Deliberately much shorter than the storm's and bee's 10s: this is dead
+			-- time during which the whole server watches him stand still before he
+			-- jumps out, and the poll is once a second so 3s still catches a joiner.
+			emptyQueueGraceSeconds = 3,
+			interVisitPauseSeconds = 1,
+		},
+	},
 }
 
 -- One disaster per epoch hour at :30, rotating in fixed order (slot = epoch
@@ -355,6 +462,9 @@ function GameEvents.TotalDuration(config)
 	end
 	if type(config.bee) == "table" then
 		return select(4, GameEvents.BeeTimings(config))
+	end
+	if type(config.sprinkle) == "table" then
+		return select(4, GameEvents.SprinkleTimings(config))
 	end
 	return math.max(numeric(config.durationSeconds, 0), 0)
 end
@@ -551,6 +661,38 @@ function GameEvents.AlienTimings(config)
 	local windDown = math.max(numeric(alien.windDownSeconds, 6), 0)
 	local total = math.max(numeric(alien.failsafeDurationSeconds, 60 * 60), windUp + windDown)
 	return windUp, math.max(total - windUp - windDown, 0), windDown, total
+end
+
+-- Same shape as AlienTimings: an admin-toggled event whose record length IS its
+-- failsafe, so the active window is whatever is left after the entrance fall and
+-- the exit jump.
+function GameEvents.SprinkleTimings(config)
+	config = config or GameEvents.GetEvent(GameEvents.Ids.Sprinkle)
+	local sprinkle = type(config) == "table" and config.sprinkle or nil
+	sprinkle = type(sprinkle) == "table" and sprinkle or {}
+	local windUp = math.max(numeric(sprinkle.windUpSeconds, 4), 0)
+	local windDown = math.max(numeric(sprinkle.windDownSeconds, 3), 0)
+	local total = math.max(numeric(sprinkle.failsafeDurationSeconds, 30 * 60), windUp + windDown)
+	return windUp, math.max(total - windUp - windDown, 0), windDown, total
+end
+
+-- Multiplier for ramp step `step` of `steps`, so that the product of every step
+-- is EXACTLY waveXPMultiplier no matter how many steps are used:
+--
+--   m_k = (1 + (M-1)*k/N) / (1 + (M-1)*(k-1)/N)
+--
+-- Each step re-reads the target's current XP, so natural growth during the wave
+-- is preserved rather than frozen, and rounding cannot drift the total.
+function GameEvents.SprinkleRampStepMultiplier(multiplier, step, steps)
+	multiplier = numeric(multiplier, 1)
+	steps = math.max(math.floor(numeric(steps, 1)), 1)
+	step = math.clamp(math.floor(numeric(step, 1)), 1, steps)
+	local gain = multiplier - 1
+	local previous = 1 + gain * ((step - 1) / steps)
+	if previous <= 0 then
+		return 1
+	end
+	return (1 + gain * (step / steps)) / previous
 end
 
 local function compareLayerRecords(left, right)
