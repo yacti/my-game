@@ -27,15 +27,13 @@ AlienStand.MutationId = "Alien"
 -- Required deposits into the crate per tier, and the seed granted on
 -- completion. Tiers loop: completing the last tier restarts at 1.
 --
--- Placeholder rewards until the Alien-themed food is modelled: these are the
--- existing EventOnly + Exclusive Bee/StormChaser seeds, reused as-is. Their
--- authored ExclusiveDescription blurbs still credit their original event and
--- are deliberately left alone.
+-- The Alien-themed EventOnly + Exclusive patch seeds, ordered so reward
+-- strength climbs with cost: their authored PercentageOfBest values are
+-- AlienEggPatch 1.11, AlienFungusPatch 1.33, EyeshroomPatch 1.66.
 AlienStand.Tiers = {
-	-- The authored Studio SeedID is RosePatchSeed (not "RoseSeed").
-	{ required = 5, rewardSeedId = "RosePatchSeed" },
-	{ required = 10, rewardSeedId = "WildflowerSeed" },
-	{ required = 20, rewardSeedId = "CoconutTreeSeed" },
+	{ required = 5, rewardSeedId = "AlienEggSeed" },
+	{ required = 10, rewardSeedId = "AlienFungusSeed" },
+	{ required = 20, rewardSeedId = "EyeshroomSeed" },
 }
 
 AlienStand.MaxDepositDistance = 14

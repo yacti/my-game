@@ -1,0 +1,19 @@
+{
+  "date": "2026-07-30",
+  "change": "Point the two new Alien event seeds at their patch machines. Alien Fungus Seed and Alien Egg Seed were authored with FeedType set to the FOOD id rather than the machine FeedType, so neither seed resolved to a machine.",
+  "rollback": "Set ReplicatedStorage.Assets.Seeds.Patches[\"Alien Fungus Seed\"].FeedType back to \"AlienFungus\" and [\"Alien Egg Seed\"].FeedType back to \"AlienEgg\" (this restores the startup failure).",
+  "priorState": {
+    "ReplicatedStorage.Assets.Seeds.Patches.Alien Fungus Seed": { "FeedType": "AlienFungus", "SeedID": "AlienFungusSeed" },
+    "ReplicatedStorage.Assets.Seeds.Patches.Alien Egg Seed": { "FeedType": "AlienEgg", "SeedID": "AlienEggSeed" }
+  },
+  "newState": {
+    "ReplicatedStorage.Assets.Seeds.Patches.Alien Fungus Seed": { "FeedType": "AlienFungusPatch" },
+    "ReplicatedStorage.Assets.Seeds.Patches.Alien Egg Seed": { "FeedType": "AlienEggPatch" }
+  },
+  "notes": [
+    "This was a startup failure, not a cosmetic slip: AssetValidator.validateSeeds adds an ERROR for any seed whose FeedType has no machine, and errors abort server boot. The place would not have started with these two seeds present.",
+    "Eyeshroom Seed was already correct (FeedType = EyeshroomPatch) and was not touched.",
+    "The machine FeedTypes are the authority: Alien Fungus Patch = AlienFungusPatch, Alien Egg Patch = AlienEggPatch, Eyeshroom Patch = EyeshroomPatch. The old values happened to match the FoodDrop/FoodId names (AlienFungus, AlienEgg), which is probably where the confusion came from.",
+    "All three patches already carry ExclusiveDescription = \"Alien Event\", so the Index blurb needs no change (unlike the placeholder Bee seeds they replace)."
+  ]
+}

@@ -19,10 +19,29 @@ local SCOPE_RANGE = 80
 local RANGE_CHECK_INTERVAL = 0.2
 local MAX_SCALE_UPDATES_PER_STEP = 80
 
+-- Blinking eyes, keyed by FoodId. The part squashes on Y about its own centre
+-- and springs back. Purely local: the food model itself is replicated, so
+-- every client in range runs this on its own copy and nobody sees a static
+-- eye. Timings are rolled per plant per client -- two players will not blink
+-- on the same frame, which is invisible in practice and costs no replication.
+local BLINK_FOODS = {
+	Eyeshroom = {
+		partName = "Eye",
+		minGapSeconds = 5,
+		maxGapSeconds = 30,
+		closeSeconds = 0.09,
+		openSeconds = 0.13,
+		-- Never all the way to zero: meshes render badly at zero scale.
+		squash = 0.12,
+	},
+}
+
 local player = Players.LocalPlayer
 local tracked = {} -- [foodModel] = record
 local pendingScaleSync = {} -- array of foodModels awaiting a one-shot true-scale apply
 local pendingScaleSyncSet = {} -- [foodModel] = true (dedup for pendingScaleSync)
+local blinking = {} -- [record] = true while a blink is mid-flight (per-frame work)
+local blinkRng = Random.new()
 
 local function isPatchSlotFood(obj)
 	if not (obj:IsA("BasePart") or obj:IsA("Model")) then return false end
@@ -56,7 +75,74 @@ local function cleanup(food)
 	local record = tracked[food]
 	if not record then return end
 	disconnectAll(record)
+	blinking[record] = nil
 	tracked[food] = nil
+end
+
+---------------------------------------------------------------------------
+-- Blinking eyes
+---------------------------------------------------------------------------
+
+-- The eye's size is always derived, never accumulated: baseSize is the size at
+-- model scale 1, so writing base * modelScale * squash stays correct no matter
+-- how many growth ScaleTo passes land mid-blink (ScaleTo multiplies sizes by
+-- the same factor this formula does), and the blink always resolves back to
+-- exactly the size growth alone would have produced.
+local function applyEyeSize(record, squash)
+	local eye = record.eye
+	if not (eye and eye.part.Parent) then return end
+	local scale = record.food:GetScale()
+	local base = eye.baseSize
+	eye.part.Size = Vector3.new(base.X * scale, base.Y * scale * squash, base.Z * scale)
+end
+
+local function scheduleNextBlink(record, now)
+	local config = record.eye.config
+	record.eye.nextBlinkAt = now + blinkRng:NextNumber(config.minGapSeconds, config.maxGapSeconds)
+end
+
+local function bindEye(record, food, now)
+	local config = BLINK_FOODS[food:GetAttribute(State.Food.Id)]
+	if not config then return end
+	local part = food:FindFirstChild(config.partName)
+	if not (part and part:IsA("BasePart")) then return end
+
+	local scale = food:GetScale()
+	if scale <= 0 then return end
+	record.eye = {
+		part = part,
+		config = config,
+		-- Captured before any blink, so it is growth's size, not a squashed one.
+		baseSize = part.Size / scale,
+		nextBlinkAt = 0,
+		startedAt = nil,
+	}
+	scheduleNextBlink(record, now)
+end
+
+-- Runs unthrottled but only over eyes actually mid-blink (a handful at most);
+-- the 0.2s scheduling tick is what decides when one starts.
+local function stepBlinks(now)
+	for record in pairs(blinking) do
+		local eye = record.eye
+		if not (record.food:IsDescendantOf(Workspace) and eye and eye.part.Parent) then
+			blinking[record] = nil
+			continue
+		end
+		local elapsed = now - eye.startedAt
+		local config = eye.config
+		if elapsed < config.closeSeconds then
+			local alpha = elapsed / config.closeSeconds
+			applyEyeSize(record, 1 - (1 - config.squash) * alpha)
+		elseif elapsed < config.closeSeconds + config.openSeconds then
+			local alpha = (elapsed - config.closeSeconds) / config.openSeconds
+			applyEyeSize(record, config.squash + (1 - config.squash) * alpha)
+		else
+			applyEyeSize(record, 1)
+			eye.startedAt = nil
+			blinking[record] = nil
+		end
+	end
 end
 
 -- Returns true only when a ScaleTo was actually applied so the per-step
@@ -98,6 +184,7 @@ local function track(food)
 		lastScale = nil,
 	}
 	tracked[food] = record
+	bindEye(record, food, os.clock())
 
 	addConnection(record, RuntimeGuard.Connect(food.AncestryChanged, "PatchSlotVisuals.AncestryChanged", function()
 		if not food:IsDescendantOf(Workspace) then
@@ -162,12 +249,20 @@ local function updateVisibleScales()
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
+	local blinkNow = os.clock()
 	for food, record in pairs(tracked) do
 		if not food:IsDescendantOf(Workspace) then
 			cleanup(food)
-		elseif scaled < MAX_SCALE_UPDATES_PER_STEP then
+		else
 			local inRange = (foodPosition(food) - hrp.Position).Magnitude <= VISUAL_RANGE
-			if inRange and applyScale(record, now) then
+			-- Blinks are only scheduled for fruit the player can actually see;
+			-- 0.2s granularity on a 5-30s gap is not noticeable.
+			if inRange and record.eye and not record.eye.startedAt and blinkNow >= record.eye.nextBlinkAt then
+				record.eye.startedAt = blinkNow
+				blinking[record] = true
+				scheduleNextBlink(record, blinkNow)
+			end
+			if inRange and scaled < MAX_SCALE_UPDATES_PER_STEP and applyScale(record, now) then
 				scaled += 1
 			end
 		end
@@ -212,6 +307,11 @@ function PatchSlotVisuals.start()
 
 	local elapsed = 0
 	RuntimeGuard.Connect(RunService.Heartbeat, "PatchSlotVisuals.Heartbeat", function(dt)
+		-- Blinks need every frame to read smoothly, but only for the few eyes
+		-- actually mid-blink; the throttled pass below does the rest.
+		if next(blinking) then
+			stepBlinks(os.clock())
+		end
 		elapsed += dt
 		if elapsed < RANGE_CHECK_INTERVAL then return end
 		elapsed = 0
