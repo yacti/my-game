@@ -21,7 +21,7 @@ Panel sections → control plane: OwnerMessage/AlienMessage GO buttons → `Send
 
 While the stand is up: the HUD EventButton swaps `Icon` for `AlienIcon` and the EVENT teleport button sends players to the stand's `AlienTeleport` brick instead of the bee camp (`HomeTeleportService`). Players deposit Alien-mutated food into the `AlienCrate` for tiered seed rewards (5 → Alien Egg, 10 → Alien Fungus, 20 → Eyeshroom; tiers loop). All three are EventOnly + Exclusive patch seeds carrying `ExclusiveDescription = "Alien Event"`, ordered so `PercentageOfBest` climbs with cost: 1.11 → 1.33 → 1.66. Progress lives in `profile.Data.AlienStand` and survives the stand coming down, so a returning player resumes mid-tier. Deposits are refused while the stand is down — unlike the always-on bee jar, the crate does not exist then.
 
-A grown Eyeshroom blinks: `PatchSlotVisuals` squashes the fruit's `Eye` part on Y every 5–30s. It is client-local like the growth `ScaleTo` beside it, so every player in range sees the eyes blink on their own copy, and the size is always derived as `baseSize * modelScale * squash` rather than accumulated, so a growth tick landing mid-blink cannot leave the eye stuck.
+A grown Eyeshroom blinks: `PatchSlotVisuals` squashes the fruit's `Eye` part on Y every 2–8s. It is client-local like the growth `ScaleTo` beside it, so every player in range sees the eyes blink on their own copy, and the size is always derived as `baseSize * modelScale * squash` rather than accumulated, so a growth tick landing mid-blink cannot leave the eye stuck.
 
 ## Architecture (summary)
 

@@ -27,8 +27,8 @@ local MAX_SCALE_UPDATES_PER_STEP = 80
 local BLINK_FOODS = {
 	Eyeshroom = {
 		partName = "Eye",
-		minGapSeconds = 5,
-		maxGapSeconds = 30,
+		minGapSeconds = 2,
+		maxGapSeconds = 8,
 		closeSeconds = 0.09,
 		openSeconds = 0.13,
 		-- Never all the way to zero: meshes render badly at zero scale.
@@ -255,8 +255,8 @@ local function updateVisibleScales()
 			cleanup(food)
 		else
 			local inRange = (foodPosition(food) - hrp.Position).Magnitude <= VISUAL_RANGE
-			-- Blinks are only scheduled for fruit the player can actually see;
-			-- 0.2s granularity on a 5-30s gap is not noticeable.
+			-- Blinks are only scheduled for fruit the player can actually see.
+			-- 0.2s scheduling granularity is still well under the shortest gap.
 			if inRange and record.eye and not record.eye.startedAt and blinkNow >= record.eye.nextBlinkAt then
 				record.eye.startedAt = blinkNow
 				blinking[record] = true
