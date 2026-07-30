@@ -210,16 +210,16 @@ GameEvents.EventConfigs = {
 		displayPriority = 100,
 		-- Admin-party Aliens run until explicitly stopped. This is both the
 		-- default record length and the hidden failsafe ceiling.
-		maxGlobalDurationSeconds = 30 * 60,
+		maxGlobalDurationSeconds = 60 * 60,
 		appliedMutationId = "Alien",
 		alien = {
-			failsafeDurationSeconds = 30 * 60,
+			failsafeDurationSeconds = 60 * 60,
 			windUpSeconds = 10,
 			plotVisitSeconds = 20,
 			-- After each consumed turn the UFO breaks off and laps the map
 			-- before the next visit. Throttles the overall mutation rate
 			-- without shortening the hover; 0 disables the break.
-			interVisitRoamSeconds = 30,
+			interVisitRoamSeconds = 15,
 			-- Keep at most one pending turn per player and refresh this rolling
 			-- queue after every visit. Eight matches the live server size while
 			-- still allowing fair rotation if that size changes.
@@ -549,7 +549,7 @@ function GameEvents.AlienTimings(config)
 	alien = type(alien) == "table" and alien or {}
 	local windUp = math.max(numeric(alien.windUpSeconds, 10), 0)
 	local windDown = math.max(numeric(alien.windDownSeconds, 6), 0)
-	local total = math.max(numeric(alien.failsafeDurationSeconds, 30 * 60), windUp + windDown)
+	local total = math.max(numeric(alien.failsafeDurationSeconds, 60 * 60), windUp + windDown)
 	return windUp, math.max(total - windUp - windDown, 0), windDown, total
 end
 
