@@ -182,18 +182,12 @@ Pinata.Rewards = {
 	["DurianTicket"] = { Kind = Pinata.RewardKinds.DurianTicket, Amount = 1, DisplayName = "Durian Ticket" },
 }
 
--- ############################################################################
--- ## TEMPORARY TEST VALUES -- DO NOT SHIP                                    ##
--- ## Both MaxHp are set to 5 so a pinata can be broken in a couple of swings ##
--- ## while testing the reward split and drops.                               ##
--- ## RESTORE BEFORE RELEASE: Default = 250, Golden = 1000.                   ##
--- ############################################################################
 Pinata.Variants = {
 	Default = {
 		VariantId = "Default",
 		ModelName = "DefaultPinata",
 		DisplayName = "Pinata",
-		MaxHp = 5, -- TEST VALUE, ships as 250
+		MaxHp = 250,
 		-- Notification kind for the spawn toast: the rarity rainbow.
 		ToastKind = NotificationConfig.Kinds.Mythical,
 		-- Billboard sits above a ~9.5 stud model.
@@ -209,7 +203,7 @@ Pinata.Variants = {
 		VariantId = "Golden",
 		ModelName = "GoldenPinata",
 		DisplayName = "Golden Pinata",
-		MaxHp = 5, -- TEST VALUE, ships as 1000
+		MaxHp = 1000,
 		-- Gold shimmer instead of the rainbow, so the rarer variant reads as gold.
 		ToastKind = NotificationConfig.Kinds.Golden,
 		-- Golden is ~17.2 studs tall, so the authored 6-stud offset would put
