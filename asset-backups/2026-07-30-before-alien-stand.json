@@ -1,0 +1,35 @@
+{
+  "date": "2026-07-30",
+  "change": "Alien Stand (MrAlienEvent) admin event: prepare the ReplicatedStorage.Assets.AdminEvents.MrAlienEvent template for runtime cloning into Workspace.Map, and default the HUD EventButton.AlienIcon to hidden.",
+  "rollback": "Delete the IdleAnimationId attribute from ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.Alien, set its HumanoidRootPart.Anchored = false, set ModelStreamingMode = Default on Alien/UFO/AlienPlatform, and set ReplicatedStorage.UI.HUD.LeftButtons.EventButton.AlienIcon.Visible = true.",
+  "priorState": {
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.Alien": {
+      "IdleAnimationId": null,
+      "PrimaryPart": "HumanoidRootPart",
+      "ModelStreamingMode": "Default",
+      "HumanoidRootPart.Anchored": false,
+      "Humanoid.RigType": "R6",
+      "Humanoid.HipHeight": 0
+    },
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.UFO": { "ModelStreamingMode": "Default" },
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.AlienPlatform": { "ModelStreamingMode": "Default" },
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.AlienCrate": { "ModelStreamingMode": "Persistent" },
+    "ReplicatedStorage.UI.HUD.LeftButtons.EventButton.AlienIcon": { "Visible": true }
+  },
+  "newState": {
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.Alien": {
+      "IdleAnimationId": "rbxassetid://180435571",
+      "HumanoidRootPart.Anchored": true,
+      "ModelStreamingMode": "Persistent"
+    },
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.UFO": { "ModelStreamingMode": "Persistent" },
+    "ReplicatedStorage.Assets.AdminEvents.MrAlienEvent.AlienPlatform": { "ModelStreamingMode": "Persistent" },
+    "ReplicatedStorage.UI.HUD.LeftButtons.EventButton.AlienIcon": { "Visible": false }
+  },
+  "notes": [
+    "IdleAnimationId is the same stock R6 idle the Beekeeper uses (rbxassetid://180435571). The rig has no bundled Animate LocalScript, so AlienStandController loads and plays the track itself, exactly as BeeCampController does for the Beekeeper.",
+    "Only HumanoidRootPart is anchored, matching the Beekeeper: the rest of the rig hangs off Motor6Ds so the idle track and the procedural neck tilt both still animate. AlienStandService re-anchors it defensively on every clone, so a template regression cannot drop the NPC through the platform.",
+    "Persistent streaming matches the Bee camp's Jar/Beekeeper. The template is authored in place at x~21, z~-63 to -68 (about 56 studs north of Map.CENTER), so the runtime clone keeps its authored CFrames and needs no spawn marker.",
+    "AlienIcon was authored Visible = true and sits directly on top of the default Icon at the same size/position/ZIndex. HudController now owns both: Icon shows by default and the pair swaps while the stand is up."
+  ]
+}

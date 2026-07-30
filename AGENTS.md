@@ -66,6 +66,7 @@ Studio/MCP owns:
 - `ReplicatedStorage.Assets.Crates`
 - `ReplicatedStorage.Assets.Seeds`
 - `ReplicatedStorage.Assets.Misc`
+- `ReplicatedStorage.Assets.AdminEvents`
 - `ReplicatedStorage.Assets.VFX`
 - `ReplicatedStorage.UI`
 - `ReplicatedStorage.Assets.FeedMachineTool`
@@ -88,6 +89,7 @@ Current Studio asset shape observed through MCP:
 - `ReplicatedStorage.Assets.Crates` contains crate templates such as `CommonCrate` and `LuckyCrate`.
 - `ReplicatedStorage.Assets.Seeds` contains roll-purchased growable seed templates with `SeedID`, target `FeedType`, `GrowTime`, `RollChanceN`, `Price`, and optional display `Rarity`.
 - `ReplicatedStorage.Assets.Misc` contains non-seed runtime templates. Rollable misc rewards use `MiscID`, `RollChanceN`, `Price`, optional `DisplayName`, and optional cosmetic `Rarity`.
+- `ReplicatedStorage.Assets.AdminEvents` contains whole-world templates for admin-toggled events, cloned into `Workspace.Map` while the event is up instead of being authored there. `MrAlienEvent` is the first: `AlienPlatform`, the `Alien` rig (`Torso.AlienDialogue`, `IdleAnimationId`, anchored `HumanoidRootPart` only), `UFO`, `Glow`, `AlienCrate` (`CrateBody`/`Fill`/`AlienFoodAmount`) and the `AlienTeleport` destination brick. Authored in place, so clones keep their CFrames; models are `ModelStreamingMode.Persistent`.
 - `ReplicatedStorage.Assets.VFX.RarityParticle` owns the roll reveal rarity particle emitter or a container that contains it.
 - `ReplicatedStorage.UI.BillboardGUIs` owns Studio-authored billboard templates, including `PlacementEdit`, `PetMoneyBillboard`, `XPBillboard`, `GrowingSeedBillboard`, `SeedRoll`, and `MiscRoll`.
 - `ReplicatedStorage.UI.YesNoWarning` owns the reusable yes/no warning prompt UI.
@@ -156,6 +158,7 @@ Key server modules:
 - `ShovelTools`: non-persisted utility shovel cloning and identity.
 - `PinataService`: admin-spawned pinatas — spawn-slot occupancy in `Workspace.Pinatas`, server-wide HP, the per-`UserId` damage ledger, the largest-remainder reward split, owner-tagged `PhysicalRewards` drops collected by a bounded proximity sweep, and the welded `PinataStick` proximity loop. One-shot and non-durable; driven by `LiveEventCommandService.SpawnPinata`/`ClearPinatas`. The stick is a welded Model, never a `Tool`, so it cannot displace the equipped tool that `Food.GetEquipped` and the deposit prompts read.
 - `PlotSprinkleService`: the Sprinkle chaos event — yactiNPC tours eligible farms and multiplies nearby patch-slot and tree-ground-pile XP by 1.5x per 5-second wave, applied as ten ramp steps whose product is exactly the target multiplier. Same eligibility as `PlotAlienEventService`, but **turn-based**: one turn per player, never a revisit, late joiners append to the end of an 8-deep queue, and the event completes itself once the queue drains (plus a short grace). Stops are chosen by greedy maximum coverage over food standing on unlocked grid cells. Publishes one client "stage" (phase + two positions + two server timestamps) over `SprinkleEventEffect`; `src/client/ui/SprinkleEventController.luau` renders the NPC, wand, sparkles and sound entirely client-side. Admin-toggled from the panel's `SprinkleGrowth` row. See `docs/live-events.md`.
+- `AlienStandService`: Mr Alien's stand — clones `ReplicatedStorage.Assets.AdminEvents.MrAlienEvent` into `Workspace.Map` while the operator has it up and destroys it on the way out, and owns the `AlienCrate` deposit sink (Alien-mutated food, tiered seed rewards, progress in `profile.Data.AlienStand`). Not a `GameEvents` record: it is a durable boolean in `LiveEventCommandService` like the admin party pad, with no schedule, duration or failsafe, reapplied idempotently on every reconcile. The template is authored in place, so the clone keeps its CFrames. `src/client/ui/AlienStandController.luau` renders the arrival (UFO descent, then fade-up), the crate fill and Mr Alien's dialogue, and swaps the HUD EventButton to `AlienIcon` while the stand is up. See `docs/live-events.md`.
 - `NotificationService`: `PlayerNotification` wrapper.
 - `AssetValidator`: startup contracts for remotes, Replica native modules, templates, crates, plots/grid/roll-area structure, tools, UI, balance, and catalogs.
 
@@ -288,6 +291,7 @@ Groups:
 - Endless Pack claims: `EndlessPackClaimRequest`, `EndlessPackClaimResult`
 - Pinata swings: `PinataSwingRequest` (argument-free client intent; the server picks the nearest pinata)
 - Sprinkle event: `SprinkleEventEffect` (one-way push; `start`/`sync`/`stage`/`end`)
+- Alien stand deposits: `AlienDepositRequest`, `AlienDepositResult`
 - Rebirth: `RebirthRequest`, `RebirthResult`
 - Gifting: `GiftRequest`, `GiftResult`
 

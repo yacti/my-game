@@ -45,6 +45,10 @@ AdminPanelConfig.Actions = {
 	RemoveAdminLuck = "RemoveAdminLuck",
 	AlienStart = "AlienStart",
 	AlienStop = "AlienStop",
+	-- Mr Alien's stand: a durable global on/off with no timer or failsafe,
+	-- independent of the Alien invasion above (same row, separate buttons).
+	AlienStandOn = "AlienStandOn",
+	AlienStandOff = "AlienStandOff",
 	-- Sprinkle runs until Stop with a hidden failsafe, same shape as Alien.
 	SprinkleStart = "SprinkleStart",
 	SprinkleStop = "SprinkleStop",

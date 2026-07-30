@@ -133,6 +133,14 @@ State.UpdateLog = {
 	Id = "UpdateLogId",
 }
 
+-- Alien Stand runtime folder (Workspace.Map.MrAlienEvent). The server stamps
+-- Workspace:GetServerTimeNow() at the moment the stand is raised; clients
+-- derive the whole entrance (UFO descent, then fade-up) from it, so a late
+-- joiner past the window simply sees the settled stand.
+State.AlienStand = {
+	ActivatedAt = "AlienStandActivatedAt",
+}
+
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",

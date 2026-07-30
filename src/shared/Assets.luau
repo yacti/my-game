@@ -5,6 +5,9 @@ local Assets = {}
 Assets.FolderName = "Assets"
 
 Assets.Names = {
+	-- Templates for admin-toggled world events (MrAlienEvent), cloned into
+	-- Workspace.Map while the event is up rather than authored there.
+	AdminEvents = "AdminEvents",
 	Cosmetics = "Cosmetics",
 	CosmeticTool = "CosmeticTool",
 	Crates = "Crates",

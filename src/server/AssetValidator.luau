@@ -31,6 +31,7 @@ local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local State = require(Shared:WaitForChild("State"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
+local AlienStand = require(Shared:WaitForChild("AlienStand"))
 local Pinata = require(Shared:WaitForChild("Pinata"))
 
 local AssetValidator = {}
@@ -2762,6 +2763,9 @@ local function validateUi(errors, warnings)
 			local eventButton = child(leftButtons, "EventButton", "GuiButton", errors)
 			if eventButton then
 				child(eventButton, "Alert", "GuiObject", errors)
+				child(eventButton, "Icon", "GuiObject", errors)
+				-- Swapped in for Icon while Mr Alien's stand is up.
+				child(eventButton, "AlienIcon", "GuiObject", errors)
 			end
 		end
 		local notifications = child(hud, "Notifications", "GuiObject", errors)
@@ -2979,6 +2983,64 @@ local function validateBeeCamp(warnings)
 		local dialogueFrame = dialogue and child(dialogue, "Frame", "GuiObject", warnings)
 		if dialogueFrame then
 			child(dialogueFrame, "Dialogue", "TextLabel", warnings)
+		end
+	end
+end
+
+-- Mr Alien's stand template. It lives in ReplicatedStorage (not the map) and
+-- is cloned into Workspace.Map only while an operator has the stand up, so a
+-- broken template warns rather than failing startup: the rest of the game does
+-- not depend on it.
+local function validateAlienStand(warnings)
+	if not AlienStand.Enabled then
+		return
+	end
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", warnings)
+	local adminEvents = assetRoot and child(assetRoot, AlienStand.AssetsFolderName, nil, warnings)
+	local template = adminEvents and child(adminEvents, AlienStand.TemplateName, nil, warnings)
+	if not template then
+		return
+	end
+
+	child(template, AlienStand.PlatformName, "Model", warnings)
+	child(template, AlienStand.UfoName, "Model", warnings)
+	child(template, AlienStand.TeleportPartName, "BasePart", warnings)
+
+	local rig = child(template, AlienStand.NpcName, "Model", warnings)
+	if rig then
+		child(rig, "Humanoid", "Humanoid", warnings)
+		-- Only the root is anchored; the rest of the rig hangs off Motor6Ds so
+		-- the idle track and the neck tilt still animate.
+		local root = child(rig, "HumanoidRootPart", "BasePart", warnings)
+		if root and not root.Anchored then
+			add(warnings, root:GetFullName() .. " is not anchored; Mr Alien will fall through his platform")
+		end
+		local torso = child(rig, "Torso", "BasePart", warnings)
+		if torso then
+			child(torso, "Neck", "Motor6D", warnings)
+			local dialogue = child(torso, AlienStand.NpcDialogueGuiName, "BillboardGui", warnings)
+			local dialogueFrame = dialogue and child(dialogue, "Frame", "GuiObject", warnings)
+			if dialogueFrame then
+				child(dialogueFrame, "Dialogue", "TextLabel", warnings)
+			end
+		end
+	end
+
+	local crate = child(template, AlienStand.CrateName, "Model", warnings)
+	if crate then
+		local body = child(crate, AlienStand.CrateBodyName, "BasePart", warnings)
+		child(crate, AlienStand.CrateFillName, "BasePart", warnings)
+		if body then
+			local billboard = descendant(body, AlienStand.CrateBillboardName, "BillboardGui", warnings)
+			if billboard then
+				descendant(billboard, "Amount", "TextLabel", warnings)
+			end
+		end
+	end
+
+	for _, tier in ipairs(AlienStand.Tiers) do
+		if not Seeds.GetTemplate(tier.rewardSeedId) then
+			add(warnings, "AlienStand tier reward has unknown seed id " .. tostring(tier.rewardSeedId))
 		end
 	end
 end
@@ -3349,6 +3411,7 @@ function AssetValidator.validate()
 	validateRobuxShopPart(warnings)
 	validateEventTeleportPart(warnings)
 	validateBeeCamp(warnings)
+	validateAlienStand(warnings)
 	validatePinataAssets(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)

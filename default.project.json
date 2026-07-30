@@ -258,6 +258,12 @@
         "BeeDepositResult": {
           "$className": "RemoteEvent"
         },
+        "AlienDepositRequest": {
+          "$className": "RemoteEvent"
+        },
+        "AlienDepositResult": {
+          "$className": "RemoteEvent"
+        },
         "PlayerSettingsUpdateRequest": {
           "$className": "RemoteEvent"
         },

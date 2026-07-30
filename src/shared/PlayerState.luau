@@ -22,6 +22,7 @@ PlayerState.Fields = {
 	EndlessPackProgress = "EndlessPackProgress",
 	StormChaser = "StormChaser",
 	BeeEvent = "BeeEvent",
+	AlienStand = "AlienStand",
 	StarterPackPurchases = "StarterPackPurchases",
 	StarterPackPromptDismissed = "StarterPackPromptDismissed",
 	GamePassOwnership = "GamePassOwnership",

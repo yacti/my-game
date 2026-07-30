@@ -22,6 +22,8 @@
 --   LiveEvents.SetAdminPartyPad(true)
 --   LiveEvents.DropAdminCrate("UFOCrate")   -- also Inferno|Saturn|SecretLuckyBlock|MythicLuckyBlock
 --   LiveEvents.SetAdminPartyPad(false)
+--   LiveEvents.SetAlienStand(true)          -- raise Mr Alien's stand, all servers
+--   LiveEvents.SetAlienStand(false)
 --   LiveEvents.SetAdminLuck(5, 1800)        -- x5 admin luck for 30 min, all servers
 --   LiveEvents.StopAdminLuck()
 --   LiveEvents.GetAdminLuck()
@@ -38,6 +40,7 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
+local AlienStandService = require(Server:WaitForChild("AlienStandService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
 local PinataService = require(Server:WaitForChild("PinataService"))
 local RollService = require(Server:WaitForChild("RollService"))
@@ -45,6 +48,7 @@ local RollService = require(Server:WaitForChild("RollService"))
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminMessagePresets = require(Shared:WaitForChild("AdminMessagePresets"))
 local AdminPanelConfig = require(Shared:WaitForChild("AdminPanelConfig"))
+local AlienStand = require(Shared:WaitForChild("AlienStand"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local RollChances = require(Shared:WaitForChild("RollChances"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -141,6 +145,7 @@ local function freshState()
 		active = {},
 		messages = {},
 		adminParty = { padActive = false },
+		alienStand = { active = false },
 		adminLuck = { multiplier = 1, startsAt = 0, endsAt = 0 },
 		processedCommands = {},
 		audit = {},
@@ -302,6 +307,9 @@ local function sanitizeState(raw)
 	if type(raw.adminParty) == "table" then
 		state.adminParty.padActive = raw.adminParty.padActive == true
 	end
+	if type(raw.alienStand) == "table" then
+		state.alienStand.active = raw.alienStand.active == true
+	end
 	state.adminLuck = sanitizeAdminLuck(raw.adminLuck)
 	-- Read only the newest capped window so a corrupt/bloated durable state
 	-- cannot stall transforms (which may run multiple times per write).
@@ -440,12 +448,20 @@ local function publishAdminMessages()
 end
 
 local localAdminPadActive = false
+local localAlienStandActive = false
 local localAdminLuck = { multiplier = 1, startsAt = 0, endsAt = 0 }
 
 local function applyAdminPartyPad(padActive)
 	localAdminPadActive = padActive == true
 	RuntimeGuard.Run("LiveEventCommandService.ApplyAdminPartyPad", function()
 		RollService.SetAdminPartyPadActive(localAdminPadActive)
+	end)
+end
+
+local function applyAlienStand(standActive)
+	localAlienStandActive = standActive == true
+	RuntimeGuard.Run("LiveEventCommandService.ApplyAlienStand", function()
+		AlienStandService.SetActive(localAlienStandActive)
 	end)
 end
 
@@ -475,6 +491,7 @@ local function applyState(state, force)
 	pushToGameEventService()
 	publishAdminMessages()
 	applyAdminPartyPad(type(state.adminParty) == "table" and state.adminParty.padActive)
+	applyAlienStand(type(state.alienStand) == "table" and state.alienStand.active)
 	applyAdminLuck(state.adminLuck)
 	return true
 end
@@ -547,6 +564,8 @@ local function onMessage(message)
 		localMessages = {}
 	elseif data.action == "adminParty" then
 		applyAdminPartyPad(data.padActive == true)
+	elseif data.action == "alienStand" then
+		applyAlienStand(data.active == true)
 	elseif data.action == "adminLuck" then
 		-- Replace semantics; a stop travels as the canonical inactive record.
 		if type(data.adminLuck) ~= "table" then
@@ -1212,6 +1231,55 @@ function LiveEventCommandService.SetAdminPartyPad(active, options)
 		return false, result
 	end
 	print(string.format("[LiveEventCommandService] Admin party pad %s globally", active and "ENABLED" or "DISABLED"))
+	return true, active
+end
+
+-- Raises or lowers Mr Alien's stand on every server (durable: new servers
+-- reconcile it at boot). Deliberately not an event record: the stand has no
+-- schedule, duration or failsafe, so it is a flat boolean like the party pad
+-- and stays up until an operator turns it off.
+function LiveEventCommandService.SetAlienStand(active, options)
+	if type(active) ~= "boolean" then
+		return false, "invalid-active"
+	end
+	if active and not AlienStand.Enabled then
+		return false, "alien-stand-disabled"
+	end
+	if options == nil then
+		options = {}
+	elseif type(options) ~= "table" then
+		return false, "invalid-options"
+	end
+	local commandId = normalizedCommandId(options)
+	if not commandId then
+		return false, "invalid-command-id"
+	end
+	local note, noteOk = normalizedOperatorNote(options)
+	if not noteOk then
+		return false, "invalid-options"
+	end
+
+	local auditEntry = baseAuditEntry(commandId, "alien-stand", note)
+	auditEntry.standActive = active
+
+	local ok, result = runCommandWrite(commandId, "alienStand:" .. tostring(active), auditEntry, function(state)
+		if state.alienStand.active == active then
+			return false, "no-change"
+		end
+		state.alienStand.active = active
+		return true, {
+			action = "alienStand",
+			active = active,
+		}
+	end)
+
+	if not ok then
+		if result == "no-change" then
+			return true, "no-change"
+		end
+		return false, result
+	end
+	print(string.format("[LiveEventCommandService] Alien stand %s globally", active and "RAISED" or "LOWERED"))
 	return true, active
 end
 

@@ -14,6 +14,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
+local AlienStand = require(Shared:WaitForChild("AlienStand"))
 
 local PlayerReplicaService = {}
 
@@ -156,6 +157,16 @@ local function copyBeeEvent(value)
 	return copy
 end
 
+local function copyAlienStand(value)
+	local copy = { Tier = 1, Deposits = 0 }
+	if type(value) ~= "table" then
+		return copy
+	end
+	copy.Tier = AlienStand.NormalizeTier(value.Tier)
+	copy.Deposits = integer(value.Deposits, 0)
+	return copy
+end
+
 local function copyDiscoveredSet(value)
 	local copy = {}
 	if type(value) == "table" then
@@ -203,6 +214,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.EndlessPackProgress] = integer(data.EndlessPackProgress, 0),
 		[PlayerState.Fields.StormChaser] = copyStormChaser(data.StormChaser),
 		[PlayerState.Fields.BeeEvent] = copyBeeEvent(data.BeeEvent),
+		[PlayerState.Fields.AlienStand] = copyAlienStand(data.AlienStand),
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),

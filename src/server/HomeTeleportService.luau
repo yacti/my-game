@@ -6,6 +6,7 @@ local Server = script.Parent
 local PlotService = require(Server:WaitForChild("PlotService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AlienStand = require(Shared:WaitForChild("AlienStand"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -122,7 +123,13 @@ local function teleportHome(player)
 	teleportToPart(player, spawnLocationFor(player))
 end
 
+-- Mr Alien's stand takes the EVENT button over while it is up (the HUD swaps
+-- to AlienIcon to match); the bee camp is the standing destination otherwise.
 local function eventTeleportPart()
+	local alienPart = AlienStand.FindTeleportPart()
+	if alienPart then
+		return alienPart
+	end
 	local eventFolder = BeeEvent.FindMapFolder()
 	local part = eventFolder and eventFolder:FindFirstChild(BeeEvent.TeleportPartName)
 	if part and part:IsA("BasePart") then

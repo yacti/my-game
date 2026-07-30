@@ -22,6 +22,7 @@ requireReplicaServer()
 
 local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local AdminPanelService = require(Server:WaitForChild("AdminPanelService"))
+local AlienStandService = require(Server:WaitForChild("AlienStandService"))
 local CashPackShopService = require(Server:WaitForChild("CashPackShopService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
@@ -712,6 +713,14 @@ end)
 -- arriving before PinataService is live would be lost for good.
 RuntimeGuard.Run("PinataService.Start", function()
 	PinataService.Start({
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
+-- Also before the control plane: the first reconcile can raise Mr Alien's
+-- stand immediately, and the crate should accept deposits the moment it lands.
+RuntimeGuard.Run("AlienStandService.Start", function()
+	AlienStandService.Start({
+		snapshotProfileState = snapshotProfileState,
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)

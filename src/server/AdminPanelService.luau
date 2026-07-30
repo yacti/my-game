@@ -186,6 +186,18 @@ local function runAction(player, payload)
 		return false, tostring(countOrCode)
 	end
 
+	if action == Actions.AlienStandOn or action == Actions.AlienStandOff then
+		local standActive = action == Actions.AlienStandOn
+		local ok, result = LiveEventCommandService.SetAlienStand(standActive, { operatorNote = note })
+		if ok then
+			if result == "no-change" then
+				return true, standActive and "stand-already-up" or "stand-already-down"
+			end
+			return true, standActive and "stand-raised" or "stand-lowered"
+		end
+		return false, tostring(result)
+	end
+
 	if action == Actions.SprinkleStart then
 		local ok, result = LiveEventCommandService.StartGlobalEvent("Sprinkle", { operatorNote = note })
 		if ok then

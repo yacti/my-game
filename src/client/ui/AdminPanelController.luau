@@ -9,7 +9,9 @@
 --   LuckAmount                   -> pick a multiplier + compose a duration,
 --                                   preview in LuckPreview, CONFIRM applies
 --                                   globally (replace semantics)
---   AdminEvents                  -> global Alien start/stop
+--   AdminEvents                  -> global Alien start/stop, plus Mr Alien's
+--                                   stand on/off (ASTAND, durable and separate
+--                                   from the invasion)
 --   PadToggle                    -> admin party pad on/off (all servers)
 --   CrateDrops                   -> one-shot admin crate drops (luck crates
 --                                   plus the Secret/Mythic rarity-pool blocks)
@@ -286,6 +288,9 @@ local function bindPanel(panelFrame)
 	if adminEvents then
 		bindSimpleButton(adminEvents, "AlienStart", Actions.AlienStart)
 		bindSimpleButton(adminEvents, "AlienStop", Actions.AlienStop)
+		-- Mr Alien's stand: durable on/off, independent of the invasion above.
+		bindSimpleButton(adminEvents, "AlienStandOn", Actions.AlienStandOn)
+		bindSimpleButton(adminEvents, "AlienStandOff", Actions.AlienStandOff)
 	end
 
 	local padToggle = section(panel, "PadToggle")
