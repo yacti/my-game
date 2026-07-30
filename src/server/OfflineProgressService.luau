@@ -90,6 +90,10 @@ local function publish(player, session, phase)
 		PlayerReplicaService.PublishJoinBackShowcase(player, session and {
 			seq = session.seq,
 			phase = session.phase,
+			-- Totals stay zero until the systems apply; the client only reads
+			-- them once the phase reaches "applied".
+			money = session.totals.money,
+			xp = session.totals.xp,
 		} or nil)
 	end)
 end
@@ -178,6 +182,9 @@ function OfflineProgressService.Begin(player, plot, profile)
 		applying = false,
 		appliedSeq = nil,
 		systemApplied = {},
+		-- Accumulated on the session, not the context: a partially failed apply
+		-- retries and must not double-count the systems that already ran.
+		totals = { money = 0, xp = 0 },
 		showcaseStarted = false,
 		timeoutScheduled = false,
 	}
@@ -259,6 +266,7 @@ function OfflineProgressService.ApplyPending(player, reason)
 		applyTime = now(),
 		reason = reason or "manual",
 		seq = session.seq,
+		totals = session.totals,
 	}
 
 	for name, applyCallback in pairs(systems) do

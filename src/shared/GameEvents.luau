@@ -326,7 +326,14 @@ GameEvents.EventConfigs = {
 			entranceFallStuds = 200,
 			exitRiseStuds = 200,
 
-			walkSpeedStuds = 20,
+			-- Tied to the rig's scale, not picked in isolation. The client plays the
+			-- stock R15 walk at speedStuds / (16 * rigScale) (see
+			-- SprinkleEventController), and that cycle was tuned to read well around
+			-- 0.4 -- a giant taking slow, long strides. The rig is ScaleTo(7), so 45
+			-- lands on 0.40; leaving this at the old 20 ran the legs at 0.18 and he
+			-- moon-walked across the farm. Rescale the rig and this wants
+			-- 16 * newScale * 0.4 to keep the same gait.
+			walkSpeedStuds = 45,
 			travelMinSeconds = 3,
 			travelMaxSeconds = 25,
 			turnRateDegrees = 360,

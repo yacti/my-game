@@ -26,6 +26,7 @@ local PlotService = require(Server:WaitForChild("PlotService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local SprinkleEvent = require(Shared:WaitForChild("SprinkleEvent"))
@@ -223,6 +224,9 @@ end
 local function notifyPlayer(player, text, lifetime)
 	RuntimeGuard.Run("PlotSprinkleService.NotifyPlayer", function()
 		NotificationService.Notify(player, {
+			-- Every toast this service sends is a Fairy yacti line, so the hot pink
+			-- kind is set here rather than at each call site.
+			kind = NotificationConfig.Kinds.Sprinkle,
 			text = text,
 			lifetime = lifetime,
 			preserveTrailingPeriods = true,
@@ -801,7 +805,7 @@ local function runPlotVisit(session, entry)
 	))
 
 	local displayName = entry.player.DisplayName ~= "" and entry.player.DisplayName or entry.player.Name
-	notifyViewers(session, string.format("yacti is performing magic on %s's farm!", displayName), 5)
+	notifyViewers(session, string.format("Fairy yacti is performing magic on %s's farm!", displayName), 5)
 
 	-- chooseStops removes each target from the pool as soon as a stop covers it,
 	-- so these stops partition the farm's food: `boosted` counts DISTINCT crops,
@@ -825,7 +829,7 @@ local function runPlotVisit(session, entry)
 	end
 
 	if boosted > 0 then
-		notifyPlayer(entry.player, "yacti performed magic on your farm! (+50% XP)", 5)
+		notifyPlayer(entry.player, "Fairy yacti performed magic on your farm! (+50% XP)", 5)
 	end
 	return boosted > 0
 end
@@ -1066,7 +1070,7 @@ function PlotSprinkleService.StartSprinkle(eventRecord, callbacks)
 	activeSession = session
 	refreshVisitQueue(session)
 	printSprinkleLifecycle("start", session, string.format("visits=%d", #session.entries))
-	notifyLoadedNonOnboarding("yacti has landed with his magic wand...", 5)
+	notifyLoadedNonOnboarding("Fairy yacti has landed with his magic wand...", 5)
 
 	RuntimeGuard.Spawn("PlotSprinkleService.RunGuarded." .. session.instanceId, runSprinkleGuarded, session)
 end

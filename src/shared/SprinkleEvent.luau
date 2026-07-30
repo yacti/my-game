@@ -89,10 +89,13 @@ end
 
 -- The scale both Studio assets were authored against: the yactiNPC template was
 -- ScaleTo(6) (6x the 5.783-stud player avatar) and the MagicWand was drawn
--- 19.8 studs tall to suit it. The rig is now ScaleTo(3), so the wand and the
+-- 19.8 studs tall to suit it. The rig is now ScaleTo(7), so the wand and the
 -- grip offset are scaled by rigScale/6 at runtime to keep the pair in
 -- proportion. Rescaling the rig again needs no code change; re-authoring the
 -- WAND at a different size is the only thing that would move this number.
+-- (The wand's shaft is still the authored 19.8; the star on its tip carries the
+-- model to ~25.9 overall, which is why he now holds a proportionally longer
+-- wand than the 19.8-stud figure above describes.)
 SprinkleEvent.AssetsAuthoredAtRigScale = 6
 
 -- Where the wand handle sits relative to the right hand, expressed at the

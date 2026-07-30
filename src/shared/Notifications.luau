@@ -15,6 +15,8 @@ Notifications.Kinds = {
 	-- Text colour shimmers between the two golds below (see GoldenColorAt)
 	-- while the notification is on screen. Used by the Golden Pinata spawn toast.
 	Golden = "golden",
+	-- Static hot pink. Used by the Sprinkle event's Fairy yacti toasts.
+	Sprinkle = "sprinkle",
 }
 
 Notifications.TextColors = {
@@ -26,6 +28,7 @@ Notifications.TextColors = {
 	-- First stop of the shimmer, so the frame before the animation loop's first
 	-- tick is already gold rather than a flash of another colour.
 	[Notifications.Kinds.Golden] = Color3.fromRGB(255, 184, 0),
+	[Notifications.Kinds.Sprinkle] = Color3.fromRGB(255, 105, 180),
 }
 
 -- The Golden shimmer: one period travels to the second gold and back. Pure and

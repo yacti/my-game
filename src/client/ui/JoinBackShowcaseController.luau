@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
@@ -20,17 +21,35 @@ local NOTIFICATIONS_NAME = "Notifications"
 
 local PRE_SEQUENCE_DELAY = 1
 local BEFORE_MESSAGE_SECONDS = 3
-local POST_MESSAGE_SECONDS = 3
+-- The closing message carries the offline totals, so it holds long enough to
+-- read. Gameplay is unlocked for the whole hold — nothing here blocks input.
+local POST_MESSAGE_SECONDS = 6
 local APPLIED_WAIT_TIMEOUT = 2
 
 local TEXT_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local TEXT_OUT_TWEEN = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FLASH_IN_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FLASH_OUT_TWEEN = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local MESSAGES = {
 	before = "Last time you played, your farm looked like this...",
+	-- Fallback only: used when the applied phase (and with it the totals)
+	-- never reaches the client before the flash fades.
 	now = "Now your farm looks like this!",
 }
+
+local MONEY_COLOR = "rgb(0, 255, 9)"
+local XP_COLOR = "rgb(0, 200, 255)"
+
+local function coloredSummary(money, xp)
+	return string.format(
+		'Your farm made <font color="%s">%s</font> and a total of <font color="%s">%s</font> offline!',
+		MONEY_COLOR,
+		NumberFormatter.Currency(money),
+		XP_COLOR,
+		NumberFormatter.XP(xp)
+	)
+end
 
 local STARTABLE_PHASES = {
 	pending = true,
@@ -73,11 +92,21 @@ local function waitForPhase(seq, phase, timeoutSeconds)
 	while os.clock() < deadline do
 		local state = PlayerStateStore.Get(PlayerStateStore.Fields.JoinBackShowcase)
 		if type(state) == "table" and state.seq == seq and state.phase == phase then
-			return true
+			return state
 		end
 		task.wait(0.1)
 	end
-	return false
+	return nil
+end
+
+-- Any authored UIStroke has to ride the same curve, or the outline hangs at
+-- full opacity while the glyphs fade and reads as a ghost of the message.
+local function tweenTextTransparency(textLabel, tweenInfo, transparency)
+	local stroke = textLabel:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		TweenService:Create(stroke, tweenInfo, { Transparency = transparency }):Play()
+	end
+	playTween(textLabel, tweenInfo, { TextTransparency = transparency })
 end
 
 local function setText(textFrame, textLabel, text)
@@ -86,8 +115,20 @@ local function setText(textFrame, textLabel, text)
 	end
 	textLabel.Text = text
 	textLabel.TextTransparency = 1
+	local stroke = textLabel:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Transparency = 1
+	end
 	textFrame.Visible = true
-	playTween(textLabel, TEXT_TWEEN, { TextTransparency = 0 })
+	tweenTextTransparency(textLabel, TEXT_TWEEN, 0)
+end
+
+local function fadeOutText(textFrame, textLabel)
+	if not (textFrame and textLabel and textFrame.Visible) then
+		return
+	end
+	tweenTextTransparency(textLabel, TEXT_OUT_TWEEN, 1)
+	textFrame.Visible = false
 end
 
 local function flashToWhite(flashFrame)
@@ -146,6 +187,9 @@ local function restoreVisibility(records)
 			object.Visible = visible
 		end
 	end
+	-- Idempotent: the unlock runs mid-sequence, cleanup calls it again on the
+	-- way out (and on the error path it is the only caller).
+	table.clear(records)
 end
 
 local function runSequence(playerGui, requestRemote, payload)
@@ -171,6 +215,9 @@ local function runSequence(playerGui, requestRemote, payload)
 	end
 	if not (textFrame and textLabel) then
 		warn("[JoinBackShowcaseController] Missing HUD.JoinBackText.JoinBackText TextLabel")
+	elseif not textLabel.RichText then
+		-- The closing message colors the money and XP totals inline.
+		textLabel.RichText = true
 	end
 
 	waitForLoadingScreenDismissed(playerGui)
@@ -179,6 +226,21 @@ local function runSequence(playerGui, requestRemote, payload)
 		findGuiObject(hud, TOP_BAR_NAME),
 		findGuiObject(hud, NOTIFICATIONS_NAME),
 	})
+
+	-- Ending the session server-side is what lifts the last client-side lock:
+	-- FeedEditController and UpdateLogController treat a live JoinBackShowcase
+	-- payload as "offline progress pending" regardless of phase. Everything
+	-- gated on the OfflineProgressPending attribute already unlocked when the
+	-- systems applied, one beat before the closing message.
+	local unlockRan = false
+	local function unlockGameplay()
+		if unlockRan then
+			return
+		end
+		unlockRan = true
+		restoreVisibility(hidden)
+		requestRemote:FireServer("clientComplete", seq)
+	end
 
 	local cleanupRan = false
 	local function cleanup()
@@ -203,14 +265,15 @@ local function runSequence(playerGui, requestRemote, payload)
 		task.wait(BEFORE_MESSAGE_SECONDS)
 		local flashedToWhite = flashToWhite(flashFrame)
 		requestRemote:FireServer("flashComplete", seq)
-		waitForPhase(seq, "applied", APPLIED_WAIT_TIMEOUT)
+		local applied = waitForPhase(seq, "applied", APPLIED_WAIT_TIMEOUT)
 		if flashedToWhite then
 			task.wait(0.08)
 			fadeFlashOut(flashFrame)
 		end
-		setText(textFrame, textLabel, MESSAGES.now)
+		setText(textFrame, textLabel, applied and coloredSummary(applied.money, applied.xp) or MESSAGES.now)
+		unlockGameplay()
 		task.wait(POST_MESSAGE_SECONDS)
-		requestRemote:FireServer("clientComplete", seq)
+		fadeOutText(textFrame, textLabel)
 	end)
 
 	cleanup()
@@ -220,6 +283,10 @@ local function runSequence(playerGui, requestRemote, payload)
 		-- started — send both so the pending session cannot be orphaned.
 		requestRemote:FireServer("showcaseStarted", seq)
 		requestRemote:FireServer("flashComplete", seq)
+		-- MarkClientComplete is the only path that clears the session, and it
+		-- rejects anything sent before showcaseStarted lands — so it has to
+		-- come last, or the showcase lock outlives the sequence that set it.
+		requestRemote:FireServer("clientComplete", seq)
 	end
 end
 

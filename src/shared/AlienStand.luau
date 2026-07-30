@@ -31,9 +31,9 @@ AlienStand.MutationId = "Alien"
 -- strength climbs with cost: their authored PercentageOfBest values are
 -- AlienEggPatch 1.11, AlienFungusPatch 1.33, EyeshroomPatch 1.66.
 AlienStand.Tiers = {
-	{ required = 5, rewardSeedId = "AlienEggSeed" },
-	{ required = 10, rewardSeedId = "AlienFungusSeed" },
-	{ required = 20, rewardSeedId = "EyeshroomSeed" },
+	{ required = 11, rewardSeedId = "AlienEggSeed" },
+	{ required = 22, rewardSeedId = "AlienFungusSeed" },
+	{ required = 44, rewardSeedId = "EyeshroomSeed" },
 }
 
 AlienStand.MaxDepositDistance = 14

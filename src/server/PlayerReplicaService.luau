@@ -195,6 +195,7 @@ local function stateFromProfile(player, profile)
 	return {
 		[PlayerState.Fields.ProfileReady] = profile ~= nil,
 		[PlayerState.Fields.Currency] = integer(data.Currency, 0),
+		[PlayerState.Fields.LifetimeCrateRolls] = integer(data.LifetimeCrateRolls, 0),
 		[PlayerState.Fields.Rebirths] = integer(data.Rebirths, 0),
 		[PlayerState.Fields.RollLuckLevel] = integer(data.RollLuckLevel, 0),
 		[PlayerState.Fields.RollDropAreaLevel] = integer(data.RollDropAreaLevel, 0),
@@ -355,6 +356,10 @@ function PlayerReplicaService.PublishCurrency(player, amount)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.Currency, integer(amount, 0))
 end
 
+function PlayerReplicaService.PublishLifetimeCrateRolls(player, count)
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.LifetimeCrateRolls, integer(count, 0))
+end
+
 function PlayerReplicaService.PublishRebirths(player, rebirths)
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.Rebirths, integer(rebirths, 0))
 end
@@ -489,6 +494,8 @@ function PlayerReplicaService.PublishJoinBackShowcase(player, payload)
 	local safePayload = {
 		seq = integer(payload.seq, 0),
 		phase = type(payload.phase) == "string" and payload.phase or "pending",
+		money = nonnegativeNumber(payload.money, 0),
+		xp = nonnegativeNumber(payload.xp, 0),
 	}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.JoinBackShowcase, safePayload)
 end

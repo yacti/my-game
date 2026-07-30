@@ -162,6 +162,12 @@
         "AdminPanelCommandResult": {
           "$className": "RemoteEvent"
         },
+        "LeaderboardSync": {
+          "$className": "RemoteEvent"
+        },
+        "LeaderboardSyncRequest": {
+          "$className": "RemoteEvent"
+        },
         "PlayerNotification": {
           "$className": "RemoteEvent"
         },

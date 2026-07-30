@@ -59,6 +59,12 @@ Remotes.Names = {
 	ServerLuckBoosted = "ServerLuckBoosted",
 	AdminPanelCommandRequest = "AdminPanelCommandRequest",
 	AdminPanelCommandResult = "AdminPanelCommandResult",
+	-- Server -> client: one global leaderboard snapshot (board id + payload),
+	-- fired on every refresh and on request. Client -> server: argument-free
+	-- "send me the current boards", so a joiner does not stare at an empty
+	-- board until the next 30s refresh.
+	LeaderboardSync = "LeaderboardSync",
+	LeaderboardSyncRequest = "LeaderboardSyncRequest",
 	PlayerNotification = "PlayerNotification",
 	UpdateLogClosed = "UpdateLogClosed",
 	MediaRewardRedeemRequest = "MediaRewardRedeemRequest",
@@ -144,6 +150,8 @@ local Definitions = {
 	[Remotes.Names.ServerLuckBoosted] = "RemoteEvent",
 	[Remotes.Names.AdminPanelCommandRequest] = "RemoteEvent",
 	[Remotes.Names.AdminPanelCommandResult] = "RemoteEvent",
+	[Remotes.Names.LeaderboardSync] = "RemoteEvent",
+	[Remotes.Names.LeaderboardSyncRequest] = "RemoteEvent",
 	[Remotes.Names.PlayerNotification] = "RemoteEvent",
 	[Remotes.Names.UpdateLogClosed] = "RemoteEvent",
 	[Remotes.Names.MediaRewardRedeemRequest] = "RemoteEvent",

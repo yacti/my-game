@@ -58,6 +58,7 @@ local HomeTeleportService = require(Server:WaitForChild("HomeTeleportService"))
 local InventoryDeleteService = require(Server:WaitForChild("InventoryDeleteService"))
 local InventoryFavouriteService = require(Server:WaitForChild("InventoryFavouriteService"))
 local JoinGroupRewardService = require(Server:WaitForChild("JoinGroupRewardService"))
+local LeaderboardService = require(Server:WaitForChild("LeaderboardService"))
 local MediaRewardService = require(Server:WaitForChild("MediaRewardService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
@@ -348,6 +349,7 @@ RuntimeGuard.Run("StealSettingService.Start", StealSettingService.Start)
 RuntimeGuard.Run("UpdateLogService.Start", UpdateLogService.Start)
 RuntimeGuard.Run("HomeTeleportService.Start", HomeTeleportService.Start)
 RuntimeGuard.Run("JoinGroupRewardService.Start", JoinGroupRewardService.Start)
+RuntimeGuard.Run("LeaderboardService.Start", LeaderboardService.Start)
 RuntimeGuard.Run("MediaRewardService.Start", MediaRewardService.Start)
 RuntimeGuard.Run("FriendBoostService.Start", FriendBoostService.Start)
 RuntimeGuard.Run("PetIncomeService.Start", function()
@@ -1032,20 +1034,27 @@ local function applyOfflineEarnings(player, plot, profile, lastSeen, joinTime)
 	if elapsed <= 0 then return true end
 
 	local earnRate = GamePassService.PetCashMultiplier(player)
+	local earned = 0
 	for _, pet in ipairs(PlotService.GetSortedPets(plot)) do
 		local idx = pet:GetAttribute(State.Pet.Index)
 		local petData = profile.Data.Pets[idx]
 		if petData then
 			local rate = pet:GetAttribute(State.Pet.MoneyRate) or 1
-			petData.money = (petData.money or 0) + rate * elapsed * OFFLINE_PET_EARN_FRACTION * earnRate
+			local gained = rate * elapsed * OFFLINE_PET_EARN_FRACTION * earnRate
+			petData.money = (petData.money or 0) + gained
 			pet:SetAttribute(State.Pet.Money, petData.money)
+			earned += gained
 		end
 	end
-	return true
+	return true, earned
 end
 
 OfflineProgressService.RegisterSystem("PetMoney", function(context)
-	return applyOfflineEarnings(context.player, context.plot, context.profile, context.lastSeen, context.joinTime)
+	local ok, earned = applyOfflineEarnings(context.player, context.plot, context.profile, context.lastSeen, context.joinTime)
+	if ok and type(context.totals) == "table" then
+		context.totals.money += tonumber(earned) or 0
+	end
+	return ok
 end)
 
 OfflineProgressService.RegisterSystem("FeedMachines", function(context)
@@ -1708,6 +1717,11 @@ game:BindToClose(function()
 	-- Stop the pinata sweeps and tear down live pinatas/drops first, so no
 	-- reward grant can race the per-player teardown snapshots below.
 	RuntimeGuard.Run("BindToClose.PinataShutdown", PinataService.Shutdown)
+
+	-- Before the teardown below releases profiles: leaderboard scores are read
+	-- straight off profile.Data, and these writes must block so a shutdown does
+	-- not silently drop a session's worth of progress from the boards.
+	RuntimeGuard.Run("BindToClose.LeaderboardFlush", LeaderboardService.Flush)
 
 	for _, player in pairs(Players:GetPlayers()) do
 		RuntimeGuard.Run("BindToClose.Player." .. userLabel(player), function()

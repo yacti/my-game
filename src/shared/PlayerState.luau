@@ -5,6 +5,9 @@ PlayerState.Token = "PlayerState"
 PlayerState.Fields = {
 	ProfileReady = "ProfileReady",
 	Currency = "Currency",
+	-- Replicated for the TopRolls board's YourStat label, which must update the
+	-- moment a roll lands rather than waiting on the 30s board refresh.
+	LifetimeCrateRolls = "LifetimeCrateRolls",
 	Rebirths = "Rebirths",
 	RollLuckLevel = "RollLuckLevel",
 	RollDropAreaLevel = "RollDropAreaLevel",

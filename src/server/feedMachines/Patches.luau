@@ -541,6 +541,10 @@ function Patches.ApplyOfflineProgress(machine, context)
 
 	local now = serverNow()
 	local offlineSeconds = math.max(joinTime - (tonumber(s.lastTick) or joinTime), 0) * OFFLINE_GROW_FRACTION
+	-- The join-back showcase reports the XP the crops banked while away, so
+	-- measure it as the baseXP delta creditSlotGrowth actually applies.
+	local totals = type(context.totals) == "table" and context.totals or nil
+	local creditedXP = 0
 
 	for _, slot in ipairs(s.slots) do
 		if type(slot.respawnAt) == "number" then
@@ -550,9 +554,15 @@ function Patches.ApplyOfflineProgress(machine, context)
 			publishSlotRespawn(slot)
 			scheduleSlotRespawn(machine, s, slot, slot.respawnAt - os.time())
 		else
+			local beforeXP = slot.baseXP or 0
 			creditSlotGrowth(machine, slot, offlineSeconds, now)
+			creditedXP += math.max((slot.baseXP or 0) - beforeXP, 0)
 			publishSlotGrowth(slot)
 		end
+	end
+
+	if totals then
+		totals.xp += creditedXP
 	end
 
 	s.awaitingOfflineProgress = nil

@@ -32,6 +32,7 @@ local State = require(Shared:WaitForChild("State"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
 local AlienStand = require(Shared:WaitForChild("AlienStand"))
+local Leaderboards = require(Shared:WaitForChild("Leaderboards"))
 local Pinata = require(Shared:WaitForChild("Pinata"))
 
 local AssetValidator = {}
@@ -2991,6 +2992,60 @@ end
 -- is cloned into Workspace.Map only while an operator has the stand up, so a
 -- broken template warns rather than failing startup: the rest of the game does
 -- not depend on it.
+local function validateLeaderboards(warnings)
+	local folder = child(Workspace, Leaderboards.FolderName, "Folder", warnings)
+	if not folder then
+		return
+	end
+
+	for _, board in ipairs(Leaderboards.Boards) do
+		local model = child(folder, board.ModelName, "Model", warnings)
+		if model then
+			-- StreamingEnabled is on and these are fixed world POIs: without
+			-- Persistent they stream out for distant players and the client
+			-- controller's cached references go dead.
+			if model.ModelStreamingMode ~= Enum.ModelStreamingMode.Persistent then
+				add(warnings, string.format(
+					"%s is %s, expected Persistent; the board will stream out for distant players",
+					model:GetFullName(),
+					tostring(model.ModelStreamingMode)
+				))
+			end
+
+			local gui = descendant(model, "LeaderboardGui", "SurfaceGui", warnings)
+			if gui then
+				child(gui, "Header", "TextLabel", warnings)
+				child(gui, "Subheader", "TextLabel", warnings)
+				local frame = child(gui, "LeaderboardFrame", "ScrollingFrame", warnings)
+				if frame then
+					local templateNames = { Leaderboards.RowTemplateName }
+					for _, podium in ipairs(Leaderboards.PodiumTemplateNames) do
+						templateNames[#templateNames + 1] = podium
+					end
+					for _, name in ipairs(templateNames) do
+						local template = child(frame, name, "Frame", warnings)
+						if template then
+							child(template, "NameLabel", "TextLabel", warnings)
+							child(template, "ValueLabel", "TextLabel", warnings)
+							child(template, "PlayerImageLabel", "ImageLabel", warnings)
+							local placement = child(template, "Placement", "Frame", warnings)
+							if placement then
+								child(placement, "RankLabel", "TextLabel", warnings)
+							end
+						end
+					end
+				end
+			end
+
+			local yourStat = descendant(model, "YourStat", "SurfaceGui", warnings)
+			if yourStat then
+				child(yourStat, "Label", "TextLabel", warnings)
+				child(yourStat, "LocalScoreLabel", "TextLabel", warnings)
+			end
+		end
+	end
+end
+
 local function validateAlienStand(warnings)
 	if not AlienStand.Enabled then
 		return
@@ -3411,6 +3466,7 @@ function AssetValidator.validate()
 	validateRobuxShopPart(warnings)
 	validateEventTeleportPart(warnings)
 	validateBeeCamp(warnings)
+	validateLeaderboards(warnings)
 	validateAlienStand(warnings)
 	validatePinataAssets(warnings)
 	validateLoadingScreenSource(warnings)

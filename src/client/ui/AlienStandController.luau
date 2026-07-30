@@ -46,7 +46,7 @@ local MAX_TYPE_SECONDS = 3
 local RESULT_TIMEOUT_SECONDS = 5
 local DIALOGUE_TIMEOUT_SECONDS = 10
 local DIALOGUE_LINE_COUNT = 3
-local SEED_PREVIEW_RIGHT_STUDS = 3
+local SEED_PREVIEW_RIGHT_STUDS = 4
 local SEED_PREVIEW_HEIGHT_STUDS = -1.5
 local SEED_PREVIEW_REVOLUTION_SECONDS = 3
 local SEED_PREVIEW_UI_SCALE = 0.5
@@ -151,44 +151,73 @@ end
 -- Entrance
 ---------------------------------------------------------------------------
 
+-- The stand's own GUIs are owned by the crate refresh and the dialogue
+-- rotation, so the entrance only holds them off rather than fading them.
+local ENTRANCE_HIDDEN_GUI_NAMES = {
+	[AlienStand.CrateBillboardName] = true,
+	[AlienStand.NpcDialogueGuiName] = true,
+}
+
+local function isCrateFill(instance)
+	local parent = instance.Parent
+	return instance:IsA("BasePart")
+		and instance.Name == AlienStand.CrateFillName
+		and parent ~= nil
+		and parent.Name == AlienStand.CrateName
+end
+
 -- Authored appearance captured before anything is hidden, so the entrance
 -- always resolves to exactly what Studio authored rather than to hardcoded
--- zeroes. Instances already fully transparent (the Head, the Glow mesh, the
--- crate Fill) keep their authored values and are skipped.
-local function collectFadeTargets(root, skip)
-	local targets = { parts = {}, decals = {}, lights = {}, highlights = {} }
-	local function consider(instance)
-		if skip[instance] then
-			return
-		end
-		for ancestor in pairs(skip) do
-			if instance:IsDescendantOf(ancestor) then
-				return
-			end
-		end
-		if instance:IsA("BasePart") then
-			if instance.Transparency < 1 then
-				targets.parts[#targets.parts + 1] = { instance = instance, transparency = instance.Transparency }
-			end
-		elseif instance:IsA("Decal") or instance:IsA("Texture") then
-			if instance.Transparency < 1 then
-				targets.decals[#targets.decals + 1] = { instance = instance, transparency = instance.Transparency }
-			end
-		elseif instance:IsA("Light") then
-			targets.lights[#targets.lights + 1] = { instance = instance, brightness = instance.Brightness }
-		elseif instance:IsA("Highlight") then
-			targets.highlights[#targets.highlights + 1] = {
-				instance = instance,
-				fill = instance.FillTransparency,
-				outline = instance.OutlineTransparency,
-			}
-		end
+-- zeroes. Instances already fully transparent (the Head, the Glow mesh) keep
+-- their authored values and are skipped.
+--
+-- Runs per instance rather than as one sweep because the stand replicates over
+-- several frames: whatever arrives mid-entrance has to be caught the moment it
+-- lands, or it pops in at full opacity over a stand that is still fading up.
+local function considerEntranceInstance(entrance, instance)
+	-- The UFO flies the rest of the stand in, so it and everything under it
+	-- keep their authored appearance. A subtree replicates parent-first, so
+	-- the UFO is always claimed before its own descendants are considered.
+	if entrance.ufo == nil and instance.Name == AlienStand.UfoName and instance.Parent == entrance.folder then
+		entrance.ufo = instance
+		entrance.ufoRestCFrame = instance:GetPivot()
+		instance:PivotTo(entrance.ufoRestCFrame + Vector3.new(0, AlienStand.Entrance.ufoDescendStuds, 0))
+		return
 	end
-	consider(root)
-	for _, descendant in ipairs(root:GetDescendants()) do
-		consider(descendant)
+	if entrance.ufo and (instance == entrance.ufo or instance:IsDescendantOf(entrance.ufo)) then
+		return
 	end
-	return targets
+	if instance:IsA("LayerCollector") then
+		if ENTRANCE_HIDDEN_GUI_NAMES[instance.Name] then
+			instance.Enabled = false
+		end
+		return
+	end
+	-- Deposit progress owns the Fill; refreshCrate sizes and reveals it once
+	-- the stand settles, so the entrance leaves it hidden at any authored
+	-- transparency rather than fading it up to a full-looking crate.
+	if isCrateFill(instance) then
+		instance.Transparency = 1
+		return
+	end
+	local targets = entrance.targets
+	if instance:IsA("BasePart") then
+		if instance.Transparency < 1 then
+			targets.parts[#targets.parts + 1] = { instance = instance, transparency = instance.Transparency }
+		end
+	elseif instance:IsA("Decal") or instance:IsA("Texture") then
+		if instance.Transparency < 1 then
+			targets.decals[#targets.decals + 1] = { instance = instance, transparency = instance.Transparency }
+		end
+	elseif instance:IsA("Light") then
+		targets.lights[#targets.lights + 1] = { instance = instance, brightness = instance.Brightness }
+	elseif instance:IsA("Highlight") then
+		targets.highlights[#targets.highlights + 1] = {
+			instance = instance,
+			fill = instance.FillTransparency,
+			outline = instance.OutlineTransparency,
+		}
+	end
 end
 
 local function applyFadeAlpha(targets, alpha)
@@ -216,6 +245,11 @@ local function applyFadeAlpha(targets, alpha)
 	end
 end
 
+local function setEntranceAlpha(entrance, alpha)
+	entrance.alpha = math.clamp(alpha, 0, 1)
+	applyFadeAlpha(entrance.targets, entrance.alpha)
+end
+
 -- Quad InOut, matching the eased hops the bee flight sim uses.
 local function easedAlpha(alpha)
 	alpha = math.clamp(alpha, 0, 1)
@@ -225,59 +259,98 @@ local function easedAlpha(alpha)
 	return 1 - 2 * (1 - alpha) * (1 - alpha)
 end
 
+-- Hides the stand the instant Workspace.Map sees it, before anything else in
+-- the bind can yield. The folder replicates ahead of its own descendants, so a
+-- bind that waits on a part first lets the landed, fully lit stand render for a
+-- frame or more before the arrival takes over -- it appeared, vanished, then
+-- tweened in. Staying subscribed to DescendantAdded covers the parts that are
+-- still arriving after this runs.
+--
+-- Returns nil when no entrance is owed (a late joiner, or a stand with no
+-- timestamp), which leaves the stand at its authored appearance.
+local function prepareEntrance(folder, token)
+	local activatedAt = tonumber(folder:GetAttribute(State.AlienStand.ActivatedAt))
+	if not activatedAt then
+		warn("[AlienStandController] Stand has no " .. State.AlienStand.ActivatedAt .. "; skipping the entrance")
+		return nil
+	end
+	if serverNow() - activatedAt >= AlienStand.EntranceTotalSeconds() then
+		return nil
+	end
+
+	local entrance = {
+		folder = folder,
+		activatedAt = activatedAt,
+		targets = { parts = {}, decals = {}, lights = {}, highlights = {} },
+		alpha = 0,
+		ufo = nil,
+		ufoRestCFrame = nil,
+	}
+	-- Claimed first so the UFO's own descendants are recognised as its own,
+	-- whichever order the sweep reaches them in.
+	local ufo = folder:FindFirstChild(AlienStand.UfoName)
+	if ufo then
+		considerEntranceInstance(entrance, ufo)
+	end
+	for _, descendant in ipairs(folder:GetDescendants()) do
+		considerEntranceInstance(entrance, descendant)
+	end
+	setEntranceAlpha(entrance, 0)
+
+	local connection = RuntimeGuard.Connect(folder.DescendantAdded, "AlienStandController.EntranceArrival", function(descendant)
+		if bindToken ~= token or entrance.finished then
+			return
+		end
+		considerEntranceInstance(entrance, descendant)
+		setEntranceAlpha(entrance, entrance.alpha)
+	end)
+	entrance.connection = connection
+	addCleanup(function()
+		connection:Disconnect()
+	end)
+	return entrance
+end
+
 -- Drives the whole arrival off the server-stamped ActivatedAt: the UFO drops
 -- from ufoDescendStuds up, then everything under it fades in. `onSettled`
 -- runs once the stand is fully present (immediately for a late joiner).
-local function playEntrance(folder, token, onSettled)
+local function playEntrance(entrance, token, onSettled)
 	local settings = AlienStand.Entrance
-	local activatedAt = tonumber(folder:GetAttribute(State.AlienStand.ActivatedAt))
-	local ufo = folder:FindFirstChild(AlienStand.UfoName)
 	local finish = function()
+		if entrance then
+			entrance.finished = true
+			entrance.connection:Disconnect()
+		end
 		if bindToken == token then
 			onSettled()
 		end
 	end
 
-	if not activatedAt then
-		warn("[AlienStandController] Stand has no " .. State.AlienStand.ActivatedAt .. "; skipping the entrance")
-		finish()
-		return
-	end
-	if serverNow() - activatedAt >= AlienStand.EntranceTotalSeconds() then
+	if not entrance then
 		finish()
 		return
 	end
 
-	local skip = {}
-	if ufo then
-		skip[ufo] = true
-	end
-	local targets = collectFadeTargets(folder, skip)
-	applyFadeAlpha(targets, 0)
-
-	local ufoRestCFrame = ufo and ufo:GetPivot() or nil
-	if ufo and ufoRestCFrame then
-		ufo:PivotTo(ufoRestCFrame + Vector3.new(0, settings.ufoDescendStuds, 0))
-	end
-
+	local folder = entrance.folder
 	local connection
 	connection = RuntimeGuard.Connect(RunService.Heartbeat, "AlienStandController.Entrance", function()
 		if bindToken ~= token or not folder.Parent then
 			connection:Disconnect()
 			return
 		end
-		local elapsed = serverNow() - activatedAt
+		local elapsed = serverNow() - entrance.activatedAt
+		local ufo, ufoRestCFrame = entrance.ufo, entrance.ufoRestCFrame
 		if ufo and ufoRestCFrame then
 			local descendAlpha = easedAlpha(elapsed / settings.ufoDescendSeconds)
 			ufo:PivotTo(ufoRestCFrame + Vector3.new(0, settings.ufoDescendStuds * (1 - descendAlpha), 0))
 		end
-		applyFadeAlpha(targets, (elapsed - settings.ufoDescendSeconds) / settings.fadeInSeconds)
+		setEntranceAlpha(entrance, (elapsed - settings.ufoDescendSeconds) / settings.fadeInSeconds)
 		if elapsed >= AlienStand.EntranceTotalSeconds() then
 			connection:Disconnect()
 			if ufo and ufoRestCFrame then
 				ufo:PivotTo(ufoRestCFrame)
 			end
-			applyFadeAlpha(targets, 1)
+			setEntranceAlpha(entrance, 1)
 			finish()
 		end
 	end)
@@ -710,18 +783,15 @@ local function bindNpc(folder)
 		clearSeedPreview()
 		local text
 		if lineIndex == 1 then
-			local rewardSeedId = AlienStand.TierConfig(currentTier()).rewardSeedId
-			local rewardName = Seeds.DisplayNameFor(rewardSeedId)
-			local article = rewardName:match("^[AEIOUaeiou]") and "an" or "a"
-			text = string.format("Fill the crate with Alien food and receive %s %s!", article, rewardName)
-			showSeedPreview(rewardSeedId)
+			text = "F1LL CRAT3 W1TH F00D, G3T R3WARD"
+			showSeedPreview(AlienStand.TierConfig(currentTier()).rewardSeedId)
 		elseif lineIndex == 2 then
-			text = "My ship runs on Alien-mutated crops. Nothing else will do!"
+			text = "0NLY A1L3N F00D"
 		else
 			-- Tease the tier after the current one; NextTier loops the last
 			-- tier back to 1, so the preview always has a reward to show.
 			local nextRewardSeedId = AlienStand.TierConfig(AlienStand.NextTier(currentTier())).rewardSeedId
-			text = "If you finish this task, I have another task for you with this reward!"
+			text = "F1IN1SH TASK, TH3N N3XT TASK 1 HAV3 TH1S F0R U"
 			showSeedPreview(nextRewardSeedId)
 		end
 		if dialogueGui then
@@ -772,6 +842,11 @@ local function bindStand(folder)
 
 	setHudAlienIcon(true)
 
+	-- Before the spawn below, not inside it: the crate and rig binds both wait
+	-- on parts that are still replicating, and every frame they wait is a frame
+	-- the stand would render un-hidden.
+	local entrance = prepareEntrance(folder, token)
+
 	task.spawn(function()
 		bindCrate(folder)
 		if bindToken ~= token then
@@ -781,7 +856,7 @@ local function bindStand(folder)
 		if bindToken ~= token then
 			return
 		end
-		playEntrance(folder, token, function()
+		playEntrance(entrance, token, function()
 			entranceSettled = true
 			local record = crateRecord
 			if record and record.billboard and record.billboard:IsA("BillboardGui") then

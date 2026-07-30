@@ -1139,6 +1139,10 @@ function RollService.Roll(player, target, plot, profile, maxDistance, options)
 	local effectOffers = codeOrOffers
 	local visualDuration = visualDurationOrNil or RollConfig.RollVisualDurationForOffers(effectOffers)
 	savePendingOfferRecords(profile, publicOffersOrNil or effectOffers)
+	-- Published once per roll rather than once per drop pad: the counter is
+	-- incremented inside the per-pad loop above, and only the final value drives
+	-- the TopRolls board's YourStat label.
+	PlayerReplicaService.PublishLifetimeCrateRolls(player, profile.Data.LifetimeCrateRolls)
 	if tutorialSeedIdOrNil then
 		OnboardingService.OnRollCreated(player, profile, tutorialSeedIdOrNil)
 	end

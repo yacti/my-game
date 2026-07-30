@@ -86,6 +86,15 @@ local function isEligible(player)
 	return RunService:IsStudio()
 end
 
+-- Strict allowlist check with no Studio widening, unlike isEligible above:
+-- callers that gate live content rather than the panel itself must not treat
+-- every Play Solo tester as an admin. LeaderboardService uses this to keep
+-- admin-granted cash and test rolls off the global boards.
+function AdminPanelService.IsAdmin(userId)
+	userId = tonumber(userId)
+	return userId ~= nil and ADMIN_USER_IDS[userId] == true
+end
+
 local function setEnabled(player, active)
 	local userId = userKey(player)
 	if not userId then
