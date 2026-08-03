@@ -70,7 +70,7 @@ local PET_SKIN_PREVIEW_OPTIONS = {
 }
 local PACK_CARD_ICON_OPTIONS = {
 	swayDegrees = 18,
-	swayPeriodSeconds = 2.6,
+	swayPeriodSeconds = 4.5,
 }
 
 local SLICE_THICKNESS_MULTIPLIER = 1.35
@@ -455,6 +455,7 @@ local function renderPetSkinReward(slot, definition, visible)
 	if icon then
 		local options = table.clone(PET_SKIN_PREVIEW_OPTIONS)
 		options.idleAnimationId = definition.WalkAnimationId
+		options.presentationScale *= definition.ViewportScaleMultiplier
 		options.yawDegrees = definition.ViewportYawDegrees
 		ViewportPreview.Render(icon, template, options)
 	end
@@ -663,7 +664,8 @@ local function configureHolder(holder, payload, result)
 			local definition = PetSkinCatalog.Get(result.petSkinId)
 			local options = table.clone(REVEAL_PREVIEW_OPTIONS)
 			options.alignPivot = true
-			options.presentationScale = 2
+			options.presentationScale = PET_SKIN_PREVIEW_OPTIONS.presentationScale
+				* (definition and definition.ViewportScaleMultiplier or 1)
 			options.idleAnimationId = definition and definition.WalkAnimationId or nil
 			options.yawDegrees = definition and definition.ViewportYawDegrees or nil
 			ViewportPreview.Render(resultViewport, PetSkinCatalog.TemplateFor(result.petSkinId), options)

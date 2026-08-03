@@ -40,6 +40,7 @@ local PACK_ANIMATION_BRIGHTNESS = 1.55
 local PACK_COLOR_ANIMATIONS = {
 	EpicSeedPack = { from = Color3.fromRGB(197, 47, 216), to = Color3.fromRGB(56, 0, 198) },
 	SecretSeedPack = { from = Color3.fromRGB(255, 255, 255), to = Color3.fromRGB(0, 0, 0) },
+	PetSkinPack = { rainbow = true },
 	DurianPack = { from = Color3.fromRGB(0, 203, 255), to = Color3.fromRGB(0, 85, 255), periodSeconds = 12 },
 }
 
@@ -80,6 +81,10 @@ end
 
 local function packAnimationColor(animation, timeSeconds)
 	local period = animation.periodSeconds or PACK_COLOR_PERIOD_SECONDS
+	if animation.rainbow then
+		return Color3.fromHSV((timeSeconds / period) % 1, 0.85, 1)
+	end
+
 	local alpha = 0.5 + 0.5 * math.sin(timeSeconds * math.pi * 2 / period)
 	local color = animation.from:Lerp(animation.to, alpha)
 	local h, s, v = color:ToHSV()

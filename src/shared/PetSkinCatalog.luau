@@ -24,6 +24,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
+		ViewportScaleMultiplier = 1,
 	},
 	PegasusSkin = {
 		Rarity = Rarities.Legendary,
@@ -36,6 +37,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
+		ViewportScaleMultiplier = 1.5,
 	},
 	KrakenSkin = {
 		Rarity = Rarities.Mythical,
@@ -48,6 +50,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
+		ViewportScaleMultiplier = 1.25,
 	},
 	DragonSkin = {
 		Rarity = Rarities.Secret,
@@ -60,6 +63,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
+		ViewportScaleMultiplier = 2,
 	},
 }
 
@@ -194,6 +198,9 @@ function PetSkinCatalog.Validate(errors)
 		end
 		if type(definition.BaselineMaxDimension) ~= "number" or definition.BaselineMaxDimension <= 0 then
 			errors[#errors + 1] = source .. " has invalid BaselineMaxDimension"
+		end
+		if type(definition.ViewportScaleMultiplier) ~= "number" or definition.ViewportScaleMultiplier <= 0 then
+			errors[#errors + 1] = source .. " has invalid ViewportScaleMultiplier"
 		end
 	end
 
