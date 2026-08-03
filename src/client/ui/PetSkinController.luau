@@ -21,7 +21,6 @@ local PROMPT_DISTANCE = 18
 local UPDATE_INTERVAL = 0.1
 local ATTACHMENT_NAME = "__PetSkinApplyPromptAttachment"
 local REQUEST_TIMEOUT_SECONDS = 10
-local READY_ATTRIBUTE = "PetSkinServiceReady"
 
 local FAILURE_MESSAGES = {
 	busy = "Please wait before applying another Pet Skin",
@@ -92,7 +91,6 @@ function PetSkinController.start()
 		local plot = PlotResolver.ResolveForPlayer(player)
 		return not promptOpen
 			and pendingRequestId == nil
-			and requestRemote:GetAttribute(READY_ATTRIBUTE) == true
 			and tool ~= nil
 			and plot ~= nil
 			and currentPet ~= nil

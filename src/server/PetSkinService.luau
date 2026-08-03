@@ -23,7 +23,6 @@ local PetSkinService = {}
 local RATE_SECONDS = 0.35
 local APPLY_DISTANCE = 18
 local CUE_KIND = "PetSkinApply"
-local READY_ATTRIBUTE = "PetSkinServiceReady"
 
 local locks = {}
 local lastRequestAt = {}
@@ -125,7 +124,6 @@ function PetSkinService.Start(config)
 		lastRequestAt[player.UserId] = nil
 	end)
 
-	requestRemote:SetAttribute(READY_ATTRIBUTE, nil)
 	local requestConnection = RuntimeGuard.Connect(requestRemote.OnServerEvent, "PetSkinService.ApplyRequest", function(player, requestId, target, toolGuid)
 		local key = player.UserId
 		local lockAcquired = false
@@ -333,7 +331,6 @@ function PetSkinService.Start(config)
 	end)
 	assert(requestConnection, "Could not bind ApplyPetSkinRequest")
 	started = true
-	requestRemote:SetAttribute(READY_ATTRIBUTE, true)
 end
 
 return PetSkinService
