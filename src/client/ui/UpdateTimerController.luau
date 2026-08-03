@@ -24,7 +24,7 @@ local TIMER_UPDATE_SECONDS = 0.5
 local EVENT_DETAILS_REFRESH_SECONDS = 180
 local DEFAULT_TIMER_TEXT_MODE = "update"
 local TIMER_TEXT_BY_MODE = {
-	party = "Admin party in:",
+	party = "Admin Abuse in:",
 	update = "Update in:",
 }
 

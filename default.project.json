@@ -186,6 +186,12 @@
         "EventRsvpPromptResult": {
           "$className": "RemoteEvent"
         },
+        "JoinGroupPrompt": {
+          "$className": "RemoteEvent"
+        },
+        "JoinGroupRewardRequest": {
+          "$className": "RemoteEvent"
+        },
         "MediaRewardRedeemRequest": {
           "$className": "RemoteEvent"
         },

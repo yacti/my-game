@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
@@ -111,8 +112,18 @@ function RollOfferPersistence.SerializeOffer(offer)
 		return nil
 	end
 
-	clean.rngChanceText = nonemptyString(offer.rngChanceText)
 	clean.tutorialGuaranteed = offer.tutorialGuaranteed == true
+	-- Rebuild the chance text from the base odds instead of trusting the stored
+	-- string: records saved before reveals went back to base odds still carry a
+	-- luck-adjusted approximation, and a rejoin must not put it back on screen.
+	-- Tutorial offers keep their own label, which is not odds at all.
+	if clean.tutorialGuaranteed then
+		clean.rngChanceText = nonemptyString(offer.rngChanceText)
+	elseif clean.chanceN then
+		clean.rngChanceText = NumberFormatter.ChanceN(clean.chanceN)
+	else
+		clean.rngChanceText = nil
+	end
 	return clean
 end
 

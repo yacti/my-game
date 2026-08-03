@@ -21,6 +21,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AutoRollConfig = require(Shared:WaitForChild("AutoRollConfig"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -320,6 +321,20 @@ local function collectRollPool()
 	return entries
 end
 
+-- Every reveal shows the reward's BASE 1 in n odds. Crate luck, player luck,
+-- server luck, admin luck, and rarity-pool crates only decide WHAT drops, never
+-- the number on the card, so preview teasers, the winning card, restored
+-- offers, and chat broadcasts all read the same for a given seed. Never derive
+-- this text from the luck-adjusted roll weights: that prints an approximation
+-- ("1 in 1,138") of a chance the player never sees anywhere else.
+local function baseChanceText(entry)
+	local chanceN = finiteNumber(type(entry) == "table" and entry.chanceN or nil)
+	if not chanceN or chanceN <= 0 then
+		return nil
+	end
+	return NumberFormatter.ChanceN(chanceN)
+end
+
 local function seedPreviewPayload(entry)
 	return {
 		category = RollRewards.Categories.Seed,
@@ -330,7 +345,7 @@ local function seedPreviewPayload(entry)
 		rarity = entry.rarity,
 		price = entry.price,
 		chanceN = entry.chanceN,
-		rngChanceText = NumberFormatter.ChanceN(entry.chanceN),
+		rngChanceText = baseChanceText(entry),
 	}
 end
 
@@ -475,7 +490,7 @@ local function rollUniformSeedEntry(entries)
 		return nil, "empty-rarity-pool"
 	end
 	local rolled = table.clone(entries[rng:NextInteger(1, #entries)])
-	rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
+	rolled.rngChanceText = baseChanceText(rolled)
 	return rolled
 end
 
@@ -616,13 +631,9 @@ local function rollRewardForCrate(crateId, player, profile, entries)
 	end
 
 	local rolled = table.clone(entry)
-	local rewardPercentages = RollChances.ToPercentages(rewardWeights)
-	local finalProbability = (rewardPercentages[rewardKey] or 0) / 100
-	if finalProbability > 0 then
-		rolled.rngChanceText = NumberFormatter.ChanceFromProbability(finalProbability)
-	else
-		rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
-	end
+	-- Luck already did its job above by weighting the draw; the reveal keeps the
+	-- seed's own base odds (see baseChanceText).
+	rolled.rngChanceText = baseChanceText(rolled)
 	return rolled
 end
 
@@ -1556,6 +1567,44 @@ function RollService.IsAutoRollEnabled(player)
 	return autoRollSession(player) ~= nil
 end
 
+local function preserveAutoRollOnRejoin(profile)
+	return isProfileActive(profile)
+		and PlayerSettings.Get(
+			profile.Data.PlayerSettings,
+			PlayerSettings.Keys.PreserveAutoRollOnRejoin
+		)
+end
+
+-- Keeps the profile bit current without forcing an immediate DataStore write;
+-- ProfileStore autosave and EndSession remain the established persistence path.
+-- When the preference is off, stale saved state is cleared but live auto-roll
+-- is not changed.
+function RollService.SaveAutoRollPreference(player, profile)
+	profile = profile or (PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil)
+	if not isProfileActive(profile) then
+		return false, "no-profile"
+	end
+
+	local enabled = preserveAutoRollOnRejoin(profile) and RollService.IsAutoRollEnabled(player)
+	profile.Data.AutoRollEnabled = enabled == true
+	return true, "ok"
+end
+
+-- BindToClose backstop. A PlayerRemoving cleanup may already have discarded
+-- the live session when shutdown callbacks race, so shutdown is allowed to
+-- reaffirm a live true state but never infer false from a missing session.
+-- Normal start/stop transitions already keep false state current.
+function RollService.ProtectAutoRollPreferenceForShutdown(player, profile)
+	profile = profile or (PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil)
+	if not isProfileActive(profile) then
+		return false, "no-profile"
+	end
+	if preserveAutoRollOnRejoin(profile) and RollService.IsAutoRollEnabled(player) then
+		profile.Data.AutoRollEnabled = true
+	end
+	return true, "ok"
+end
+
 local function stopAutoRoll(player, code)
 	local key = userKey(player)
 	local session = key and autoRollSessions[key] or nil
@@ -1566,6 +1615,7 @@ local function stopAutoRoll(player, code)
 		autoRollSessions[key] = nil
 	end
 	sendAutoRollState(player, false, code, session)
+	RollService.SaveAutoRollPreference(player)
 	return stopped
 end
 
@@ -1774,6 +1824,7 @@ local function startAutoRoll(player, payload)
 	session.token = nextAutoRollToken
 	autoRollSessions[key] = session
 	sendAutoRollState(player, true, "ok", session)
+	RollService.SaveAutoRollPreference(player, profile)
 	NotificationService.Success(player, "Auto Roll enabled")
 	RuntimeGuard.Spawn("RollService.AutoRollLoop", runAutoRollLoop, player, session.token)
 end
@@ -1830,6 +1881,25 @@ function RollService.ResumeAutoRoll(player, profile, options)
 	end
 	RuntimeGuard.Spawn("RollService.AutoRollLoop", runAutoRollLoop, player, session.token)
 	return true, "ok"
+end
+
+-- Opt-in restore path for ordinary fresh joins. AFK timeout teleports continue
+-- to use ResumeAutoRoll directly with their own teleport data and never call
+-- this preference-gated path.
+function RollService.ResumePreservedAutoRoll(player, profile)
+	profile = profile or (PlayerDataServiceRef and PlayerDataServiceRef.GetProfile(player) or nil)
+	if not preserveAutoRollOnRejoin(profile) then
+		return false, "preference-disabled"
+	end
+	if profile.Data.AutoRollEnabled ~= true then
+		return false, "not-enabled"
+	end
+	if RollService.IsAutoRollEnabled(player) then
+		return true, "already-running"
+	end
+	return RollService.ResumeAutoRoll(player, profile, {
+		reason = "preserved-rejoin",
+	})
 end
 
 local function handleAutoRollRequest(player, payload)
@@ -2272,12 +2342,6 @@ local function dropAdminCrateForPlayer(player, crateId, crate)
 		end
 		if not rolled then
 			return false, rollCode or "reward-roll-failed"
-		end
-		-- Display the seed's original rarity odds, matching regular seed roll
-		-- reveals; the boosted luck (or equal split) only decides WHAT drops,
-		-- not the shown text.
-		if rolled.chanceN then
-			rolled.rngChanceText = NumberFormatter.ChanceN(rolled.chanceN)
 		end
 
 		nextOfferId += 1

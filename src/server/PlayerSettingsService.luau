@@ -13,6 +13,7 @@ local State = require(Shared:WaitForChild("State"))
 
 local PlayerDataService = require(script.Parent:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(script.Parent:WaitForChild("PlayerReplicaService"))
+local RollService = require(script.Parent:WaitForChild("RollService"))
 
 local REQUEST_MIN_INTERVAL_SECONDS = 0.2
 
@@ -62,6 +63,10 @@ function PlayerSettingsService.Start()
 			-- Merge: only known keys with boolean values are applied; the rest
 			-- of the payload is ignored.
 			local settings = PlayerSettings.CopySettings(profile.Data.PlayerSettings)
+			local preservedAutoRollBefore = PlayerSettings.Get(
+				settings,
+				PlayerSettings.Keys.PreserveAutoRollOnRejoin
+			)
 			local changed = false
 			for _, settingKey in pairs(PlayerSettings.Keys) do
 				local value = payload[settingKey]
@@ -75,6 +80,15 @@ function PlayerSettingsService.Start()
 			end
 
 			profile.Data.PlayerSettings = settings
+			local preservedAutoRollAfter = PlayerSettings.Get(
+				settings,
+				PlayerSettings.Keys.PreserveAutoRollOnRejoin
+			)
+			if preservedAutoRollBefore ~= preservedAutoRollAfter then
+				-- Enabling captures the live state; disabling clears only the saved
+				-- state and deliberately leaves this server's auto-roll session alone.
+				RollService.SaveAutoRollPreference(player, profile)
+			end
 			PlayerReplicaService.PublishPlayerSettings(player, profile)
 			applyAcceptGiftsAttribute(player, settings)
 		end

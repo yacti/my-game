@@ -71,6 +71,12 @@ Remotes.Names = {
 	UpdateLogClosed = "UpdateLogClosed",
 	EventRsvpPromptRequest = "EventRsvpPromptRequest",
 	EventRsvpPromptResult = "EventRsvpPromptResult",
+	-- Server -> client: the collector is not in the group, so the client opens
+	-- the native community join modal. Client -> server: argument-free "I just
+	-- joined, collect now"; the server re-verifies membership itself and only
+	-- honours it after it asked for that prompt.
+	JoinGroupPrompt = "JoinGroupPrompt",
+	JoinGroupRewardRequest = "JoinGroupRewardRequest",
 	MediaRewardRedeemRequest = "MediaRewardRedeemRequest",
 	MediaRewardRedeemResult = "MediaRewardRedeemResult",
 	HomeTeleportRequest = "HomeTeleportRequest",
@@ -162,6 +168,8 @@ local Definitions = {
 	[Remotes.Names.UpdateLogClosed] = "RemoteEvent",
 	[Remotes.Names.EventRsvpPromptRequest] = "RemoteEvent",
 	[Remotes.Names.EventRsvpPromptResult] = "RemoteEvent",
+	[Remotes.Names.JoinGroupPrompt] = "RemoteEvent",
+	[Remotes.Names.JoinGroupRewardRequest] = "RemoteEvent",
 	[Remotes.Names.MediaRewardRedeemRequest] = "RemoteEvent",
 	[Remotes.Names.MediaRewardRedeemResult] = "RemoteEvent",
 	[Remotes.Names.HomeTeleportRequest] = "RemoteEvent",

@@ -82,12 +82,16 @@ local DATA_TEMPLATE = {
 		autoPurchase = false,
 		selectedRarities = {},
 	},
+	-- The live state is restored on a genuine join only when the matching
+	-- default-off PlayerSettings preference is enabled.
+	AutoRollEnabled = false,
 	PlayerSettings = {
 		musicEnabled = true,
 		treeAutoCollect = true,
 		acceptGifts = true,
 		motionSickness = false,
 		hidePetsInEditMode = false,
+		preserveAutoRollOnRejoin = false,
 	},
 	Rebirths = 0,
 	UnlockedGridKeys = {},
@@ -948,6 +952,11 @@ local function ensureValidData(profile)
 	profile.Data.RollDropAreaLevel = RollDropAreaBalance.LevelFor(profile.Data.RollDropAreaLevel)
 	profile.Data.AutoRollSettings = AutoRollConfig.CopySettings(profile.Data.AutoRollSettings)
 	profile.Data.PlayerSettings = PlayerSettings.CopySettings(profile.Data.PlayerSettings)
+	profile.Data.AutoRollEnabled = profile.Data.AutoRollEnabled == true
+		and PlayerSettings.Get(
+			profile.Data.PlayerSettings,
+			PlayerSettings.Keys.PreserveAutoRollOnRejoin
+		)
 	local unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridKeys)
 	if #unlockedGridKeys == 0 then
 		unlockedGridKeys = PlotGrid.SanitizeUnlockedKeys(profile.Data.UnlockedGridIds)

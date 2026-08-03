@@ -140,13 +140,8 @@ function NumberFormatter.ChanceN(value)
 	return "1 in " .. NumberFormatter.Format(math.max(math.floor(finiteNumber(value)), 0))
 end
 
-function NumberFormatter.ChanceFromProbability(probability)
-	local weight = finiteNumber(probability)
-	if weight <= 0 then
-		return "1 in ?"
-	end
-	return "1 in " .. NumberFormatter.Format(math.max(math.floor((1 / weight) + 0.5), 1))
-end
+-- No ChanceFromProbability helper on purpose: reveal cards show an item's base
+-- 1 in n odds, never a rounded 1/p rebuilt from luck-adjusted roll weights.
 
 function NumberFormatter.XP(value, unitText)
 	return NumberFormatter.Format(math.max(math.floor(finiteNumber(value)), 0)) .. (unitText or " XP")

@@ -312,6 +312,13 @@ function PlayerReplicaService.Create(player, profile)
 	return replica
 end
 
+-- Replica clients announce readiness only after all feature controllers have
+-- started and registered their listeners. Join-time server effects that must
+-- not be missed can wait on this without reaching into the native module.
+function PlayerReplicaService.IsReadyPlayer(player)
+	return player ~= nil and Replica.ReadyPlayers[player] == true
+end
+
 function PlayerReplicaService.Destroy(player)
 	local key = userKey(player)
 	if not key then

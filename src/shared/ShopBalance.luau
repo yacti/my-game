@@ -90,9 +90,9 @@ ShopBalance.DurianPack = {
 		{ Tickets = 1, ExtraTickets = 0, DevProductId = 3607448000 },
 	},
 	Rewards = {
-		{ SeedId = "WatermelonSeed", Weight = 50 },
-		{ SeedId = "MushroomSeed", Weight = 35 },
-		{ SeedId = "GlowshroomSeed", Weight = 14 },
+		{ SeedId = "CherryTreeSeed", Weight = 55 },
+		{ SeedId = "PurpleShroomSeed", Weight = 39 },
+		{ SeedId = "GlowshroomSeed", Weight = 5 },
 		{ SeedId = "DurianTreeSeed", Weight = 1 },
 	},
 }

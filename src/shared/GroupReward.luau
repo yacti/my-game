@@ -8,6 +8,10 @@ GroupReward.VisualName = "Watermelon Seed"
 
 GroupReward.NotInGroupMessage = "Like the game and join the group to collect!"
 GroupReward.SuccessMessage = "Collected group reward!"
+-- Only reachable for a group that reviews join requests; ours is open entry, so
+-- this is the safety net rather than the normal path.
+GroupReward.JoinPendingMessage = "Join request sent! Come back once it is accepted"
+GroupReward.JoinPromptFailedMessage = "Could not open the group prompt. Please try again"
 
 GroupReward.RewardTypes = {
 	Seed = "Seed",

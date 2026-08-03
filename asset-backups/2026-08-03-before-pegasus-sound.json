@@ -1,0 +1,24 @@
+{
+  "reason": "Read-only MCP snapshot before making Pegasus Skin application audio self-contained",
+  "source": {
+    "path": "ReplicatedStorage.Sounds.AnimalAmbientSounds.Pet53",
+    "className": "Sound",
+    "SoundId": "rbxassetid://9125644661",
+    "Volume": 0.5,
+    "PlaybackSpeed": 1,
+    "Looped": false,
+    "PlayOnRemove": false,
+    "RollOffMode": "Inverse",
+    "RollOffMinDistance": 10,
+    "RollOffMaxDistance": 10000,
+    "PlaybackRegionsEnabled": false,
+    "PlaybackRegion": [0, 60000],
+    "LoopRegion": [0, 60000],
+    "AcousticSimulationEnabled": true
+  },
+  "targetBefore": {
+    "path": "ReplicatedStorage.Assets.PetSkins.Pegasus Skin",
+    "primaryPart": "PEGASUS",
+    "descendantSounds": []
+  }
+}

@@ -1,3 +1,4 @@
+local GroupService = game:GetService("GroupService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -10,6 +11,7 @@ local SeedTools = require(Server:WaitForChild("SeedTools"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GroupReward = require(Shared:WaitForChild("GroupReward"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 
 local JoinGroupRewardService = {}
@@ -20,6 +22,11 @@ local REQUEST_RATE_SECONDS = 0.5
 local started = false
 local locks = {}
 local lastRequestAt = {}
+-- [UserId] = true between "we asked this client to open the join modal" and the
+-- one collect retry that answer is allowed to buy. Without it a client could
+-- spam the retry remote and, through it, this server's GroupService web budget.
+local joinPromptPending = {}
+local promptRemote = nil
 
 local function userKey(player)
 	return player and player.UserId or nil
@@ -131,6 +138,44 @@ local function isGroupMember(player)
 	return result == true
 end
 
+-- Player:IsInGroup answers from a per-server cache, so someone who joins through
+-- the native modal still reads as a non-member here for up to a minute after.
+-- GetGroupsAsync asks the web endpoint instead, which is what makes the collect
+-- retry that follows a successful join land immediately. It yields and costs a
+-- request, so only the retry path pays for it, and only once per prompt.
+local function isGroupMemberUncached(player)
+	local groupId = int(GroupReward.GroupId)
+	if groupId <= 0 then
+		return false
+	end
+	local ok, groups = pcall(function()
+		return GroupService:GetGroupsAsync(player.UserId)
+	end)
+	if not ok then
+		warn("[JoinGroupRewardService] GetGroupsAsync failed for user " .. tostring(userKey(player)) .. ": " .. tostring(groups))
+		return false
+	end
+	if type(groups) ~= "table" then
+		return false
+	end
+	for _, info in ipairs(groups) do
+		if type(info) == "table" and int(info.Id) == groupId then
+			return true
+		end
+	end
+	return false
+end
+
+local function requestJoinPrompt(player)
+	local key = userKey(player)
+	if not (promptRemote and key) then
+		NotificationService.Error(player, GroupReward.NotInGroupMessage)
+		return
+	end
+	joinPromptPending[key] = true
+	promptRemote:FireClient(player)
+end
+
 local function saveProfile(profile)
 	local ok = pcall(function()
 		profile:Save()
@@ -174,7 +219,8 @@ local function grantReward(player, profile)
 	return true, "ok", prepared
 end
 
-local function collect(player, part)
+local function collect(player, part, options)
+	options = type(options) == "table" and options or {}
 	if not takeRateLimit(player) then
 		return
 	end
@@ -192,8 +238,26 @@ local function collect(player, part)
 		return
 	end
 	if not isGroupMember(player) then
-		NotificationService.Error(player, GroupReward.NotInGroupMessage)
-		return
+		if options.verifyUncached ~= true or not isGroupMemberUncached(player) then
+			if options.promptJoin == true then
+				requestJoinPrompt(player)
+			else
+				NotificationService.Error(player, GroupReward.NotInGroupMessage)
+			end
+			return
+		end
+		-- The uncached lookup yielded; re-establish everything it could have
+		-- outlived before granting anything.
+		if player.Parent == nil then
+			return
+		end
+		profile = PlayerDataService.GetProfile(player)
+		if not profile or profile.Data.JoinGroupRewardCollected == true then
+			return
+		end
+		if not isNearPrompt(player, part) then
+			return
+		end
 	end
 
 	local key = userKey(player)
@@ -269,14 +333,27 @@ function JoinGroupRewardService.Start()
 		return
 	end
 
+	promptRemote = Remotes.get(Remotes.Names.JoinGroupPrompt)
+
 	RuntimeGuard.Connect(prompt.Triggered, "JoinGroupRewardService.Triggered", function(player)
-		collect(player, part)
+		collect(player, part, { promptJoin = true })
+	end)
+	-- The client answers the join modal here. One retry per prompt we asked for,
+	-- and it re-verifies membership server-side rather than trusting the report.
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.JoinGroupRewardRequest).OnServerEvent, "JoinGroupRewardService.JoinedRequest", function(player)
+		local key = userKey(player)
+		if not (key and joinPromptPending[key]) then
+			return
+		end
+		joinPromptPending[key] = nil
+		collect(player, part, { verifyUncached = true })
 	end)
 	RuntimeGuard.Connect(Players.PlayerRemoving, "JoinGroupRewardService.PlayerRemoving", function(player)
 		local key = userKey(player)
 		if key then
 			locks[key] = nil
 			lastRequestAt[key] = nil
+			joinPromptPending[key] = nil
 		end
 	end)
 end

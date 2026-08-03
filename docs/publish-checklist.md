@@ -154,7 +154,8 @@ Run this checklist before publishing a live build.
   not changed by the pass.
 - Buy x2 Luck gamepass id `1874769695`, verify the `x2Luck` Robux shop card
   shows `Sold`, roll luck includes the pass as additive `+100%` player luck,
-  revealed roll chance text reflects effective server-side odds, and player-facing
+  revealed roll chance text still shows each reward's base `1 in n` odds (luck
+  changes what drops, never the number on the card), and player-facing
   copy does not imply every final rare reward chance is exactly doubled. Because
   x2 Luck affects random crate odds, review paid-random-item policy and odds
   disclosure together with Server Luck and VIP before publishing.
@@ -232,8 +233,9 @@ Run this checklist before publishing a live build.
   leaving, and rejoining, verify the rolling queue holds at most one pending turn
   per player, refreshes after every visit, gives newly eligible players a prompt
   turn, and continues polling/zapping for the whole active window. Verify regular
-  playlist music fades out, Alien tracks `1836594449`, `1835904215`, and
-  `1838209880` play in order without intentional gaps and repeat, then regular
+  playlist music fades out, Alien tracks `1836594449`, `134434412138800`,
+  `139266399633943`, `140245756477343`, and `139992996755484` play in order
+  without intentional gaps and repeat, then regular
   music resumes after stop. Send Alien and Owner admin messages and verify sounds
   `136287116644259` (random 0.7–1.3 playback speed per message) and
   `133824819874255` (normal speed) play exactly once when each message appears.

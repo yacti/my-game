@@ -10,6 +10,7 @@ PlayerSettings.Keys = {
 	AcceptGifts = "acceptGifts",
 	MotionSickness = "motionSickness",
 	HidePetsInEditMode = "hidePetsInEditMode",
+	PreserveAutoRollOnRejoin = "preserveAutoRollOnRejoin",
 }
 
 PlayerSettings.Defaults = {
@@ -18,6 +19,7 @@ PlayerSettings.Defaults = {
 	acceptGifts = true,
 	motionSickness = false,
 	hidePetsInEditMode = false,
+	preserveAutoRollOnRejoin = false,
 }
 
 -- Returns a fresh table containing only known keys as booleans; anything

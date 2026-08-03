@@ -436,6 +436,16 @@ local function petDisplayName(petId)
 	return (visual and visual.ModelName) or petId
 end
 
+local function petLevel(petId)
+	local definition = PetCatalog.GetDefinition(petId)
+	local order = definition and definition.Order
+	return type(order) == "number" and math.max(math.floor(order), 1) or nil
+end
+
+local function skinPetDisplayName(petSkinId)
+	return PetSkinCatalog.NameFor(petSkinId):gsub("%s+Skin$", "")
+end
+
 local function showEvolutionNotification(oldPetId, pet, cueKind, targetSkinId)
 	if cueKind == "PetSkinApply" then
 		Notifications.show({
@@ -448,6 +458,25 @@ local function showEvolutionNotification(oldPetId, pet, cueKind, targetSkinId)
 	if type(newPetId) ~= "string" or newPetId == "" or newPetId == oldPetId then
 		return
 	end
+
+	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+	if type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) then
+		local oldLevel = petLevel(oldPetId)
+		local newLevel = petLevel(newPetId)
+		if oldLevel and newLevel then
+			Notifications.show({
+				text = string.format(
+					"Your %s has levelled up from level %d to %d!",
+					skinPetDisplayName(petSkinId),
+					oldLevel,
+					newLevel
+				),
+				kind = NotificationConfig.Kinds.Success,
+			})
+			return
+		end
+	end
+
 	Notifications.show({
 		text = string.format("Your %s evolved into a %s!", petDisplayName(oldPetId), petDisplayName(newPetId)),
 		kind = NotificationConfig.Kinds.Success,

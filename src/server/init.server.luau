@@ -1740,6 +1740,27 @@ local function handlePlayerAdded(player)
 				setInventoryRestorePending(player, true)
 			end
 		end)
+
+		-- AFK timeout teleports have their own state handoff above and are
+		-- intentionally excluded. This path is only for an ordinary fresh join;
+		-- it waits until join-time gates are clear and the client has registered
+		-- its AutoRollState listener.
+		if not afkRejoinData and profile.Data.AutoRollEnabled == true then
+			RuntimeGuard.Spawn("PlayerAdded.ResumePreservedAutoRoll." .. label, function()
+				while player:IsDescendantOf(Players)
+					and PlayerDataService.GetProfile(player) == profile
+					and (
+						OfflineProgressService.IsPending(player)
+						or isInventoryRestorePending(player)
+						or not PlayerReplicaService.IsReadyPlayer(player)
+					) do
+					task.wait(0.1)
+				end
+				if player:IsDescendantOf(Players) and PlayerDataService.GetProfile(player) == profile then
+					RollService.ResumePreservedAutoRoll(player, profile)
+				end
+			end)
+		end
 	end)
 
 	if not setupOk then
@@ -1762,7 +1783,7 @@ end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "Players.PlayerRemoving", handlePlayerRemoving)
 
-game:BindToClose(function()
+game:BindToClose(function(closeReason)
 	-- Stop the pinata sweeps and tear down live pinatas/drops first, so no
 	-- reward grant can race the per-player teardown snapshots below.
 	RuntimeGuard.Run("BindToClose.PinataShutdown", PinataService.Shutdown)
@@ -1776,6 +1797,15 @@ game:BindToClose(function()
 		RuntimeGuard.Run("BindToClose.Player." .. userLabel(player), function()
 			local plot    = PlotService.GetPlayerPlot(player)
 			local profile = PlayerDataService.GetProfile(player)
+			-- Applies to every CloseReason (including DeveloperUpdate and
+			-- DeveloperShutdown); normal leave/start/stop paths also keep this
+			-- current, so correctness does not depend on shutdown detection.
+			RuntimeGuard.Run(
+				"BindToClose.SaveAutoRoll." .. tostring(closeReason) .. "." .. userLabel(player),
+				RollService.ProtectAutoRollPreferenceForShutdown,
+				player,
+				profile
+			)
 			teardownPlayerState(player, plot, profile, { snapshot = true })
 		end)
 	end

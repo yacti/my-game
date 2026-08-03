@@ -1,10 +1,14 @@
+local GroupService = game:GetService("GroupService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GroupReward = require(Shared:WaitForChild("GroupReward"))
+local NotificationConfig = require(Shared:WaitForChild("Notifications"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local Notifications = require(script.Parent:WaitForChild("Notifications"))
 local PlayerStateStore = require(script.Parent:WaitForChild("PlayerStateStore"))
 
 local JoinGroupRewardController = {}
@@ -18,6 +22,7 @@ local visual = nil
 local renderConnection = nil
 local destroyingConnection = nil
 local stateConnection = nil
+local promptOpen = false
 
 local function findVisual()
 	if visual and visual.Parent then
@@ -65,11 +70,57 @@ local function destroyRewardModel()
 	disconnect()
 end
 
+-- The stand's Collect prompt is server-owned, but PromptJoinAsync has no server
+-- counterpart: it only ever prompts its own local player. So a non-member's
+-- trigger comes back to us as a request to open Roblox's native join modal, and
+-- the answer goes back for the server to verify and act on.
+local function promptJoinGroup(joinedRemote)
+	if promptOpen then
+		return
+	end
+	promptOpen = true
+	local ok, status = pcall(function()
+		return GroupService:PromptJoinAsync(GroupReward.GroupId)
+	end)
+	promptOpen = false
+
+	if not ok then
+		warn("[JoinGroupRewardController] PromptJoinAsync failed: " .. tostring(status))
+		Notifications.show({
+			text = GroupReward.JoinPromptFailedMessage,
+			kind = NotificationConfig.Kinds.Error,
+		})
+		return
+	end
+
+	if status == Enum.GroupMembershipStatus.Joined or status == Enum.GroupMembershipStatus.AlreadyMember then
+		-- Only an intent: the server re-checks membership against the web
+		-- endpoint before it grants anything.
+		joinedRemote:FireServer()
+	elseif status == Enum.GroupMembershipStatus.JoinRequestPending then
+		Notifications.show({
+			text = GroupReward.JoinPendingMessage,
+			kind = NotificationConfig.Kinds.Info,
+		})
+	else
+		-- None: they closed the modal, or they are not eligible to join.
+		Notifications.show({
+			text = GroupReward.NotInGroupMessage,
+			kind = NotificationConfig.Kinds.Error,
+		})
+	end
+end
+
 function JoinGroupRewardController.start()
 	if started then
 		return
 	end
 	started = true
+
+	local joinedRemote = Remotes.get(Remotes.Names.JoinGroupRewardRequest)
+	RuntimeGuard.Connect(Remotes.get(Remotes.Names.JoinGroupPrompt).OnClientEvent, "JoinGroupRewardController.JoinPrompt", function()
+		promptJoinGroup(joinedRemote)
+	end)
 
 	local found = Workspace:WaitForChild(GroupReward.ModelName, WAIT_SECONDS)
 	if not (found and found:IsA("Model")) then

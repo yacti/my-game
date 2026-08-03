@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Food = require(Shared:WaitForChild("Food"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -54,8 +55,9 @@ local pendingRequestId = nil
 local promptOpen = false
 local promptToken = 0
 
--- Mirrors GiftService.isGiftableTool: only patch/tree harvests are
--- giftable; jam (processor-made) and every non-food tool are not.
+-- Mirrors GiftService.isGiftableTool: patch/tree harvests and unapplied Pet
+-- Skin inventory tools are giftable. Applied skins live on pet records and
+-- cannot enter this equipped-Tool path.
 local function isGiftableTool(tool)
 	if not (tool and tool:IsA("Tool")) then
 		return false
@@ -63,7 +65,13 @@ local function isGiftableTool(tool)
 	if ToolIdentity.GuidOf(tool) == nil then
 		return false
 	end
-	return Food.IsFood(tool) and not Food.IsJamFoodId(Food.IdOf(tool))
+	if Food.IsFood(tool) and not Food.IsJamFoodId(Food.IdOf(tool)) then
+		return true
+	end
+	local petSkinId = tool:GetAttribute(State.PetSkin.Id)
+	return type(petSkinId) == "string"
+		and PetSkinCatalog.Get(petSkinId) ~= nil
+		and PetSkinCatalog.TemplateFor(petSkinId) ~= nil
 end
 
 local function equippedTool()

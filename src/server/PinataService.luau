@@ -24,6 +24,12 @@
 --
 -- PolicyService.ArePaidRandomItemsRestricted deliberately does NOT apply: these
 -- are free admin-granted rewards, not paid random items.
+--
+-- Deliberately NOT gated by EventEligibility, unlike every plot event: a pinata
+-- is a party toy for the whole server, so players still in the tutorial see the
+-- toast, get a stick and can swing. Grants ask only for what they actually
+-- consume -- a loaded profile for currency and durian tickets, plus an assigned
+-- plot for grow skips -- so do not "restore" the eligibility check here.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -31,11 +37,12 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
-local EventEligibility = require(Server:WaitForChild("EventEligibility"))
 local GrowSkipService = require(Server:WaitForChild("GrowSkipService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local PetIncomeService = require(Server:WaitForChild("PetIncomeService"))
+local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local PlotService = require(Server:WaitForChild("PlotService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -203,15 +210,13 @@ local function announceSpawn(config)
 	-- string covers both and the Golden toast animates via its ToastKind.
 	local text = string.format("A %s has appeared!", config.DisplayName)
 	for _, player in ipairs(Players:GetPlayers()) do
-		if EventEligibility.IsEligible(player) then
-			RuntimeGuard.Run("PinataService.AnnounceSpawn", function()
-				NotificationService.Notify(player, {
-					kind = config.ToastKind or NotificationConfig.Kinds.Mythical,
-					text = text,
-					lifetime = SPAWN_TOAST_LIFETIME,
-				})
-			end)
-		end
+		RuntimeGuard.Run("PinataService.AnnounceSpawn", function()
+			NotificationService.Notify(player, {
+				kind = config.ToastKind or NotificationConfig.Kinds.Mythical,
+				text = text,
+				lifetime = SPAWN_TOAST_LIFETIME,
+			})
+		end)
 	end
 end
 
@@ -298,10 +303,28 @@ end
 
 -- ── Rewards ───────────────────────────────────────────────────────────────────
 
+-- The only thing a grant genuinely needs is a loaded profile; the plot is
+-- optional here because just one reward kind (grow skip) touches it, and that
+-- kind checks for itself. A player still in the tutorial has both.
+local function rewardContext(player)
+	local profile = PlayerDataService.GetProfile(player)
+	if not profile then
+		return nil, "profile-not-loaded"
+	end
+	return {
+		player = player,
+		profile = profile,
+		plot = PlotService.GetPlayerPlot(player),
+	}
+end
+
 local function grantGrowSkip(player, context, rewardId)
 	local seconds = Pinata.GrowSkipSeconds(rewardId)
 	if seconds <= 0 then
 		return false, "invalid-skip"
+	end
+	if not context.plot then
+		return false, "no-plot"
 	end
 	local result, code = GrowSkipService.ApplyFreePlotTimeSkip(player, context.plot, seconds)
 	if not result then
@@ -375,7 +398,7 @@ local function applyReward(player, rewardId, payout)
 	if not reward then
 		return false, "unknown-reward"
 	end
-	local context, code = EventEligibility.Context(player)
+	local context, code = rewardContext(player)
 	if not context then
 		return false, code
 	end
@@ -615,10 +638,9 @@ local function onSwing(player)
 
 	-- Cooldown FIRST, deliberately. It is the only thing bounding damage rate,
 	-- for exploiters and honest players alike, and checking it before the
-	-- (more expensive, telemetry-emitting) eligibility gate means a client
-	-- spamming the remote is dropped cheaply and cannot flood telemetry.
-	-- There is no per-player damage cap on top of this: it would add no
-	-- security and would make solo breaking impossible.
+	-- (more expensive) proximity search means a client spamming the remote is
+	-- dropped cheaply. There is no per-player damage cap on top of this: it
+	-- would add no security and would make solo breaking impossible.
 	local now = os.clock()
 	local previous = swingCooldown[key]
 	if previous and now - previous < Pinata.SwingCooldownSeconds then
@@ -626,11 +648,9 @@ local function onSwing(player)
 	end
 	swingCooldown[key] = now
 
-	local eligible, code = EventEligibility.IsEligible(player)
-	if not eligible then
-		TelemetryService.Warn("pinata_swing_rejected", TelemetryService.ForPlayer(player, { reason = code }))
-		return
-	end
+	-- No eligibility gate: see the header. `blocked` stays because it is the same
+	-- condition that decides whether the player is holding a stick at all, so
+	-- swing acceptance and stick presence never disagree.
 	if blocked(player) then
 		return
 	end

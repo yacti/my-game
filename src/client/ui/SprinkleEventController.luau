@@ -297,6 +297,63 @@ local function weldWand(character, hand, rigScale)
 	return model, handle
 end
 
+local function baseParts(model)
+	local parts = {}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			parts[#parts + 1] = descendant
+		end
+	end
+	return parts
+end
+
+-- CanQuery/CanTouch go with CanCollide: nothing should raycast-hit or
+-- touch-trigger off a prop the player is meant to walk straight through.
+-- Written only when actually set, because this runs every frame for a window
+-- (see holdCollisionCleared).
+local function clearCollision(parts)
+	for _, part in ipairs(parts) do
+		if part.CanCollide then
+			part.CanCollide = false
+		end
+		if part.CanQuery then
+			part.CanQuery = false
+		end
+		if part.CanTouch then
+			part.CanTouch = false
+		end
+	end
+end
+
+-- The Humanoid re-enables limb collision as it assembles the character, and it
+-- does so a frame or more AFTER the model is parented -- not during the
+-- parenting frame. Measured on the live rig, all 14 R15 body parts (everything
+-- except the Head and the HumanoidRootPart) came back CanCollide = true within
+-- ~100ms of parenting no matter what was written before, which is what let a
+-- purely decorative NPC shove players around their own farm.
+--
+-- So the clear is HELD for a window rather than applied once: a single pass at
+-- parent time is always overwritten, and a single deferred pass races the
+-- assembly on a slow frame (this client can be rendering 300 crop patches).
+--
+-- The window is bounded rather than permanent because the engine only does this
+-- the once: watching a rig that had been left solid, the flags never changed
+-- again over the following 960 frames. The rig's Humanoid never leaves
+-- FallingDown either (its root is anchored), so there are no state transitions
+-- to re-trigger it. Two seconds is ~20x the measured margin and closes long
+-- before the entrance fall ends.
+local COLLISION_HOLD_SECONDS = 2
+
+local function holdCollisionCleared(model, parts)
+	RuntimeGuard.Spawn("SprinkleEventController.ClearCollision", function()
+		local deadline = os.clock() + COLLISION_HOLD_SECONDS
+		while os.clock() < deadline and model.Parent do
+			RunService.Heartbeat:Wait()
+			clearCollision(parts)
+		end
+	end)
+end
+
 -- This project's rigs are joined by AnimationConstraint, not Motor6D (the R15
 -- avatars have zero Motor6Ds). Both expose .Transform and both are accepted so a
 -- classic rig still works.
@@ -390,14 +447,15 @@ local function buildRig()
 	--
 	-- Anchored root, unanchored limbs -- which is also how the template ships
 	-- (0 of its 20 parts are anchored). Movement is driven by writing root.CFrame.
+	-- The anchoring must happen here, before the rig enters the world, or it
+	-- drops on its first physics step. The collision flags set alongside it do
+	-- not survive parenting -- see clearCollision, which runs again below.
 	for _, descendant in ipairs(model:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = descendant == root
-			descendant.CanCollide = false
-			descendant.CanQuery = false
-			descendant.CanTouch = false
 		end
 	end
+	clearCollision(baseParts(model))
 
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if not animator then
@@ -418,6 +476,12 @@ local function buildRig()
 	else
 		warnSprinkle("Rig has no right hand; wand skipped")
 	end
+
+	-- After parenting AND after the wand is in, so one snapshot covers the rig,
+	-- its accessories and the prop.
+	local parts = baseParts(model)
+	clearCollision(parts)
+	holdCollisionCleared(model, parts)
 
 	local emitter = nil
 	local particleTemplate = sparkleParticleTemplate()

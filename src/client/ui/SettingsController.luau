@@ -1,7 +1,7 @@
 -- Wires the Studio-authored Menu.Settings panel: profile-backed on/off rows
 -- (music, tree fruit auto-collect, accept gifts, motion sickness, edit-mode
--- pet visibility) rendered from the replicated PlayerSettings field, plus a
--- right-aligned TopbarPlus icon that toggles the panel. Each row has two
+-- pet visibility, auto-roll rejoin preservation) rendered from the replicated
+-- PlayerSettings field, plus a right-aligned TopbarPlus icon that toggles the panel. Each row has two
 -- overlapping On/Off ImageButtons; the one matching the current state is
 -- visible and clicking either flips the setting.
 local Players = game:GetService("Players")
@@ -33,6 +33,7 @@ local SETTING_ROWS = {
 	{ key = PlayerSettings.Keys.AcceptGifts, label = "Accept Gifts", order = 3 },
 	{ key = PlayerSettings.Keys.MotionSickness, label = "Motion Sickness", order = 4 },
 	{ key = PlayerSettings.Keys.HidePetsInEditMode, label = "Hide Pets in Edit Mode", order = 5 },
+	{ key = PlayerSettings.Keys.PreserveAutoRollOnRejoin, label = "Preserve Auto Roll on Rejoin", order = 6 },
 }
 
 local started = false
@@ -91,6 +92,7 @@ local function sendSettings()
 		[PlayerSettings.Keys.AcceptGifts] = settings[PlayerSettings.Keys.AcceptGifts] == true,
 		[PlayerSettings.Keys.MotionSickness] = settings[PlayerSettings.Keys.MotionSickness] == true,
 		[PlayerSettings.Keys.HidePetsInEditMode] = settings[PlayerSettings.Keys.HidePetsInEditMode] == true,
+		[PlayerSettings.Keys.PreserveAutoRollOnRejoin] = settings[PlayerSettings.Keys.PreserveAutoRollOnRejoin] == true,
 	})
 end
 

@@ -5,6 +5,7 @@ local Server = script.Parent
 local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService"))
 local NotificationService = require(Server:WaitForChild("NotificationService"))
 local OnboardingService = require(Server:WaitForChild("OnboardingService"))
+local PetSkinTools = require(Server:WaitForChild("PetSkinTools"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService = require(Server:WaitForChild("PlotService"))
 local TelemetryService = require(Server:WaitForChild("TelemetryService"))
@@ -16,6 +17,7 @@ local Inventory = require(Shared:WaitForChild("Inventory"))
 local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local State = require(Shared:WaitForChild("State"))
 local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local GiftService = {}
@@ -79,13 +81,15 @@ local function characterRoot(player)
 	return character and character:FindFirstChild("HumanoidRootPart") or nil
 end
 
--- Only patch/tree harvests are giftable; jam (processor-made) and every
--- non-food tool (seeds, cosmetics, gear, shovel, feed tools) are not.
+-- Only patch/tree harvests and unapplied Pet Skin inventory tools are
+-- giftable. Applied skins are pet data, not Tools, so they never enter this
+-- path. Jam (processor-made) and every other non-food tool remain blocked.
 local function isGiftableTool(item)
 	if not (item and item:IsA("Tool")) then
 		return false
 	end
-	return Food.IsFood(item) and not Food.IsJamFoodId(Food.IdOf(item))
+	return (Food.IsFood(item) and not Food.IsJamFoodId(Food.IdOf(item)))
+		or PetSkinTools.IsPetSkinTool(item)
 end
 
 -- The descriptor is both the mint recipe for the recipient's copy and the
@@ -95,19 +99,43 @@ local function describeTool(tool)
 	if record then
 		return { kind = "food", itemId = record.foodId, record = record }
 	end
+	local petSkinId = PetSkinTools.PetSkinIdOf(tool)
+	if petSkinId then
+		return {
+			kind = "pet-skin",
+			itemId = petSkinId,
+			petSkinId = petSkinId,
+			guid = ToolIdentity.GuidOf(tool),
+			favourite = ToolIdentity.IsFavourite(tool),
+		}
+	end
 	return nil
 end
 
 local function mintFromDescriptor(descriptor, forRecipient)
-	local record = table.clone(descriptor.record)
-	if forRecipient then
-		-- Fresh guid for the recipient's copy; the giver's profile still
-		-- references the old guid until their snapshot lands. Favourite state is
-		-- the giver's preference, so it does not transfer to the recipient.
-		record.guid = nil
-		record.favourite = nil
+	if descriptor.kind == "food" then
+		local record = table.clone(descriptor.record)
+		if forRecipient then
+			-- Fresh guid for the recipient's copy; the giver's profile still
+			-- references the old guid until their snapshot lands. Favourite state is
+			-- the giver's preference, so it does not transfer to the recipient.
+			record.guid = nil
+			record.favourite = nil
+		end
+		return FoodInventoryService.MakeTool(record)
 	end
-	return FoodInventoryService.MakeTool(record)
+	if descriptor.kind == "pet-skin" then
+		local tool = PetSkinTools.MakePetSkinTool(descriptor.petSkinId)
+		if tool and not forRecipient then
+			-- Rollback restores the giver's exact inventory identity and favourite
+			-- preference. The recipient keeps the fresh guid made above and never
+			-- inherits the giver's favourite state.
+			tool:SetAttribute(State.Tool.Guid, descriptor.guid)
+			ToolIdentity.SetFavourite(tool, descriptor.favourite)
+		end
+		return tool
+	end
+	return nil
 end
 
 function GiftService.Start(config)

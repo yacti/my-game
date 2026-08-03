@@ -702,7 +702,14 @@ local function formatPrice(price)
 	return NumberFormatter.Currency(price)
 end
 
+-- Odds are read from chanceN, which is the seed's own RollChanceN attribute and
+-- is never touched by luck, so no server path can put a luck-adjusted number on
+-- a card. The server's text is honoured only for label-style payloads that are
+-- not odds at all (the tutorial reward), or when chanceN is missing entirely.
 local function formatChance(payload)
+	if payload.chanceN and payload.tutorialGuaranteed ~= true then
+		return NumberFormatter.ChanceN(payload.chanceN)
+	end
 	if payload.rngChanceText then
 		return tostring(payload.rngChanceText)
 	end

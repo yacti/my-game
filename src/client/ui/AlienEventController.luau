@@ -29,8 +29,10 @@ local LOCAL_FOLDER_NAME = "__LocalAlienEvent"
 local MUSIC_SUPPRESSOR_ID = "AlienEvent"
 local ALIEN_MUSIC_TRACKS = {
 	"rbxassetid://1836594449",
-	"rbxassetid://1835904215",
-	"rbxassetid://1838209880",
+	"rbxassetid://134434412138800",
+	"rbxassetid://139266399633943",
+	"rbxassetid://140245756477343",
+	"rbxassetid://139992996755484",
 }
 local ALIEN_MUSIC_VOLUME = 0.2625
 local ALIEN_TRACK_LOAD_TIMEOUT_SECONDS = 15
@@ -440,8 +442,16 @@ local function ensureAlienMusicTemplates()
 end
 
 local function preloadAlienMusic()
+	-- PreloadAsync does not raise for a dead asset id -- an unowned, moderated, or
+	-- nonexistent track resolves with a Failure status. Without the per-asset
+	-- callback a bad id stays silent until the event fires and the playlist skips
+	-- it, so surface it at boot instead.
 	local ok, err = pcall(function()
-		ContentProvider:PreloadAsync(ensureAlienMusicTemplates())
+		ContentProvider:PreloadAsync(ensureAlienMusicTemplates(), function(contentId, status)
+			if status ~= Enum.AssetFetchStatus.Success then
+				warnAlien(string.format("Music track %s failed to preload (%s)", tostring(contentId), status.Name))
+			end
+		end)
 	end)
 	if not ok then
 		warnAlien("Music preload failed: " .. tostring(err))
