@@ -46,6 +46,7 @@ local byTarget = {} -- [Instance] = { [kind] = ProximityPrompt }
 local targetAncestryConns = {} -- [Instance] = { [kind] = RBXScriptConnection }
 local pendingPromptParents = setmetatable({}, { __mode = "k" }) -- [Instance] = { [kind] = { RBXScriptConnection } }
 local externalPrompts = setmetatable({}, { __mode = "k" }) -- [ProximityPrompt] = { isAvailable: function, allowWhileShovelEquipped: boolean }
+local petFeedPromptOverride = nil -- { resolve: (pet) -> context?, triggered: (pet) -> () }
 local treeGroundCandidateConnections = setmetatable({}, { __mode = "k" })
 local passiveTreePickupTargets = setmetatable({}, { __mode = "k" })
 local passiveTreePickupAttempted = setmetatable({}, { __mode = "k" })
@@ -392,6 +393,21 @@ local function isFeedIntentActive()
 	return now < feedIntentUntil
 end
 
+local function petFeedOverrideContext(target)
+	local override = petFeedPromptOverride
+	if not (override and type(override.resolve) == "function") then
+		return nil
+	end
+	local ok, context = RuntimeGuard.Run("LocalPrompts.ResolvePetFeedOverride", override.resolve, target)
+	if not ok or type(context) ~= "table" then
+		return nil
+	end
+	return {
+		actionText = type(context.actionText) == "string" and context.actionText or "Apply Pet Skin",
+		enabled = context.enabled ~= false,
+	}
+end
+
 local function shouldSelectPrompt(currentKind, currentDistance, nextKind, nextDistance, feedIntentActive)
 	if currentDistance == math.huge then
 		return true
@@ -478,6 +494,9 @@ local function activeMobileAutoCandidateForMode(mode, options)
 end
 
 local function autoCandidateFor(target, kind, prompt, distance)
+	if kind == "PetFeed" and petFeedOverrideContext(target) then
+		return nil
+	end
 	local action = AUTO_PROMPT_ACTIONS[kind]
 	local mode = autoModeForKind(kind)
 	if not action or not mode then
@@ -909,6 +928,34 @@ function LocalPrompts.RegisterExternalPrompt(prompt, isAvailable, options)
 	end
 end
 
+function LocalPrompts.SetPetFeedPromptOverride(resolve, triggered)
+	local record = nil
+	if type(resolve) == "function" and type(triggered) == "function" then
+		record = {
+			resolve = resolve,
+			triggered = triggered,
+		}
+	end
+	petFeedPromptOverride = record
+	if LocalPrompts.EndPromptActionHold then
+		LocalPrompts.EndPromptActionHold()
+	end
+	task.defer(function()
+		if refreshAll then
+			RuntimeGuard.Run("LocalPrompts.RefreshPetFeedOverride", refreshAll, false)
+		end
+	end)
+	return function()
+		if petFeedPromptOverride ~= record then
+			return
+		end
+		petFeedPromptOverride = nil
+		if LocalPrompts.EndPromptActionHold then
+			LocalPrompts.EndPromptActionHold()
+		end
+	end
+end
+
 function LocalPrompts.FindAutoPromptCandidate(mode, lockedTarget, options)
 	if mode ~= nil and mode ~= LocalPrompts.AutoModes.Feed and mode ~= LocalPrompts.AutoModes.Collect then
 		return nil
@@ -1004,6 +1051,9 @@ local function firePromptAction(kind, action, target, options)
 		return false
 	end
 	if typeof(target) ~= "Instance" or target.Parent == nil then
+		return false
+	end
+	if kind == "PetFeed" and petFeedOverrideContext(target) then
 		return false
 	end
 	if kind == "PetFeed" and target:GetAttribute(State.Pet.EvolutionPaused) == true then
@@ -1357,6 +1407,16 @@ addPrompt = function(target, kind, action)
 	configurePrompt(prompt, kind)
 	prompt.Parent = parent
 	RuntimeGuard.Connect(prompt.Triggered, "LocalPrompts.PromptTriggered." .. tostring(kind), function()
+		if kind == "PetFeed" then
+			local context = petFeedOverrideContext(target)
+			local override = petFeedPromptOverride
+			if context then
+				if context.enabled and override and type(override.triggered) == "function" then
+					RuntimeGuard.Run("LocalPrompts.TriggerPetFeedOverride", override.triggered, target)
+				end
+				return
+			end
+		end
 		if AUTO_PROMPT_ACTIONS[kind] == action then
 			if firePromptAction(kind, action, target, {
 				isAutoHold = false,
@@ -1496,11 +1556,19 @@ refreshPrompt = function(target, kind, prompt, collectPromptsSuppressed)
 	prompt.ObjectText = ""
 
 	if kind == "PetFeed" then
-		prompt.ActionText = "Feed"
-		prompt.Enabled = target:GetAttribute(State.Pet.EvolutionPaused) ~= true
-			and not isEditMode()
-			and hasFeedablePetFood()
-			and petCanGainXP(target)
+		local override = petFeedOverrideContext(target)
+		if override then
+			prompt.ActionText = override.actionText
+			prompt.Enabled = override.enabled
+				and target:GetAttribute(State.Pet.EvolutionPaused) ~= true
+				and not isEditMode()
+		else
+			prompt.ActionText = "Feed"
+			prompt.Enabled = target:GetAttribute(State.Pet.EvolutionPaused) ~= true
+				and not isEditMode()
+				and hasFeedablePetFood()
+				and petCanGainXP(target)
+		end
 	elseif kind == "FeedMachine" then
 		local enabled, actionText = processorContext(target)
 		prompt.ActionText = actionText

@@ -12,14 +12,10 @@ local ToolIdentity = require(Shared:WaitForChild("ToolIdentity"))
 
 local LocalPrompts = require(script.Parent:WaitForChild("LocalPrompts"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
-local PlotResolver = require(script.Parent:WaitForChild("PlotResolver"))
 local YesNoWarning = require(script.Parent:WaitForChild("YesNoWarning"))
 
 local PetSkinController = {}
 
-local PROMPT_DISTANCE = 18
-local UPDATE_INTERVAL = 0.1
-local ATTACHMENT_NAME = "__PetSkinApplyPromptAttachment"
 local REQUEST_TIMEOUT_SECONDS = 10
 
 local FAILURE_MESSAGES = {
@@ -45,7 +41,11 @@ local function equippedPetSkinTool(player)
 	for _, child in ipairs(character:GetChildren()) do
 		if child:IsA("Tool") then
 			local petSkinId = child:GetAttribute(State.PetSkin.Id)
-			if type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) then
+			local guid = ToolIdentity.GuidOf(child)
+			if type(petSkinId) == "string"
+				and PetSkinCatalog.Get(petSkinId)
+				and PetSkinCatalog.TemplateFor(petSkinId)
+				and ToolIdentity.IsValidGuid(guid) then
 				return child, petSkinId
 			end
 		end
@@ -53,51 +53,16 @@ local function equippedPetSkinTool(player)
 	return nil
 end
 
-local function playerRootPosition(player)
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	return root and root:IsA("BasePart") and root.Position or nil
-end
-
-local function isPet(instance)
-	return instance:IsA("Model") and type(instance:GetAttribute(State.Pet.Index)) == "number"
-end
-
 function PetSkinController.start()
 	local player = Players.LocalPlayer
 	local requestRemote = Remotes.get(Remotes.Names.ApplyPetSkinRequest)
 	local resultRemote = Remotes.get(Remotes.Names.ApplyPetSkinResult)
-	local promptRecord = nil
-	local currentPet = nil
 	local promptOpen = false
+	local confirmationTool = nil
+	local confirmationPet = nil
 	local pendingRequestId = nil
 	local pendingDeadline = 0
 	local nextRequestId = 0
-	local elapsed = UPDATE_INTERVAL
-
-	local function clearPrompt()
-		currentPet = nil
-		if not promptRecord then return end
-		if promptRecord.triggered then promptRecord.triggered:Disconnect() end
-		if promptRecord.unregister then promptRecord.unregister() end
-		promptRecord.prompt.Enabled = false
-		promptRecord.prompt:Destroy()
-		if promptRecord.attachment.Parent then promptRecord.attachment:Destroy() end
-		promptRecord = nil
-	end
-
-	local function promptAvailable()
-		local tool = equippedPetSkinTool(player)
-		local plot = PlotResolver.ResolveForPlayer(player)
-		return not promptOpen
-			and pendingRequestId == nil
-			and tool ~= nil
-			and plot ~= nil
-			and currentPet ~= nil
-			and currentPet.Parent ~= nil
-			and currentPet:IsDescendantOf(plot)
-			and player:GetAttribute(State.Player.OfflineProgressPending) ~= true
-	end
 
 	local function sendApply(pet, tool)
 		local guid = ToolIdentity.GuidOf(tool)
@@ -111,14 +76,15 @@ function PetSkinController.start()
 		requestRemote:FireServer(nextRequestId, pet, guid)
 	end
 
-	local function confirmApply()
+	local function confirmApply(pet)
 		if promptOpen or pendingRequestId ~= nil then return end
 		local tool, petSkinId = equippedPetSkinTool(player)
-		local pet = currentPet
 		if not (tool and petSkinId and pet and pet.Parent) then return end
 		local oldSkinId = pet:GetAttribute(State.Pet.SkinId)
 		local replacing = type(oldSkinId) == "string" and PetSkinCatalog.Get(oldSkinId) ~= nil
 		promptOpen = true
+		confirmationTool = tool
+		confirmationPet = pet
 		local skinName = PetSkinCatalog.NameFor(petSkinId)
 		local opened = YesNoWarning.Prompt({
 			title = replacing and "Replace Pet Skin?" or "Apply Pet Skin?",
@@ -130,75 +96,35 @@ function PetSkinController.start()
 			yesText = "Apply",
 			noText = "Cancel",
 		}, function(confirmed)
+			local contextMatches = confirmationTool == tool and confirmationPet == pet
+			confirmationTool = nil
+			confirmationPet = nil
 			promptOpen = false
-			if confirmed and tool.Parent == player.Character and pet.Parent then
+			if confirmed and contextMatches and tool.Parent == player.Character and pet.Parent then
 				sendApply(pet, tool)
 			end
 		end)
-		if not opened then promptOpen = false end
+		if not opened then
+			promptOpen = false
+			confirmationTool = nil
+			confirmationPet = nil
+		end
 	end
 
-	local function ensurePrompt(pet)
-		local primary = pet.PrimaryPart
-		if not primary then
-			clearPrompt()
-			return
-		end
-		if not promptRecord then
-			local attachment = Instance.new("Attachment")
-			attachment.Name = ATTACHMENT_NAME
-			local prompt = Instance.new("ProximityPrompt")
-			prompt.Name = "PetSkinApplyPrompt"
-			prompt.KeyboardKeyCode = Enum.KeyCode.E
-			prompt.HoldDuration = 0
-			prompt.MaxActivationDistance = PROMPT_DISTANCE
-			prompt.RequiresLineOfSight = false
-			prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
-			prompt.Enabled = false
-			prompt.Parent = attachment
-			promptRecord = { attachment = attachment, prompt = prompt }
-			promptRecord.unregister = LocalPrompts.RegisterExternalPrompt(prompt, promptAvailable, {
-				highlightTarget = function() return currentPet end,
-			})
-			promptRecord.triggered = RuntimeGuard.Connect(prompt.Triggered, "PetSkinController.PromptTriggered", confirmApply)
-		end
-		currentPet = pet
+	local function resolveFeedPromptOverride(pet)
 		local _, petSkinId = equippedPetSkinTool(player)
-		promptRecord.prompt.ActionText = "Apply " .. PetSkinCatalog.NameFor(petSkinId)
-		if promptRecord.attachment.Parent ~= primary then
-			promptRecord.attachment.Parent = primary
+		if not petSkinId then
+			return nil
 		end
-		local boundsCF, boundsSize = pet:GetBoundingBox()
-		promptRecord.attachment.Position = primary.CFrame:PointToObjectSpace(
-			boundsCF.Position + Vector3.new(0, boundsSize.Y * 0.5 + 1, 0)
-		)
+		local oldSkinId = pet:GetAttribute(State.Pet.SkinId)
+		local replacing = type(oldSkinId) == "string" and PetSkinCatalog.Get(oldSkinId) ~= nil
+		return {
+			actionText = (replacing and "Replace with " or "Apply ") .. PetSkinCatalog.NameFor(petSkinId),
+			enabled = not promptOpen and pendingRequestId == nil,
+		}
 	end
 
-	local function updatePrompt()
-		if promptOpen or pendingRequestId ~= nil then
-			if promptRecord then promptRecord.prompt.Enabled = false end
-			return
-		end
-		local tool = equippedPetSkinTool(player)
-		local plot = PlotResolver.ResolveForPlayer(player)
-		local rootPosition = playerRootPosition(player)
-		if not (tool and plot and rootPosition) then
-			clearPrompt()
-			return
-		end
-		local nearest = nil
-		local nearestDistance = PROMPT_DISTANCE
-		for _, child in ipairs(plot:GetChildren()) do
-			if isPet(child) then
-				local distance = (child:GetPivot().Position - rootPosition).Magnitude
-				if distance <= nearestDistance then
-					nearest = child
-					nearestDistance = distance
-				end
-			end
-		end
-		if nearest then ensurePrompt(nearest) else clearPrompt() end
-	end
+	LocalPrompts.SetPetFeedPromptOverride(resolveFeedPromptOverride, confirmApply)
 
 	RuntimeGuard.Connect(resultRemote.OnClientEvent, "PetSkinController.ApplyResult", function(requestId, success, code)
 		if requestId ~= pendingRequestId then return end
@@ -207,26 +133,34 @@ function PetSkinController.start()
 		if not success then
 			Notifications.show({ kind = NotificationConfig.Kinds.Error, text = failureMessage(code) })
 		end
-		updatePrompt()
 	end)
 
-	RuntimeGuard.Connect(RunService.Heartbeat, "PetSkinController.PromptUpdate", function(dt)
+	RuntimeGuard.Connect(RunService.Heartbeat, "PetSkinController.RequestState", function()
+		if promptOpen then
+			local equippedTool = equippedPetSkinTool(player)
+			if equippedTool ~= confirmationTool or not (confirmationPet and confirmationPet.Parent) then
+				promptOpen = false
+				confirmationTool = nil
+				confirmationPet = nil
+				YesNoWarning.Cancel("context-changed")
+			end
+		end
 		if pendingRequestId ~= nil and os.clock() >= pendingDeadline then
 			pendingRequestId = nil
 			pendingDeadline = 0
 			Notifications.show({ kind = NotificationConfig.Kinds.Error, text = failureMessage("timeout") })
 		end
-		elapsed += dt
-		if elapsed < UPDATE_INTERVAL then return end
-		elapsed = 0
-		updatePrompt()
 	end)
 
 	RuntimeGuard.Connect(player.CharacterAdded, "PetSkinController.CharacterAdded", function()
+		if promptOpen then
+			YesNoWarning.Cancel("character-reset")
+		end
 		pendingRequestId = nil
 		pendingDeadline = 0
 		promptOpen = false
-		clearPrompt()
+		confirmationTool = nil
+		confirmationPet = nil
 	end)
 end
 
