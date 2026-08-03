@@ -342,6 +342,11 @@ RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
 RuntimeGuard.Run("PetSkinPackShopService.Start", PetSkinPackShopService.Start)
+RuntimeGuard.Run("PetSkinService.Start", function()
+	PetSkinService.Start({
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
 RuntimeGuard.Run("DurianPackShopService.Start", DurianPackShopService.Start)
 RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
@@ -1897,12 +1902,6 @@ end)
 RuntimeGuard.Run("ShovelService.Start", function()
 	ShovelService.Start({
 		snapshotProfileState = snapshotProfileState,
-		isGameplayBlocked = isInventoryGameplayBlocked,
-	})
-end)
-
-RuntimeGuard.Run("PetSkinService.Start", function()
-	PetSkinService.Start({
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)

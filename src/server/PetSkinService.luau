@@ -23,9 +23,11 @@ local PetSkinService = {}
 local RATE_SECONDS = 0.35
 local APPLY_DISTANCE = 18
 local CUE_KIND = "PetSkinApply"
+local READY_ATTRIBUTE = "PetSkinServiceReady"
 
 local locks = {}
 local lastRequestAt = {}
+local started = false
 
 local function validRequestId(requestId)
 	return (type(requestId) == "number" and requestId == requestId and math.abs(requestId) < math.huge)
@@ -108,6 +110,9 @@ local function publishSkinApplyCue(pet, oldPetId, oldSkinId, targetSkinId, oldSc
 end
 
 function PetSkinService.Start(config)
+	if started then
+		return
+	end
 	config = type(config) == "table" and config or {}
 	local isGameplayBlocked = type(config.isGameplayBlocked) == "function" and config.isGameplayBlocked or function()
 		return false
@@ -120,45 +125,57 @@ function PetSkinService.Start(config)
 		lastRequestAt[player.UserId] = nil
 	end)
 
-	RuntimeGuard.Connect(requestRemote.OnServerEvent, "PetSkinService.ApplyRequest", function(player, requestId, target, toolGuid)
-		if not validRequestId(requestId) or not ToolIdentity.IsValidGuid(toolGuid) or #toolGuid > 64 then
-			sendResult(resultRemote, player, requestId, false, "invalid-request")
-			return
-		end
-		if not takeRateLimit(player) then
-			sendResult(resultRemote, player, requestId, false, "rate-limited")
-			return
-		end
+	requestRemote:SetAttribute(READY_ATTRIBUTE, nil)
+	local requestConnection = RuntimeGuard.Connect(requestRemote.OnServerEvent, "PetSkinService.ApplyRequest", function(player, requestId, target, toolGuid)
 		local key = player.UserId
-		if locks[key] or isGameplayBlocked(player) or OfflineProgressService.IsPending(player) then
-			sendResult(resultRemote, player, requestId, false, "busy")
-			return
-		end
-		locks[key] = true
+		local lockAcquired = false
 		local transaction = nil
+		local resultSent = false
+		local function reply(success, code, payload)
+			if resultSent then
+				return
+			end
+			sendResult(resultRemote, player, requestId, success, code, payload)
+			resultSent = true
+		end
 		local ok, err = pcall(function()
+			if not validRequestId(requestId) or not ToolIdentity.IsValidGuid(toolGuid) or #toolGuid > 64 then
+				reply(false, "invalid-request")
+				return
+			end
+			if not takeRateLimit(player) then
+				reply(false, "rate-limited")
+				return
+			end
+			if locks[key] or isGameplayBlocked(player) or OfflineProgressService.IsPending(player) then
+				reply(false, "busy")
+				return
+			end
+			locks[key] = true
+			lockAcquired = true
+
 			local plot = PlotService.GetPlayerPlot(player)
 			local profile = PlayerDataService.GetProfile(player)
 			if not (plot and profile) then
-				sendResult(resultRemote, player, requestId, false, "no-plot")
+				reply(false, "no-plot")
 				return
 			end
 			local pet = resolvePet(plot, target)
 			if not pet then
-				sendResult(resultRemote, player, requestId, false, "invalid-target")
+				reply(false, "invalid-target")
 				return
 			end
 			if not isNear(player, pet) then
-				sendResult(resultRemote, player, requestId, false, "too-far")
+				reply(false, "too-far")
 				return
 			end
 			local tool = ToolIdentity.FindEquippedByGuid(player, toolGuid, PetSkinTools.IsPetSkinTool)
 			if not tool then
-				sendResult(resultRemote, player, requestId, false, "no-pet-skin")
+				reply(false, "no-pet-skin")
 				return
 			end
 			if ToolIdentity.IsFavourite(tool) then
-				sendResult(resultRemote, player, requestId, false, "favourited")
+				reply(false, "favourited")
 				return
 			end
 			local petSkinId = PetSkinTools.PetSkinIdOf(tool)
@@ -166,7 +183,7 @@ function PetSkinService.Start(config)
 			local petIndex = pet:GetAttribute(State.Pet.Index)
 			local petData = profile.Data.Pets and profile.Data.Pets[petIndex]
 			if not (skinDefinition and petData) then
-				sendResult(resultRemote, player, requestId, false, "invalid-pet-skin")
+				reply(false, "invalid-pet-skin")
 				return
 			end
 
@@ -178,7 +195,7 @@ function PetSkinService.Start(config)
 			local inventory = profile.Data.PetSkinInventory or {}
 			local oldCount = math.max(math.floor(tonumber(inventory[petSkinId]) or 0), 0)
 			if oldCount <= 0 then
-				sendResult(resultRemote, player, requestId, false, "missing-inventory")
+				reply(false, "missing-inventory")
 				return
 			end
 
@@ -211,7 +228,7 @@ function PetSkinService.Start(config)
 				inventory[petSkinId] = oldCount
 				tool.Parent = oldParent
 				transaction = nil
-				sendResult(resultRemote, player, requestId, false, "visual-build-failed")
+				reply(false, "visual-build-failed")
 				return
 			end
 			transaction.newPet = newPet
@@ -231,7 +248,7 @@ function PetSkinService.Start(config)
 				local backpack = player:FindFirstChildOfClass("Backpack")
 				tool.Parent = oldParent and oldParent.Parent and oldParent or backpack
 				transaction = nil
-				sendResult(resultRemote, player, requestId, false, "save-failed")
+				reply(false, "save-failed")
 				return
 			end
 
@@ -254,59 +271,69 @@ function PetSkinService.Start(config)
 				newPet,
 				{ oldPetId }
 			)
-			sendResult(resultRemote, player, requestId, true, "ok", {
+			reply(true, "ok", {
 				pet = newPet,
 				petSkinId = petSkinId,
 				replacedPetSkinId = oldSkinId,
 			})
 			transaction.resultSent = true
 		end)
-		locks[key] = nil
+		if lockAcquired then
+			locks[key] = nil
+		end
 		if not ok then
 			warn("[PetSkinService] Apply failed: " .. tostring(err))
 			if transaction and not transaction.committed then
-				local petData = transaction.petData
-				petData.skinId = transaction.oldSkinId
-				local inventory = transaction.profile.Data.PetSkinInventory or {}
-				inventory[transaction.petSkinId] = transaction.oldCount
-				transaction.profile.Data.PetSkinInventory = inventory
-				local livePet = transaction.newPet
-				if livePet and livePet.Parent then
-					local restored = PlotService.ReplacePetAt(
-						transaction.plot,
-						livePet,
-						transaction.oldPetId,
-						transaction.petIndex,
-						petData.xp or 0,
-						transaction.oldPivot,
-						transaction.oldSkinId
-					)
-					if restored then
-						restored:SetAttribute(State.Pet.XP, petData.xp or 0)
-						restored:SetAttribute(State.Pet.Money, petData.money or 0)
-						PetMotionService.Register(transaction.plot, restored)
+				local rollbackOk, rollbackErr = pcall(function()
+					local petData = transaction.petData
+					petData.skinId = transaction.oldSkinId
+					local inventory = transaction.profile.Data.PetSkinInventory or {}
+					inventory[transaction.petSkinId] = transaction.oldCount
+					transaction.profile.Data.PetSkinInventory = inventory
+					local livePet = transaction.newPet
+					if livePet and livePet.Parent then
+						local restored = PlotService.ReplacePetAt(
+							transaction.plot,
+							livePet,
+							transaction.oldPetId,
+							transaction.petIndex,
+							petData.xp or 0,
+							transaction.oldPivot,
+							transaction.oldSkinId
+						)
+						if restored then
+							restored:SetAttribute(State.Pet.XP, petData.xp or 0)
+							restored:SetAttribute(State.Pet.Money, petData.money or 0)
+							PetMotionService.Register(transaction.plot, restored)
+						end
 					end
-				end
-				local backpack = player:FindFirstChildOfClass("Backpack")
-				if transaction.tool and not transaction.tool.Parent then
-					transaction.tool.Parent = transaction.oldParent and transaction.oldParent.Parent and transaction.oldParent or backpack
+					local backpack = player:FindFirstChildOfClass("Backpack")
+					if transaction.tool and not transaction.tool.Parent then
+						transaction.tool.Parent = transaction.oldParent and transaction.oldParent.Parent and transaction.oldParent or backpack
+					end
+				end)
+				if not rollbackOk then
+					warn("[PetSkinService] Apply rollback failed: " .. tostring(rollbackErr))
 				end
 			end
 			if transaction and transaction.committed then
 				-- Persistence is authoritative. If a post-commit presentation step
 				-- failed, never tell the client the consumed application failed.
-				if not transaction.resultSent then
-					sendResult(resultRemote, player, requestId, true, "ok", {
+				if not transaction.resultSent and not resultSent then
+					reply(true, "ok", {
 						pet = transaction.newPet,
 						petSkinId = transaction.petSkinId,
 						replacedPetSkinId = transaction.oldSkinId,
 					})
 				end
-			else
-				sendResult(resultRemote, player, requestId, false, "server-error")
+			elseif not resultSent then
+				reply(false, "server-error")
 			end
 		end
 	end)
+	assert(requestConnection, "Could not bind ApplyPetSkinRequest")
+	started = true
+	requestRemote:SetAttribute(READY_ATTRIBUTE, true)
 end
 
 return PetSkinService

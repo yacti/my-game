@@ -20,6 +20,8 @@ local PetSkinController = {}
 local PROMPT_DISTANCE = 18
 local UPDATE_INTERVAL = 0.1
 local ATTACHMENT_NAME = "__PetSkinApplyPromptAttachment"
+local REQUEST_TIMEOUT_SECONDS = 10
+local READY_ATTRIBUTE = "PetSkinServiceReady"
 
 local FAILURE_MESSAGES = {
 	busy = "Please wait before applying another Pet Skin",
@@ -29,6 +31,7 @@ local FAILURE_MESSAGES = {
 	["no-pet-skin"] = "Hold the Pet Skin you want to apply",
 	["rate-limited"] = "Please wait before applying another Pet Skin",
 	["save-failed"] = "Could not save that Pet Skin. Your item was not consumed",
+	timeout = "The Pet Skin request timed out. Your item was not consumed; please try again",
 	["too-far"] = "Move closer to that pet",
 	["visual-build-failed"] = "That Pet Skin could not be loaded",
 }
@@ -69,6 +72,7 @@ function PetSkinController.start()
 	local currentPet = nil
 	local promptOpen = false
 	local pendingRequestId = nil
+	local pendingDeadline = 0
 	local nextRequestId = 0
 	local elapsed = UPDATE_INTERVAL
 
@@ -88,6 +92,7 @@ function PetSkinController.start()
 		local plot = PlotResolver.ResolveForPlayer(player)
 		return not promptOpen
 			and pendingRequestId == nil
+			and requestRemote:GetAttribute(READY_ATTRIBUTE) == true
 			and tool ~= nil
 			and plot ~= nil
 			and currentPet ~= nil
@@ -104,6 +109,7 @@ function PetSkinController.start()
 		end
 		nextRequestId += 1
 		pendingRequestId = nextRequestId
+		pendingDeadline = os.clock() + REQUEST_TIMEOUT_SECONDS
 		requestRemote:FireServer(nextRequestId, pet, guid)
 	end
 
@@ -199,6 +205,7 @@ function PetSkinController.start()
 	RuntimeGuard.Connect(resultRemote.OnClientEvent, "PetSkinController.ApplyResult", function(requestId, success, code)
 		if requestId ~= pendingRequestId then return end
 		pendingRequestId = nil
+		pendingDeadline = 0
 		if not success then
 			Notifications.show({ kind = NotificationConfig.Kinds.Error, text = failureMessage(code) })
 		end
@@ -206,10 +213,22 @@ function PetSkinController.start()
 	end)
 
 	RuntimeGuard.Connect(RunService.Heartbeat, "PetSkinController.PromptUpdate", function(dt)
+		if pendingRequestId ~= nil and os.clock() >= pendingDeadline then
+			pendingRequestId = nil
+			pendingDeadline = 0
+			Notifications.show({ kind = NotificationConfig.Kinds.Error, text = failureMessage("timeout") })
+		end
 		elapsed += dt
 		if elapsed < UPDATE_INTERVAL then return end
 		elapsed = 0
 		updatePrompt()
+	end)
+
+	RuntimeGuard.Connect(player.CharacterAdded, "PetSkinController.CharacterAdded", function()
+		pendingRequestId = nil
+		pendingDeadline = 0
+		promptOpen = false
+		clearPrompt()
 	end)
 end
 
