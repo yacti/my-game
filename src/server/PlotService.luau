@@ -732,20 +732,6 @@ local function petSkinVisualForId(petSkinId)
 	return template, definition
 end
 
-local function maxModelDimension(model)
-	local _, size = model:GetBoundingBox()
-	return math.max(size.X, size.Y, size.Z)
-end
-
-local function normalizePetSkinScale(model, definition)
-	local maxDimension = maxModelDimension(model)
-	if maxDimension <= 0 then
-		return false
-	end
-	model:ScaleTo(model:GetScale() * definition.BaselineMaxDimension / maxDimension)
-	return true
-end
-
 local function applyBaseVisualAttributes(pet, petId)
 	local baseTemplate = PetCatalog.TemplateForPetId(petId)
 	if not baseTemplate then
@@ -1065,10 +1051,6 @@ function PlotService.CreatePet(petId, petIndex, xp, floor, lx, lz, lry, petSkinI
 	stripPromptTemplates(clone)
 	normalizePetModel(clone)
 	if skinDefinition then
-		if not normalizePetSkinScale(clone, skinDefinition) then
-			clone:Destroy()
-			return nil
-		end
 		clone:PivotTo(CFrame.new(clone:GetPivot().Position) * CFrame.Angles(0, math.rad(skinDefinition.WorldYawDegrees or 0), 0))
 		applyBaseVisualAttributes(clone, petId)
 		clone:SetAttribute(State.Pet.SkinId, petSkinId)

@@ -6,9 +6,9 @@ local State = require(script.Parent:WaitForChild("State"))
 
 local PetSkinCatalog = {}
 
--- Source skin imports have very different authored sizes. BaselineMaxDimension
--- normalizes every skin at pet scale factor 1; the normal pet XP curve is then
--- applied on top by PlotService. ToolMaxDimension is presentation-only.
+-- World skins keep each template's authored model scale as pet scale factor 1;
+-- PlotService applies the normal pet XP curve on top. ToolMaxDimension and
+-- ViewportScaleMultiplier are presentation-only and do not affect world pets.
 -- Skin-application audio stays on the existing animal/evolution sound path.
 -- SoundId is used for authored skin audio; SoundPetId references an existing
 -- animal sound without copying its asset/configuration into this catalog.
@@ -19,7 +19,6 @@ local DEFINITIONS = {
 		IdleAnimationId = "rbxassetid://92235400477279",
 		WalkAnimationId = "rbxassetid://119044259165915",
 		SoundId = "rbxassetid://18982723119",
-		BaselineMaxDimension = 5,
 		ToolMaxDimension = 1.5,
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
@@ -32,7 +31,6 @@ local DEFINITIONS = {
 		IdleAnimationId = "rbxassetid://108556268538405",
 		WalkAnimationId = "rbxassetid://122231535526772",
 		SoundPetId = "Pet53", -- Reuse the authored Unicorn animal sound exactly.
-		BaselineMaxDimension = 5,
 		ToolMaxDimension = 1.5,
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
@@ -45,7 +43,6 @@ local DEFINITIONS = {
 		IdleAnimationId = "rbxassetid://117896877859252",
 		WalkAnimationId = "rbxassetid://100712438640875",
 		SoundId = "rbxassetid://129818780095953",
-		BaselineMaxDimension = 5,
 		ToolMaxDimension = 1.5,
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
@@ -58,7 +55,6 @@ local DEFINITIONS = {
 		IdleAnimationId = "rbxassetid://108556268538405",
 		WalkAnimationId = "rbxassetid://122231535526772",
 		SoundId = "rbxassetid://122225901664901",
-		BaselineMaxDimension = 5,
 		ToolMaxDimension = 1.5,
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
@@ -195,9 +191,6 @@ function PetSkinCatalog.Validate(errors)
 		end
 		if definition.SoundId ~= nil and definition.SoundPetId ~= nil then
 			errors[#errors + 1] = source .. " must use SoundId or SoundPetId, not both"
-		end
-		if type(definition.BaselineMaxDimension) ~= "number" or definition.BaselineMaxDimension <= 0 then
-			errors[#errors + 1] = source .. " has invalid BaselineMaxDimension"
 		end
 		if type(definition.ViewportScaleMultiplier) ~= "number" or definition.ViewportScaleMultiplier <= 0 then
 			errors[#errors + 1] = source .. " has invalid ViewportScaleMultiplier"
