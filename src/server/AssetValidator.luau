@@ -1557,6 +1557,9 @@ local function validateSeedPackProductButton(card, product, source, errors)
 		return nil
 	end
 	descendant(found, "Price", "TextLabel", errors)
+	if quantity == 3 then
+		descendant(found, "Amount", "TextLabel", errors)
+	end
 	return found
 end
 

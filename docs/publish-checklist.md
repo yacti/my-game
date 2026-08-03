@@ -168,6 +168,10 @@ Run this checklist before publishing a live build.
   exactly `x12`, the pack icon sways left/right, the 55/39/5/1 skin viewports
   walk/rotate, grants are idempotent, and twelve rewards reveal as four queued
   batches of three.
+- For `SeedPack`, `EpicSeedPack`, and `SecretSeedPack`, verify `BuyThree.Amount`
+  remains exactly `x3`, `BuyThree.Price` shows that exact product's live
+  player-localized Robux price, and the button stays disabled while the price is
+  loading or unavailable instead of presenting a stale or `R$0` purchase state.
 - Hold each Pet Skin Tool, verify its reduced hand model idles, then apply it with
   E to an owned pet. Verify confirmation and consumption, replacement without a
   refund/removal path, the full evolution presentation, unchanged base XP/stats,

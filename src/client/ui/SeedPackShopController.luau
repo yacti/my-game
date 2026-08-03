@@ -104,6 +104,9 @@ local advanceReadyAt = 0
 local lastRevealSourceSection = SEED_PACKS_NAME
 local shopScrollTween = nil
 
+local PRODUCT_PRICE_LOADING_TEXT = "..."
+local PRODUCT_PRICE_UNAVAILABLE_TEXT = "Unavailable"
+
 local function isSeedPacksAllowed()
 	return player:GetAttribute(State.Player.SeedPacksAllowed) == true
 end
@@ -168,23 +171,36 @@ end
 local function robuxText(productId, onLoaded)
 	productId = tonumber(productId) or 0
 	if productId <= 0 then
-		return NumberFormatter.Robux(0)
+		return PRODUCT_PRICE_UNAVAILABLE_TEXT, false
 	end
-	if productPriceById[productId] then
-		return productPriceById[productId]
+	local cached = productPriceById[productId]
+	if cached then
+		return cached.text, cached.state == "ready"
 	end
 
-	productPriceById[productId] = NumberFormatter.Robux(0)
+	productPriceById[productId] = {
+		state = "loading",
+		text = PRODUCT_PRICE_LOADING_TEXT,
+	}
 	RuntimeGuard.Spawn("SeedPackShopController.ProductInfo", function()
 		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, productId, Enum.InfoType.Product)
-		if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
-			productPriceById[productId] = NumberFormatter.Robux(info.PriceInRobux)
-			if onLoaded then
-				onLoaded()
-			end
+		local price = ok and type(info) == "table" and tonumber(info.PriceInRobux) or nil
+		if price and price > 0 then
+			productPriceById[productId] = {
+				state = "ready",
+				text = NumberFormatter.Robux(price),
+			}
+		else
+			productPriceById[productId] = {
+				state = "failed",
+				text = PRODUCT_PRICE_UNAVAILABLE_TEXT,
+			}
+		end
+		if onLoaded then
+			onLoaded()
 		end
 	end)
-	return productPriceById[productId]
+	return PRODUCT_PRICE_LOADING_TEXT, false
 end
 
 -- Toggles the reveal press catcher (created in start). Hiding it, rather than
@@ -402,6 +418,7 @@ local function renderPackCard(pack)
 			productButtons[#productButtons + 1] = {
 				button = button,
 				priceLabel = findDescendant(button, "Price", "TextLabel"),
+				amountLabel = findDescendant(button, "Amount", "TextLabel"),
 				product = product,
 			}
 		else
@@ -531,21 +548,18 @@ local function renderRows(rows)
 		for _, productButton in ipairs(row.productButtons or {}) do
 			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
 			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
+			local priceText, priceReady = robuxText(productId, function()
+				renderRows(rows)
+			end)
+			setTextStack(productButton.priceLabel, priceText)
 			if row.isPetSkinPack then
-				setTextStack(productButton.priceLabel, robuxText(productId, function()
-					renderRows(rows)
-				end))
 				if quantity == 12 then
 					setTextStack(productButton.amountLabel, "x12")
 				end
 			elseif quantity == 3 then
-				setTextStack(productButton.priceLabel, "x3")
-			else
-				setTextStack(productButton.priceLabel, robuxText(productId, function()
-					renderRows(rows)
-				end))
+				setTextStack(productButton.amountLabel, "x3")
 			end
-			UiEffects.SetButtonEnabled(productButton.button, ready and productId > 0)
+			UiEffects.SetButtonEnabled(productButton.button, ready and productId > 0 and priceReady)
 		end
 	end
 end
