@@ -1554,9 +1554,10 @@ local function validateSeedPackProductButton(card, product, source, errors)
 	end
 	if not found then
 		add(errors, string.format("%s is missing quantity %d buy button", source, quantity))
-		return
+		return nil
 	end
 	descendant(found, "Price", "TextLabel", errors)
+	return found
 end
 
 local function validateSeedPackCard(card, pack, source, errors)
@@ -1614,7 +1615,10 @@ local function validatePetSkinPackUi(menu, errors)
 	if not card then return end
 	local source = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.CosmeticPack"
 	for _, product in ipairs(ShopBalance.AllPetSkinPackProducts()) do
-		validateSeedPackProductButton(card, product, source, errors)
+		local button = validateSeedPackProductButton(card, product, source, errors)
+		if tonumber(product.Quantity) == 12 and button then
+			descendant(button, "Amount", "TextLabel", errors)
+		end
 	end
 	if not namedDescendant(card, "PackIcon", "ViewportFrame") then
 		add(errors, source .. " must contain a PackIcon ViewportFrame")

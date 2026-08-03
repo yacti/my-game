@@ -6,6 +6,7 @@ local PREVIEW_SCALE = 1.25
 local PET_TARGET_MAX_DIMENSION = 5
 local PET_VIEWPORT_ZOOM = 2.2
 local ROTATION_SECONDS = 12
+local DEFAULT_SWAY_PERIOD_SECONDS = 2.6
 local VIEWPORT_AMBIENT = Color3.fromRGB(255, 255, 255)
 local VIEWPORT_LIGHT_COLOR = Color3.fromRGB(185, 185, 185)
 local VIEWPORT_LIGHT_DIRECTION = Vector3.new(-1, -1, -1)
@@ -15,8 +16,8 @@ local previewRecords = setmetatable({}, { __mode = "k" })
 local function disconnect(viewport)
 	local record = previewRecords[viewport]
 	if record then
-		if record.rotation then
-			record.rotation:Disconnect()
+		if record.motion then
+			record.motion:Disconnect()
 		end
 		if record.track then
 			pcall(function()
@@ -196,13 +197,34 @@ local function startRotation(viewport, instance, yawDegrees)
 	local angle = math.rad(tonumber(yawDegrees) or 0)
 	local record = previewRecords[viewport] or {}
 	previewRecords[viewport] = record
-	record.rotation = RunService.RenderStepped:Connect(function(deltaTime)
+	record.motion = RunService.RenderStepped:Connect(function(deltaTime)
 		if not (viewport.Parent and instance.Parent) then
 			disconnect(viewport)
 			return
 		end
 
 		angle = (angle + (tonumber(deltaTime) or 0) * TAU / ROTATION_SECONDS) % TAU
+		pivotPreview(instance, CFrame.Angles(0, angle, 0))
+	end)
+end
+
+local function startSway(viewport, instance, yawDegrees, swayDegrees, periodSeconds)
+	local baseAngle = math.rad(tonumber(yawDegrees) or 0)
+	local amplitude = math.rad(math.abs(tonumber(swayDegrees) or 0))
+	local period = math.max(tonumber(periodSeconds) or DEFAULT_SWAY_PERIOD_SECONDS, 0.1)
+	local elapsed = 0
+	pivotPreview(instance, CFrame.Angles(0, baseAngle, 0))
+
+	local record = previewRecords[viewport] or {}
+	previewRecords[viewport] = record
+	record.motion = RunService.RenderStepped:Connect(function(deltaTime)
+		if not (viewport.Parent and instance.Parent) then
+			disconnect(viewport)
+			return
+		end
+
+		elapsed += tonumber(deltaTime) or 0
+		local angle = baseAngle + math.sin(elapsed * TAU / period) * amplitude
 		pivotPreview(instance, CFrame.Angles(0, angle, 0))
 	end)
 end
@@ -283,7 +305,9 @@ function ViewportPreview.Render(viewport, template, options)
 	viewport.Ambient = typeof(options.ambient) == "Color3" and options.ambient or VIEWPORT_AMBIENT
 	viewport.LightColor = typeof(options.lightColor) == "Color3" and options.lightColor or VIEWPORT_LIGHT_COLOR
 	viewport.LightDirection = typeof(options.lightDirection) == "Vector3" and options.lightDirection or VIEWPORT_LIGHT_DIRECTION
-	if options.rotate == false then
+	if type(options.swayDegrees) == "number" and options.swayDegrees ~= 0 then
+		startSway(viewport, rig, options.yawDegrees, options.swayDegrees, options.swayPeriodSeconds)
+	elseif options.rotate == false then
 		-- Static preview: hold a fixed orientation (yawDegrees) instead of the
 		-- default turntable spin.
 		pivotPreview(rig, CFrame.Angles(0, math.rad(tonumber(options.yawDegrees) or 0), 0))

@@ -164,8 +164,10 @@ Run this checklist before publishing a live build.
   on receipt retry, and refuses purchase preflight when fewer than six inventory
   slots are open.
 - Buy Pet Skin Pack products `3613041963` (1) and `3613041996` (12); verify the
-  live-price labels, 55/39/5/1 odds, idle/rotating model viewports, idempotent
-  grants, and that twelve rewards reveal as four queued batches of three.
+  live prices render in `BuyOne.Price` and `Buy12.Price`, `Buy12.Amount` remains
+  exactly `x12`, the pack icon sways left/right, the 55/39/5/1 skin viewports
+  walk/rotate, grants are idempotent, and twelve rewards reveal as four queued
+  batches of three.
 - Hold each Pet Skin Tool, verify its reduced hand model idles, then apply it with
   E to an owned pet. Verify confirmation and consumption, replacement without a
   refund/removal path, the full evolution presentation, unchanged base XP/stats,

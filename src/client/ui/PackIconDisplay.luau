@@ -132,12 +132,16 @@ end
 
 -- Renders the pack model into an explicit ViewportFrame (e.g. the HUD Durian
 -- Pack entry, whose viewport is not named PackIcon).
-function PackIconDisplay.RenderViewport(viewport, packId)
+function PackIconDisplay.RenderViewport(viewport, packId, previewOverrides)
 	if not (viewport and viewport:IsA("ViewportFrame")) then
 		return false
 	end
 	viewport.ImageTransparency = 0
-	local rendered = ViewportPreview.Render(viewport, PackIconDisplay.ModelFor(packId), PACK_ICON_PREVIEW_OPTIONS)
+	local previewOptions = table.clone(PACK_ICON_PREVIEW_OPTIONS)
+	for key, value in pairs(type(previewOverrides) == "table" and previewOverrides or {}) do
+		previewOptions[key] = value
+	end
+	local rendered = ViewportPreview.Render(viewport, PackIconDisplay.ModelFor(packId), previewOptions)
 	if rendered then
 		registerPackAnimation(viewport, packId)
 	else
@@ -147,13 +151,13 @@ function PackIconDisplay.RenderViewport(viewport, packId)
 end
 
 -- Finds the PackIcon ViewportFrame under container and renders packId into it.
-function PackIconDisplay.Render(container, packId)
+function PackIconDisplay.Render(container, packId, previewOverrides)
 	local icon = findDescendant(container, PACK_ICON_NAME, "ViewportFrame")
 	if not icon then
 		warn("[PackIconDisplay] Missing " .. PACK_ICON_NAME .. " ViewportFrame for pack " .. tostring(packId))
 		return false
 	end
-	return PackIconDisplay.RenderViewport(icon, packId)
+	return PackIconDisplay.RenderViewport(icon, packId, previewOverrides)
 end
 
 return PackIconDisplay

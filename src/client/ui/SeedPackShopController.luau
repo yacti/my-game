@@ -68,6 +68,10 @@ local PET_SKIN_PREVIEW_OPTIONS = {
 	alignPivot = true,
 	presentationScale = 2,
 }
+local PET_SKIN_PACK_ICON_OPTIONS = {
+	swayDegrees = 18,
+	swayPeriodSeconds = 2.6,
+}
 
 local SLICE_THICKNESS_MULTIPLIER = 1.35
 local SLICE_MIN_DRAG_DISTANCE = 18
@@ -453,7 +457,7 @@ end
 
 local function renderPetSkinPackPreviews(frame, pack, visible)
 	if visible then
-		PackIconDisplay.Render(frame, pack.PackId)
+		PackIconDisplay.Render(frame, pack.PackId, PET_SKIN_PACK_ICON_OPTIONS)
 	else
 		local packIcon = findDescendant(frame, "PackIcon", "ViewportFrame")
 		if packIcon then
@@ -488,6 +492,7 @@ local function renderPetSkinPackCard(visible)
 			productButtons[#productButtons + 1] = {
 				button = button,
 				priceLabel = findDescendant(button, "Price", "TextLabel"),
+				amountLabel = findDescendant(button, "Amount", "TextLabel"),
 				product = product,
 			}
 		else
@@ -527,13 +532,11 @@ local function renderRows(rows)
 			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
 			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
 			if row.isPetSkinPack then
-				-- CosmeticPack.Buy12.Price is the card's authored x12 quantity
-				-- badge, not a price field. Preserve it exactly; BuyOne.Price is
-				-- the only label that receives the localized live Robux price.
-				if quantity == 1 then
-					setTextStack(productButton.priceLabel, robuxText(productId, function()
-						renderRows(rows)
-					end))
+				setTextStack(productButton.priceLabel, robuxText(productId, function()
+					renderRows(rows)
+				end))
+				if quantity == 12 then
+					setTextStack(productButton.amountLabel, "x12")
 				end
 			elseif quantity == 3 then
 				setTextStack(productButton.priceLabel, "x3")
