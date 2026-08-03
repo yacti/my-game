@@ -95,6 +95,7 @@ local CONTROLLERS = {
 	"AlienEventController",
 	"SprinkleEventController",
 	"FeedPlacement",
+	"EventRsvpPromptController",
 	"TreeClickController",
 	"RebirthController",
 	"IndexController",

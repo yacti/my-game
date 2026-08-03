@@ -224,6 +224,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.JoinGroupRewardCollected] = data.JoinGroupRewardCollected == true,
 		[PlayerState.Fields.MediaRewardCollected] = data.MediaRewardCollected == true,
 		[PlayerState.Fields.LastSeenUpdateLogId] = stringValue(data.LastSeenUpdateLogId),
+		[PlayerState.Fields.LastPromptedEventId] = stringValue(data.LastPromptedEventId),
 	}
 end
 
@@ -513,6 +514,11 @@ end
 function PlayerReplicaService.PublishLastSeenUpdateLogId(player, profile)
 	local data = profile and profile.Data or {}
 	return PlayerReplicaService.PublishField(player, PlayerState.Fields.LastSeenUpdateLogId, stringValue(data.LastSeenUpdateLogId))
+end
+
+function PlayerReplicaService.PublishLastPromptedEventId(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(player, PlayerState.Fields.LastPromptedEventId, stringValue(data.LastPromptedEventId))
 end
 
 RuntimeGuard.Connect(Players.PlayerRemoving, "PlayerReplicaService.PlayerRemoving", function(player)

@@ -5,6 +5,7 @@ local SocialService = game:GetService("SocialService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local EventPromptConfig = require(Shared:WaitForChild("EventPromptConfig"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
 
@@ -212,7 +213,11 @@ local function render()
 	frame.Visible = true
 	timerLabel.Text = timerTextPrefix() .. " " .. formatRemaining(remaining)
 
-	local promptVisible = not promptBusy
+	-- The configured join prompt owns this event's only native RSVP prompt.
+	-- Keep the timer, but suppress its manual prompt button for that same ID.
+	local joinPromptOwnsEvent = currentEventId == EventPromptConfig.GetActiveEventId()
+	local promptVisible = not joinPromptOwnsEvent
+		and not promptBusy
 		and (
 			isPromptableStatus(currentRsvpStatus)
 			or (rsvpStatusFailed and rsvpRetryAvailable)

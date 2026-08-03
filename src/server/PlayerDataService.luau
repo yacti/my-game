@@ -111,6 +111,7 @@ local DATA_TEMPLATE = {
 	JoinGroupRewardCollected = false,
 	MediaRewardCollected = false,
 	LastSeenUpdateLogId = "",
+	LastPromptedEventId = "",
 	LastSeen = 0,
 }
 
@@ -933,6 +934,9 @@ local function ensureValidData(profile)
 	profile.Data.MediaRewardCollected = profile.Data.MediaRewardCollected == true
 	if type(profile.Data.LastSeenUpdateLogId) ~= "string" then
 		profile.Data.LastSeenUpdateLogId = ""
+	end
+	if type(profile.Data.LastPromptedEventId) ~= "string" then
+		profile.Data.LastPromptedEventId = ""
 	end
 
 	if type(profile.Data.LastSeen) ~= "number" then

@@ -36,6 +36,7 @@ PlayerState.Fields = {
 	JoinGroupRewardCollected = "JoinGroupRewardCollected",
 	MediaRewardCollected = "MediaRewardCollected",
 	LastSeenUpdateLogId = "LastSeenUpdateLogId",
+	LastPromptedEventId = "LastPromptedEventId",
 	Discovered = "Discovered",
 }
 
