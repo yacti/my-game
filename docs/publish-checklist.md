@@ -11,7 +11,8 @@ Run this checklist before publishing a live build.
 - `ReplicatedStorage.Assets.PetModels` templates contain no baked `ProximityPrompt`s.
 - Required Studio-owned assets exist until they are moved into source control:
   `Assets.PetModels`, `Assets.FeedMachines`, `Assets.Food`, `Assets.Crates`,
-  `UI`, `Assets.Cosmetics`, `Assets.CosmeticTool`, `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
+  `UI`, `Assets.Cosmetics`, `Assets.CosmeticTool`, `Assets.PetSkins`, `Assets.PetSkinTool`,
+  `Assets.FeedMachineTool`, `Assets.SeedTool`, `Assets.Shovel`,
   `Assets.Seeds`, `Assets.Misc.Sapling`, `Assets.Misc.Brick`, and
   `Assets.VFX.RarityParticle`.
 - Pinata assets exist (warn-and-skip, so a miss disables the feature silently
@@ -47,7 +48,8 @@ Run this checklist before publishing a live build.
   environments.
 - Leave/rejoin preserves pets, feed machines, growing seed placements, seed
   inventory, feed inventory, food inventory, cosmetic placements, cosmetic
-  inventory, currency, and patch/processor/tree machine state.
+  inventory, Pet Skin inventory/equipment, currency, and patch/processor/tree
+  machine state.
 - Tree ground piles restore as invisible authoritative marker state, not replicated
   visible fruit model geometry.
 - Countable inventory tools normally cap at 250 (`Inventory.MAX_ITEMS`,
@@ -119,6 +121,9 @@ Run this checklist before publishing a live build.
   timeout, and restores camera/blur cleanly after dismissal.
 - Confirm cosmetic templates under `ReplicatedStorage.Assets.Cosmetics` have
   unique `CosmeticID` attributes and model `PrimaryPart`s.
+- Confirm the four `Assets.PetSkins` templates have exact user-facing names,
+  unique `PetSkinID` plus matching `Rarity`, a `PrimaryPart`/`Animator`, and no
+  authored gameplay attributes beyond those two.
 - Confirm `ReplicatedStorage.UI.BillboardGUIs` has `SeedRoll` and `MiscRoll`
   billboard templates with the expected text labels.
 - Confirm local prompts show correct per-player context.
@@ -158,6 +163,14 @@ Run this checklist before publishing a live build.
   sold after rejoin, blocks a second in-game purchase attempt, does not double-grant
   on receipt retry, and refuses purchase preflight when fewer than six inventory
   slots are open.
+- Buy Pet Skin Pack products `3613041963` (1) and `3613041996` (12); verify the
+  live-price labels, 55/39/5/1 odds, idle/rotating model viewports, idempotent
+  grants, and that twelve rewards reveal as four queued batches of three.
+- Hold each Pet Skin Tool, verify its reduced hand model idles, then apply it with
+  E to an owned pet. Verify confirmation and consumption, replacement without a
+  refund/removal path, the full evolution presentation, unchanged base XP/stats,
+  Level = base pet order, 1x-2x XP scale, and persistence through evolution,
+  rejoin, and rebirth.
 - Buy each Robux cash pack (`3604620536`, `3604620549`, `3604620570`,
   `3604620596`) from `RobuxShop.SFHolder.CashPacks`, verify each purchase can
   be repeated, grants the rounded displayed cash amount once per receipt, and

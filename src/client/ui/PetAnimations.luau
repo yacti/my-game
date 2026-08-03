@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local PetGeometry = require(Shared:WaitForChild("PetGeometry"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -469,7 +470,9 @@ local function bindPet(pet)
 		end
 
 		local petId = pet:GetAttribute(State.Pet.Id)
-		local visual = PetCatalog.VisualForPetId(petId)
+		local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+		local visual = type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId)
+			or PetCatalog.VisualForPetId(petId)
 		if attached[pet] ~= record or not pet.Parent then
 			return
 		end

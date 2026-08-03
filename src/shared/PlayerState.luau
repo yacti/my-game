@@ -14,6 +14,7 @@ PlayerState.Fields = {
 	AutoRollSettings = "AutoRollSettings",
 	PlayerSettings = "PlayerSettings",
 	CosmeticInventory = "CosmeticInventory",
+	PetSkinInventory = "PetSkinInventory",
 	FeedInventory = "FeedInventory",
 	SeedInventory = "SeedInventory",
 	FoodInventory = "FoodInventory",

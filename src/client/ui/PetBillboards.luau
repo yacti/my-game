@@ -13,6 +13,7 @@ local Shared  = ReplicatedStorage:WaitForChild("Shared")
 local Balance = require(Shared:WaitForChild("Balance"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local PlayerBonuses = require(Shared:WaitForChild("PlayerBonuses"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -90,6 +91,10 @@ local function isOwnPet(pet)
 end
 
 local function displayNameForPet(pet)
+	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+	if type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) then
+		return PetSkinCatalog.NameFor(petSkinId)
+	end
 	local petId = pet:GetAttribute(State.Pet.Id)
 	local definition = type(petId) == "string" and PetCatalog.GetDefinition(petId) or nil
 	local visual = definition and definition.Visual
@@ -158,6 +163,7 @@ local function attach(pet)
 	local moneyRateLabel = descendant(stats, "MoneyRateLabel", "TextLabel")
 	local nameLabel = descendant(stats, "NameLabel", "TextLabel")
 	local nicknameLabel = descendant(stats, "NicknameLabel", "TextLabel")
+	local levelLabel = descendant(stats, "LevelLabel", "TextLabel")
 	local baseNameColor = nameLabel and nameLabel.TextColor3
 	local baseNicknameColor = nicknameLabel and nicknameLabel.TextColor3
 	local rarityConnection
@@ -176,6 +182,7 @@ local function attach(pet)
 	end
 	captureBaseline(nameLabel)
 	captureBaseline(nicknameLabel)
+	captureBaseline(levelLabel)
 	captureBaseline(moneyLabel)
 	captureBaseline(moneyRateLabel)
 	captureBaseline(xpCountLabel)
@@ -255,13 +262,16 @@ local function attach(pet)
 	end
 
 	local function renderIdentity()
-		local nickname = pet:GetAttribute(State.Pet.Nickname)
-		local nicknameColor = pet:GetAttribute(State.Pet.NicknameColor)
-
 		if nameLabel then nameLabel.Text = displayNameForPet(pet) end
 		if nicknameLabel then
-			nicknameLabel.Text = type(nickname) == "string" and ('"' .. nickname .. '"') or ""
-			nicknameLabel.TextColor3 = typeof(nicknameColor) == "Color3" and nicknameColor or baseNicknameColor
+			nicknameLabel.Visible = false
+			nicknameLabel.Text = ""
+			nicknameLabel.TextColor3 = baseNicknameColor
+		end
+		if levelLabel then
+			local order = math.max(math.floor(tonumber(pet:GetAttribute(State.Pet.Order)) or 1), 1)
+			levelLabel.Text = "Level " .. tostring(order)
+			levelLabel.Visible = true
 		end
 	end
 
@@ -355,6 +365,8 @@ local function attach(pet)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Money), "PetBillboards.MoneyChanged", handleMoneyChanged)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.MoneyRate), "PetBillboards.MoneyRateChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Id), "PetBillboards.IdChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.SkinId), "PetBillboards.SkinIdChanged", render)
+	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Order), "PetBillboards.OrderChanged", renderIdentity)
 	RuntimeGuard.Connect(pet:GetPropertyChangedSignal("Name"), "PetBillboards.NameChanged", renderIdentity)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.Nickname), "PetBillboards.NicknameChanged", render)
 	RuntimeGuard.Connect(pet:GetAttributeChangedSignal(State.Pet.NicknameColor), "PetBillboards.NicknameColorChanged", render)

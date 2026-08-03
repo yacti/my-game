@@ -8,6 +8,7 @@ local Assets = require(Shared:WaitForChild("Assets"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Food = require(Shared:WaitForChild("Food"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
@@ -391,6 +392,10 @@ local function cosmeticDisplayInfo(cosmeticId)
 	return Cosmetics.DisplayNameFor(cosmeticId), colorForRarity(rarity)
 end
 
+local function petSkinDisplayInfo(petSkinId)
+	return PetSkinCatalog.NameFor(petSkinId), colorForRarity(PetSkinCatalog.RarityFor(petSkinId))
+end
+
 local function displayNonFood(category, itemId, amount)
 	local baseText, color
 	if category == "seed" then
@@ -399,6 +404,8 @@ local function displayNonFood(category, itemId, amount)
 		baseText, color = feedDisplayInfo(itemId)
 	elseif category == "cosmetic" then
 		baseText, color = cosmeticDisplayInfo(itemId)
+	elseif category == "petSkin" then
+		baseText, color = petSkinDisplayInfo(itemId)
 	else
 		return
 	end
@@ -552,6 +559,7 @@ function ItemAddedDisplayController.start()
 	observeCountMap(PlayerStateStore.Fields.SeedInventory, "seed")
 	observeCountMap(PlayerStateStore.Fields.FeedInventory, "feed")
 	observeCountMap(PlayerStateStore.Fields.CosmeticInventory, "cosmetic")
+	observeCountMap(PlayerStateStore.Fields.PetSkinInventory, "petSkin")
 end
 
 return ItemAddedDisplayController

@@ -84,6 +84,12 @@
         "SeedPackPurchaseResult": {
           "$className": "RemoteEvent"
         },
+        "ApplyPetSkinRequest": {
+          "$className": "RemoteEvent"
+        },
+        "ApplyPetSkinResult": {
+          "$className": "RemoteEvent"
+        },
         "DurianPackRollRequest": {
           "$className": "RemoteEvent"
         },

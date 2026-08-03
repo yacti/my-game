@@ -6,6 +6,7 @@ local Balance      = require(ReplicatedStorage.Shared:WaitForChild("Balance"))
 local Cosmetics    = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local NumberFormatter = require(ReplicatedStorage.Shared:WaitForChild("NumberFormatter"))
 local PetCatalog   = require(ReplicatedStorage.Shared:WaitForChild("PetCatalog"))
+local PetSkinCatalog = require(ReplicatedStorage.Shared:WaitForChild("PetSkinCatalog"))
 local PetGeometry  = require(ReplicatedStorage.Shared:WaitForChild("PetGeometry"))
 local PetNicknames = require(ReplicatedStorage.Shared:WaitForChild("PetNicknames"))
 local State        = require(ReplicatedStorage.Shared:WaitForChild("State"))
@@ -722,6 +723,43 @@ local function petVisualForId(petId)
 	return template, definition
 end
 
+local function petSkinVisualForId(petSkinId)
+	local definition = PetSkinCatalog.Get(petSkinId)
+	local template = definition and PetSkinCatalog.TemplateFor(petSkinId) or nil
+	if not (template and template:IsA("Model")) then
+		return nil, definition
+	end
+	return template, definition
+end
+
+local function maxModelDimension(model)
+	local _, size = model:GetBoundingBox()
+	return math.max(size.X, size.Y, size.Z)
+end
+
+local function normalizePetSkinScale(model, definition)
+	local maxDimension = maxModelDimension(model)
+	if maxDimension <= 0 then
+		return false
+	end
+	model:ScaleTo(model:GetScale() * definition.BaselineMaxDimension / maxDimension)
+	return true
+end
+
+local function applyBaseVisualAttributes(pet, petId)
+	local baseTemplate = PetCatalog.TemplateForPetId(petId)
+	if not baseTemplate then
+		return
+	end
+	for _, attributeName in ipairs({
+		State.Pet.MoneyRate,
+		State.Pet.IsGolden,
+		State.Pet.ExclusiveDescription,
+	}) do
+		pet:SetAttribute(attributeName, baseTemplate:GetAttribute(attributeName))
+	end
+end
+
 local function numberAttributeOrDefault(instance, attributeName, defaultValue)
 	local value = instance:GetAttribute(attributeName)
 	return type(value) == "number" and value or defaultValue
@@ -1001,8 +1039,19 @@ end
 -- Clones a pet Model template, applies scale, positions it on the floor at
 -- floor-local (lx, lz) with floor-local Y rotation lry. Returns the clone
 -- (not yet parented to the plot).
-function PlotService.CreatePet(petId, petIndex, xp, floor, lx, lz, lry)
+function PlotService.CreatePet(petId, petIndex, xp, floor, lx, lz, lry, petSkinId)
 	local template, definition = petVisualForId(petId)
+	local skinDefinition = nil
+	if type(petSkinId) == "string" and petSkinId ~= "" then
+		local skinTemplate
+		skinTemplate, skinDefinition = petSkinVisualForId(petSkinId)
+		if skinTemplate then
+			template = skinTemplate
+		else
+			warn("[PlotService] No pet skin visual template: " .. tostring(petSkinId))
+			petSkinId = nil
+		end
+	end
 	if not template then
 		warn("[PlotService] No pet visual template: " .. tostring(petId))
 		return nil
@@ -1015,6 +1064,17 @@ function PlotService.CreatePet(petId, petIndex, xp, floor, lx, lz, lry)
 	local clone = template:Clone()
 	stripPromptTemplates(clone)
 	normalizePetModel(clone)
+	if skinDefinition then
+		if not normalizePetSkinScale(clone, skinDefinition) then
+			clone:Destroy()
+			return nil
+		end
+		clone:PivotTo(CFrame.new(clone:GetPivot().Position) * CFrame.Angles(0, math.rad(skinDefinition.WorldYawDegrees or 0), 0))
+		applyBaseVisualAttributes(clone, petId)
+		clone:SetAttribute(State.Pet.SkinId, petSkinId)
+	else
+		clone:SetAttribute(State.Pet.SkinId, nil)
+	end
 	applyPetIdAttributes(clone, definition)
 	clone:SetAttribute(State.Pet.Index, petIndex)
 	clone:SetAttribute(State.Pet.MotionState, PetCatalog.MotionStates.Idle)
@@ -1062,7 +1122,7 @@ function PlotService.SpawnPetsForPlot(plot, pets)
 			continue
 		end
 		local petId = petData.petId
-		local clone = PlotService.CreatePet(petId, spawned + 1, petData.xp or 0, floor, lx, lz, lry)
+		local clone = PlotService.CreatePet(petId, spawned + 1, petData.xp or 0, floor, lx, lz, lry, petData.skinId)
 		if not clone then
 			unspawnedPets[#unspawnedPets + 1] = petData
 			continue
@@ -1102,11 +1162,11 @@ end
 
 -- Replaces a pet Model in place with a new pet id, keeping its plot position.
 -- Returns the new Model (already parented), or nil on failure.
-function PlotService.ReplacePetAt(plot, oldPet, newPetId, petIndex, xp, worldPivot)
+function PlotService.ReplacePetAt(plot, oldPet, newPetId, petIndex, xp, worldPivot, petSkinId)
 	local floor = PlotService.GetFloor(plot)
 	if not floor then return nil end
 	local lx, lz, lry = worldPivotToFloorLocal(floor, worldPivot or oldPet:GetPivot())
-	local clone = PlotService.CreatePet(newPetId, petIndex, xp or 0, floor, lx, lz, lry)
+	local clone = PlotService.CreatePet(newPetId, petIndex, xp or 0, floor, lx, lz, lry, petSkinId)
 	if clone then
 		oldPet:Destroy()
 		clone.Parent = plot

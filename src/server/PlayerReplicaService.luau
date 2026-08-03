@@ -202,6 +202,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.AutoRollSettings] = AutoRollConfig.CopySettings(data.AutoRollSettings),
 		[PlayerState.Fields.PlayerSettings] = PlayerSettings.CopySettings(data.PlayerSettings),
 		[PlayerState.Fields.CosmeticInventory] = copyCountMap(data.CosmeticInventory),
+		[PlayerState.Fields.PetSkinInventory] = copyCountMap(data.PetSkinInventory),
 		[PlayerState.Fields.FeedInventory] = copyCountMap(data.FeedInventory),
 		[PlayerState.Fields.SeedInventory] = copyCountMap(data.SeedInventory),
 		[PlayerState.Fields.FoodInventory] = copyCountMap(data.FoodInventory),
@@ -387,6 +388,9 @@ function PlayerReplicaService.PublishInventories(player, profile)
 	local data = profile and profile.Data or {}
 	local success = true
 	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.CosmeticInventory, copyCountMap(data.CosmeticInventory)) then
+		success = false
+	end
+	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.PetSkinInventory, copyCountMap(data.PetSkinInventory)) then
 		success = false
 	end
 	if not PlayerReplicaService.PublishField(player, PlayerState.Fields.FeedInventory, copyCountMap(data.FeedInventory)) then

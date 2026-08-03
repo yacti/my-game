@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-08-03",
+  "place": "[DEV] Build a Pet Farm",
+  "reason": "Read-only MCP snapshot before Pet Skin Pack integration",
+  "assets": {
+    "ReplicatedStorage.Assets.PetSkins": {
+      "CLASSICDRAGON": { "primaryPart": "CLASSICDRAGON", "scale": 0.2078472524881363, "maxDimension": 39.75300979614258, "RBX_ReimportId": "f9cf76e7-3041-4fe9-babe-aa8da4bc9e83" },
+      "KRAKEN": { "primaryPart": "KRAKEN", "scale": 0.02500000037252903, "maxDimension": 15.513853073120118, "RBX_ReimportId": "8cbe938f-0e1f-4d77-8960-96ad8780c29d" },
+      "PEGASUS": { "primaryPart": "PEGASUS", "scale": 0.08157476037740708, "maxDimension": 13.56061840057373, "RBX_ReimportId": "8cb3490d-ebb0-477b-9461-48739a2bc725" },
+      "pufferfish": { "primaryPart": "Puffer", "scale": 0.05000000074505806, "maxDimension": 2.827817916870117, "RBX_ReimportId": "4fc1bd26-6fe0-4765-b960-7767bd5a5b81" }
+    },
+    "ReplicatedStorage.Assets.Misc.SeedPacks.PetSkinPack": {
+      "children": ["Stroke", "Main", "Highlight", "Highlight2", "Seeds", "Seeds", "Seeds"],
+      "decorativeSeedAttributes": { "SeedID": "CabbageSeed", "FeedType": "CabbagePatch", "Rarity": "Common", "Price": 500, "GrowTime": 3, "RollChanceN": 16 }
+    },
+    "ReplicatedStorage.Assets.CosmeticTool": { "className": "Tool", "requiresHandle": true, "children": ["Handle"] },
+    "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.CosmeticPack": {
+      "buyOne": { "buttonName": "BuyOne", "priceText": " 249" },
+      "buyTwelve": { "buttonName": "Buy12", "priceText": "x12" },
+      "rewardSlots": ["LegendaryTemplate", "LegendaryTemplate", "MythicalTemplate", "SecretTemplate"],
+      "authoredChanceText": "99%"
+    },
+    "ReplicatedStorage.UI.BillboardGUIs.PetMoneyBillboard.Stats": {
+      "NicknameLabelVisible": true,
+      "LevelLabelVisible": false,
+      "LevelLabelText": "Level 100"
+    }
+  }
+}

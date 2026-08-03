@@ -10,6 +10,8 @@ add game UI backups or Rojo mappings under `src/ui`.
 These gameplay assets live under `ReplicatedStorage.Assets` and are required by server/client code:
 
 - `ReplicatedStorage.Assets.PetModels`
+- `ReplicatedStorage.Assets.PetSkins`
+- `ReplicatedStorage.Assets.PetSkinTool`
 - `ReplicatedStorage.Assets.Cosmetics`
 - `ReplicatedStorage.Assets.CosmeticTool`
 - `ReplicatedStorage.Assets.FeedMachines`
@@ -29,6 +31,11 @@ attributes (`PetID`, `Order`, `MoneyRate`, `MaxXP`, `Rarity`, movement, and
 animation metadata). Golden templates also own a centered `GoldEffect`
 attachment beneath their `PrimaryPart`.
 
+`PetSkins` contains the permanent appearance templates. Each Model's exact name
+is player-facing and its only gameplay attributes are `PetSkinID` and `Rarity`;
+animation IDs and source-size normalization stay in `PetSkinCatalog`. Imported
+templates may also retain Studio's protected `RBX_ReimportId` provenance field.
+
 `ReplicatedStorage.Remotes`, `ReplicatedStorage.Shared`, and `ReplicatedStorage.Satchel`
 are already declared in `default.project.json`.
 
@@ -47,6 +54,8 @@ Recommended layout:
 asset-backups/
   YYYY-MM-DD-before-description/
     PetModels.rbxm
+    PetSkins.rbxm
+    PetSkinTool.rbxm
     FeedMachines.rbxm
     Food.rbxm
     FeedMachineTool.rbxm

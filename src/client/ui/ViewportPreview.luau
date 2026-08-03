@@ -10,13 +10,24 @@ local VIEWPORT_AMBIENT = Color3.fromRGB(255, 255, 255)
 local VIEWPORT_LIGHT_COLOR = Color3.fromRGB(185, 185, 185)
 local VIEWPORT_LIGHT_DIRECTION = Vector3.new(-1, -1, -1)
 local TAU = math.pi * 2
-local rotationConnections = setmetatable({}, { __mode = "k" })
+local previewRecords = setmetatable({}, { __mode = "k" })
 
 local function disconnect(viewport)
-	local connection = rotationConnections[viewport]
-	if connection then
-		connection:Disconnect()
-		rotationConnections[viewport] = nil
+	local record = previewRecords[viewport]
+	if record then
+		if record.rotation then
+			record.rotation:Disconnect()
+		end
+		if record.track then
+			pcall(function()
+				record.track:Stop(0)
+				record.track:Destroy()
+			end)
+		end
+		if record.animation then
+			record.animation:Destroy()
+		end
+		previewRecords[viewport] = nil
 	end
 end
 
@@ -169,9 +180,11 @@ local function makeRotationRig(world, clone)
 	return rig
 end
 
-local function startRotation(viewport, instance)
-	local angle = 0
-	rotationConnections[viewport] = RunService.RenderStepped:Connect(function(deltaTime)
+local function startRotation(viewport, instance, yawDegrees)
+	local angle = math.rad(tonumber(yawDegrees) or 0)
+	local record = previewRecords[viewport] or {}
+	previewRecords[viewport] = record
+	record.rotation = RunService.RenderStepped:Connect(function(deltaTime)
 		if not (viewport.Parent and instance.Parent) then
 			disconnect(viewport)
 			return
@@ -180,6 +193,33 @@ local function startRotation(viewport, instance)
 		angle = (angle + (tonumber(deltaTime) or 0) * TAU / ROTATION_SECONDS) % TAU
 		pivotPreview(instance, CFrame.Angles(0, angle, 0))
 	end)
+end
+
+local function startIdleAnimation(viewport, instance, animationId)
+	if type(animationId) ~= "string" or not animationId:match("^rbxassetid://%d+$") then
+		return
+	end
+	local animator = instance:FindFirstChildWhichIsA("Animator", true)
+	if not animator then
+		return
+	end
+	local animation = Instance.new("Animation")
+	animation.Name = "ViewportIdleAnimation"
+	animation.AnimationId = animationId
+	local ok, track = pcall(function()
+		return animator:LoadAnimation(animation)
+	end)
+	if not ok then
+		animation:Destroy()
+		warn("[ViewportPreview] Failed to load idle animation " .. animationId .. ": " .. tostring(track))
+		return
+	end
+	track.Looped = true
+	track:Play(0)
+	local record = previewRecords[viewport] or {}
+	previewRecords[viewport] = record
+	record.animation = animation
+	record.track = track
 end
 
 function ViewportPreview.Render(viewport, template, options)
@@ -215,6 +255,7 @@ function ViewportPreview.Render(viewport, template, options)
 		translatePreview(clone, Vector3.new(0, verticalOffset, 0))
 	end
 	local rig = makeRotationRig(world, clone)
+	startIdleAnimation(viewport, clone, options.idleAnimationId)
 
 	local camera = Instance.new("Camera")
 	local radius = math.max(size.X, size.Y, size.Z, 1)
@@ -234,7 +275,7 @@ function ViewportPreview.Render(viewport, template, options)
 		-- default turntable spin.
 		pivotPreview(rig, CFrame.Angles(0, math.rad(tonumber(options.yawDegrees) or 0), 0))
 	else
-		startRotation(viewport, rig)
+		startRotation(viewport, rig, options.yawDegrees)
 	end
 	return true
 end

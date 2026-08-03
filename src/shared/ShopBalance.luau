@@ -53,6 +53,15 @@ ShopBalance.SeedPacks = {
 	},
 }
 
+ShopBalance.PetSkinPack = {
+	PackId = "PetSkinPack",
+	DisplayName = "Pet Skin Pack",
+	Products = {
+		{ Quantity = 1, DevProductId = 3613041963 },
+		{ Quantity = 12, DevProductId = 3613041996 },
+	},
+}
+
 -- Standalone Durian Pack feature (HUD entry -> Menu.DurianPackHolder), no
 -- longer sold from the RobuxShop seed pack sections. Players buy tickets with
 -- Robux; one ticket funds one roll from Rewards. Every PityRollCount-th roll
@@ -474,6 +483,17 @@ local function copyPack(pack)
 	}
 end
 
+local function copyPetSkinPack(config)
+	if type(config) ~= "table" then
+		return nil
+	end
+	return {
+		PackId = config.PackId,
+		DisplayName = config.DisplayName,
+		Products = seedPackProducts(config),
+	}
+end
+
 local function copyDurianTicketProduct(product, legacy)
 	if type(product) ~= "table" then
 		return nil
@@ -752,6 +772,31 @@ function ShopBalance.SeedPackForProductId(productIdValue)
 			if product.DevProductId == target then
 				return copyPack(pack), product.Quantity
 			end
+		end
+	end
+	return nil
+end
+
+function ShopBalance.GetPetSkinPack()
+	return copyPetSkinPack(ShopBalance.PetSkinPack)
+end
+
+function ShopBalance.PetSkinPackProductForQuantity(quantity)
+	return ShopBalance.SeedPackProductForQuantity(ShopBalance.PetSkinPack, quantity)
+end
+
+function ShopBalance.AllPetSkinPackProducts()
+	return seedPackProducts(ShopBalance.PetSkinPack)
+end
+
+function ShopBalance.PetSkinPackForProductId(productIdValue)
+	local target = productId(productIdValue)
+	if target <= 0 then
+		return nil
+	end
+	for _, product in ipairs(seedPackProducts(ShopBalance.PetSkinPack)) do
+		if product.DevProductId == target then
+			return copyPetSkinPack(ShopBalance.PetSkinPack), product.Quantity
 		end
 	end
 	return nil
@@ -1477,6 +1522,37 @@ function ShopBalance.Validate(errors)
 					add(rewardSource .. " has invalid Weight")
 				end
 			end
+		end
+	end
+
+	local petSkinPack = ShopBalance.PetSkinPack
+	if type(petSkinPack) ~= "table" then
+		add("ShopBalance.PetSkinPack must be a table")
+	else
+		if type(petSkinPack.PackId) ~= "string" or petSkinPack.PackId == "" then
+			add("ShopBalance.PetSkinPack has invalid PackId")
+		elseif seenPacks[petSkinPack.PackId] then
+			add("Duplicate shop PackId " .. tostring(petSkinPack.PackId))
+		else
+			seenPacks[petSkinPack.PackId] = true
+		end
+		if type(petSkinPack.DisplayName) ~= "string" or petSkinPack.DisplayName == "" then
+			add("ShopBalance.PetSkinPack has invalid DisplayName")
+		end
+		local seenQuantities = {}
+		for index, product in ipairs(seedPackProducts(petSkinPack)) do
+			local source = "ShopBalance.PetSkinPack.Products[" .. tostring(index) .. "]"
+			if product.Quantity ~= 1 and product.Quantity ~= 12 then
+				add(source .. " must grant exactly 1 or 12 packs")
+			elseif seenQuantities[product.Quantity] then
+				add("ShopBalance.PetSkinPack has duplicate product Quantity " .. tostring(product.Quantity))
+			else
+				seenQuantities[product.Quantity] = true
+			end
+			validateProduct(product.DevProductId, source .. ".DevProductId")
+		end
+		if not (seenQuantities[1] and seenQuantities[12]) then
+			add("ShopBalance.PetSkinPack must define quantities 1 and 12")
 		end
 	end
 

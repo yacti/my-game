@@ -16,6 +16,7 @@ local GearShopBalance = require(Shared:WaitForChild("GearShopBalance"))
 local GroupReward = require(Shared:WaitForChild("GroupReward"))
 local Mutations = require(Shared:WaitForChild("Mutations"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local PlayerState = require(Shared:WaitForChild("PlayerState"))
 local PlotGrid = require(Shared:WaitForChild("PlotGrid"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
@@ -41,6 +42,8 @@ local REQUIRED_ASSET_ROOTS = {
 	"Cosmetics",
 	"CosmeticTool",
 	"PetModels",
+	"PetSkins",
+	"PetSkinTool",
 	"FeedMachines",
 	"Food",
 	"Crates",
@@ -702,6 +705,24 @@ local function validatePetCatalog(errors)
 	end
 	if orderOneCount ~= 1 then
 		add(errors, string.format("Expected exactly one Order 1 pet for rebirth reset, found %d", orderOneCount))
+	end
+end
+
+local function validatePetSkinCatalog(errors)
+	PetSkinCatalog.Validate(errors)
+	for _, definition in ipairs(PetSkinCatalog.All()) do
+		local template = PetSkinCatalog.TemplateFor(definition.Id)
+		if template then
+			for attributeName in pairs(template:GetAttributes()) do
+				-- Imported models carry protected Studio provenance metadata. It is
+				-- not gameplay configuration and cannot be removed by plugin code.
+				if attributeName ~= State.PetSkin.Id
+					and attributeName ~= State.PetSkin.Rarity
+					and attributeName ~= "RBX_ReimportId" then
+					add(errors, template:GetFullName() .. " has unsupported authored attribute " .. attributeName)
+				end
+			end
+		end
 	end
 end
 
@@ -1585,6 +1606,35 @@ local function validateSeedPacksUi(menu, errors)
 	end
 end
 
+local function validatePetSkinPackUi(menu, errors)
+	local panel = child(menu, "RobuxShop", "GuiObject", errors)
+	local holder = panel and descendant(panel, "SFHolder", "ScrollingFrame", errors)
+	local featured = holder and child(holder, "Featured", "GuiObject", errors)
+	local card = featured and child(featured, "CosmeticPack", "GuiObject", errors)
+	if not card then return end
+	local source = "ReplicatedStorage.UI.Menu.RobuxShop.SFHolder.Featured.CosmeticPack"
+	for _, product in ipairs(ShopBalance.AllPetSkinPackProducts()) do
+		validateSeedPackProductButton(card, product, source, errors)
+	end
+	if not namedDescendant(card, "PackIcon", "ViewportFrame") then
+		add(errors, source .. " must contain a PackIcon ViewportFrame")
+	end
+	local items = child(card, "Items", "GuiObject", errors)
+	local slots = seedPackRewardSlots(items, {
+		EpicTemplate = true,
+		LegendaryTemplate = true,
+		MythicalTemplate = true,
+		SecretTemplate = true,
+	})
+	if #slots ~= #PetSkinCatalog.All() then
+		add(errors, source .. ".Items must contain exactly four pet skin reward slots")
+	end
+	for _, slot in ipairs(slots) do
+		descendant(slot, "Icon", "ViewportFrame", errors)
+		descendant(slot, "Chance", "TextLabel", errors)
+	end
+end
+
 -- EndlessPackController clones Items.Template into the runtime claim-track
 -- cards, so the template must carry the icon/buy structure the controller
 -- renders into.
@@ -1941,6 +1991,7 @@ local function validatePetMoneyBillboard(billboardFolder, errors)
 		child(stats, "MoneyRateLabel", "TextLabel", errors)
 		child(stats, "NameLabel", "TextLabel", errors)
 		child(stats, "NicknameLabel", "TextLabel", errors)
+		child(stats, "LevelLabel", "TextLabel", errors)
 	end
 
 	local xp = child(billboard, "XP", "GuiObject", errors)
@@ -2498,6 +2549,13 @@ local function validateCosmeticToolContract(errors)
 	end
 end
 
+local function validatePetSkinToolContract(errors)
+	local tool = Assets.Find(Assets.Names.PetSkinTool)
+	if not (tool and tool:IsA("Tool")) then
+		add(errors, "ReplicatedStorage.Assets.PetSkinTool must be a Tool")
+	end
+end
+
 local function addProductIdSource(seenProducts, productId, source, errors)
 	productId = tonumber(productId) or 0
 	if productId <= 0 or productId % 1 ~= 0 then
@@ -2533,6 +2591,14 @@ local function validateShopProductIds(errors)
 				errors
 			)
 		end
+	end
+	for productIndex, product in ipairs(ShopBalance.AllPetSkinPackProducts()) do
+		addProductIdSource(
+			seenProducts,
+			product.DevProductId,
+			"ShopBalance.PetSkinPack.Products[" .. tostring(productIndex) .. "]",
+			errors
+		)
 	end
 	local durianConfig = ShopBalance.DurianPack
 	if type(durianConfig) == "table" then
@@ -2787,6 +2853,7 @@ local function validateUi(errors, warnings)
 		validateStarterPackShopUi(menu, warnings)
 		validateGamePassShopUi(menu, warnings)
 		validateSeedPacksUi(menu, errors)
+		validatePetSkinPackUi(menu, errors)
 		validateEndlessPackShopUi(menu, errors)
 		validateDurianPackUi(menu, errors)
 		validatePackRollFrameUi(menu, errors)
@@ -3446,6 +3513,7 @@ function AssetValidator.validate()
 	validateRemotes(errors)
 	validatePlayerStateContract(errors)
 	validatePetCatalog(errors)
+	validatePetSkinCatalog(errors)
 	validateFeedTemplates(errors, warnings)
 	validateSeeds(errors)
 	validateCosmetics(errors, warnings)
@@ -3461,6 +3529,7 @@ function AssetValidator.validate()
 	local seenProducts = validateShopProductIds(errors)
 	task.spawn(auditExperienceProducts, seenProducts)
 	validateCosmeticToolContract(errors)
+	validatePetSkinToolContract(errors)
 	validateFoodTemplates(errors)
 	validateUi(warnings, warnings)
 	validateRobuxShopPart(warnings)

@@ -15,6 +15,7 @@ local Cosmetics = require(ReplicatedStorage.Shared:WaitForChild("Cosmetics"))
 local Mutations = require(ReplicatedStorage.Shared:WaitForChild("Mutations"))
 local Onboarding = require(ReplicatedStorage.Shared:WaitForChild("Onboarding"))
 local PlayerSettings = require(ReplicatedStorage.Shared:WaitForChild("PlayerSettings"))
+local PetSkinCatalog = require(ReplicatedStorage.Shared:WaitForChild("PetSkinCatalog"))
 local StormChaser = require(ReplicatedStorage.Shared:WaitForChild("StormChaser"))
 local AlienStand = require(ReplicatedStorage.Shared:WaitForChild("AlienStand"))
 local BeeEvent = require(ReplicatedStorage.Shared:WaitForChild("BeeEvent"))
@@ -23,7 +24,7 @@ local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersis
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 14
+local CURRENT_DATA_VERSION = 15
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -45,6 +46,7 @@ local DATA_TEMPLATE = {
 	FeedPlacements = {},
 	CosmeticPlacements = {},
 	CosmeticInventory = STARTER_COSMETIC_INVENTORY, -- { [CosmeticID] = count }
+	PetSkinInventory = {}, -- { [PetSkinID] = count }
 	FeedInventory = STARTER_FEED_INVENTORY, -- { [FeedType] = count }
 	SeedInventory = STARTER_SEED_INVENTORY, -- { [SeedID] = count }
 	FoodInventory = {}, -- { [FoodId] = count }
@@ -55,6 +57,7 @@ local DATA_TEMPLATE = {
 		Feed = {},
 		Seed = {},
 		Cosmetic = {},
+		PetSkin = {},
 	},
 	ProcessedReceipts = {},
 	PendingFoodStealReservation = nil,
@@ -413,6 +416,16 @@ local function migrateData(data)
 			if type(data.AlienStand) ~= "table" then
 				data.AlienStand = { Tier = 1, Deposits = 0 }
 			end
+		elseif nextVersion == 15 then
+			if type(data.PetSkinInventory) ~= "table" then
+				data.PetSkinInventory = {}
+			end
+			if type(data.FavouriteInventory) ~= "table" then
+				data.FavouriteInventory = {}
+			end
+			if type(data.FavouriteInventory.PetSkin) ~= "table" then
+				data.FavouriteInventory.PetSkin = {}
+			end
 		end
 
 		version = nextVersion
@@ -587,7 +600,7 @@ local function sanitizePetRecord(pet)
 	if type(pet) ~= "table" then
 		return nil
 	end
-	return {
+	local clean = {
 		petId = type(pet.petId) == "string" and pet.petId
 			or type(pet.type) == "string" and pet.type
 			or STARTER_PET_ID,
@@ -597,6 +610,10 @@ local function sanitizePetRecord(pet)
 		lz = tonumber(pet.lz),
 		lry = tonumber(pet.lry) or 0,
 	}
+	if type(pet.skinId) == "string" and PetSkinCatalog.Get(pet.skinId) then
+		clean.skinId = pet.skinId
+	end
+	return clean
 end
 
 local function minimumPetIdsForRebirths(rebirths)
@@ -847,6 +864,20 @@ local function ensureValidData(profile)
 	end
 	profile.Data.CosmeticInventory = cosmeticInventory
 
+	local petSkinInventory = {}
+	if type(profile.Data.PetSkinInventory) == "table" then
+		for petSkinId, count in pairs(profile.Data.PetSkinInventory) do
+			if type(petSkinId) == "string"
+				and type(count) == "number"
+				and count > 0
+				and PetSkinCatalog.Get(petSkinId)
+				and PetSkinCatalog.TemplateFor(petSkinId) then
+				petSkinInventory[petSkinId] = math.floor(count)
+			end
+		end
+	end
+	profile.Data.PetSkinInventory = petSkinInventory
+
 	local feedInventory = {}
 	if type(profile.Data.FeedInventory) == "table" then
 		for feedType, count in pairs(profile.Data.FeedInventory) do
@@ -880,6 +911,7 @@ local function ensureValidData(profile)
 		Feed = sanitizeFavouriteCountMap(favouriteInventory.Feed, feedInventory),
 		Seed = sanitizeFavouriteCountMap(favouriteInventory.Seed, seedInventory),
 		Cosmetic = sanitizeFavouriteCountMap(favouriteInventory.Cosmetic, cosmeticInventory),
+		PetSkin = sanitizeFavouriteCountMap(favouriteInventory.PetSkin, petSkinInventory),
 	}
 
 	local foodInventoryItems = FoodInventoryService.SanitizeRecords(profile.Data.FoodInventoryItems)

@@ -174,6 +174,7 @@ local function buildTargetPets(plot, profile, tier)
 		local position = positions[index] or existing
 		targetPets[#targetPets + 1] = {
 			petId = basePetId,
+			skinId = type(existing.skinId) == "string" and existing.skinId or nil,
 			xp = 0,
 			money = 0,
 			lx = tonumber(position and position.lx),
@@ -223,7 +224,7 @@ local function preparePetModels(plot, pets, startIndex)
 	local prepared = {}
 	for offset, petData in ipairs(pets or {}) do
 		local petIndex = startIndex + offset - 1
-		local clone = PlotService.CreatePet(petData.petId, petIndex, petData.xp or 0, floor, petData.lx or 0, petData.lz or 0, petData.lry or 0)
+		local clone = PlotService.CreatePet(petData.petId, petIndex, petData.xp or 0, floor, petData.lx or 0, petData.lz or 0, petData.lry or 0, petData.skinId)
 		if not clone then
 			destroyPreparedPets(prepared)
 			return nil, "pet-build-failed"

@@ -33,6 +33,10 @@ State.Pet = {
 	EvolutionOldScale = "PetEvolutionOldScale",
 	EvolutionPivot = "PetEvolutionPivot",
 	EvolutionPathPetIds = "PetEvolutionPathPetIds",
+	EvolutionCueKind = "PetEvolutionCueKind",
+	EvolutionOldSkinId = "PetEvolutionOldSkinId",
+	EvolutionTargetSkinId = "PetEvolutionTargetSkinId",
+	SkinId = "PetSkinId",
 	EvolutionPaused = "PetEvolutionPaused", -- client-local presentation pause
 }
 
@@ -145,6 +149,11 @@ State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",
 	Favourite = "ToolFavourite",
+}
+
+State.PetSkin = {
+	Id = "PetSkinID",
+	Rarity = "Rarity",
 }
 
 State.Grid = {

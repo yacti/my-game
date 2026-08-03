@@ -6,6 +6,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Rarities = require(Shared:WaitForChild("Rarities"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
@@ -33,6 +34,7 @@ local FEATURED_SECTION_NAME = "Featured"
 local SEED_PACKS_NAME = "SeedPacks"
 local CASH_PACKS_NAME = "CashPacks"
 local ENDLESS_PACK_NAME = "EndlessPack"
+local PET_SKIN_CARD_NAME = "CosmeticPack"
 local PACK_HOLDER_TEMPLATE_NAME = "PackHolder"
 local CONTINUE_BUTTON_NAME = "Continue"
 local RUNTIME_PACK_HOLDER_NAME = "__SeedPackRollHolder"
@@ -59,6 +61,11 @@ local REVEAL_PREVIEW_OPTIONS = {
 	colorSaturation = 2.5,
 	colorBrightness = 1.55,
 	lightColor = Color3.fromRGB(255, 255, 255),
+}
+local PET_SKIN_PREVIEW_OPTIONS = {
+	targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
+	zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
+	alignPivot = true,
 }
 
 local SLICE_THICKNESS_MULTIPLIER = 1.35
@@ -306,6 +313,28 @@ local function rewardSlots(items)
 	return slots
 end
 
+local function petSkinRewardSlots(items)
+	local slots = {}
+	local validNames = {
+		EpicTemplate = true,
+		LegendaryTemplate = true,
+		MythicalTemplate = true,
+		SecretTemplate = true,
+	}
+	for _, item in ipairs(items and items:GetChildren() or {}) do
+		if item:IsA("GuiObject") and validNames[item.Name] then
+			slots[#slots + 1] = item
+		end
+	end
+	table.sort(slots, function(left, right)
+		if left.LayoutOrder ~= right.LayoutOrder then
+			return left.LayoutOrder < right.LayoutOrder
+		end
+		return left.Name < right.Name
+	end)
+	return slots
+end
+
 local function buttonNameCandidates(quantity)
 	if quantity == 1 then
 		return { "BuyOne", "BuyButton", "Buy1" }
@@ -387,6 +416,86 @@ local function renderPackCard(pack)
 	}
 end
 
+local function petSkinPackFrame()
+	local featured = shopSection(FEATURED_SECTION_NAME)
+	local frame = featured and featured:FindFirstChild(PET_SKIN_CARD_NAME)
+	return frame and frame:IsA("GuiObject") and frame or nil
+end
+
+local function renderPetSkinReward(slot, definition, visible)
+	if not (slot and definition) then
+		return
+	end
+	local icon = findDescendant(slot, "Icon", "ViewportFrame")
+	local chance = findDescendant(slot, "Chance", "TextLabel")
+	local nameLabel = findDescendant(slot, "Name", "TextLabel")
+	local template = visible and PetSkinCatalog.TemplateFor(definition.Id) or nil
+	if icon then
+		local options = table.clone(PET_SKIN_PREVIEW_OPTIONS)
+		options.idleAnimationId = definition.IdleAnimationId
+		options.yawDegrees = definition.ViewportYawDegrees
+		ViewportPreview.Render(icon, template, options)
+	end
+	if chance then
+		setTextStack(chance, PetSkinCatalog.ChanceText(definition.Id))
+	end
+	if nameLabel then
+		setTextStack(nameLabel, PetSkinCatalog.NameFor(definition.Id))
+	end
+	HoverOver.Bind(slot, function()
+		return {
+			name = PetSkinCatalog.NameFor(definition.Id),
+			rarity = definition.Rarity,
+		}
+	end)
+end
+
+local function renderPetSkinPackPreviews(frame, pack, visible)
+	if visible then
+		PackIconDisplay.Render(frame, pack.PackId)
+	else
+		local packIcon = findDescendant(frame, "PackIcon", "ViewportFrame")
+		if packIcon then
+			ViewportPreview.Render(packIcon, nil)
+		end
+	end
+	local slots = petSkinRewardSlots(frame:FindFirstChild("Items"))
+	for index, definition in ipairs(PetSkinCatalog.All()) do
+		if slots[index] then
+			renderPetSkinReward(slots[index], definition, visible)
+		end
+	end
+end
+
+local function renderPetSkinPackCard(visible)
+	local frame = petSkinPackFrame()
+	local pack = ShopBalance.GetPetSkinPack()
+	if not (frame and pack) then
+		warn("[SeedPackShopController] Missing Featured.CosmeticPack Pet Skin Pack card")
+		return nil
+	end
+	local allowed = isSeedPacksAllowed()
+	frame.Visible = allowed
+	visible = visible and allowed
+	renderPetSkinPackPreviews(frame, pack, visible)
+
+	local productButtons = {}
+	for _, product in ipairs(ShopBalance.AllPetSkinPackProducts()) do
+		local button = findProductButton(frame, product)
+		if button then
+			UiEffects.BindButton(button)
+			productButtons[#productButtons + 1] = {
+				button = button,
+				priceLabel = findDescendant(button, "Price", "TextLabel"),
+				product = product,
+			}
+		else
+			warn("[SeedPackShopController] Missing Pet Skin Pack Buy" .. tostring(product.Quantity) .. " button")
+		end
+	end
+	return { pack = pack, frame = frame, productButtons = productButtons, isPetSkinPack = true }
+end
+
 local function promptProduct(productId)
 	productId = tonumber(productId) or 0
 	if productId <= 0 then
@@ -405,12 +514,23 @@ end
 
 local function renderRows(rows)
 	applySeedPacksVisibility()
-	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true and isSeedPacksAllowed()
+	local allowed = isSeedPacksAllowed()
+	local ready = PlayerStateStore.Get(PlayerStateStore.Fields.ProfileReady) == true and allowed
 	for _, row in ipairs(rows) do
+		if row.isPetSkinPack then
+			row.frame.Visible = allowed
+			local panel = row.frame:FindFirstAncestor(ROBUX_PANEL_NAME)
+			renderPetSkinPackPreviews(row.frame, row.pack, allowed and panel ~= nil and panel.Visible)
+		end
 		for _, productButton in ipairs(row.productButtons or {}) do
 			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
 			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
-			if quantity == 3 then
+			if row.isPetSkinPack then
+				local price = robuxText(productId, function()
+					renderRows(rows)
+				end)
+				setTextStack(productButton.priceLabel, string.format("Buy %d  %s", quantity, price))
+			elseif quantity == 3 then
 				setTextStack(productButton.priceLabel, "x3")
 			else
 				setTextStack(productButton.priceLabel, robuxText(productId, function()
@@ -517,7 +637,16 @@ local function configureHolder(holder, payload, result)
 	hideFtueDrag(holder)
 	local resultViewport = holder:FindFirstChild("Result")
 	if resultViewport and resultViewport:IsA("ViewportFrame") then
-		ViewportPreview.Render(resultViewport, FeedDisplayModel.SeedPreview(result.seedId, REVEAL_PREVIEW_OPTIONS))
+		if result.kind == "PetSkin" then
+			local definition = PetSkinCatalog.Get(result.petSkinId)
+			local options = table.clone(REVEAL_PREVIEW_OPTIONS)
+			options.alignPivot = true
+			options.idleAnimationId = definition and definition.IdleAnimationId or nil
+			options.yawDegrees = definition and definition.ViewportYawDegrees or nil
+			ViewportPreview.Render(resultViewport, PetSkinCatalog.TemplateFor(result.petSkinId), options)
+		else
+			ViewportPreview.Render(resultViewport, FeedDisplayModel.SeedPreview(result.seedId, REVEAL_PREVIEW_OPTIONS))
+		end
 	end
 
 	setTextStack(holder:FindFirstChild("ItemName"), result.displayName or Seeds.DisplayNameFor(result.seedId))
@@ -1207,6 +1336,16 @@ function SeedPackShopController.start()
 	ensureCatcher()
 
 	local rows = {}
+	local petSkinRow = renderPetSkinPackCard(robuxPanel.Visible)
+	if petSkinRow then
+		rows[#rows + 1] = petSkinRow
+		for _, productButton in ipairs(petSkinRow.productButtons) do
+			local product = productButton.product
+			RuntimeGuard.Connect(productButton.button.Activated, "SeedPackShopController.Buy.PetSkinPack." .. tostring(product.Quantity), function()
+				promptProduct(product.DevProductId)
+			end)
+		end
+	end
 	for _, pack in ipairs(ShopBalance.AllSeedPacks()) do
 		local row = renderPackCard(pack)
 		if row then
@@ -1223,6 +1362,9 @@ function SeedPackShopController.start()
 			end
 		end
 	end
+	RuntimeGuard.Connect(robuxPanel:GetPropertyChangedSignal("Visible"), "SeedPackShopController.PetSkinViewportVisibility", function()
+		renderPetSkinPackCard(robuxPanel.Visible)
+	end)
 
 	local rollPanelState = UiEffects.PreparePanel(rollPanel)
 	local rollOpen = false

@@ -33,6 +33,9 @@ local LiveEventCommandService = require(Server:WaitForChild("LiveEventCommandSer
 local PlotGridService   = require(Server:WaitForChild("PlotGridService"))
 local PetMotionService  = require(Server:WaitForChild("PetMotionService"))
 local PetIncomeService  = require(Server:WaitForChild("PetIncomeService"))
+local PetSkinPackShopService = require(Server:WaitForChild("PetSkinPackShopService"))
+local PetSkinService = require(Server:WaitForChild("PetSkinService"))
+local PetSkinTools = require(Server:WaitForChild("PetSkinTools"))
 local CurrencyService   = require(Server:WaitForChild("CurrencyService"))
 local CosmeticTools     = require(Server:WaitForChild("CosmeticTools"))
 local CosmeticPlacementService = require(Server:WaitForChild("CosmeticPlacementService"))
@@ -300,6 +303,7 @@ local function copyPetRecord(pet)
 		lx = tonumber(pet.lx),
 		lz = tonumber(pet.lz),
 		lry = tonumber(pet.lry) or 0,
+		skinId = type(pet.skinId) == "string" and pet.skinId or nil,
 	}
 end
 
@@ -337,6 +341,7 @@ RuntimeGuard.Run("RebirthService.Start", RebirthService.Start)
 RuntimeGuard.Run("GearShopService.Start", GearShopService.Start)
 RuntimeGuard.Run("CosmeticShopService.Start", CosmeticShopService.Start)
 RuntimeGuard.Run("SeedPackShopService.Start", SeedPackShopService.Start)
+RuntimeGuard.Run("PetSkinPackShopService.Start", PetSkinPackShopService.Start)
 RuntimeGuard.Run("DurianPackShopService.Start", DurianPackShopService.Start)
 RuntimeGuard.Run("CashPackShopService.Start", CashPackShopService.Start)
 RuntimeGuard.Run("StarterPackShopService.Start", StarterPackShopService.Start)
@@ -371,6 +376,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		gearShopService = GearShopService,
 		cosmeticShopService = CosmeticShopService,
 		seedPackShopService = SeedPackShopService,
+		petSkinPackShopService = PetSkinPackShopService,
 		durianPackShopService = DurianPackShopService,
 		endlessPackShopService = EndlessPackShopService,
 		cashPackShopService = CashPackShopService,
@@ -405,6 +411,7 @@ local function collectPetsFromPlot(player, plot, profile)
 				petId = pet:GetAttribute(State.Pet.Id) or (existing and existing.petId) or "Pet1",
 				xp    = existing and existing.xp or 0,
 				money = existing and existing.money or 0,
+				skinId = pet:GetAttribute(State.Pet.SkinId) or (existing and existing.skinId) or nil,
 			}
 			-- Position + rotation are stored in floor-local space so they
 			-- survive Floor rotations / translations between sessions.
@@ -567,10 +574,16 @@ local function collectCosmeticState(plot, player)
 	return {
 		CosmeticPlacements = placements,
 		CosmeticInventory = CosmeticTools.CountByCosmetic(player),
+		PetSkinInventory = PetSkinTools.CountByPetSkin(player),
 		FavouriteCosmeticInventory = countFavouriteToolsById(
 			player,
 			CosmeticTools.IsCosmeticTool,
 			CosmeticTools.CosmeticIdOf
+		),
+		FavouritePetSkinInventory = countFavouriteToolsById(
+			player,
+			PetSkinTools.IsPetSkinTool,
+			PetSkinTools.PetSkinIdOf
 		),
 	}
 end
@@ -598,10 +611,12 @@ local function snapshotProfileState(player, plot, profile)
 		return false
 	end
 	local cosmeticInventory = mergeUnrestoredCounts(player, "Cosmetic", cosmeticState.CosmeticInventory)
+	local petSkinInventory = mergeUnrestoredCounts(player, "PetSkin", cosmeticState.PetSkinInventory)
 	local feedInventory = mergeUnrestoredCounts(player, "Feed", feedState.FeedInventory)
 	local seedInventory = mergeUnrestoredCounts(player, "Seed", feedState.SeedInventory)
 	local foodInventoryItems = mergeUnrestoredFoodRecords(player, feedState.FoodInventoryItems)
 	warnOnInventoryCollapse(player, "CosmeticInventory", profile.Data.CosmeticInventory, cosmeticInventory)
+	warnOnInventoryCollapse(player, "PetSkinInventory", profile.Data.PetSkinInventory, petSkinInventory)
 	warnOnInventoryCollapse(player, "FeedInventory", profile.Data.FeedInventory, feedInventory)
 	warnOnInventoryCollapse(player, "SeedInventory", profile.Data.SeedInventory, seedInventory)
 
@@ -609,6 +624,7 @@ local function snapshotProfileState(player, plot, profile)
 	profile.Data.FeedPlacements = feedState.FeedPlacements
 	profile.Data.CosmeticPlacements = cosmeticState.CosmeticPlacements
 	profile.Data.CosmeticInventory = cosmeticInventory
+	profile.Data.PetSkinInventory = petSkinInventory
 	profile.Data.FeedInventory = feedInventory
 	profile.Data.SeedInventory = seedInventory
 	profile.Data.FoodInventoryItems = foodInventoryItems
@@ -617,6 +633,7 @@ local function snapshotProfileState(player, plot, profile)
 		Feed = feedState.FavouriteFeedInventory,
 		Seed = feedState.FavouriteSeedInventory,
 		Cosmetic = cosmeticState.FavouriteCosmeticInventory,
+		PetSkin = cosmeticState.FavouritePetSkinInventory,
 	}
 	profile.Data.LastSeen = os.time()
 	-- Catch-all discovery sweep: covers gifting and any grant path without a
@@ -645,6 +662,11 @@ local function snapshotFavouriteState(player, profile)
 			player,
 			CosmeticTools.IsCosmeticTool,
 			CosmeticTools.CosmeticIdOf
+		),
+		PetSkin = countFavouriteToolsById(
+			player,
+			PetSkinTools.IsPetSkinTool,
+			PetSkinTools.PetSkinIdOf
 		),
 	}
 	profile.Data.FoodInventoryItems = foodInventoryItems
@@ -823,11 +845,14 @@ local function encodePetEvolutionPath(pathPetIds)
 	return nil
 end
 
-local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq, pathPetIds)
+local function publishPetEvolutionCue(pet, oldPetId, oldScale, pivot, seq, pathPetIds, oldSkinId)
 	pet:SetAttribute(State.Pet.EvolutionOldPetId, oldPetId)
 	pet:SetAttribute(State.Pet.EvolutionOldScale, oldScale)
 	pet:SetAttribute(State.Pet.EvolutionPivot, pivot)
 	pet:SetAttribute(State.Pet.EvolutionPathPetIds, encodePetEvolutionPath(pathPetIds))
+	pet:SetAttribute(State.Pet.EvolutionCueKind, nil)
+	pet:SetAttribute(State.Pet.EvolutionOldSkinId, oldSkinId)
+	pet:SetAttribute(State.Pet.EvolutionTargetSkinId, nil)
 	pet:SetAttribute(State.Pet.EvolutionSeq, seq)
 
 	task.delay(8, function()
@@ -896,7 +921,7 @@ local function tryEvolvePet(plot, pet, profile)
 				break
 			end
 		else
-			local newPet = PlotService.ReplacePetAt(plot, activePet, nextPetId, idx, nextXP, evolutionPivot)
+			local newPet = PlotService.ReplacePetAt(plot, activePet, nextPetId, idx, nextXP, evolutionPivot, petData.skinId)
 			if not newPet then
 				return nil, evolved
 			end
@@ -919,7 +944,7 @@ local function tryEvolvePet(plot, pet, profile)
 	publishPetState(activePet, petData.money, petData.xp)
 
 	if evolved then
-		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq, evolutionPath)
+		publishPetEvolutionCue(activePet, firstPetId, firstScale, firstPivot, evolutionSeq, evolutionPath, petData.skinId)
 		AnimalAmbientSoundService.PlayEvolutionBurst(activePet, evolutionPath)
 	end
 
@@ -1406,9 +1431,11 @@ local function handlePlayerAdded(player)
 			local liveFeedCounts = {}
 			local liveSeedCounts = {}
 			local liveCosmeticCounts = {}
+			local livePetSkinCounts = {}
 			local liveFavouriteFeedCounts = {}
 			local liveFavouriteSeedCounts = {}
 			local liveFavouriteCosmeticCounts = {}
+			local liveFavouritePetSkinCounts = {}
 			local function captureLiveTool(item)
 				if not (item and item:IsA("Tool")) then
 					return
@@ -1436,6 +1463,13 @@ local function handlePlayerAdded(player)
 					liveCosmeticCounts[cosmeticId] = (liveCosmeticCounts[cosmeticId] or 0) + 1
 					if ToolIdentity.IsFavourite(item) then
 						liveFavouriteCosmeticCounts[cosmeticId] = (liveFavouriteCosmeticCounts[cosmeticId] or 0) + 1
+					end
+				end
+				if PetSkinTools.IsPetSkinTool(item) then
+					local petSkinId = PetSkinTools.PetSkinIdOf(item)
+					livePetSkinCounts[petSkinId] = (livePetSkinCounts[petSkinId] or 0) + 1
+					if ToolIdentity.IsFavourite(item) then
+						liveFavouritePetSkinCounts[petSkinId] = (liveFavouritePetSkinCounts[petSkinId] or 0) + 1
 					end
 				end
 			end
@@ -1489,7 +1523,7 @@ local function handlePlayerAdded(player)
 			-- Every item the profile holds that this run could not mint, keyed
 			-- the same way the profile stores it. Handed to the snapshot so a
 			-- truncated or template-broken restore narrows nothing.
-			local unrestored = { Feed = {}, Seed = {}, Cosmetic = {}, Food = {} }
+			local unrestored = { Feed = {}, Seed = {}, Cosmetic = {}, PetSkin = {}, Food = {} }
 			local function noteUnrestored(mapName, itemId, count, reason)
 				if count <= 0 then
 					return
@@ -1592,6 +1626,14 @@ local function handlePlayerAdded(player)
 				CosmeticTools.MakeCosmeticTool,
 				liveCosmeticCounts,
 				liveFavouriteCosmeticCounts
+			)
+			restoreMap(
+				"PetSkin",
+				profile.Data.PetSkinInventory,
+				favouriteInventory.PetSkin or {},
+				PetSkinTools.MakePetSkinTool,
+				livePetSkinCounts,
+				liveFavouritePetSkinCounts
 			)
 			if player.Character == character then
 				setUnrestoredInventory(player, unrestored)
@@ -1855,6 +1897,12 @@ end)
 RuntimeGuard.Run("ShovelService.Start", function()
 	ShovelService.Start({
 		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
+
+RuntimeGuard.Run("PetSkinService.Start", function()
+	PetSkinService.Start({
 		isGameplayBlocked = isInventoryGameplayBlocked,
 	})
 end)

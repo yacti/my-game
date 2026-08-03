@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Assets = require(Shared:WaitForChild("Assets"))
 local Balance = require(Shared:WaitForChild("Balance"))
 local PetCatalog = require(Shared:WaitForChild("PetCatalog"))
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State = require(Shared:WaitForChild("State"))
@@ -184,10 +185,11 @@ local function addWhiteout(model, fillTransparency, outlineTransparency)
 	return highlight
 end
 
-local function cloneOldVisual(petId)
+local function cloneOldVisual(petId, petSkinId)
 	local visual = PetCatalog.VisualForPetId(petId)
 	local models = petModels()
-	local template = visual and models and PetCatalog.TemplateForPetId(petId)
+	local template = type(petSkinId) == "string" and PetSkinCatalog.TemplateFor(petSkinId)
+		or (visual and models and PetCatalog.TemplateForPetId(petId))
 	if not (template and template:IsA("Model")) then return nil end
 
 	local clone = template:Clone()
@@ -434,7 +436,14 @@ local function petDisplayName(petId)
 	return (visual and visual.ModelName) or petId
 end
 
-local function showEvolutionNotification(oldPetId, pet)
+local function showEvolutionNotification(oldPetId, pet, cueKind, targetSkinId)
+	if cueKind == "PetSkinApply" then
+		Notifications.show({
+			text = PetSkinCatalog.NameFor(targetSkinId) .. " applied!",
+			kind = NotificationConfig.Kinds.Success,
+		})
+		return
+	end
 	local newPetId = pet:GetAttribute(State.Pet.Id)
 	if type(newPetId) ~= "string" or newPetId == "" or newPetId == oldPetId then
 		return
@@ -502,7 +511,14 @@ local function readCue(pet)
 		return nil
 	end
 
-	return seq, oldPetId, oldScale, pivot, decodeEvolutionPath(pet, oldPetId)
+	return seq,
+		oldPetId,
+		oldScale,
+		pivot,
+		decodeEvolutionPath(pet, oldPetId),
+		pet:GetAttribute(State.Pet.EvolutionCueKind),
+		pet:GetAttribute(State.Pet.EvolutionOldSkinId),
+		pet:GetAttribute(State.Pet.EvolutionTargetSkinId)
 end
 
 local function playPreviewSound(petId, pet)
@@ -515,10 +531,10 @@ local function playPreviewSound(petId, pet)
 	})
 end
 
-local function createEffectForPetId(petId, scale, pivot, parent)
-	local effect = cloneOldVisual(petId)
+local function createEffectForPetId(petId, scale, pivot, parent, petSkinId)
+	local effect = cloneOldVisual(petId, petSkinId)
 	if not effect then
-		warn("[PetEvolutionEffects] Missing pet visual for evolution preview: " .. tostring(petId))
+		warn("[PetEvolutionEffects] Missing visual for evolution preview: " .. tostring(petSkinId or petId))
 		return nil
 	end
 
@@ -549,10 +565,10 @@ local function playForPet(pet)
 	-- spawned task); the seq attribute itself acts as the queue.
 	if evolutionBusyPets[pet] then return end
 
-	local seq, oldPetId, oldScale, pivot, pathPetIds = readCue(pet)
+	local seq, oldPetId, oldScale, pivot, pathPetIds, cueKind, oldSkinId, targetSkinId = readCue(pet)
 	if not seq then return end
 
-	local effect = createEffectForPetId(oldPetId, oldScale, pivot, pet.Parent or Workspace)
+	local effect = createEffectForPetId(oldPetId, oldScale, pivot, pet.Parent or Workspace, oldSkinId)
 	if not effect then return end
 
 	playedSeqByPet[pet] = seq
@@ -569,18 +585,20 @@ local function playForPet(pet)
 				drumroll.Looped = true
 			end
 			local highlight = playCharge(effect, pivot, oldScale, pet)
-			for index = 2, math.max(#pathPetIds - 1, 1) do
-				local previewPetId = pathPetIds[index]
-				if not pet.Parent then
-					break
-				end
+			if not oldSkinId then
+				for index = 2, math.max(#pathPetIds - 1, 1) do
+					local previewPetId = pathPetIds[index]
+					if not pet.Parent then
+						break
+					end
 
-				local previewScale = maturePreviewScaleForPetId(previewPetId, oldScale)
-				local previewEffect = createEffectForPetId(previewPetId, previewScale, pivot, pet.Parent or Workspace)
-				if previewEffect then
-					if effect.Parent then effect:Destroy() end
-					effect = previewEffect
-					highlight = playIntermediatePreview(effect, previewPetId, previewScale, pivot, pet)
+					local previewScale = maturePreviewScaleForPetId(previewPetId, oldScale)
+					local previewEffect = createEffectForPetId(previewPetId, previewScale, pivot, pet.Parent or Workspace)
+					if previewEffect then
+						if effect.Parent then effect:Destroy() end
+						effect = previewEffect
+						highlight = playIntermediatePreview(effect, previewPetId, previewScale, pivot, pet)
+					end
 				end
 			end
 			if pet.Parent then
@@ -589,7 +607,7 @@ local function playForPet(pet)
 				-- restoreCamera tweens the FOV back out below.
 				drumrollStopped = stopSound(drumroll, drumrollStopped)
 				ConfettiEffect.Emit()
-				showEvolutionNotification(oldPetId, pet)
+				showEvolutionNotification(oldPetId, pet, cueKind, targetSkinId)
 			end
 		end)
 		drumrollStopped = stopSound(drumroll, drumrollStopped)

@@ -24,6 +24,7 @@ local ui = script:WaitForChild("ui")
 local CONTROLLERS = {
 	"PlayerStateStore",
 	"SatchelController",
+	"PetSkinToolAnimationController",
 	"ItemAddedDisplayController",
 	"ProximityPromptCustomizer",
 	"LocalPrompts",
@@ -59,6 +60,7 @@ local CONTROLLERS = {
 	"SkipTimeButtonsController",
 	"AFKRejoinController",
 	"Notifications",
+	"PetSkinController",
 	"ServerLuckController",
 	"AdminLuckController",
 	"PetBillboards",
