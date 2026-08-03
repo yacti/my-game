@@ -68,7 +68,7 @@ local PET_SKIN_PREVIEW_OPTIONS = {
 	alignPivot = true,
 	presentationScale = 2,
 }
-local PET_SKIN_PACK_ICON_OPTIONS = {
+local PACK_CARD_ICON_OPTIONS = {
 	swayDegrees = 18,
 	swayPeriodSeconds = 2.6,
 }
@@ -402,7 +402,7 @@ local function renderPackCard(pack)
 		end
 	end
 
-	PackIconDisplay.Render(frame, pack.PackId)
+	PackIconDisplay.Render(frame, pack.PackId, PACK_CARD_ICON_OPTIONS)
 
 	local items = frame:FindFirstChild("Items")
 	local slots = rewardSlots(items)
@@ -474,7 +474,7 @@ end
 
 local function renderPetSkinPackPreviews(frame, pack, visible)
 	if visible then
-		PackIconDisplay.Render(frame, pack.PackId, PET_SKIN_PACK_ICON_OPTIONS)
+		PackIconDisplay.Render(frame, pack.PackId, PACK_CARD_ICON_OPTIONS)
 	else
 		local packIcon = findDescendant(frame, "PackIcon", "ViewportFrame")
 		if packIcon then
