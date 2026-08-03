@@ -1,5 +1,3 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local Assets = require(script.Parent:WaitForChild("Assets"))
 local Rarities = require(script.Parent:WaitForChild("Rarities"))
 local State = require(script.Parent:WaitForChild("State"))
@@ -9,9 +7,8 @@ local PetSkinCatalog = {}
 -- World skins keep each template's authored model scale as pet scale factor 1;
 -- PlotService applies the normal pet XP curve on top. ToolMaxDimension and
 -- ViewportScaleMultiplier are presentation-only and do not affect world pets.
--- Skin audio stays on the existing animal/evolution sound path. SoundId is
--- used for catalog-owned apply audio; SoundPetId reuses an authored animal
--- sound for skin application, ambient calls, and evolution bursts.
+-- Skin-application audio stays on the existing animal/evolution sound path.
+-- SoundId is the catalog-owned audio asset played when a skin is applied.
 local DEFINITIONS = {
 	PufferfishSkin = {
 		Rarity = Rarities.Epic,
@@ -30,7 +27,7 @@ local DEFINITIONS = {
 		Weight = 39,
 		IdleAnimationId = "rbxassetid://108556268538405",
 		WalkAnimationId = "rbxassetid://122231535526772",
-		SoundPetId = "Pet53", -- Reuse the authored Unicorn animal sound exactly.
+		SoundId = "rbxassetid://9125644661", -- Copied from the Studio-authored Pet53 Sound.
 		ToolMaxDimension = 1.5,
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
@@ -177,20 +174,6 @@ function PetSkinCatalog.Validate(errors)
 		if definition.SoundId ~= nil
 			and (type(definition.SoundId) ~= "string" or not definition.SoundId:match("^rbxassetid://%d+$")) then
 			errors[#errors + 1] = source .. " has invalid SoundId"
-		end
-		if definition.SoundPetId ~= nil and (type(definition.SoundPetId) ~= "string" or definition.SoundPetId == "") then
-			errors[#errors + 1] = source .. " has invalid SoundPetId"
-		end
-		if type(definition.SoundPetId) == "string" then
-			local sounds = ReplicatedStorage:FindFirstChild("Sounds")
-			local animalSounds = sounds and sounds:FindFirstChild("AnimalAmbientSounds")
-			local referencedSound = animalSounds and animalSounds:FindFirstChild(definition.SoundPetId)
-			if not (referencedSound and referencedSound:IsA("Sound")) then
-				errors[#errors + 1] = source .. " references missing animal sound " .. definition.SoundPetId
-			end
-		end
-		if definition.SoundId ~= nil and definition.SoundPetId ~= nil then
-			errors[#errors + 1] = source .. " must use SoundId or SoundPetId, not both"
 		end
 		if type(definition.ViewportScaleMultiplier) ~= "number" or definition.ViewportScaleMultiplier <= 0 then
 			errors[#errors + 1] = source .. " has invalid ViewportScaleMultiplier"

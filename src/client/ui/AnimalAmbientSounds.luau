@@ -97,14 +97,13 @@ local function playEvolutionSequence(pet, petId, soundParent, payload)
 	local playbackSpeeds = type(payload.playbackSpeeds) == "table" and payload.playbackSpeeds or {}
 	local gap = tonumber(payload.gap) or DEFAULT_SEQUENCE_GAP_SECONDS
 	local range = tonumber(payload.range) or DEFAULT_SOUND_RANGE
-	local soundPetId = type(payload.soundPetId) == "string" and payload.soundPetId or petId
 
 	for index = 1, #playbackSpeeds do
 		if not payloadStillValid(pet, petId) or not soundParent.Parent then
 			return
 		end
 
-		local sound = playAnimalSound(soundPetId, soundParent, playbackSpeeds[index], range, true)
+		local sound = playAnimalSound(petId, soundParent, playbackSpeeds[index], range, true)
 		waitForEnded(sound)
 		if sound and sound.Parent then
 			sound:Destroy()
@@ -146,8 +145,7 @@ local function playPayload(payload)
 		return
 	end
 
-	local soundPetId = type(payload.soundPetId) == "string" and payload.soundPetId or petId
-	playAnimalSound(soundPetId, soundParent, payload.playbackSpeed, payload.range, false)
+	playAnimalSound(petId, soundParent, payload.playbackSpeed, payload.range, false)
 end
 
 function AnimalAmbientSounds.start()

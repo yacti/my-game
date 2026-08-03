@@ -571,9 +571,7 @@ local function playPetSkinSound(petSkinId, pet)
 		return
 	end
 	local options = { parent = soundParent }
-	if type(definition.SoundPetId) == "string" then
-		SoundEffects.PlayAnimal(definition.SoundPetId, options)
-	elseif type(definition.SoundId) == "string" then
+	if type(definition.SoundId) == "string" then
 		SoundEffects.PlayAsset(definition.SoundId, options)
 	end
 end
