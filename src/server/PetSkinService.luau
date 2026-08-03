@@ -3,7 +3,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Server = script.Parent
-local AnimalAmbientSoundService = require(Server:WaitForChild("AnimalAmbientSoundService"))
 local OfflineProgressService = require(Server:WaitForChild("OfflineProgressService"))
 local PetMotionService = require(Server:WaitForChild("PetMotionService"))
 local PetSkinTools = require(Server:WaitForChild("PetSkinTools"))
@@ -262,12 +261,6 @@ function PetSkinService.Start(config)
 				petSkinId,
 				oldScale,
 				oldPivot
-			)
-			RuntimeGuard.Run(
-				"PetSkinService.PlayEvolutionBurst",
-				AnimalAmbientSoundService.PlayEvolutionBurst,
-				newPet,
-				{ oldPetId }
 			)
 			reply(true, "ok", {
 				pet = newPet,

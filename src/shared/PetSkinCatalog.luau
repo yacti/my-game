@@ -7,8 +7,7 @@ local PetSkinCatalog = {}
 -- World skins keep each template's authored model scale as pet scale factor 1;
 -- PlotService applies the normal pet XP curve on top. ToolMaxDimension and
 -- ViewportScaleMultiplier are presentation-only and do not affect world pets.
--- Skin-application audio stays on the existing animal/evolution sound path.
--- SoundId is the catalog-owned audio asset played when a skin is applied.
+-- SoundId is the only skin-application audio asset played for that skin.
 local DEFINITIONS = {
 	PufferfishSkin = {
 		Rarity = Rarities.Epic,
