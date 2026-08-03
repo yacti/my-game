@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -36,6 +37,16 @@ local function soundTemplateForPetId(petId)
 	end
 	local sound = animalSoundsFolder:FindFirstChild(petId)
 	return sound and sound:IsA("Sound") and sound or nil
+end
+
+local function soundPetIdForPet(pet, basePetId)
+	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+	local skinDefinition = type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) or nil
+	local skinSoundPetId = skinDefinition and skinDefinition.SoundPetId
+	if type(skinSoundPetId) == "string" and soundTemplateForPetId(skinSoundPetId) then
+		return skinSoundPetId
+	end
+	return basePetId
 end
 
 local function firstBasePart(instance)
@@ -73,7 +84,8 @@ local function fireToNearbyPlayers(pet, playbackSpeed, extraPayload)
 		return
 	end
 	local petId = pet:GetAttribute(State.Pet.Id)
-	if not soundTemplateForPetId(petId) then
+	local soundPetId = soundPetIdForPet(pet, petId)
+	if not soundTemplateForPetId(soundPetId) then
 		return
 	end
 	local position = petPosition(pet)
@@ -84,6 +96,7 @@ local function fireToNearbyPlayers(pet, playbackSpeed, extraPayload)
 	local payload = {
 		pet = pet,
 		petId = petId,
+		soundPetId = soundPetId,
 		playbackSpeed = tonumber(playbackSpeed) or 1,
 		range = SOUND_RANGE,
 	}

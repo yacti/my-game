@@ -455,7 +455,9 @@ local function renderPetSkinReward(slot, definition, visible)
 	if icon then
 		local options = table.clone(PET_SKIN_PREVIEW_OPTIONS)
 		options.idleAnimationId = definition.WalkAnimationId
-		options.presentationScale *= definition.ViewportScaleMultiplier
+		-- ViewportPreview auto-frames scaled geometry, which cancels most of a
+		-- model-scale adjustment. Zoom changes the visible card size directly.
+		options.zoom *= definition.ViewportScaleMultiplier
 		options.yawDegrees = definition.ViewportYawDegrees
 		ViewportPreview.Render(icon, template, options)
 	end
