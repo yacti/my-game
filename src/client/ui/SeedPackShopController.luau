@@ -66,6 +66,7 @@ local PET_SKIN_PREVIEW_OPTIONS = {
 	targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
 	zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
 	alignPivot = true,
+	presentationScale = 2,
 }
 
 local SLICE_THICKNESS_MULTIPLIER = 1.35
@@ -432,7 +433,7 @@ local function renderPetSkinReward(slot, definition, visible)
 	local template = visible and PetSkinCatalog.TemplateFor(definition.Id) or nil
 	if icon then
 		local options = table.clone(PET_SKIN_PREVIEW_OPTIONS)
-		options.idleAnimationId = definition.IdleAnimationId
+		options.idleAnimationId = definition.WalkAnimationId
 		options.yawDegrees = definition.ViewportYawDegrees
 		ViewportPreview.Render(icon, template, options)
 	end
@@ -526,10 +527,14 @@ local function renderRows(rows)
 			local productId = tonumber(productButton.product and productButton.product.DevProductId) or 0
 			local quantity = tonumber(productButton.product and productButton.product.Quantity) or 0
 			if row.isPetSkinPack then
-				local price = robuxText(productId, function()
-					renderRows(rows)
-				end)
-				setTextStack(productButton.priceLabel, string.format("Buy %d  %s", quantity, price))
+				-- CosmeticPack.Buy12.Price is the card's authored x12 quantity
+				-- badge, not a price field. Preserve it exactly; BuyOne.Price is
+				-- the only label that receives the localized live Robux price.
+				if quantity == 1 then
+					setTextStack(productButton.priceLabel, robuxText(productId, function()
+						renderRows(rows)
+					end))
+				end
 			elseif quantity == 3 then
 				setTextStack(productButton.priceLabel, "x3")
 			else
@@ -641,7 +646,8 @@ local function configureHolder(holder, payload, result)
 			local definition = PetSkinCatalog.Get(result.petSkinId)
 			local options = table.clone(REVEAL_PREVIEW_OPTIONS)
 			options.alignPivot = true
-			options.idleAnimationId = definition and definition.IdleAnimationId or nil
+			options.presentationScale = 2
+			options.idleAnimationId = definition and definition.WalkAnimationId or nil
 			options.yawDegrees = definition and definition.ViewportYawDegrees or nil
 			ViewportPreview.Render(resultViewport, PetSkinCatalog.TemplateFor(result.petSkinId), options)
 		else

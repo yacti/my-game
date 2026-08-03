@@ -129,6 +129,18 @@ local function scalePreview(instance, targetMaxDimension)
 	end
 end
 
+local function multiplyPresentationScale(instance, multiplier)
+	multiplier = math.max(tonumber(multiplier) or 1, 0.01)
+	if multiplier == 1 then
+		return
+	end
+	if instance:IsA("Model") then
+		instance:ScaleTo(instance:GetScale() * multiplier)
+	elseif instance:IsA("BasePart") then
+		instance.Size *= multiplier
+	end
+end
+
 local function pivotPreview(instance, cframe)
 	if instance:IsA("Model") then
 		instance:PivotTo(cframe)
@@ -245,6 +257,7 @@ function ViewportPreview.Render(viewport, template, options)
 	end
 	applyColorBoost(clone, options)
 	scalePreview(clone, options.targetMaxDimension)
+	multiplyPresentationScale(clone, options.presentationScale)
 	clone.Parent = world
 	local size = centerAtOrigin(clone)
 	-- verticalOffset: studs to lift the model above the camera's aim point,

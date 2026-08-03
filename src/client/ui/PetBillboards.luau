@@ -93,7 +93,10 @@ end
 local function displayNameForPet(pet)
 	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
 	if type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) then
-		return PetSkinCatalog.NameFor(petSkinId)
+		-- Tool/shop/reveal copy keeps the authored "<Pet> Skin" name. The
+		-- in-world pet identity is the creature name because the billboard's
+		-- level label already explains the applied cosmetic in pet context.
+		return PetSkinCatalog.NameFor(petSkinId):gsub("%s+Skin$", "")
 	end
 	local petId = pet:GetAttribute(State.Pet.Id)
 	local definition = type(petId) == "string" and PetCatalog.GetDefinition(petId) or nil

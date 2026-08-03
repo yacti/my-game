@@ -131,4 +131,15 @@ function SoundEffects.PlayAnimal(petId, options)
 	return playTemplate(soundTemplate(getAnimalSoundsFolder(), petId), options)
 end
 
+function SoundEffects.PlayAsset(soundId, options)
+	if type(soundId) ~= "string" or not soundId:match("^rbxassetid://%d+$") then
+		return nil
+	end
+	local template = Instance.new("Sound")
+	template.SoundId = soundId
+	local sound = playTemplate(template, options)
+	template:Destroy()
+	return sound
+end
+
 return SoundEffects

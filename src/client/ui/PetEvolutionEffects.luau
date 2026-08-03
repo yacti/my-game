@@ -531,6 +531,24 @@ local function playPreviewSound(petId, pet)
 	})
 end
 
+local function playPetSkinSound(petSkinId, pet)
+	local definition = type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) or nil
+	if not definition then
+		return
+	end
+
+	local soundParent = pet.PrimaryPart or firstBasePart(pet)
+	if not soundParent then
+		return
+	end
+	local options = { parent = soundParent }
+	if type(definition.SoundPetId) == "string" then
+		SoundEffects.PlayAnimal(definition.SoundPetId, options)
+	elseif type(definition.SoundId) == "string" then
+		SoundEffects.PlayAsset(definition.SoundId, options)
+	end
+end
+
 local function createEffectForPetId(petId, scale, pivot, parent, petSkinId)
 	local effect = cloneOldVisual(petId, petSkinId)
 	if not effect then
@@ -606,6 +624,9 @@ local function playForPet(pet)
 				-- Celebration lands with the morph reveal, right as
 				-- restoreCamera tweens the FOV back out below.
 				drumrollStopped = stopSound(drumroll, drumrollStopped)
+				if cueKind == "PetSkinApply" then
+					playPetSkinSound(targetSkinId, pet)
+				end
 				ConfettiEffect.Emit()
 				showEvolutionNotification(oldPetId, pet, cueKind, targetSkinId)
 			end
