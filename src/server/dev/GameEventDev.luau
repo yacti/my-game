@@ -12,6 +12,9 @@
 -- stop (instanceId), complete (instanceId), disable-tutorial (all players),
 -- grant-currency (amount, userId? defaults to the first player),
 -- grant-durian-tickets (amount, pity?, userId? defaults to the first player),
+-- merchant-offers (startsAt?, userId?) which reports this hour's three offers
+-- and how many of each request the player holds,
+-- grant-food (foodId, amount, userId? defaults to the first player),
 -- pinata-spawn (variant), pinata-clear, pinata-debug,
 -- pinata-damage (pinataId, amount, userId? defaults to the first player) --
 -- which bypasses the swing cooldown so the break/split/drop/collect path can
@@ -27,14 +30,20 @@ local Workspace = game:GetService("Workspace")
 
 local Server = script.Parent.Parent
 local CurrencyService = require(Server:WaitForChild("CurrencyService"))
+local FoodInventoryService = require(Server:WaitForChild("FoodInventoryService"))
 local GameEventService = require(Server:WaitForChild("GameEventService"))
 local PinataService = require(Server:WaitForChild("PinataService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlayerReplicaService = require(Server:WaitForChild("PlayerReplicaService"))
+local ToolGrantService = require(Server:WaitForChild("ToolGrantService"))
+local TravellingMerchantService = require(Server:WaitForChild("TravellingMerchantService"))
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Food = require(Shared:WaitForChild("Food"))
+local Inventory = require(Shared:WaitForChild("Inventory"))
 local Onboarding = require(Shared:WaitForChild("Onboarding"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
+local TravellingMerchant = require(Shared:WaitForChild("TravellingMerchant"))
 
 local GameEventDev = {}
 
@@ -122,6 +131,79 @@ local function runCommand(command)
 		end
 		PlayerReplicaService.PublishDurianPack(player, profile)
 		return { ok = true, durianTickets = profile.Data.DurianTickets, durianPackPity = profile.Data.DurianPackPity }
+	elseif action == "merchant-offers" then
+		-- Dumps whichever three offers this hour rolled, plus what the player
+		-- actually holds against each request, so a trade can be set up without
+		-- guessing which of the two pool entries is live.
+		local startsAt = tonumber(command.startsAt)
+		if not startsAt then
+			local record = TravellingMerchantService.ActiveRecord()
+			startsAt = record and record.startsAt or Workspace:GetServerTimeNow()
+		end
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+
+		local offers = {}
+		for slot, offer in ipairs(TravellingMerchant.OffersFor(startsAt)) do
+			offers[slot] = {
+				slot = slot,
+				offerId = offer.offerId,
+				requestFoodId = offer.request.foodId,
+				requestAmount = offer.request.amount,
+				held = player and FoodInventoryService.CountSpendable(player, offer.request.foodId) or nil,
+				rewardKind = offer.reward.kind,
+			}
+		end
+		return {
+			ok = true,
+			active = TravellingMerchantService.IsActive(),
+			startsAt = startsAt,
+			offers = offers,
+		}
+	elseif action == "grant-food" then
+		-- Bulk food for merchant trades: 99 prickly pears is not something to
+		-- farm by hand every test run.
+		local amount = math.floor(tonumber(command.amount) or 0)
+		if amount <= 0 or amount > 250 then
+			return { ok = false, code = "invalid-amount" }
+		end
+		local foodId = command.foodId
+		if type(foodId) ~= "string" or not Food.GetTemplate(foodId) then
+			return { ok = false, code = "unknown-food" }
+		end
+		local player = nil
+		if command.userId ~= nil then
+			player = Players:GetPlayerByUserId(tonumber(command.userId) or 0)
+		else
+			player = Players:GetPlayers()[1]
+		end
+		if not player then
+			return { ok = false, code = "no-player" }
+		end
+
+		local tools = {}
+		for _ = 1, amount do
+			local tool = Food.MakeTool(foodId)
+			if not tool then
+				for _, made in ipairs(tools) do
+					made:Destroy()
+				end
+				return { ok = false, code = "make-failed" }
+			end
+			tools[#tools + 1] = tool
+		end
+		local granted, code = ToolGrantService.GrantTools(player, tools, {
+			autoEquip = false,
+			maxItems = Inventory.HARD_MAX_ITEMS,
+		})
+		if not granted then
+			return { ok = false, code = tostring(code) }
+		end
+		return { ok = true, granted = amount, foodId = foodId }
 	elseif action == "pinata-spawn" then
 		local ok, idOrCode = PinataService.Spawn(command.variant)
 		return { ok = ok == true, result = idOrCode }

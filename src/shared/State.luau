@@ -145,6 +145,17 @@ State.AlienStand = {
 	ActivatedAt = "AlienStandActivatedAt",
 }
 
+-- Stamped on the runtime Workspace.Map.MerchantEvent folder so the carriage's
+-- billboard can count the visit down without a remote or a replica field.
+State.Merchant = {
+	StartsAt = "MerchantStartsAt",
+	EndsAt = "MerchantEndsAt",
+	-- The visit's event instanceId. Stamped rather than rebuilt client-side so
+	-- the id format stays GameEvents' business; the client only compares it
+	-- against the one stored with the player's claims.
+	InstanceId = "MerchantInstanceId",
+}
+
 State.Tool = {
 	Guid = "ToolGuid",
 	Rarity = "Rarity",

@@ -14,6 +14,10 @@ Assets.Names = {
 	FeedMachines = "FeedMachines",
 	FeedMachineTool = "FeedMachineTool",
 	Food = "Food",
+	-- Templates for scheduled world events (MerchantEvent), cloned into
+	-- Workspace.Map for the event's window. Distinct from AdminEvents: these
+	-- come and go on a cadence rather than on an operator toggle.
+	GameEvents = "GameEvents",
 	Misc = "Misc",
 	Mutations = "Mutations",
 	PetModels = "PetModels",

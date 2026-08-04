@@ -27,6 +27,7 @@ PlayerState.Fields = {
 	StormChaser = "StormChaser",
 	BeeEvent = "BeeEvent",
 	AlienStand = "AlienStand",
+	TravellingMerchant = "TravellingMerchant",
 	StarterPackPurchases = "StarterPackPurchases",
 	StarterPackPromptDismissed = "StarterPackPromptDismissed",
 	GamePassOwnership = "GamePassOwnership",

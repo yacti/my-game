@@ -467,6 +467,24 @@ function GrowSkipService.ApplyFreePlotTimeSkip(player, plot, seconds)
 	return applyPlotTimeSkip(player, plot, seconds)
 end
 
+-- Side-effect-free "would a skip do anything right now". Exists for callers that
+-- charge the player something non-refundable for a skip: the Travelling Merchant
+-- takes fruit, and finding out afterwards that there was nothing to skip would
+-- mean the fruit is gone for no reward. Returns ok, code with the same codes
+-- ApplyFreePlotTimeSkip would have returned.
+function GrowSkipService.CanApplyPlotTimeSkip(player, plot)
+	if not (player and plot) then
+		return false, "missing-plot"
+	end
+	if player:GetAttribute(EDIT_MODE_ATTR) == true then
+		return false, "edit-mode"
+	end
+	if not hasEligiblePlotGrowth(player, plot) then
+		return false, "no-growth"
+	end
+	return true, "ok"
+end
+
 local function commitPlotTimeReservation(player, plot, profile, reservation, purchaseId)
 	if type(reservation) ~= "table" then
 		return false, "missing-reservation"

@@ -148,6 +148,20 @@ function Food.GetTemplate(foodId)
 	return nil
 end
 
+-- The template's instance name is the authored display name ("Golden Apple"),
+-- which is not always the FoodId ("GoldenApple"). Falls back to the id so a
+-- missing template degrades to something readable rather than blank.
+function Food.DisplayNameFor(foodId)
+	if type(foodId) ~= "string" or foodId == "" then
+		return nil
+	end
+	local template = Food.GetTemplate(foodId)
+	if template and template.Name ~= "" then
+		return template.Name
+	end
+	return foodId
+end
+
 function Food.BaseXP(foodId)
 	local producerFeedType, sourceFoodId = Food.ParseJamFoodId(foodId)
 	if producerFeedType and sourceFoodId then

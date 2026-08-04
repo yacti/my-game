@@ -111,6 +111,8 @@ Remotes.Names = {
 	PlayerSettingsUpdateRequest = "PlayerSettingsUpdateRequest",
 	RollBroadcastEffect = "RollBroadcastEffect",
 	SprinkleEventEffect = "SprinkleEventEffect",
+	MerchantTradeRequest = "MerchantTradeRequest",
+	MerchantTradeResult = "MerchantTradeResult",
 }
 
 local Definitions = {
@@ -204,6 +206,8 @@ local Definitions = {
 	[Remotes.Names.PlayerSettingsUpdateRequest] = "RemoteEvent",
 	[Remotes.Names.RollBroadcastEffect] = "RemoteEvent",
 	[Remotes.Names.SprinkleEventEffect] = "RemoteEvent",
+	[Remotes.Names.MerchantTradeRequest] = "RemoteEvent",
+	[Remotes.Names.MerchantTradeResult] = "RemoteEvent",
 }
 
 local function getFolder()

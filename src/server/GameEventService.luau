@@ -5,6 +5,7 @@ local Server = script.Parent
 local PlotAlienEventService = require(Server:WaitForChild("PlotAlienEventService"))
 local PlotBeeService = require(Server:WaitForChild("PlotBeeService"))
 local PlotSprinkleService = require(Server:WaitForChild("PlotSprinkleService"))
+local TravellingMerchantService = require(Server:WaitForChild("TravellingMerchantService"))
 local PlotEarthquakeService = require(Server:WaitForChild("PlotEarthquakeService"))
 local PlotThunderstormService = require(Server:WaitForChild("PlotThunderstormService"))
 local PlotTornadoService = require(Server:WaitForChild("PlotTornadoService"))
@@ -338,6 +339,13 @@ local handlers = {
 		end,
 		stop = PlotSprinkleService.StopSprinkle,
 	},
+	[GameEvents.Ids.Merchant] = {
+		start = function(record)
+			TravellingMerchantService.StartMerchant(record)
+		end,
+		stop = TravellingMerchantService.StopMerchant,
+		preNotice = TravellingMerchantService.NotifyMerchantArriving,
+	},
 }
 
 local function clearActiveFolder(folder)
@@ -478,6 +486,14 @@ local function update()
 		records[#records + 1] = record
 	end
 	for _, record in ipairs(activeExternalRecords(now)) do
+		records[#records + 1] = record
+	end
+	-- Cadence-scheduled layers other than Weather. Weather keeps its own
+	-- snapshot because it also owns the disaster pool and the nextWeather
+	-- lookahead; this covers the plain "my window is open" layers such as the
+	-- Travelling Merchant.
+	for _, record in ipairs(GameEvents.ScheduleSnapshot(
+		GameEvents.Layers.Merchant, now, completedInstanceIds, completionBlocksByLayer).activeRecords) do
 		records[#records + 1] = record
 	end
 	records = GameEvents.ApplyLayerConfigs(records)

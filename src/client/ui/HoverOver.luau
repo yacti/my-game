@@ -297,6 +297,22 @@ local function normalizedPayload(payload)
 	if name == "" then
 		return nil
 	end
+
+	-- `subtitle` takes over the Rarity line with literal text, for rewards that
+	-- have no rarity to show: a cash amount, "Reward" for a timeskip. It exists
+	-- because `rarity` cannot carry arbitrary text -- anything that is not a
+	-- real rarity is coerced to Common below, which would render "$6,250" as
+	-- "Common". Kept as a separate field so that coercion still protects the
+	-- rarity path from typos.
+	local subtitle = payload.subtitle or payload.Subtitle
+	if type(subtitle) ~= "string" or subtitle == "" then
+		subtitle = nil
+	end
+	local subtitleColor = payload.subtitleColor or payload.SubtitleColor
+	if typeof(subtitleColor) ~= "Color3" then
+		subtitleColor = nil
+	end
+
 	local rarity = payload.rarity or payload.Rarity
 	if rarity ~= nil and (type(rarity) ~= "string" or not Rarities.IsValid(rarity)) then
 		rarity = Rarities.Common
@@ -308,6 +324,8 @@ local function normalizedPayload(payload)
 	return {
 		name = name,
 		rarity = rarity,
+		subtitle = subtitle,
+		subtitleColor = subtitleColor,
 		xp = xp,
 	}
 end
@@ -406,19 +424,28 @@ function HoverOver.Show(payload, anchorGuiOrPosition, mode)
 		return false
 	end
 
+	-- A subtitle occupies the rarity line, so the two are mutually exclusive.
+	local secondLine = payload.subtitle or payload.rarity
 	UiEffects.SetTextStack(itemNameLabel, payload.name)
-	UiEffects.SetTextStack(rarityLabel, payload.rarity or "")
+	UiEffects.SetTextStack(rarityLabel, secondLine or "")
 	if xpLabel then
 		UiEffects.SetTextStack(xpLabel, payload.xp or "")
 	end
-	applyLineLayout(payload.rarity ~= nil, payload.xp ~= nil and xpLabel ~= nil)
-	activeRarity = payload.rarity
-	refreshRarityColor()
+	applyLineLayout(secondLine ~= nil, payload.xp ~= nil and xpLabel ~= nil)
 
 	disconnectRarityRender()
-	local definition = activeRarity and Rarities.Get(activeRarity) or nil
-	if definition and definition.Animated then
-		rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "HoverOver.RarityRender", refreshRarityColor)
+	if payload.subtitle then
+		-- Free text has no rarity to animate. Clearing activeRarity also stops
+		-- refreshRarityColor from repainting this line on a later frame.
+		activeRarity = nil
+		applyColorToLabelStack(rarityLabel, payload.subtitleColor or Color3.fromRGB(255, 255, 255))
+	else
+		activeRarity = payload.rarity
+		refreshRarityColor()
+		local definition = activeRarity and Rarities.Get(activeRarity) or nil
+		if definition and definition.Animated then
+			rarityConnection = RuntimeGuard.Connect(RunService.RenderStepped, "HoverOver.RarityRender", refreshRarityColor)
+		end
 	end
 
 	if typeof(anchorGuiOrPosition) == "Vector2" then

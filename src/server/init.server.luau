@@ -23,6 +23,7 @@ requireReplicaServer()
 local AdminLuckService = require(Server:WaitForChild("AdminLuckService"))
 local AdminPanelService = require(Server:WaitForChild("AdminPanelService"))
 local AlienStandService = require(Server:WaitForChild("AlienStandService"))
+local TravellingMerchantService = require(Server:WaitForChild("TravellingMerchantService"))
 local CashPackShopService = require(Server:WaitForChild("CashPackShopService"))
 local PlayerDataService = require(Server:WaitForChild("PlayerDataService"))
 local PlotService       = require(Server:WaitForChild("PlotService"))
@@ -390,6 +391,7 @@ RuntimeGuard.Run("ReceiptService.Start", function()
 		foodStealService = FoodStealService,
 		growSkipService = GrowSkipService,
 		collectAllService = CollectAllService,
+		travellingMerchantService = TravellingMerchantService,
 	})
 end)
 RuntimeGuard.Run("RollBroadcastService.Start", RollBroadcastService.Start)
@@ -733,6 +735,15 @@ local function snapshotFoodInventory(player, profile, context)
 	return true
 end
 
+-- Before GameEventService: its very first update can open a merchant window and
+-- call the handler, and a merchant that exists in the world before its remote is
+-- connected would refuse every trade until the next start.
+RuntimeGuard.Run("TravellingMerchantService.Start", function()
+	TravellingMerchantService.Start({
+		snapshotProfileState = snapshotProfileState,
+		isGameplayBlocked = isInventoryGameplayBlocked,
+	})
+end)
 RuntimeGuard.Run("GameEventService.Start", function()
 	GameEventService.Start({
 		snapshotProfileState = snapshotProfileState,

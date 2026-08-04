@@ -42,6 +42,12 @@ local EVENT_TIMER_NAMES = {
 -- to promote it.
 local HIDDEN_EVENT_IDS = {
 	[GameEvents.Ids.Sprinkle] = true,
+	-- The Travelling Merchant announces himself with an arrival toast and the
+	-- carriage's own "leaving in ..." billboard, which is where players look
+	-- while deciding whether to walk over. Authoring a Merchant frame under
+	-- HUD.TopBar.CurrentEvent and deleting this entry promotes him to the
+	-- TopBar.
+	[GameEvents.Ids.Merchant] = true,
 }
 
 local player = Players.LocalPlayer

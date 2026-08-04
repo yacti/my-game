@@ -12,6 +12,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
+local TravellingMerchant = require(Shared:WaitForChild("TravellingMerchant"))
 local State = require(Shared:WaitForChild("State"))
 
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
@@ -47,6 +48,8 @@ local MAX_REVEAL_BATCH_SIZE = 3
 local ADVANCE_INPUT_GRACE_SECONDS = 0.12
 local DURIAN_REVEAL_SOURCE_SECTION = "DurianPack"
 local DURIAN_PANEL_NAME = "DurianPackHolder"
+local MERCHANT_REVEAL_SOURCE_SECTION = TravellingMerchant.RevealSourceSection
+local MERCHANT_PANEL_NAME = TravellingMerchant.PanelName
 
 local PACK_REWARD_PREVIEW_OPTIONS = {
 	targetMaxDimension = 6,
@@ -1226,6 +1229,14 @@ function showNextReveal()
 		-- purchases return to the RobuxShop at their source section.
 		if lastRevealSourceSection == DURIAN_REVEAL_SOURCE_SECTION then
 			MenuGui.OpenPanel(DURIAN_PANEL_NAME)
+			return
+		end
+		-- A pack traded from the merchant returns to his stall, but only if he
+		-- is still here -- the reveal can outlast a ten-minute visit.
+		if lastRevealSourceSection == MERCHANT_REVEAL_SOURCE_SECTION then
+			if TravellingMerchant.FindRuntimeFolder() then
+				MenuGui.OpenPanel(MERCHANT_PANEL_NAME)
+			end
 			return
 		end
 		MenuGui.OpenPanel(ROBUX_PANEL_NAME)

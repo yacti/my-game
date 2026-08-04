@@ -19,12 +19,13 @@ local PetSkinCatalog = require(ReplicatedStorage.Shared:WaitForChild("PetSkinCat
 local StormChaser = require(ReplicatedStorage.Shared:WaitForChild("StormChaser"))
 local AlienStand = require(ReplicatedStorage.Shared:WaitForChild("AlienStand"))
 local BeeEvent = require(ReplicatedStorage.Shared:WaitForChild("BeeEvent"))
+local TravellingMerchant = require(ReplicatedStorage.Shared:WaitForChild("TravellingMerchant"))
 local FoodInventoryService = require(script.Parent:WaitForChild("FoodInventoryService"))
 local RollOfferPersistence = require(script.Parent:WaitForChild("RollOfferPersistence"))
 
 local STORE_NAME = "PlayerData"
 local USE_MOCK_STORE_IN_STUDIO = true
-local CURRENT_DATA_VERSION = 15
+local CURRENT_DATA_VERSION = 16
 local GROWING_SEED_PHASE = "GrowingSeed"
 local STARTING_CURRENCY = 50
 local STARTER_PET_ID = "Pet1"
@@ -112,6 +113,12 @@ local DATA_TEMPLATE = {
 	-- Mr Alien's stand: same shape as BeeEvent (one crate, one mutation), and
 	-- it survives the stand coming down so progress carries between visits.
 	AlienStand = { Tier = 1, Deposits = 0 },
+	-- Travelling Merchant: which visit these claims belong to, and the offers
+	-- claimed during it, e.g. { InstanceId = "Merchant_Merchant_1785000000",
+	-- Claimed = { PumpkinMushroom = true } }. Unlike the stands above this is
+	-- deliberately NOT cumulative -- a new InstanceId wipes Claimed, so every
+	-- hourly visit is a fresh three claims.
+	TravellingMerchant = { InstanceId = "", Claimed = {} },
 	Onboarding = Onboarding.DefaultState(),
 	-- Index/codex discovery sets: { Pets = { [PetID] = true }, Feed = { [FeedType] = true } }.
 	Discovered = { Pets = {}, Feed = {} },
@@ -430,6 +437,10 @@ local function migrateData(data)
 			if type(data.FavouriteInventory.PetSkin) ~= "table" then
 				data.FavouriteInventory.PetSkin = {}
 			end
+		elseif nextVersion == 16 then
+			if type(data.TravellingMerchant) ~= "table" then
+				data.TravellingMerchant = { InstanceId = "", Claimed = {} }
+			end
 		end
 
 		version = nextVersion
@@ -719,6 +730,26 @@ local function sanitizeAlienStand(value)
 	return clean
 end
 
+local function sanitizeTravellingMerchant(value)
+	local clean = { InstanceId = "", Claimed = {} }
+	if type(value) ~= "table" then
+		return clean
+	end
+	if type(value.InstanceId) == "string" then
+		clean.InstanceId = value.InstanceId
+	end
+	-- Only offerIds that still exist in the pools survive a load, so retiring an
+	-- offer cannot leave an unreachable claim wedged in the profile forever.
+	if type(value.Claimed) == "table" then
+		for offerId, flag in pairs(value.Claimed) do
+			if flag == true and TravellingMerchant.IsKnownOfferId(offerId) then
+				clean.Claimed[offerId] = true
+			end
+		end
+	end
+	return clean
+end
+
 local function sanitizeDiscoveredSet(value)
 	local clean = {}
 	if type(value) == "table" then
@@ -970,6 +1001,7 @@ local function ensureValidData(profile)
 	profile.Data.StormChaser = sanitizeStormChaser(profile.Data.StormChaser)
 	profile.Data.BeeEvent = sanitizeBeeEvent(profile.Data.BeeEvent)
 	profile.Data.AlienStand = sanitizeAlienStand(profile.Data.AlienStand)
+	profile.Data.TravellingMerchant = sanitizeTravellingMerchant(profile.Data.TravellingMerchant)
 	profile.Data.Discovered = sanitizeDiscovered(profile.Data.Discovered)
 	profile.Data.JoinGroupRewardCollected = profile.Data.JoinGroupRewardCollected == true
 	profile.Data.MediaRewardCollected = profile.Data.MediaRewardCollected == true

@@ -9,6 +9,11 @@ GameEvents.MaxReplicatedActiveEvents = 8
 GameEvents.Layers = {
 	Weather = "Weather",
 	Chaos = "Chaos",
+	-- The Travelling Merchant sits on its own layer purely so it never
+	-- arbitrates against anything: a merchant visit is a shop opening, not a
+	-- weather condition, and it should neither displace a storm nor be
+	-- displaced by one. maxActive 1 keeps that to a single carriage.
+	Merchant = "Merchant",
 }
 
 GameEvents.Sources = {
@@ -26,6 +31,7 @@ GameEvents.Ids = {
 	Alien = "Alien",
 	Bee = "Bee",
 	Sprinkle = "Sprinkle",
+	Merchant = "Merchant",
 }
 
 GameEvents.LayerConfigs = {
@@ -36,6 +42,10 @@ GameEvents.LayerConfigs = {
 	[GameEvents.Layers.Chaos] = {
 		stacking = "Multiple",
 		maxActive = 3,
+	},
+	[GameEvents.Layers.Merchant] = {
+		stacking = "Multiple",
+		maxActive = 1,
 	},
 }
 
@@ -408,6 +418,34 @@ GameEvents.EventConfigs = {
 			emptyQueueGraceSeconds = 3,
 			interVisitPauseSeconds = 1,
 		},
+	},
+	[GameEvents.Ids.Merchant] = {
+		eventId = GameEvents.Ids.Merchant,
+		layer = GameEvents.Layers.Merchant,
+		source = GameEvents.Sources.Schedule,
+		-- No Merchant frame is authored under HUD.TopBar.CurrentEvent, so
+		-- EventHudController skips this event entirely (see its
+		-- HIDDEN_EVENT_IDS). The carriage carries its own "leaving in ..."
+		-- billboard, which is where a player actually looks. Authoring a frame
+		-- later is a one-line change.
+		displayFrame = nil,
+		-- Hourly on the hour. This deliberately runs alongside the Bee swarm
+		-- (same cadence and offset): the two are at opposite ends of the map
+		-- and want different things from the player, so they were kept
+		-- together rather than staggered.
+		cadenceSeconds = 60 * 60,
+		offsetSeconds = 0,
+		-- Its own layer, so these only order it against itself.
+		priority = 1,
+		displayPriority = 1,
+		preNoticeSeconds = 5,
+		preNoticeText = "A travelling merchant is arriving...",
+		-- The merchant trades; he does not touch food already on the plot.
+		appliedMutationId = nil,
+		-- Flat window, so TotalDuration's durationSeconds fallback covers it
+		-- and no Merchant timings function is needed.
+		durationSeconds = 10 * 60,
+		maxGlobalDurationSeconds = 10 * 60,
 	},
 }
 
@@ -878,6 +916,54 @@ function GameEvents.WeatherSnapshot(now, suppressedInstanceIds, completionBlocks
 	return {
 		activeRecords = activeRecords,
 		nextWeather = nextWeather,
+	}
+end
+
+-- Cadence scheduling for a non-Weather layer.
+--
+-- WeatherSnapshot deliberately stays separate rather than being generalised:
+-- it also owns the disaster pool and the nextWeather lookahead, and it collapses
+-- its layer to a single winner by priority. A layer like Merchant wants neither
+-- -- it just wants "is my scheduled window open right now". Every record this
+-- produces still goes through ApplyLayerConfigs with the rest, so the layer's
+-- own maxActive is what finally bounds it.
+--
+-- Returns an array of active records (possibly empty), plus the next start time
+-- for the layer so a caller can show a countdown to the next visit.
+function GameEvents.ScheduleSnapshot(layer, now, suppressedInstanceIds, completionBlocksByLayer)
+	now = numeric(now, os.time())
+	suppressedInstanceIds = type(suppressedInstanceIds) == "table" and suppressedInstanceIds or {}
+	completionBlocksByLayer = type(completionBlocksByLayer) == "table" and completionBlocksByLayer or {}
+
+	local activeRecords = {}
+	local nextStartsAt = nil
+
+	for _, config in pairs(GameEvents.EventConfigs) do
+		if config.layer == layer and config.cadenceSeconds and not config.pooled then
+			local start = scheduledStartAt(config, now)
+			local record = scheduledInstance(config, start)
+			if not suppressedInstanceIds[record.instanceId]
+				and now >= record.startsAt
+				and now < record.endsAt
+				and not completionBlockApplies(record, completionBlocksByLayer) then
+				activeRecords[#activeRecords + 1] = record
+			end
+
+			local upcoming = start
+			if now >= start then
+				upcoming = start + math.max(numeric(config.cadenceSeconds, 0), 1)
+			end
+			if nextStartsAt == nil or upcoming < nextStartsAt then
+				nextStartsAt = upcoming
+			end
+		end
+	end
+
+	table.sort(activeRecords, comparePriority)
+
+	return {
+		activeRecords = activeRecords,
+		nextStartsAt = nextStartsAt,
 	}
 end
 

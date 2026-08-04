@@ -19,6 +19,22 @@ local FeedDisplayModel = {}
 -- so tree previews get a closer camera.
 local TREE_PREVIEW_ZOOM_MULTIPLIER = 1.25
 
+-- The house style for an item shown as a reward on a card: normalized to a
+-- consistent size, lit hard and saturated so it reads at card scale against a
+-- busy panel. SeedPackShop, EndlessPack, DurianPack and StarterPack each grew
+-- their own copy of these exact numbers; new callers should use this one rather
+-- than adding a fifth.
+--
+-- Treat as read-only. Pass it as ViewportPreview.Render's options directly, or
+-- as SeedPreview's baseOptions (which copies before adding its tree zoom).
+FeedDisplayModel.REWARD_PREVIEW_OPTIONS = {
+	targetMaxDimension = 6,
+	zoom = 1.8,
+	colorSaturation = 2.5,
+	colorBrightness = 1.55,
+	lightColor = Color3.fromRGB(255, 255, 255),
+}
+
 local modelsBySeedId = {}
 
 local function disableBakedBillboards(instance)

@@ -1,4 +1,5 @@
 local Rarities = require(script.Parent:WaitForChild("Rarities"))
+local RewardIcons = require(script.Parent:WaitForChild("RewardIcons"))
 
 local ShopBalance = {}
 
@@ -120,9 +121,9 @@ ShopBalance.EndlessPack = {
 	CycleSeconds = 14 * 60 * 60,
 	GrowSkipSeconds = 5 * 60,
 	Icons = {
-		Money1 = "rbxassetid://83341129100923",
-		Money2 = "rbxassetid://125623245592194",
-		GrowSkip = "rbxassetid://128769188913261",
+		Money1 = RewardIcons.Cash,
+		Money2 = RewardIcons.CashLarge,
+		GrowSkip = RewardIcons.GrowSkip,
 	},
 	MoneyPacks = {
 		Money1 = { MinutesOfIncome = 2.5, BaseReward = 250 },
@@ -262,8 +263,10 @@ ShopBalance.StarterPackRewardKinds = {
 	SeedPack = "SeedPack",
 }
 
-ShopBalance.CashRewardIcon = "rbxassetid://83341129100923"
-ShopBalance.CashRewardTextColor = Color3.fromRGB(76, 217, 100)
+-- Re-exported from RewardIcons so these ids have a single literal; existing
+-- callers keep using the ShopBalance names.
+ShopBalance.CashRewardIcon = RewardIcons.Cash
+ShopBalance.CashRewardTextColor = RewardIcons.CashTextColor
 ShopBalance.StarterPackCycleSeconds = 14 * 60 * 60
 
 ShopBalance.StarterPacks = {
@@ -343,6 +346,24 @@ ShopBalance.GrowSkip = {
 			DurationSeconds = 30 * 60,
 			Order = 2,
 		},
+	},
+}
+
+-- Travelling Merchant: one "skip the trade" product per offer SLOT, not per pool
+-- entry. The product covers whichever of that slot's offers is live this hour,
+-- so there are three ids rather than six. Buying it grants the reward and takes
+-- no items.
+--
+-- DevProductId 0 means "not created in the Creator Dashboard yet". Every lookup
+-- below treats 0 as absent, the client hides the Skip button, and the server
+-- refuses the purchase path -- so shipping with placeholders degrades to a
+-- trade-only merchant instead of a dead button that charges nothing. Pasting a
+-- real id in is the only change needed to switch it on.
+ShopBalance.TravellingMerchant = {
+	Skips = {
+		{ Slot = 1, DisplayName = "Skip Offer 1", DevProductId = 0 },
+		{ Slot = 2, DisplayName = "Skip Offer 2", DevProductId = 0 },
+		{ Slot = 3, DisplayName = "Skip Offer 3", DevProductId = 0 },
 	},
 }
 
@@ -643,6 +664,59 @@ local function copyGrowSkipProduct(skip)
 		DurationSeconds = int(skip.DurationSeconds, 0),
 		Order = int(skip.Order, 0),
 	}
+end
+
+local function copyMerchantSkip(skip)
+	if type(skip) ~= "table" then
+		return nil
+	end
+	return {
+		Slot = int(skip.Slot, 0),
+		DisplayName = skip.DisplayName,
+		DevProductId = int(skip.DevProductId, 0),
+	}
+end
+
+function ShopBalance.MerchantSkipForSlot(slot)
+	slot = tonumber(slot)
+	if slot == nil then
+		return nil
+	end
+	for _, skip in ipairs(ShopBalance.TravellingMerchant.Skips) do
+		if int(skip.Slot, 0) == slot then
+			return copyMerchantSkip(skip)
+		end
+	end
+	return nil
+end
+
+function ShopBalance.MerchantSkipForProductId(productId)
+	productId = tonumber(productId)
+	-- Guard the placeholder explicitly. Without this a productId of 0 would
+	-- match every not-yet-created slot, and the merchant would start claiming
+	-- receipts that belong to other services.
+	if productId == nil or productId <= 0 then
+		return nil
+	end
+	for _, skip in ipairs(ShopBalance.TravellingMerchant.Skips) do
+		if int(skip.DevProductId, 0) == productId then
+			return copyMerchantSkip(skip)
+		end
+	end
+	return nil
+end
+
+-- Every configured merchant skip product id, placeholders excluded. Used by the
+-- AssetValidator's duplicate-id sweep.
+function ShopBalance.AllMerchantSkipProductIds()
+	local ids = {}
+	for _, skip in ipairs(ShopBalance.TravellingMerchant.Skips) do
+		local productId = int(skip.DevProductId, 0)
+		if productId > 0 then
+			ids[#ids + 1] = productId
+		end
+	end
+	return ids
 end
 
 local function copyCollectAll(config)

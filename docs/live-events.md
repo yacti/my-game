@@ -23,6 +23,24 @@ While the stand is up: the HUD EventButton swaps `Icon` for `AlienIcon` and the 
 
 A grown Eyeshroom blinks: `PatchSlotVisuals` squashes the fruit's `Eye` part on Y every 2–8s. It is client-local like the growth `ScaleTo` beside it, so every player in range sees the eyes blink on their own copy, and the size is always derived as `baseSize * modelScale * squash` rather than accumulated, so a growth tick landing mid-blink cannot leave the eye stuck.
 
+## Travelling Merchant
+
+**Not a control-plane event — there is no command for it, and there is nothing to operate.** The merchant is schedule-driven like the weather: `GameEvents.EventConfigs.Merchant` runs hourly on the hour (`cadenceSeconds = 3600`, `offsetSeconds = 0`) for ten minutes, and every server derives the same window independently from the synced clock. It deliberately overlaps the Bee swarm; the two are at opposite ends of the map.
+
+It sits on its own `Merchant` layer (`maxActive = 1`) purely so it never arbitrates against weather or chaos — a merchant visit is a shop opening, not a weather condition, and it should neither displace a storm nor be displaced by one. `GameEvents.ScheduleSnapshot` handles the cadence; `WeatherSnapshot` is untouched and still owns the disaster pool and the `nextWeather` lookahead.
+
+`TravellingMerchantService.StartMerchant` clones `ReplicatedStorage.Assets.GameEvents.MerchantEvent` into `Workspace.Map` and stamps `MerchantStartsAt`/`MerchantEndsAt`/`MerchantInstanceId` on the folder; `StopMerchant` destroys it. Same authored-in-place arrangement as `MrAlienEvent`, so there is no spawn marker.
+
+**Offers are global with no messaging.** Each of the three slots draws from its own pool, chosen by hashing the visit's `startsAt` (`TravellingMerchant.OffersFor`). Because every server computes the same `startsAt`, every server worldwide shows the same three offers that hour — cross-server discussion works, and nothing is replicated to achieve it. The client derives its own cards the same way; only the player's *claims* are replicated (`profile.Data.TravellingMerchant`), since those are per-player. A new `InstanceId` wipes `Claimed` lazily, so each visit is a fresh three claims.
+
+Trading consumes food from the backpack, cheapest-XP first, skipping favourites — so a trade never eats the mutated fruit a player was saving. Gates are the standard pair: `EventEligibility` (no tutorial, no pending offline progress, plot assigned) plus `isInventoryGameplayBlocked` (which additionally covers the inventory-restore window that `EventEligibility` does not). Every refusal raises a toast naming the reason.
+
+**Skip products are placeholders.** `ShopBalance.TravellingMerchant.Skips` ships with `DevProductId = 0` for all three slots. While an id is 0 the Skip button is hidden and the server refuses the purchase path, so the merchant degrades to trade-only. Pasting real ids in is the only change needed to switch it on; `AssetValidator.validateShopProductIds` picks them up for duplicate detection automatically (placeholders are filtered out).
+
+No `HUD.TopBar.CurrentEvent` frame is authored, so the merchant is in `EventHudController.HIDDEN_EVENT_IDS` alongside Sprinkle. Players get an arrival toast and the carriage's own "leaving in ..." billboard. Authoring a `Merchant` frame and deleting that entry promotes him to the top bar.
+
+Studio testing: `GameEventDevCommand` gained `merchant-offers` (reports this hour's three offers and how many of each request the player holds) and `grant-food` (bulk food, so 99 prickly pears is not a farming exercise).
+
 ## Architecture (summary)
 
 - **DataStore `LiveEvents_v1` / key `GlobalState`** is the durable source of truth. All writes go through `UpdateAsync` with pure, non-yielding transforms. Command writes **fail closed**: if the write fails, nothing starts and nothing is published.

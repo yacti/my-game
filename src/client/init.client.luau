@@ -37,6 +37,10 @@ local CONTROLLERS = {
 	"RobuxShopController",
 	"CashPackShopController",
 	"SeedPackShopController",
+	-- After SeedPackShopController: a traded pack hands its reveal to that
+	-- controller, and after HoverOver/PlayerStateStore for the card tooltips
+	-- and claim state.
+	"TravellingMerchantController",
 	"DurianPackController",
 	"StarterPackController",
 	"StarterPackPromptController",

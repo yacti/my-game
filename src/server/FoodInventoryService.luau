@@ -192,6 +192,100 @@ function FoodInventoryService.CountTools(player)
 	return FoodInventoryService.CountRecords(FoodInventoryService.SerializeTools(player))
 end
 
+-- Every held tool of one FoodId that is legal to spend, worst first.
+--
+-- Favourites are excluded outright: favouriting is the player saying "not this
+-- one", and it is the same protection InventoryDeleteService honours.
+--
+-- Order matters as much as the filter. Fruit of the same FoodId varies wildly in
+-- XP once mutations and growth events are involved, so spending an arbitrary
+-- ten Plums can quietly eat the mutated ones a player was saving. Sorting
+-- ascending by XP means a trade always takes the least valuable copies first.
+local function spendableTools(player, foodId)
+	local matches = {}
+	Inventory.ForEachTool(player, function(tool)
+		if not Inventory.IsCountableTool(tool) then
+			return
+		end
+		if not Food.IsFood(tool) or Food.IdOf(tool) ~= foodId then
+			return
+		end
+		if ToolIdentity.IsFavourite(tool) then
+			return
+		end
+		matches[#matches + 1] = {
+			tool = tool,
+			xp = nonnegativeNumber(Food.XPOf(tool), 0),
+			-- Stable tiebreak so equal-XP tools consume in a deterministic order
+			-- rather than depending on table.sort's behaviour on ties.
+			order = #matches + 1,
+		}
+	end)
+	table.sort(matches, function(left, right)
+		if left.xp ~= right.xp then
+			return left.xp < right.xp
+		end
+		return left.order < right.order
+	end)
+	return matches
+end
+
+-- How many tools of this FoodId the player could actually spend right now.
+-- Deliberately not Food.CountByType: that counts favourites too, so gating a
+-- trade on it would offer a trade the consume step then refuses.
+function FoodInventoryService.CountSpendable(player, foodId)
+	if type(foodId) ~= "string" or foodId == "" then
+		return 0
+	end
+	return #spendableTools(player, foodId)
+end
+
+-- Consumes exactly `amount` tools of `foodId`, cheapest first.
+--
+-- All-or-nothing, and that is the whole point of collecting before destroying:
+-- destroying as we scan would leave a player who is three short having already
+-- lost the ones we did find. Returns ok, code, consumedCount.
+function FoodInventoryService.ConsumeFoodId(player, foodId, amount)
+	amount = math.floor(tonumber(amount) or 0)
+	if amount <= 0 then
+		return false, "invalid-amount", 0
+	end
+	if type(foodId) ~= "string" or foodId == "" then
+		return false, "invalid-food", 0
+	end
+
+	local matches = spendableTools(player, foodId)
+	if #matches < amount then
+		return false, "not-enough", #matches
+	end
+
+	-- Re-check each tool at the moment of destruction. The scan above does not
+	-- yield, but a tool can still have been consumed by a concurrent path
+	-- between calls, and DestroyIfGuidMatches is the same atomic take the
+	-- deposit flows use.
+	local consumed = 0
+	for index = 1, amount do
+		local tool = matches[index].tool
+		local guid = ToolIdentity.EnsureGuid(tool)
+		if ToolIdentity.DestroyIfGuidMatches(tool, guid) then
+			consumed += 1
+		end
+	end
+
+	if consumed < amount then
+		-- Nothing above yields, so reaching here means something took the tools
+		-- out from under us. There is no rollback -- the destroyed ones are
+		-- gone -- so the only choice that does not rob the player is to treat
+		-- the trade as paid and let the reward land. Loud, because it means an
+		-- assumption about tool ownership broke.
+		warn(string.format(
+			"[FoodInventoryService] Partial consume for %s: took %d of %d %s",
+			tostring(player), consumed, amount, foodId
+		))
+	end
+	return true, "ok", consumed
+end
+
 function FoodInventoryService.MakeTool(record)
 	local clean = FoodInventoryService.SanitizeRecord(record)
 	if not clean then

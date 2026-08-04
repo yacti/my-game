@@ -97,7 +97,10 @@ local function saveProfile(profile)
 	return ok
 end
 
-local function resultPayload(pack, rewards)
+-- sourceSection tells the client which panel to reopen once the reveal finishes;
+-- it defaults to the Robux shop's seed pack section, which is where a normal
+-- purchase came from.
+local function resultPayload(pack, rewards, sourceSection)
 	local results = {}
 	for _, reward in ipairs(rewards) do
 		results[#results + 1] = {
@@ -110,7 +113,7 @@ local function resultPayload(pack, rewards)
 	return {
 		action = "reveal",
 		packId = pack.PackId,
-		sourceSection = "SeedPacks",
+		sourceSection = type(sourceSection) == "string" and sourceSection ~= "" and sourceSection or "SeedPacks",
 		results = results,
 	}
 end
@@ -179,6 +182,42 @@ local function grantPrepared(player, profile, prepared)
 		DiscoveryService.MarkSeed(player, profile, seedId)
 	end
 	return true, "ok"
+end
+
+-- Rolls a pack and grants the seeds, for callers that earned the pack some other
+-- way than buying it (the Travelling Merchant trades one for fruit).
+--
+-- Deliberately narrower than ProcessReceipt: no receipt bookkeeping, no
+-- profile:Save, no notification, and no inventory publish. The caller owns that
+-- transaction and usually has other grants to commit alongside this one. On
+-- success it returns the reveal payload to hand to the client so a traded pack
+-- opens with the same animation a bought one does.
+function SeedPackShopService.GrantPackRoll(player, profile, packId, quantity, sourceSection)
+	local pack = ShopBalance.SeedPackForPackId(packId)
+	if not (player and profile and pack) then
+		return false, "invalid-pack", nil
+	end
+
+	quantity = math.max(int(quantity), 1)
+
+	local rewards, code = rollRewards(pack, quantity)
+	if not rewards then
+		return false, code or "roll-failed", nil
+	end
+
+	local prepared
+	prepared, code = prepareRewards(rewards)
+	if not prepared then
+		return false, code or "grant-failed", nil
+	end
+
+	local granted
+	granted, code = grantPrepared(player, profile, prepared)
+	if not granted then
+		return false, code or "grant-failed", nil
+	end
+
+	return true, "ok", resultPayload(pack, rewards, sourceSection)
 end
 
 function SeedPackShopService.HandlesProductId(productId)

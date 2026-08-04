@@ -33,6 +33,7 @@ local State = require(Shared:WaitForChild("State"))
 local StormChaser = require(Shared:WaitForChild("StormChaser"))
 local BeeEvent = require(Shared:WaitForChild("BeeEvent"))
 local AlienStand = require(Shared:WaitForChild("AlienStand"))
+local TravellingMerchant = require(Shared:WaitForChild("TravellingMerchant"))
 local Leaderboards = require(Shared:WaitForChild("Leaderboards"))
 local Pinata = require(Shared:WaitForChild("Pinata"))
 
@@ -1673,6 +1674,45 @@ local DURIAN_EXTRA_TEMPLATE_NAMES = {
 }
 
 -- Standalone Durian Pack UI (opened from HUD.DurianPack, not the RobuxShop).
+-- Warnings, not errors, for the same reason validateTravellingMerchant uses
+-- them: a missing merchant panel should cost the merchant, not the boot.
+local function validateTravellingMerchantUi(menu, warnings)
+	if not TravellingMerchant.Enabled then
+		return
+	end
+	local panel = child(menu, TravellingMerchant.PanelName, "GuiObject", warnings)
+	if not panel then
+		return
+	end
+
+	descendant(panel, "CloseButton", "GuiButton", warnings)
+	descendant(panel, "TierLabel", "TextLabel", warnings)
+
+	local tradeList = descendant(panel, "TradeList", "GuiObject", warnings)
+	if not tradeList then
+		return
+	end
+
+	local template = child(tradeList, TravellingMerchant.OfferTemplateName, "GuiObject", warnings)
+	if not template then
+		return
+	end
+
+	child(template, "TradeButton", "GuiButton", warnings)
+	child(template, "SkipButton", "GuiButton", warnings)
+	child(template, "Price", "TextLabel", warnings)
+	child(template, "RequestAmount", "TextLabel", warnings)
+	child(template, "RewardAmount", "TextLabel", warnings)
+	child(template, "Claimed", "GuiObject", warnings)
+	-- Each side needs BOTH an icon and a viewport: rewards without a 3D model
+	-- (cash, skips, tickets) use the ImageLabel and the rest use the
+	-- ViewportFrame, with exactly one visible per card.
+	child(template, "IconRequest", "ImageLabel", warnings)
+	child(template, "IconReward", "ImageLabel", warnings)
+	child(template, "ViewportRequest", "ViewportFrame", warnings)
+	child(template, "ViewportReward", "ViewportFrame", warnings)
+end
+
 local function validateDurianPackUi(menu, errors)
 	local panel = child(menu, "DurianPackHolder", "GuiObject", errors)
 	if not panel then return end
@@ -2661,6 +2701,17 @@ local function validateShopProductIds(errors)
 	for index, step in ipairs(ShopBalance.AllServerLuckSteps()) do
 		addProductIdSource(seenProducts, step.DevProductId, "ShopBalance.ServerLuck.Steps[" .. tostring(index) .. "].DevProductId", errors)
 	end
+	-- Placeholder (0) merchant slots are filtered out by AllMerchantSkipProductIds,
+	-- so an unconfigured slot neither trips the duplicate check nor gets audited
+	-- against this experience's real product list.
+	for index, merchantProductId in ipairs(ShopBalance.AllMerchantSkipProductIds()) do
+		addProductIdSource(
+			seenProducts,
+			merchantProductId,
+			"ShopBalance.TravellingMerchant.Skips[" .. tostring(index) .. "].DevProductId",
+			errors
+		)
+	end
 	return seenProducts
 end
 
@@ -2863,6 +2914,7 @@ local function validateUi(errors, warnings)
 		validatePetSkinPackUi(menu, errors)
 		validateEndlessPackShopUi(menu, errors)
 		validateDurianPackUi(menu, errors)
+		validateTravellingMerchantUi(menu, warnings)
 		validatePackRollFrameUi(menu, errors)
 		validateYesNoWarningUi(menu, errors)
 		validateUpdateLogUi(menu, warnings)
@@ -3170,6 +3222,64 @@ local function validateAlienStand(warnings)
 	for _, tier in ipairs(AlienStand.Tiers) do
 		if not Seeds.GetTemplate(tier.rewardSeedId) then
 			add(warnings, "AlienStand tier reward has unknown seed id " .. tostring(tier.rewardSeedId))
+		end
+	end
+end
+
+-- Warnings, not errors: the merchant is an optional scheduled event, and a
+-- missing template should degrade to "no merchant this hour" rather than refuse
+-- to boot the game.
+local function validateTravellingMerchant(warnings)
+	if not TravellingMerchant.Enabled then
+		return
+	end
+
+	local assetRoot = child(ReplicatedStorage, Assets.FolderName, "Folder", warnings)
+	local gameEvents = assetRoot and child(assetRoot, TravellingMerchant.AssetsFolderName, nil, warnings)
+	local template = gameEvents and child(gameEvents, TravellingMerchant.TemplateName, nil, warnings)
+	if template then
+		-- Without the trigger volume the panel can never open, which is the one
+		-- failure that makes the whole event invisible to players.
+		child(template, TravellingMerchant.ShopPartName, "BasePart", warnings)
+
+		local rig = child(template, TravellingMerchant.NpcName, "Model", warnings)
+		if rig then
+			child(rig, "Humanoid", "Humanoid", warnings)
+			child(rig, "HumanoidRootPart", "BasePart", warnings)
+		end
+
+		local carriage = child(template, TravellingMerchant.CarriageName, "Model", warnings)
+		if carriage then
+			local billboard = descendant(carriage, TravellingMerchant.BillboardName, "BillboardGui", warnings)
+			local billboardFrame = billboard and child(billboard, TravellingMerchant.BillboardFrameName, "GuiObject", warnings)
+			if billboardFrame then
+				child(billboardFrame, TravellingMerchant.BillboardTimerName, "TextLabel", warnings)
+			end
+		end
+	end
+
+	-- Every offer must resolve to real content. A typo here would otherwise
+	-- surface as a blank card at runtime, an hour later, on one server.
+	for slot, pool in ipairs(TravellingMerchant.Pools) do
+		for _, offer in ipairs(pool) do
+			local label = string.format("TravellingMerchant offer %q (slot %d)", tostring(offer.offerId), slot)
+			if not Food.GetTemplate(offer.request.foodId) then
+				add(warnings, label .. " requests unknown food id " .. tostring(offer.request.foodId))
+			end
+			local reward = offer.reward
+			if reward.kind == TravellingMerchant.RewardKinds.Seed then
+				if not Seeds.GetTemplate(reward.seedId) then
+					add(warnings, label .. " rewards unknown seed id " .. tostring(reward.seedId))
+				end
+			elseif reward.kind == TravellingMerchant.RewardKinds.SeedPack then
+				if not ShopBalance.SeedPackForPackId(reward.packId) then
+					add(warnings, label .. " rewards unknown pack id " .. tostring(reward.packId))
+				end
+			elseif reward.kind == TravellingMerchant.RewardKinds.GrowSkip then
+				if not ShopBalance.GrowSkipForSkipId(reward.skipId) then
+					add(warnings, label .. " rewards unknown skip id " .. tostring(reward.skipId))
+				end
+			end
 		end
 	end
 end
@@ -3544,6 +3654,7 @@ function AssetValidator.validate()
 	validateBeeCamp(warnings)
 	validateLeaderboards(warnings)
 	validateAlienStand(warnings)
+	validateTravellingMerchant(warnings)
 	validatePinataAssets(warnings)
 	validateLoadingScreenSource(warnings)
 	validateGroupReward(errors)

@@ -167,6 +167,24 @@ local function copyAlienStand(value)
 	return copy
 end
 
+local function copyTravellingMerchant(value)
+	local copy = { InstanceId = "", Claimed = {} }
+	if type(value) ~= "table" then
+		return copy
+	end
+	if type(value.InstanceId) == "string" then
+		copy.InstanceId = value.InstanceId
+	end
+	if type(value.Claimed) == "table" then
+		for offerId, flag in pairs(value.Claimed) do
+			if type(offerId) == "string" and flag == true then
+				copy.Claimed[offerId] = true
+			end
+		end
+	end
+	return copy
+end
+
 local function copyDiscoveredSet(value)
 	local copy = {}
 	if type(value) == "table" then
@@ -217,6 +235,7 @@ local function stateFromProfile(player, profile)
 		[PlayerState.Fields.StormChaser] = copyStormChaser(data.StormChaser),
 		[PlayerState.Fields.BeeEvent] = copyBeeEvent(data.BeeEvent),
 		[PlayerState.Fields.AlienStand] = copyAlienStand(data.AlienStand),
+		[PlayerState.Fields.TravellingMerchant] = copyTravellingMerchant(data.TravellingMerchant),
 		[PlayerState.Fields.GamePassOwnership] = copyGamePassOwnership(key and gamePassOwnership[key] or nil),
 		[PlayerState.Fields.VipOwned] = vipOwnedForKey(key),
 		[PlayerState.Fields.FriendBoostPercent] = friendBoostPercentForKey(key),
@@ -452,6 +471,15 @@ function PlayerReplicaService.PublishDurianPack(player, profile)
 	local ticketsSuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.DurianTickets, integer(data.DurianTickets, 0))
 	local pitySuccess = PlayerReplicaService.PublishField(player, PlayerState.Fields.DurianPackPity, integer(data.DurianPackPity, 0))
 	return ticketsSuccess and pitySuccess
+end
+
+function PlayerReplicaService.PublishTravellingMerchant(player, profile)
+	local data = profile and profile.Data or {}
+	return PlayerReplicaService.PublishField(
+		player,
+		PlayerState.Fields.TravellingMerchant,
+		copyTravellingMerchant(data.TravellingMerchant)
+	)
 end
 
 function PlayerReplicaService.PublishEndlessPack(player, profile)

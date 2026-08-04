@@ -23,6 +23,7 @@ local serverLuckService = nil
 local foodStealService = nil
 local growSkipService = nil
 local collectAllService = nil
+local travellingMerchantService = nil
 
 function ReceiptService.Key(purchaseId)
 	if purchaseId == nil then
@@ -141,6 +142,12 @@ local function processReceiptTransaction(receiptInfo)
 		and collectAllService.HandlesProductId(receiptInfo.ProductId) then
 		return collectAllService.ProcessReceipt(receiptInfo)
 	end
+	if travellingMerchantService
+		and type(travellingMerchantService.HandlesProductId) == "function"
+		and type(travellingMerchantService.ProcessReceipt) == "function"
+		and travellingMerchantService.HandlesProductId(receiptInfo.ProductId) then
+		return travellingMerchantService.ProcessReceipt(receiptInfo)
+	end
 
 	TelemetryService.Warn("receipt_unhandled", {
 		playerId = receiptInfo.PlayerId,
@@ -178,6 +185,7 @@ function ReceiptService.Start(config)
 	foodStealService = config.foodStealService
 	growSkipService = config.growSkipService
 	collectAllService = config.collectAllService
+	travellingMerchantService = config.travellingMerchantService
 	MarketplaceService.ProcessReceipt = processReceipt
 end
 
