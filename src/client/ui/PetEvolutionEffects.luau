@@ -17,6 +17,7 @@ local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local NotificationConfig = require(Shared:WaitForChild("Notifications"))
 local State = require(Shared:WaitForChild("State"))
 local ConfettiEffect = require(script.Parent:WaitForChild("ConfettiEffect"))
+local CameraFovZoom = require(script.Parent:WaitForChild("CameraFovZoom"))
 local EditModePetVisibilityController = require(script.Parent:WaitForChild("EditModePetVisibilityController"))
 local MotionSickness = require(script.Parent:WaitForChild("MotionSickness"))
 local Notifications = require(script.Parent:WaitForChild("Notifications"))
@@ -52,9 +53,6 @@ local watchedPlots = setmetatable({}, { __mode = "k" })
 local watchedPets = setmetatable({}, { __mode = "k" })
 local playedSeqByPet = setmetatable({}, { __mode = "k" })
 local evolutionBusyPets = setmetatable({}, { __mode = "k" })
-local activeCameraZooms = 0
-local cameraBaseFov = nil
-local cameraZoomTween = nil
 local warnedMissingPetModels = false
 
 local function petModels()
@@ -133,43 +131,7 @@ local function tweenScale(model, fromScale, toScale, tweenInfo, pivot)
 end
 
 local function playCameraZoom()
-	local camera = Workspace.CurrentCamera
-	if not camera then return function() end end
-
-	if activeCameraZooms == 0 then
-		cameraBaseFov = camera.FieldOfView
-	end
-	activeCameraZooms += 1
-
-	if cameraZoomTween and cameraZoomTween.PlaybackState == Enum.PlaybackState.Playing then
-		cameraZoomTween:Cancel()
-	end
-	cameraZoomTween = TweenService:Create(camera, CAMERA_IN_TWEEN, {
-		FieldOfView = math.max((cameraBaseFov or camera.FieldOfView) - CAMERA_ZOOM_FOV, 40),
-	})
-	cameraZoomTween:Play()
-
-	local restored = false
-	return function()
-		if restored then return end
-		restored = true
-
-		activeCameraZooms = math.max(activeCameraZooms - 1, 0)
-		if activeCameraZooms > 0 then
-			return
-		end
-
-		if cameraZoomTween and cameraZoomTween.PlaybackState == Enum.PlaybackState.Playing then
-			cameraZoomTween:Cancel()
-			cameraZoomTween = nil
-		end
-		local currentCamera = Workspace.CurrentCamera
-		local targetFov = cameraBaseFov
-		cameraBaseFov = nil
-		if currentCamera then
-			TweenService:Create(currentCamera, CAMERA_OUT_TWEEN, { FieldOfView = targetFov or 70 }):Play()
-		end
-	end
+	return CameraFovZoom.Zoom(CAMERA_ZOOM_FOV, CAMERA_IN_TWEEN, CAMERA_OUT_TWEEN)
 end
 
 local function addWhiteout(model, fillTransparency, outlineTransparency)

@@ -222,6 +222,25 @@ local function getFolder()
 	return folder
 end
 
+-- Two children sharing a remote name is not a cosmetic duplicate: name lookups
+-- return whichever copy sorts first, and that order is resolved per DataModel.
+-- Server and client can therefore bind opposite instances, so every request
+-- vanishes into a remote nobody listens on and the caller only sees a timeout.
+local function assertUnique(name)
+	local matches = 0
+	for _, child in ipairs(getFolder():GetChildren()) do
+		if child.Name == name then
+			matches += 1
+		end
+	end
+	assert(matches == 1, string.format(
+		"Expected exactly one ReplicatedStorage.Remotes.%s, found %d;"
+			.. " delete the extra copies so client and server bind the same instance",
+		name,
+		matches
+	))
+end
+
 function Remotes.get(name)
 	assert(Definitions[name], string.format("Unknown remote %q", tostring(name)))
 
@@ -234,6 +253,7 @@ function Remotes.get(name)
 			remote.ClassName,
 			Definitions[name]
 		))
+		assertUnique(name)
 		cache[name] = remote
 	end
 	return remote
@@ -251,6 +271,7 @@ local function ensure(name)
 			existing.ClassName,
 			Definitions[name]
 		))
+		assertUnique(name)
 		cache[name] = existing
 		return existing
 	end
@@ -258,7 +279,32 @@ local function ensure(name)
 	error(string.format("Missing remote %q in ReplicatedStorage.Remotes; declare it in default.project.json", name))
 end
 
+-- Reported in one pass rather than through ensure(), so a place file carrying
+-- several duplicated remotes names all of them instead of one per boot.
+local function assertNoDuplicates()
+	local counts = {}
+	for _, child in ipairs(getFolder():GetChildren()) do
+		counts[child.Name] = (counts[child.Name] or 0) + 1
+	end
+
+	local duplicates = {}
+	for name, count in pairs(counts) do
+		if count > 1 then
+			table.insert(duplicates, string.format("%s (x%d)", name, count))
+		end
+	end
+	table.sort(duplicates)
+
+	assert(#duplicates == 0, string.format(
+		"Duplicate remotes in ReplicatedStorage.Remotes: %s;"
+			.. " name lookups resolve per DataModel, so client and server can bind opposite copies."
+			.. " Delete the extras in Studio and re-sync Rojo",
+		table.concat(duplicates, ", ")
+	))
+end
+
 function Remotes.validateAll()
+	assertNoDuplicates()
 	for name in pairs(Definitions) do
 		ensure(name)
 	end

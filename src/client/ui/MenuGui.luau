@@ -2,9 +2,9 @@ local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
 
 local RuntimeGuard = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RuntimeGuard"))
+local CameraFovZoom = require(script.Parent:WaitForChild("CameraFovZoom"))
 local ResponsiveUi = require(script.Parent:WaitForChild("ResponsiveUi"))
 
 local MenuGui = {}
@@ -19,7 +19,6 @@ local BLUR_NAME = "MenuBackgroundBlur"
 local MENU_INITIALIZED_ATTR = "MenuGuiInitialized"
 local TARGET_BLUR_SIZE = 18
 local CAMERA_ZOOM_FOV = 12
-local MIN_CAMERA_FOV = 40
 local OPEN_TWEEN = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local CLOSE_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local BLUR_CLOSE_TWEEN = TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -30,7 +29,7 @@ local panelGroups = {}
 local activePanelName = nil
 local effectsActive = false
 local effectsToken = 0
-local baseCameraFov = nil
+local releaseCameraZoom = nil
 local hudWasEnabled = nil
 local createdBlur = nil
 local blurBaseSize = nil
@@ -86,16 +85,12 @@ local function applyMenuEffects(active)
 	effectsActive = active
 	effectsToken += 1
 	local token = effectsToken
-	local camera = Workspace.CurrentCamera
 	local blur = menuBlur()
 
 	if active then
-		if camera then
-			baseCameraFov = camera.FieldOfView
-			tween(camera, OPEN_TWEEN, {
-				FieldOfView = math.max(baseCameraFov - CAMERA_ZOOM_FOV, MIN_CAMERA_FOV),
-			})
-		end
+		-- Shared with the evolution cinematic so neither can snapshot the
+		-- other's in-flight tween as its resting FOV.
+		releaseCameraZoom = CameraFovZoom.Zoom(CAMERA_ZOOM_FOV, OPEN_TWEEN, CLOSE_TWEEN)
 		blurBaseSize = blur.Size
 		blur.Enabled = true
 		tween(blur, OPEN_TWEEN, {
@@ -103,12 +98,10 @@ local function applyMenuEffects(active)
 		})
 		setHudHidden(true)
 	else
-		if camera and baseCameraFov then
-			tween(camera, CLOSE_TWEEN, {
-				FieldOfView = baseCameraFov,
-			})
+		if releaseCameraZoom then
+			releaseCameraZoom()
+			releaseCameraZoom = nil
 		end
-		baseCameraFov = nil
 		setHudHidden(false)
 
 		local targetBlurSize = blurBaseSize or 0
