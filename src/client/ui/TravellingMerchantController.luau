@@ -51,12 +51,17 @@ local BILLBOARD_SECONDS = 0.25
 local BILLBOARD_PREFIX = "Leaving in: "
 local PANEL_TIMER_PREFIX = "Leaves in: "
 
--- Merchant cards frame by bounding sphere rather than the shared reward zoom.
--- The offer pools mix shapes freely -- a single mushroom against a fruited tree
--- against a seed pack -- and a fixed zoom either clips the chunky ones or
--- leaves the slim ones marooned in empty space. fitPadding makes every model
--- subtend the same angle, so they all render the same on-screen size, as large
--- as fits, with a clear margin.
+-- Merchant cards frame by projected silhouette rather than the shared reward
+-- zoom. The offer pools mix shapes freely -- a single mushroom against a fruited
+-- tree against a seed pack -- and a fixed zoom either clips the chunky ones or
+-- leaves the slim ones marooned in empty space. fitPadding solves for the
+-- closest the camera can sit without any of the model leaving frame, so every
+-- one of them fills its card to the same margin whatever its proportions.
+--
+-- Note this normalises the model's OUTLINE, which is the most it can do from
+-- here: PricklyPear spends a third of its footprint on thin spikes, so its
+-- fruit still reads smaller than a Plum's. Fixing that means editing the model
+-- or adding a per-food scale override, not changing the framing.
 --
 -- Built from the shared options so the lighting and colour boost still match
 -- every other reward card in the game; only the framing differs.

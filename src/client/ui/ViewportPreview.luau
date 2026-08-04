@@ -11,6 +11,8 @@ local VIEWPORT_AMBIENT = Color3.fromRGB(255, 255, 255)
 local VIEWPORT_LIGHT_COLOR = Color3.fromRGB(185, 185, 185)
 local VIEWPORT_LIGHT_DIRECTION = Vector3.new(-1, -1, -1)
 local TAU = math.pi * 2
+local SPIN_SAMPLES = 48
+local SWAY_SAMPLES = 16
 local previewRecords = setmetatable({}, { __mode = "k" })
 
 local function disconnect(viewport)
@@ -18,6 +20,9 @@ local function disconnect(viewport)
 	if record then
 		if record.motion then
 			record.motion:Disconnect()
+		end
+		if record.resize then
+			record.resize:Disconnect()
 		end
 		if record.track then
 			pcall(function()
@@ -256,6 +261,114 @@ local function startIdleAnimation(viewport, instance, animationId)
 	record.track = track
 end
 
+-- Every corner of every VISIBLE part, in rig space, plus the vertical centre of
+-- that set. Fully transparent parts are skipped deliberately: collision shells and
+-- hitboxes inflate GetBoundingBox while rendering nothing, and framing a box that
+-- is partly invisible is exactly what makes a model come out too small.
+local function visibleSilhouette(instance)
+	local corners = {}
+	local lowest, highest = math.huge, -math.huge
+
+	local function collect(part)
+		if not (part:IsA("BasePart") and part.Transparency < 1) then
+			return
+		end
+		local half = part.Size * 0.5
+		for x = -1, 1, 2 do
+			for y = -1, 1, 2 do
+				for z = -1, 1, 2 do
+					local corner = part.CFrame * Vector3.new(half.X * x, half.Y * y, half.Z * z)
+					corners[#corners + 1] = corner
+					lowest = math.min(lowest, corner.Y)
+					highest = math.max(highest, corner.Y)
+				end
+			end
+		end
+	end
+
+	collect(instance)
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		collect(descendant)
+	end
+	if #corners == 0 then
+		return nil, 0
+	end
+	return corners, (lowest + highest) * 0.5
+end
+
+-- AbsoluteSize is 0 until the panel has been laid out once, so assume square
+-- there; only the ratio matters to the fit, never the pixel size.
+local function viewportAspect(viewport)
+	local absolute = viewport.AbsoluteSize
+	if absolute.X > 0 and absolute.Y > 0 then
+		return absolute.X / absolute.Y
+	end
+	return 1
+end
+
+-- The yaws a preview will actually be held at, which is what the fit has to
+-- clear. A turntable passes through all of them, a sway only covers its arc, and
+-- a static preview only ever shows one -- fitting a static preview to a full
+-- turntable would shrink it to clear angles it never reaches. Mirrors the
+-- motion branch at the end of Render.
+local function fitYaws(options)
+	local base = math.rad(tonumber(options.yawDegrees) or 0)
+
+	if type(options.swayDegrees) == "number" and options.swayDegrees ~= 0 then
+		local amplitude = math.rad(math.abs(options.swayDegrees))
+		local yaws = {}
+		for step = 0, SWAY_SAMPLES do
+			yaws[#yaws + 1] = base - amplitude + (amplitude * 2) * step / SWAY_SAMPLES
+		end
+		return yaws
+	end
+
+	if options.rotate == false then
+		return { base }
+	end
+
+	local yaws = {}
+	for step = 0, SPIN_SAMPLES - 1 do
+		yaws[#yaws + 1] = step * TAU / SPIN_SAMPLES
+	end
+	return yaws
+end
+
+-- Smallest eye distance that keeps every silhouette corner inside the frame at
+-- every yaw the preview reaches. Solved rather than estimated: a corner at
+-- camera space (x, y, z) is inside when |x| <= tanX * (eye - z), so it sets a
+-- lower bound of z + |x| * padding / tanX (and the same in y), and the answer is
+-- the largest bound over every corner and yaw. The model then touches the
+-- padding bound on at least one axis, which is as large as it can get without
+-- clipping.
+local function fitCameraCFrame(camera, corners, yaws, centreY, heightFactor, padding, aspect)
+	-- FieldOfView is vertical; the horizontal field follows the viewport's aspect.
+	local tanY = math.tan(math.rad(camera.FieldOfView) * 0.5)
+	local tanX = tanY * aspect
+
+	local aim = Vector3.new(0, centreY, 0)
+	local direction = Vector3.new(1, heightFactor, 1).Unit
+	local basis = CFrame.lookAt(aim + direction, aim)
+
+	local eye, nearest = 0, -math.huge
+	for _, yaw in ipairs(yaws) do
+		local spin = CFrame.Angles(0, yaw, 0)
+		for _, corner in ipairs(corners) do
+			local view = basis:VectorToObjectSpace(spin * corner - aim)
+			nearest = math.max(nearest, view.Z)
+			eye = math.max(
+				eye,
+				view.Z + math.abs(view.X) * padding / tanX,
+				view.Z + math.abs(view.Y) * padding / tanY
+			)
+		end
+	end
+
+	-- Never let the camera land inside or on the model.
+	eye = math.max(eye, nearest + 0.1, 0.5)
+	return CFrame.lookAt(aim + direction * eye, aim)
+end
+
 function ViewportPreview.Render(viewport, template, options)
 	if not (viewport and viewport:IsA("ViewportFrame")) then
 		return false
@@ -297,17 +410,18 @@ function ViewportPreview.Render(viewport, template, options)
 	local zoom = math.max(tonumber(options.zoom) or 1, 0.01)
 	local distance = (radius * 1.25 + 2.5) / zoom
 
-	-- fitPadding: frame by the model's bounding SPHERE instead of the zoom
-	-- heuristic above, so the model is as large as it can be without ever
-	-- touching an edge. fitPadding is the margin (1.06 = 6% clear).
+	-- fitPadding: frame by the model's actual projected silhouette instead of the
+	-- zoom heuristic above, so it renders as large as it can without touching an
+	-- edge. fitPadding is the margin (1.06 = 6% clear).
 	--
 	-- Worth the separate path because the zoom heuristic only accounts for the
-	-- largest AXIS, while the camera sits on a diagonal and the model spins --
-	-- so what actually has to fit is the diagonal, and a chunky model clips at
-	-- a zoom that framed a slim one perfectly. A sphere is rotation-invariant,
-	-- which makes this both clip-proof and genuinely normalising: every model
-	-- subtends the same angle, so a mushroom and a fruit tree render the same
-	-- on-screen size regardless of their real proportions.
+	-- largest AXIS, so a chunky model clips at a zoom that framed a slim one
+	-- perfectly. Fitting the silhouette rather than a bounding sphere matters
+	-- just as much: a sphere circumscribes the model with room to spare, and how
+	-- much room depends on the model's proportions, so sphere-fitting leaves a
+	-- flat wide model filling barely 40% of the frame's height while a compact
+	-- one fills 60%. Solving the projection instead puts every model hard against
+	-- the padding bound.
 	--
 	-- Opt-in, so every existing caller keeps the framing it was tuned against.
 	-- cameraHeightFactor: camera elevation as a fraction of its distance
@@ -315,27 +429,33 @@ function ViewportPreview.Render(viewport, template, options)
 	local heightFactor = tonumber(options.cameraHeightFactor) or 0.45
 
 	local fitPadding = tonumber(options.fitPadding)
+	local corners, centreY, yaws
 	if fitPadding and fitPadding > 0 then
-		local sphereRadius = math.max(size.Magnitude * 0.5, 0.01)
-		local halfFov = math.rad(camera.FieldOfView) * 0.5
-		-- FieldOfView is vertical; a viewport taller than it is wide has a
-		-- narrower horizontal field, and that is then the binding constraint.
-		-- AbsoluteSize is 0 while the panel is still hidden, in which case
-		-- assuming square is the safe read (it can only over-shrink, and only
-		-- for a viewport that is wider than tall).
-		local absolute = viewport.AbsoluteSize
-		local aspect = (absolute.Y > 0) and (absolute.X / absolute.Y) or 1
-		if aspect < 1 then
-			halfFov = math.atan(math.tan(halfFov) * aspect)
-		end
-		local eyeDistance = sphereRadius / math.sin(halfFov) * fitPadding
-		-- `distance` is a per-axis COMPONENT, not the eye distance: the camera
-		-- is placed at (d, d*heightFactor, d), which sits sqrt(2 + h^2) times
-		-- further out than d. Solve for the component that lands the eye at
-		-- eyeDistance, or the model renders about a third smaller than asked.
-		distance = eyeDistance / math.sqrt(2 + heightFactor * heightFactor)
+		corners, centreY = visibleSilhouette(clone)
+		yaws = fitYaws(options)
 	end
-	camera.CFrame = CFrame.new(Vector3.new(distance, distance * heightFactor, distance), Vector3.new())
+
+	if corners then
+		-- The solve only depends on the aspect ratio, so re-run it when that
+		-- moves and ignore uniform resizes. It has to be re-run at all because
+		-- AbsoluteSize reads 0 while the panel has never been opened, and cards
+		-- are built on the merchant's arrival rather than on first open.
+		local fittedAspect
+		local function refit()
+			local aspect = viewportAspect(viewport)
+			if fittedAspect and math.abs(aspect - fittedAspect) < 0.001 then
+				return
+			end
+			fittedAspect = aspect
+			camera.CFrame = fitCameraCFrame(camera, corners, yaws, centreY, heightFactor, fitPadding, aspect)
+		end
+		refit()
+		local record = previewRecords[viewport] or {}
+		previewRecords[viewport] = record
+		record.resize = viewport:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
+	else
+		camera.CFrame = CFrame.new(Vector3.new(distance, distance * heightFactor, distance), Vector3.new())
+	end
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
 	viewport.Ambient = typeof(options.ambient) == "Color3" and options.ambient or VIEWPORT_AMBIENT
