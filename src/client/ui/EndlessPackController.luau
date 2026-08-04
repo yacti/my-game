@@ -324,7 +324,7 @@ function EndlessPackController.start()
 	-- confetti burst Server Luck uses. Watching the replicated progress field
 	-- covers receipt-driven paid advances too. Seed pack redeems are skipped
 	-- here because their pack-opening reveal already emits the identical
-	-- burst when it is enqueued.
+	-- burst when the player opens the pack.
 	PlayerStateStore.Observe(PlayerStateStore.Fields.EndlessPackProgress, function(newValue, oldValue)
 		local newProgress = math.floor(tonumber(newValue) or 0)
 		local oldProgress = math.floor(tonumber(oldValue) or -1)

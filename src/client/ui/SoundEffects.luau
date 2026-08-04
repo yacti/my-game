@@ -100,6 +100,7 @@ local function playTemplate(template, options)
 	end
 
 	local sound = template:Clone()
+	sound.Volume = tonumber(options.volume) or template.Volume
 	sound.PlaybackSpeed = tonumber(options.playbackSpeed) or template.PlaybackSpeed
 	if type(options.pitchMin) == "number" or type(options.pitchMax) == "number" then
 		sound.PlaybackSpeed = randomPitchRange(sound.PlaybackSpeed, options.pitchMin, options.pitchMax)

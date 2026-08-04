@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -36,6 +37,22 @@ local function soundTemplateForPetId(petId)
 	end
 	local sound = animalSoundsFolder:FindFirstChild(petId)
 	return sound and sound:IsA("Sound") and sound or nil
+end
+
+-- The client picks the actual sound; this only decides whether the pet has any
+-- ambient audio to send, so a skin covers for a pet id with no template.
+local function hasAmbientAudio(pet, petId)
+	-- The client drops any payload whose petId does not match the live pet, so
+	-- a skin cannot rescue a pet that has no id to validate against.
+	if type(petId) ~= "string" or petId == "" then
+		return false
+	end
+	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+	local definition = type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) or nil
+	if definition and type(definition.SoundId) == "string" then
+		return true
+	end
+	return soundTemplateForPetId(petId) ~= nil
 end
 
 local function firstBasePart(instance)
@@ -73,7 +90,7 @@ local function fireToNearbyPlayers(pet, playbackSpeed, extraPayload)
 		return
 	end
 	local petId = pet:GetAttribute(State.Pet.Id)
-	if not soundTemplateForPetId(petId) then
+	if not hasAmbientAudio(pet, petId) then
 		return
 	end
 	local position = petPosition(pet)

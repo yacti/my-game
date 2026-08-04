@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetSkinCatalog = require(Shared:WaitForChild("PetSkinCatalog"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RuntimeGuard = require(Shared:WaitForChild("RuntimeGuard"))
 local State = require(Shared:WaitForChild("State"))
@@ -11,6 +12,9 @@ local SoundEffects = require(script.Parent:WaitForChild("SoundEffects"))
 local AnimalAmbientSounds = {}
 
 local DEFAULT_SOUND_RANGE = 50
+-- Skin audio comes from a raw asset id rather than an authored Sound, so it has
+-- to match the volume every AnimalAmbientSounds template is authored at.
+local SKIN_SOUND_VOLUME = 0.5
 local DEFAULT_SEQUENCE_GAP_SECONDS = 1
 local LOAD_TIMEOUT_SECONDS = 5
 local END_TIMEOUT_PADDING_SECONDS = 2
@@ -84,13 +88,31 @@ local function waitForEnded(sound)
 	connection:Disconnect()
 end
 
-local function playAnimalSound(petId, soundParent, playbackSpeed, range, ownCleanup)
-	return SoundEffects.PlayAnimal(petId, {
+-- Read live rather than trusting the payload so a skin applied mid-flight is
+-- already audible on the next ambient cue.
+local function skinSoundId(pet)
+	local petSkinId = pet:GetAttribute(State.Pet.SkinId)
+	local definition = type(petSkinId) == "string" and PetSkinCatalog.Get(petSkinId) or nil
+	local soundId = definition and definition.SoundId
+	return type(soundId) == "string" and soundId or nil
+end
+
+-- A skinned pet roams with its skin's audio; an unskinned one keeps the
+-- authored AnimalAmbientSounds template for its pet id.
+local function playPetSound(pet, petId, soundParent, playbackSpeed, range, ownCleanup)
+	local options = {
 		parent = soundParent,
 		playbackSpeed = tonumber(playbackSpeed) or 1,
 		range = tonumber(range) or DEFAULT_SOUND_RANGE,
 		cleanup = ownCleanup ~= true,
-	})
+	}
+
+	local soundId = skinSoundId(pet)
+	if soundId then
+		options.volume = SKIN_SOUND_VOLUME
+		return SoundEffects.PlayAsset(soundId, options)
+	end
+	return SoundEffects.PlayAnimal(petId, options)
 end
 
 local function playEvolutionSequence(pet, petId, soundParent, payload)
@@ -103,7 +125,7 @@ local function playEvolutionSequence(pet, petId, soundParent, payload)
 			return
 		end
 
-		local sound = playAnimalSound(petId, soundParent, playbackSpeeds[index], range, true)
+		local sound = playPetSound(pet, petId, soundParent, playbackSpeeds[index], range, true)
 		waitForEnded(sound)
 		if sound and sound.Parent then
 			sound:Destroy()
@@ -145,7 +167,7 @@ local function playPayload(payload)
 		return
 	end
 
-	playAnimalSound(petId, soundParent, payload.playbackSpeed, payload.range, false)
+	playPetSound(pet, petId, soundParent, payload.playbackSpeed, payload.range, false)
 end
 
 function AnimalAmbientSounds.start()

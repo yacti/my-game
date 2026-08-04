@@ -18,6 +18,10 @@ local ConfettiEffect = {}
 
 local DEFAULT_AMOUNT = 250
 local MAX_ACTIVE_PIECES = 600
+-- Above the Menu ScreenGui (DisplayOrder 0) and the topbar (10/11) so bursts
+-- fall over open panels instead of behind them, but below the notification
+-- overlay (50) so toasts stay readable through the confetti.
+local DISPLAY_ORDER = 25
 local GRAVITY = 75
 local FALL_LIMIT = 1.3
 local FADE_IN_TWEEN = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut)
@@ -51,6 +55,7 @@ local function ensureGui()
 	screenGui.Name = "ConfettiGui"
 	screenGui.IgnoreGuiInset = true
 	screenGui.ResetOnSpawn = false
+	screenGui.DisplayOrder = DISPLAY_ORDER
 	screenGui.Parent = playerGui
 	return screenGui
 end

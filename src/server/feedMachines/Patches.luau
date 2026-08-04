@@ -225,7 +225,9 @@ local function materializeSlot(machine, s, slot)
 	end
 	slot.pendingMaterialize = nil
 	slot.respawnAt = nil
-	slot.baseXP = 0
+	-- Fruit plants with its first interval already banked, so a fresh slot
+	-- reads one tick of XP instead of zero.
+	slot.baseXP = slot.patchXP
 	slot.growthStart = serverNow()
 	publishSlotRespawn(slot)
 	if slot.foodPart then slot.foodPart:Destroy() end
@@ -359,7 +361,8 @@ function Patches.Setup(machine, plot, owner)
 			local slot = {
 				foodId = s.foodId,
 				patchXP = s.patchXP,
-				baseXP = 0,
+				-- First interval is banked at plant time (see materializeSlot).
+				baseXP = s.patchXP,
 				growthStart = now,
 				anchor = anchor,
 				foodPart = nil,

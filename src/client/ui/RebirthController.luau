@@ -37,6 +37,10 @@ local SEED_REWARD_VIEWPORT_ZOOM = 3
 local SEED_REWARD_VIEWPORT_ZOOM_OVERRIDES = {
 	GoldenmelonSeed = 2,
 }
+-- Jam barrels (every tier) read small next to the other reward previews, so
+-- pull the camera in by 1.5x to render them 50% larger on screen.
+local JAM_BARREL_FEED_CLASS = "JamBarrel"
+local JAM_BARREL_REWARD_VIEWPORT_ZOOM = 1.5
 local STATE_RETRY_SECONDS = 2
 local productPriceById = {}
 
@@ -357,11 +361,20 @@ function RebirthController.start()
 	end
 
 	local function rewardViewportOptions(reward)
-		if type(reward) == "table" and reward.kind == "Pet" then
+		if type(reward) ~= "table" then
+			return nil
+		end
+		if reward.kind == "Pet" then
 			return {
 				targetMaxDimension = ViewportPreview.PET_TARGET_MAX_DIMENSION,
 				zoom = ViewportPreview.PET_VIEWPORT_ZOOM,
 			}
+		end
+		if reward.kind == "FeedMachine" then
+			local template = GrowingVisuals.FeedTemplateFor(reward.feedType)
+			if template and template:GetAttribute(State.Feed.Class) == JAM_BARREL_FEED_CLASS then
+				return { zoom = JAM_BARREL_REWARD_VIEWPORT_ZOOM }
+			end
 		end
 		return nil
 	end

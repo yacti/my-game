@@ -43,7 +43,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
-		ViewportScaleMultiplier = 1.25,
+		ViewportScaleMultiplier = 1.0625,
 	},
 	DragonSkin = {
 		Rarity = Rarities.Secret,
@@ -55,7 +55,7 @@ local DEFINITIONS = {
 		WorldYawDegrees = 0,
 		ToolYawDegrees = 0,
 		ViewportYawDegrees = 0,
-		ViewportScaleMultiplier = 2,
+		ViewportScaleMultiplier = 1.2,
 	},
 }
 

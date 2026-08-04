@@ -87,6 +87,7 @@ local player = Players.LocalPlayer
 local activeReveal = nil
 local revealQueue = {}
 local holderStates = {}
+local revealConfettiPlayed = false
 local dragging = false
 local activeInput = nil
 local activeInputType = nil
@@ -698,6 +699,7 @@ local function buildReveal(payload)
 	clearRuntimeHolders(itemRollHolder)
 	clearRuntimeSlices(panel)
 	holderStates = {}
+	revealConfettiPlayed = false
 	pendingSliced = {}
 	awaitingAdvance = false
 	advanceReadyAt = 0
@@ -802,6 +804,12 @@ local function openHolder(state)
 	end
 	stopFtueCue(true)
 	state.opened = true
+	-- One burst (and one confetti sound) per reveal screen, whether it holds
+	-- one pack or the full batch of three: the first pack opened fires it.
+	if not revealConfettiPlayed then
+		revealConfettiPlayed = true
+		ConfettiEffect.Emit()
+	end
 	local holder = state.holder
 	local pack = state.pack
 	if not (holder and holder.Parent) then
@@ -1239,7 +1247,8 @@ local function enqueueReveal(payload)
 	if type(payload) ~= "table" or payload.action ~= "reveal" or type(payload.results) ~= "table" then
 		return
 	end
-	ConfettiEffect.Emit()
+	-- Confetti waits for the pack to actually be opened (see openHolder); this
+	-- is only the sting for the reveal panel appearing.
 	SoundEffects.Play(SoundEffects.Names.RollReveal)
 	local results = payload.results
 	for batchStart = 1, #results, MAX_REVEAL_BATCH_SIZE do
