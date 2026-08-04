@@ -313,19 +313,27 @@ ShopBalance.StarterPacks = {
 ShopBalance.StarterPack = ShopBalance.StarterPacks[1]
 
 -- StealSetting A/B test. The "normal" control charges DevProductId for every
--- steal; the "tiered" treatment charges the product matching the stolen food's
--- rarity. Foods whose rarity cannot be resolved fall back to FallbackTierRarity.
+-- steal; the "tiered" treatment charged the product matching the stolen food's
+-- rarity.
+--
+-- The tiered variant is RETIRED. Emptying TierDevProductIds is all it takes:
+-- FoodStealProductIdForRarity returns 0 with no tiers configured, and
+-- FoodStealService.resolveProductId already falls back to the control product
+-- on 0 — so every steal charges DevProductId regardless of which variant a
+-- player is still enrolled in. StealSettingService and the tiered branch are
+-- deliberately left in place, so re-running the experiment only means putting
+-- ids back here.
+--
+-- The retired ids were 3612202316 / 3612202346 / 3612202363 / 3612202372 /
+-- 3612202401 / 3612202439 / 3612203098 (Common..Exclusive). The first three
+-- are now the Travelling Merchant's skip products; the remaining four are
+-- unused. Do not re-add one of those three here without giving the merchant
+-- new ids — AssetValidator hard-errors on duplicates, and the receipt chain
+-- checks food steal before the merchant, so a shared id would route merchant
+-- purchases to the wrong service.
 ShopBalance.FoodSteal = {
 	DevProductId = 3604630642,
-	TierDevProductIds = {
-		[Rarities.Common] = 3612202316,
-		[Rarities.Rare] = 3612202346,
-		[Rarities.Epic] = 3612202363,
-		[Rarities.Legendary] = 3612202372,
-		[Rarities.Mythical] = 3612202401,
-		[Rarities.Secret] = 3612202439,
-		[Rarities.Exclusive] = 3612203098,
-	},
+	TierDevProductIds = {},
 	FallbackTierRarity = Rarities.Common,
 }
 
@@ -356,14 +364,16 @@ ShopBalance.GrowSkip = {
 --
 -- DevProductId 0 means "not created in the Creator Dashboard yet". Every lookup
 -- below treats 0 as absent, the client hides the Skip button, and the server
--- refuses the purchase path -- so shipping with placeholders degrades to a
--- trade-only merchant instead of a dead button that charges nothing. Pasting a
--- real id in is the only change needed to switch it on.
+-- refuses the purchase path -- so a slot can ship unconfigured and degrade to
+-- trade-only instead of showing a dead button.
+--
+-- These three ids are recycled from the retired tiered food-steal experiment
+-- (see ShopBalance.FoodSteal), which is why that table is now empty.
 ShopBalance.TravellingMerchant = {
 	Skips = {
-		{ Slot = 1, DisplayName = "Skip Offer 1", DevProductId = 0 },
-		{ Slot = 2, DisplayName = "Skip Offer 2", DevProductId = 0 },
-		{ Slot = 3, DisplayName = "Skip Offer 3", DevProductId = 0 },
+		{ Slot = 1, DisplayName = "Skip Offer 1", DevProductId = 3612202316 },
+		{ Slot = 2, DisplayName = "Skip Offer 2", DevProductId = 3612202346 },
+		{ Slot = 3, DisplayName = "Skip Offer 3", DevProductId = 3612202363 },
 	},
 }
 
@@ -1966,13 +1976,17 @@ function ShopBalance.Validate(errors)
 					add("ShopBalance.FoodSteal.TierDevProductIds has invalid rarity " .. tostring(rarity))
 				end
 			end
-			-- Every rarity needs its own tier product; a missing one would
-			-- silently charge stolen food at the fallback tier's price.
-			for _, rarity in ipairs(Rarities.Order) do
-				if tiers[rarity] == nil then
-					add("ShopBalance.FoodSteal.TierDevProductIds is missing " .. rarity)
-				else
-					validateProduct(tiers[rarity], "ShopBalance.FoodSteal.TierDevProductIds." .. rarity)
+			-- An empty table is the retired tiered variant: every steal falls
+			-- back to the control product, which is a coherent state. A
+			-- PARTIALLY filled one is not, and stays an error -- a missing tier
+			-- would silently charge that rarity at the fallback tier's price.
+			if next(tiers) ~= nil then
+				for _, rarity in ipairs(Rarities.Order) do
+					if tiers[rarity] == nil then
+						add("ShopBalance.FoodSteal.TierDevProductIds is missing " .. rarity)
+					else
+						validateProduct(tiers[rarity], "ShopBalance.FoodSteal.TierDevProductIds." .. rarity)
+					end
 				end
 			end
 		end

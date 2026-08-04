@@ -24,7 +24,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Food = require(Shared:WaitForChild("Food"))
 local GameEvents = require(Shared:WaitForChild("GameEvents"))
 local Inventory = require(Shared:WaitForChild("Inventory"))
 local NumberFormatter = require(Shared:WaitForChild("NumberFormatter"))
@@ -454,7 +453,10 @@ local REJECT_MESSAGES = {
 	["too-far"] = "Step up to the merchant to trade!",
 	["unknown-offer"] = "That offer is no longer available",
 	["claimed"] = "You have already taken that trade",
-	["not-enough"] = nil, -- filled in per-offer with the item name
+	-- Deliberately generic and identical for every offer. The Trade button is
+	-- never dimmed for a shortfall -- the player presses it and gets told -- so
+	-- this is the whole feedback for that case.
+	["not-enough"] = "Not enough items in your inventory!",
 	["no-growth"] = "You have nothing growing to skip right now",
 	["inventory-full"] = nil, -- ToolGrantService raises its own notification
 	["no-payout"] = "Could not work out a cash reward, try again",
@@ -704,9 +706,7 @@ function TravellingMerchantService.Start(config)
 		-- nothing; ConsumeFoodId re-checks and is itself all-or-nothing.
 		local held = FoodInventoryService.CountSpendable(player, request.foodId)
 		if held < amount then
-			local displayName = Food.DisplayNameFor(request.foodId) or request.foodId
-			reject(player, requestId, "not-enough", string.format(
-				"You need %d %s to make that trade (you have %d)", amount, displayName, held))
+			reject(player, requestId, "not-enough", REJECT_MESSAGES["not-enough"])
 			return
 		end
 

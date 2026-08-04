@@ -166,11 +166,6 @@ local function claimedSet()
 	return stored.Claimed
 end
 
-local function foodInventory()
-	local counts = PlayerStateStore.Get(PlayerStateStore.Fields.FoodInventory)
-	return type(counts) == "table" and counts or {}
-end
-
 local function hourlyIncome()
 	return math.max(tonumber(PlayerStateStore.Get(PlayerStateStore.Fields.HourlyPetIncome)) or 0, 0)
 end
@@ -473,17 +468,10 @@ function TravellingMerchantController.start()
 		end
 
 		local claimed = claimedSet()
-		local counts = foodInventory()
 		local tradable = canTrade()
 
 		for _, card in ipairs(cards) do
 			local isClaimed = claimed[card.offer.offerId] == true
-			local required = math.max(int(card.request.amount, 1), 1)
-			-- The replicated count includes favourited tools, which the server
-			-- refuses to spend. Treating this as advisory is deliberate: the
-			-- server's refusal names the shortfall, and gating the button on a
-			-- stricter client guess would silently hide a legitimate trade.
-			local held = int(counts[card.request.foodId], 0)
 
 			UiEffects.SetTextStack(card.rewardAmountLabel, rewardDisplay(card.reward).amountText)
 
@@ -493,9 +481,14 @@ function TravellingMerchantController.start()
 
 			if card.tradeButton then
 				UiEffects.SetTextStack(card.tradeLabel, "Trade")
+				-- Deliberately NOT gated on whether the player holds enough:
+				-- a shortfall leaves the button fully lit and pressable, and
+				-- the server answers with "Not enough items in your
+				-- inventory!". Dimming it instead would leave a player staring
+				-- at a greyed-out card with no stated reason.
 				UiEffects.SetButtonEnabled(
 					card.tradeButton,
-					tradable and not isClaimed and pendingRequestId == nil and held >= required
+					tradable and not isClaimed and pendingRequestId == nil
 				)
 			end
 
@@ -593,8 +586,10 @@ function TravellingMerchantController.start()
 		render()
 	end)
 
+	-- No FoodInventory observer: nothing on a card depends on how much the
+	-- player is holding any more, and food counts churn constantly while
+	-- farming, so observing it would re-render the panel for nothing.
 	PlayerStateStore.Observe(PlayerStateStore.Fields.TravellingMerchant, render)
-	PlayerStateStore.Observe(PlayerStateStore.Fields.FoodInventory, render)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.HourlyPetIncome, render)
 	PlayerStateStore.Observe(PlayerStateStore.Fields.Onboarding, render)
 	RuntimeGuard.Connect(
