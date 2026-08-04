@@ -1287,6 +1287,16 @@ function SeedPackShopController.EnqueueReveal(payload)
 	enqueueReveal(payload)
 end
 
+-- True from the moment a reveal appears until the last batch is dismissed.
+--
+-- The reveal registers under the shared "Shop" menu group, so a controller that
+-- auto-opens its own panel by group -- the Travelling Merchant's proximity loop
+-- -- would otherwise reopen over the reveal on its next poll and the player
+-- would never get to open the pack. Check this before taking focus.
+function SeedPackShopController.IsRevealActive()
+	return activeReveal ~= nil
+end
+
 -- Every reveal press is routed through a screen-sized Active button so the
 -- camera never sees it. The pack buttons are deliberately inactive (see
 -- configureHolder) so a swipe reaches this controller instead of being eaten by

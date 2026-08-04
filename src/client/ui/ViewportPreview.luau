@@ -296,9 +296,45 @@ function ViewportPreview.Render(viewport, template, options)
 	local radius = math.max(size.X, size.Y, size.Z, 1)
 	local zoom = math.max(tonumber(options.zoom) or 1, 0.01)
 	local distance = (radius * 1.25 + 2.5) / zoom
+
+	-- fitPadding: frame by the model's bounding SPHERE instead of the zoom
+	-- heuristic above, so the model is as large as it can be without ever
+	-- touching an edge. fitPadding is the margin (1.06 = 6% clear).
+	--
+	-- Worth the separate path because the zoom heuristic only accounts for the
+	-- largest AXIS, while the camera sits on a diagonal and the model spins --
+	-- so what actually has to fit is the diagonal, and a chunky model clips at
+	-- a zoom that framed a slim one perfectly. A sphere is rotation-invariant,
+	-- which makes this both clip-proof and genuinely normalising: every model
+	-- subtends the same angle, so a mushroom and a fruit tree render the same
+	-- on-screen size regardless of their real proportions.
+	--
+	-- Opt-in, so every existing caller keeps the framing it was tuned against.
 	-- cameraHeightFactor: camera elevation as a fraction of its distance
 	-- (default looks slightly down; 0 = level with the model).
 	local heightFactor = tonumber(options.cameraHeightFactor) or 0.45
+
+	local fitPadding = tonumber(options.fitPadding)
+	if fitPadding and fitPadding > 0 then
+		local sphereRadius = math.max(size.Magnitude * 0.5, 0.01)
+		local halfFov = math.rad(camera.FieldOfView) * 0.5
+		-- FieldOfView is vertical; a viewport taller than it is wide has a
+		-- narrower horizontal field, and that is then the binding constraint.
+		-- AbsoluteSize is 0 while the panel is still hidden, in which case
+		-- assuming square is the safe read (it can only over-shrink, and only
+		-- for a viewport that is wider than tall).
+		local absolute = viewport.AbsoluteSize
+		local aspect = (absolute.Y > 0) and (absolute.X / absolute.Y) or 1
+		if aspect < 1 then
+			halfFov = math.atan(math.tan(halfFov) * aspect)
+		end
+		local eyeDistance = sphereRadius / math.sin(halfFov) * fitPadding
+		-- `distance` is a per-axis COMPONENT, not the eye distance: the camera
+		-- is placed at (d, d*heightFactor, d), which sits sqrt(2 + h^2) times
+		-- further out than d. Solve for the component that lands the eye at
+		-- eyeDistance, or the model renders about a third smaller than asked.
+		distance = eyeDistance / math.sqrt(2 + heightFactor * heightFactor)
+	end
 	camera.CFrame = CFrame.new(Vector3.new(distance, distance * heightFactor, distance), Vector3.new())
 	camera.Parent = viewport
 	viewport.CurrentCamera = camera
