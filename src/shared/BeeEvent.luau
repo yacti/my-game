@@ -4,7 +4,7 @@
 -- pollinating 4-6 foods per farm with the Pollinated mutation. Players deposit
 -- harvested Pollinated food into the camp Jar for tiered seed rewards;
 -- per-player progress lives in profile.Data.BeeEvent as a single numeric
--- deposit counter (one jar, one mutation), tiers loop 1 -> 2 -> 3 -> 1.
+-- deposit counter (one jar, one mutation), tiers loop 1 -> 2 -> ... -> 5 -> 1.
 --
 -- BeeEvent.Flight is the deterministic flight sim shared by every client: the
 -- server authors one seed + cell list + pollination schedule per plot turn,
@@ -26,12 +26,16 @@ BeeEvent.MutationId = "Pollinated"
 -- Required deposits into the Jar per tier, and the seed granted on
 -- completion. Tiers loop: completing the last tier restarts at 1.
 -- Reward seeds are EventOnly + Exclusive with PercentageOfBest patches
--- (0.5 / 0.75 / 1.25 of the best same-class static machine on the plot).
+-- (0.5 / 0.75 / 1.25 / 2 / 3 of the best same-class static machine on the
+-- plot). Foxglove and Hibiscus are the only patches above the Alien event's
+-- Eyeshroom (1.66), matching their 250/500 deposit grind.
 BeeEvent.Tiers = {
 	{ required = 10, rewardSeedId = "WildflowerSeed" },
 	{ required = 50, rewardSeedId = "SunflowerSeed" },
 	-- The authored Studio SeedID is RosePatchSeed (not "RoseSeed").
 	{ required = 100, rewardSeedId = "RosePatchSeed" },
+	{ required = 250, rewardSeedId = "FoxgloveSeed" },
+	{ required = 500, rewardSeedId = "HibiscusSeed" },
 }
 
 BeeEvent.MaxDepositDistance = 14
