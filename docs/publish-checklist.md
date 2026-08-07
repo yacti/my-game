@@ -182,6 +182,13 @@ Run this checklist before publishing a live build.
   `3604620596`) from `RobuxShop.SFHolder.CashPacks`, verify each purchase can
   be repeated, grants the rounded displayed cash amount once per receipt, and
   does not double-grant on receipt retry.
+- Start a Studio Travelling Merchant visit and inspect several hourly
+  `merchant-offers` rolls. Verify one equal-weight entry comes from each 7/9/8
+  pool; every request/reward preview resolves; 30-minute cash uses the Money1
+  icon and 90-minute cash uses Money2; seed quantities display correctly; and
+  `x2`/`x3` Skip 5m rewards show their amount and atomically reduce plot time by
+  10/15 minutes. Trade and paid-skip paths must each claim the slot once without
+  double-consuming food or double-granting on receipt retry.
 - Buy mailbox grow skips (`Skip5m` dev product `3607255791`, `Skip30m` dev
   product `3607255816`) from `HUD.SkipTimeButtons` within 6 studs of
   `PlotTemplate.Signs.Mailbox`, verify mailbox open/close sounds

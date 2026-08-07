@@ -391,14 +391,24 @@ local function grantReward(player, profile, context, reward)
 		if not skip then
 			return false, "unknown-skip", nil
 		end
-		local _, code = GrowSkipService.ApplyFreePlotTimeSkip(player, context.plot, int(skip.DurationSeconds, 0))
+		local amount = math.max(int(reward.amount, 1), 1)
+		-- Multi-skip merchant rewards are claimed together. Applying their total
+		-- duration once keeps the trade atomic while producing the same plot-time
+		-- result as two or three simultaneous copies of the configured skip.
+		local durationSeconds = int(skip.DurationSeconds, 0) * amount
+		local _, code = GrowSkipService.ApplyFreePlotTimeSkip(player, context.plot, durationSeconds)
 		if code ~= "ok" then
 			-- "no-growth" means the player has nothing growing to skip. That is
 			-- a real refusal, not a silent success: charging fruit for a skip
 			-- that does nothing is worse than declining the trade.
 			return false, code or "grant-failed", nil
 		end
-		return true, "ok", { skipId = skip.SkipId, displayName = skip.DisplayName }
+		return true, "ok", {
+			skipId = skip.SkipId,
+			displayName = skip.DisplayName,
+			amount = amount,
+			durationSeconds = durationSeconds,
+		}
 	end
 
 	if kind == Kinds.DurianTicket then
@@ -429,7 +439,12 @@ local function rewardSummary(reward, extra)
 		return string.format("You received %d Durian Ticket%s!", amount, amount == 1 and "" or "s")
 	end
 	if reward.kind == Kinds.GrowSkip then
-		return string.format("%s applied to your plot!", (extra and extra.displayName) or "Growth skip")
+		local amount = math.max(int(extra and extra.amount, 1), 1)
+		local displayName = (extra and extra.displayName) or "Growth skip"
+		if amount > 1 then
+			return string.format("%dx %s applied to your plot!", amount, displayName)
+		end
+		return string.format("%s applied to your plot!", displayName)
 	end
 	if reward.kind == Kinds.Seed then
 		return string.format("You received a %s!", (extra and extra.displayName) or "seed")

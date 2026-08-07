@@ -165,8 +165,8 @@ local function runCommand(command)
 			offers = offers,
 		}
 	elseif action == "grant-food" then
-		-- Bulk food for merchant trades: 99 prickly pears is not something to
-		-- farm by hand every test run.
+		-- Bulk food for merchant trades: high-count requests are not something
+		-- to farm by hand every test run.
 		local amount = math.floor(tonumber(command.amount) or 0)
 		if amount <= 0 or amount > 250 then
 			return { ok = false, code = "invalid-amount" }

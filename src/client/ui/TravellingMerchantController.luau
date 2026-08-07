@@ -52,8 +52,8 @@ local BILLBOARD_PREFIX = "Leaving in: "
 local PANEL_TIMER_PREFIX = "Leaves in: "
 
 -- Merchant cards frame by projected silhouette rather than the shared reward
--- zoom. The offer pools mix shapes freely -- a single mushroom against a fruited
--- tree against a seed pack -- and a fixed zoom either clips the chunky ones or
+-- zoom. The offer pools mix shapes freely -- food requests, authored seed
+-- models, and seed packs -- and a fixed zoom either clips the chunky ones or
 -- leaves the slim ones marooned in empty space. fitPadding solves for the
 -- closest the camera can sit without any of the model leaving frame, so every
 -- one of them fills its card to the same margin whatever its proportions.
@@ -224,11 +224,13 @@ end
 -- rewards that have no rarity (see HoverOver.normalizedPayload).
 local function rewardDisplay(reward)
 	if reward.kind == Kinds.Seed then
-		local template, previewOptions = FeedDisplayModel.SeedPreview(
-			reward.seedId, MERCHANT_PREVIEW_OPTIONS)
 		return {
-			viewportTemplate = template,
-			viewportOptions = previewOptions,
+			-- Merchant trades show what the player actually receives. Other reward
+			-- surfaces deliberately preview the grown food/tree through
+			-- FeedDisplayModel.SeedPreview, but this card uses the authored seed
+			-- template itself.
+			viewportTemplate = Seeds.GetTemplate(reward.seedId),
+			viewportOptions = MERCHANT_PREVIEW_OPTIONS,
 			amountText = quantityText(reward.amount),
 			hover = {
 				name = Seeds.DisplayNameFor(reward.seedId) or reward.seedId,
@@ -278,7 +280,7 @@ local function rewardDisplay(reward)
 		-- pet income, which changes while the panel is open.
 		local payout = cashPayoutFor(reward)
 		return {
-			icon = RewardIcons.Cash,
+			icon = reward.icon or RewardIcons.Cash,
 			-- A cash value is not a quantity; the hover shows the amount.
 			amountText = nil,
 			hover = {

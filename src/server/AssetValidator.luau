@@ -26,6 +26,7 @@ local RollChances = require(Shared:WaitForChild("RollChances"))
 local RollDropAreaBalance = require(Shared:WaitForChild("RollDropAreaBalance"))
 local RollLuckBalance = require(Shared:WaitForChild("RollLuckBalance"))
 local RollRewards = require(Shared:WaitForChild("RollRewards"))
+local RewardIcons = require(Shared:WaitForChild("RewardIcons"))
 local Seeds = require(Shared:WaitForChild("Seeds"))
 local Shovel = require(Shared:WaitForChild("Shovel"))
 local ShopBalance = require(Shared:WaitForChild("ShopBalance"))
@@ -3260,25 +3261,64 @@ local function validateTravellingMerchant(warnings)
 
 	-- Every offer must resolve to real content. A typo here would otherwise
 	-- surface as a blank card at runtime, an hour later, on one server.
+	local seenOfferIds = {}
 	for slot, pool in ipairs(TravellingMerchant.Pools) do
 		for _, offer in ipairs(pool) do
 			local label = string.format("TravellingMerchant offer %q (slot %d)", tostring(offer.offerId), slot)
-			if not Food.GetTemplate(offer.request.foodId) then
-				add(warnings, label .. " requests unknown food id " .. tostring(offer.request.foodId))
+			if type(offer.offerId) ~= "string" or offer.offerId == "" then
+				add(warnings, label .. " has an invalid offerId")
+			elseif seenOfferIds[offer.offerId] then
+				add(warnings, label .. " duplicates offerId " .. offer.offerId)
+			else
+				seenOfferIds[offer.offerId] = true
 			end
-			local reward = offer.reward
+
+			local request = type(offer.request) == "table" and offer.request or {}
+			if not Food.GetTemplate(request.foodId) then
+				add(warnings, label .. " requests unknown food id " .. tostring(request.foodId))
+			end
+			if type(request.amount) ~= "number" or request.amount < 1 or request.amount % 1 ~= 0 then
+				add(warnings, label .. " has an invalid request amount " .. tostring(request.amount))
+			end
+
+			local reward = type(offer.reward) == "table" and offer.reward or {}
 			if reward.kind == TravellingMerchant.RewardKinds.Seed then
 				if not Seeds.GetTemplate(reward.seedId) then
 					add(warnings, label .. " rewards unknown seed id " .. tostring(reward.seedId))
+				end
+				if type(reward.amount) ~= "number" or reward.amount < 1 or reward.amount % 1 ~= 0 then
+					add(warnings, label .. " has an invalid seed reward amount " .. tostring(reward.amount))
 				end
 			elseif reward.kind == TravellingMerchant.RewardKinds.SeedPack then
 				if not ShopBalance.SeedPackForPackId(reward.packId) then
 					add(warnings, label .. " rewards unknown pack id " .. tostring(reward.packId))
 				end
+				if type(reward.amount) ~= "number" or reward.amount < 1 or reward.amount % 1 ~= 0 then
+					add(warnings, label .. " has an invalid seed pack reward amount " .. tostring(reward.amount))
+				end
 			elseif reward.kind == TravellingMerchant.RewardKinds.GrowSkip then
 				if not ShopBalance.GrowSkipForSkipId(reward.skipId) then
 					add(warnings, label .. " rewards unknown skip id " .. tostring(reward.skipId))
 				end
+				if type(reward.amount) ~= "number" or reward.amount < 1 or reward.amount % 1 ~= 0 then
+					add(warnings, label .. " has an invalid grow skip reward amount " .. tostring(reward.amount))
+				end
+			elseif reward.kind == TravellingMerchant.RewardKinds.Cash then
+				if type(reward.hoursOfIncome) ~= "number" or reward.hoursOfIncome <= 0 then
+					add(warnings, label .. " has invalid cash hoursOfIncome " .. tostring(reward.hoursOfIncome))
+				end
+				if type(reward.baseReward) ~= "number" or reward.baseReward <= 0 or reward.baseReward % 1 ~= 0 then
+					add(warnings, label .. " has invalid cash baseReward " .. tostring(reward.baseReward))
+				end
+				if reward.icon ~= RewardIcons.Cash and reward.icon ~= RewardIcons.CashLarge then
+					add(warnings, label .. " has an unknown cash icon " .. tostring(reward.icon))
+				end
+			elseif reward.kind == TravellingMerchant.RewardKinds.DurianTicket then
+				if type(reward.amount) ~= "number" or reward.amount < 1 or reward.amount % 1 ~= 0 then
+					add(warnings, label .. " has an invalid ticket reward amount " .. tostring(reward.amount))
+				end
+			else
+				add(warnings, label .. " has unknown reward kind " .. tostring(reward.kind))
 			end
 		end
 	end

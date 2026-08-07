@@ -115,7 +115,7 @@ local DATA_TEMPLATE = {
 	AlienStand = { Tier = 1, Deposits = 0 },
 	-- Travelling Merchant: which visit these claims belong to, and the offers
 	-- claimed during it, e.g. { InstanceId = "Merchant_Merchant_1785000000",
-	-- Claimed = { PumpkinMushroom = true } }. Unlike the stands above this is
+	-- Claimed = { AppleCash30m = true } }. Unlike the stands above this is
 	-- deliberately NOT cumulative -- a new InstanceId wipes Claimed, so every
 	-- hourly visit is a fresh three claims.
 	TravellingMerchant = { InstanceId = "", Claimed = {} },

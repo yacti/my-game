@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Assets = require(script.Parent:WaitForChild("Assets"))
+local RewardIcons = require(script.Parent:WaitForChild("RewardIcons"))
 
 local TravellingMerchant = {}
 
@@ -57,46 +58,156 @@ local Kinds = TravellingMerchant.RewardKinds
 -- what the client sends back, so renaming one resets nothing but does orphan
 -- any in-flight claim for that hour. Keep them stable.
 --
--- Placeholder balance -- the item counts and reward tiers are first-pass and
--- expected to move.
 TravellingMerchant.Pools = {
 	{ -- Offer 1
 		{
-			offerId = "PumpkinMushroom",
-			request = { foodId = "Pumpkin", amount = 3 },
+			offerId = "AppleCash30m",
+			request = { foodId = "Apple", amount = 18 },
+			reward = {
+				kind = Kinds.Cash,
+				hoursOfIncome = 0.5,
+				baseReward = 2500,
+				icon = RewardIcons.Cash,
+			},
+		},
+		{
+			offerId = "CherryMushroomSeed",
+			request = { foodId = "Cherry", amount = 27 },
 			reward = { kind = Kinds.Seed, seedId = "MushroomSeed", amount = 1 },
 		},
 		{
-			offerId = "PlumSkip5m",
-			request = { foodId = "Plum", amount = 10 },
-			reward = { kind = Kinds.GrowSkip, skipId = "Skip5m" },
+			offerId = "PotatoWatermelonSeeds",
+			request = { foodId = "Potato", amount = 9 },
+			reward = { kind = Kinds.Seed, seedId = "WatermelonSeed", amount = 3 },
+		},
+		{
+			offerId = "MushroomSkip5m",
+			request = { foodId = "Mushroom", amount = 4 },
+			reward = { kind = Kinds.GrowSkip, skipId = "Skip5m", amount = 1 },
+		},
+		{
+			offerId = "CornSeedPack",
+			request = { foodId = "Corn", amount = 5 },
+			reward = { kind = Kinds.SeedPack, packId = "SeedPack", amount = 1 },
+		},
+		{
+			offerId = "CabbageCash30m",
+			request = { foodId = "Cabbage", amount = 3 },
+			reward = {
+				kind = Kinds.Cash,
+				hoursOfIncome = 0.5,
+				baseReward = 2500,
+				icon = RewardIcons.Cash,
+			},
+		},
+		{
+			offerId = "OrangeCherryTreeSeed",
+			request = { foodId = "Orange", amount = 8 },
+			reward = { kind = Kinds.Seed, seedId = "CherryTreeSeed", amount = 1 },
 		},
 	},
 	{ -- Offer 2
 		{
-			offerId = "BananaSeedPack",
-			request = { foodId = "Banana", amount = 5 },
-			reward = { kind = Kinds.SeedPack, packId = "SeedPack", amount = 1 },
+			offerId = "BananaPineappleSeed",
+			request = { foodId = "Banana", amount = 8 },
+			reward = { kind = Kinds.Seed, seedId = "PineappleSeed", amount = 1 },
 		},
 		{
-			offerId = "PricklyPearTicket",
-			request = { foodId = "PricklyPear", amount = 99 },
-			reward = { kind = Kinds.DurianTicket, amount = 1 },
+			offerId = "FigPurpleShroomSeed",
+			request = { foodId = "Fig", amount = 19 },
+			reward = { kind = Kinds.Seed, seedId = "PurpleShroomSeed", amount = 1 },
+		},
+		{
+			offerId = "BloodOrangePurpleShroomSeed",
+			request = { foodId = "BloodOrange", amount = 5 },
+			reward = { kind = Kinds.Seed, seedId = "PurpleShroomSeed", amount = 1 },
+		},
+		{
+			offerId = "PricklyPearCactusSeed",
+			request = { foodId = "PricklyPear", amount = 4 },
+			reward = { kind = Kinds.Seed, seedId = "CactusSeed", amount = 1 },
+		},
+		{
+			offerId = "PurpleShroomBloodOrangeTreeSeed",
+			request = { foodId = "PurpleShroom", amount = 12 },
+			reward = { kind = Kinds.Seed, seedId = "BloodOrangeTreeSeed", amount = 1 },
+		},
+		{
+			offerId = "FigDoubleSkip5m",
+			request = { foodId = "Fig", amount = 22 },
+			reward = { kind = Kinds.GrowSkip, skipId = "Skip5m", amount = 2 },
+		},
+		{
+			offerId = "PricklyPearCash90m",
+			request = { foodId = "PricklyPear", amount = 10 },
+			reward = {
+				kind = Kinds.Cash,
+				hoursOfIncome = 1.5,
+				baseReward = 7500,
+				icon = RewardIcons.CashLarge,
+			},
+		},
+		{
+			offerId = "BloodOrangeEpicSeedPack",
+			request = { foodId = "BloodOrange", amount = 12 },
+			reward = { kind = Kinds.SeedPack, packId = "EpicSeedPack", amount = 1 },
+		},
+		{
+			offerId = "PurpleShroomSkip30m",
+			request = { foodId = "PurpleShroom", amount = 10 },
+			reward = { kind = Kinds.GrowSkip, skipId = "Skip30m", amount = 1 },
 		},
 	},
 	{ -- Offer 3
 		{
-			offerId = "GlowshroomCash",
-			request = { foodId = "Glowshroom", amount = 2 },
-			-- Payout is max(baseReward, hourlyIncome * hoursOfIncome) through
-			-- ShopBalance.CashPackPayout, so the floor is what a player with no
-			-- pet income gets. Sits between the 1h and 2h cash packs.
-			reward = { kind = Kinds.Cash, hoursOfIncome = 1.25, baseReward = 6250 },
+			offerId = "GlowshroomTripleSkip5m",
+			request = { foodId = "Glowshroom", amount = 6 },
+			reward = { kind = Kinds.GrowSkip, skipId = "Skip5m", amount = 3 },
 		},
 		{
-			offerId = "DurianGoldenApple",
-			request = { foodId = "Durian", amount = 1 },
+			offerId = "GoldshroomSecretSeedPack",
+			request = { foodId = "Goldshroom", amount = 3 },
+			reward = { kind = Kinds.SeedPack, packId = "SecretSeedPack", amount = 1 },
+		},
+		{
+			offerId = "GoldenPricklyPearGoldenAppleTreeSeed",
+			request = { foodId = "GoldenPricklyPear", amount = 12 },
 			reward = { kind = Kinds.Seed, seedId = "GoldenAppleTreeSeed", amount = 1 },
+		},
+		{
+			offerId = "DragonfruitGlowshroomSeed",
+			request = { foodId = "Dragonfruit", amount = 52 },
+			reward = { kind = Kinds.Seed, seedId = "GlowshroomSeed", amount = 1 },
+		},
+		{
+			offerId = "GoldenFigSkip30m",
+			request = { foodId = "GoldenFig", amount = 43 },
+			reward = { kind = Kinds.GrowSkip, skipId = "Skip30m", amount = 1 },
+		},
+		{
+			offerId = "DurianEpicSeedPack",
+			request = { foodId = "Durian", amount = 19 },
+			reward = { kind = Kinds.SeedPack, packId = "EpicSeedPack", amount = 1 },
+		},
+		{
+			offerId = "GlowshroomCash90m",
+			request = { foodId = "Glowshroom", amount = 23 },
+			reward = {
+				kind = Kinds.Cash,
+				hoursOfIncome = 1.5,
+				baseReward = 7500,
+				icon = RewardIcons.CashLarge,
+			},
+		},
+		{
+			offerId = "GoldenmelonCash90m",
+			request = { foodId = "Goldenmelon", amount = 8 },
+			reward = {
+				kind = Kinds.Cash,
+				hoursOfIncome = 1.5,
+				baseReward = 7500,
+				icon = RewardIcons.CashLarge,
+			},
 		},
 	},
 }
